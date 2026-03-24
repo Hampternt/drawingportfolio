@@ -48,19 +48,23 @@ pub async fn insert_post(pool: &DbPool, caption: &str, image_url: &str) -> Post 
 }
 
 pub async fn delete_post_and_get_url(pool: &DbPool, id: i64) -> Option<String> {
+    let mut tx = pool.begin().await.ok()?;
+
     let row = sqlx::query!("SELECT image_url FROM posts WHERE id = ?", id)
-        .fetch_optional(pool)
+        .fetch_optional(&mut *tx)
         .await
         .ok()
         .flatten();
 
     if let Some(r) = row {
         sqlx::query!("DELETE FROM posts WHERE id = ?", id)
-            .execute(pool)
+            .execute(&mut *tx)
             .await
             .ok();
+        tx.commit().await.ok();
         Some(r.image_url)
     } else {
+        tx.rollback().await.ok();
         None
     }
 }
@@ -134,20 +138,25 @@ pub async fn save_challenge(pool: &DbPool, id: &str, state_json: &str, expires_a
 }
 
 pub async fn take_challenge(pool: &DbPool, id: &str) -> Option<AuthChallengeState> {
+    let mut tx = pool.begin().await.ok()?;
+
     let row = sqlx::query_as!(AuthChallengeState,
         r#"SELECT id as "id!", state_json as "state_json!" FROM auth_challenge_state WHERE id = ? AND expires_at > datetime('now')"#,
         id
     )
-    .fetch_optional(pool)
+    .fetch_optional(&mut *tx)
     .await
     .ok()
     .flatten();
 
     if row.is_some() {
         sqlx::query!("DELETE FROM auth_challenge_state WHERE id = ?", id)
-            .execute(pool)
+            .execute(&mut *tx)
             .await
             .ok();
+        tx.commit().await.ok();
+    } else {
+        tx.rollback().await.ok();
     }
 
     row
