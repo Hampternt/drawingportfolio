@@ -1,0 +1,15 @@
+[Unit]
+Description=Drawing Portfolio
+After=network.target
+
+[Service]
+Type=simple
+User=portfolio
+WorkingDirectory=/opt/portfolio
+EnvironmentFile=/opt/portfolio/.env
+ExecStart=/opt/portfolio/drawingportfolio
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
