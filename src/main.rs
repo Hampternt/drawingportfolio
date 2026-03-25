@@ -7,10 +7,13 @@ mod storage;
 use std::sync::Arc;
 use axum::Router;
 use tower_http::services::ServeDir;
+use webauthn_rs::prelude::*;
+use url::Url;
 
 pub struct AppState {
     pub pool: db::DbPool,
     pub storage: storage::R2Storage,
+    pub webauthn: Webauthn,
 }
 
 #[tokio::main]
@@ -26,7 +29,18 @@ async fn main() {
 
     let storage = storage::R2Storage::from_env().await;
 
-    let state = Arc::new(AppState { pool, storage });
+    let rp_id = std::env::var("RP_ID").unwrap_or_else(|_| "localhost".to_string());
+    let rp_origin = std::env::var("RP_ORIGIN")
+        .unwrap_or_else(|_| "http://localhost:3000".to_string());
+    let rp_origin_url = Url::parse(&rp_origin).expect("invalid RP_ORIGIN");
+
+    let webauthn = WebauthnBuilder::new(&rp_id, &rp_origin_url)
+        .expect("invalid WebAuthn config")
+        .rp_name("Drawing Portfolio")
+        .build()
+        .expect("failed to build WebAuthn");
+
+    let state = Arc::new(AppState { pool, storage, webauthn });
 
     {
         let pool = state.pool.clone();
