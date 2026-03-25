@@ -15,12 +15,13 @@ const MAX_IMAGE_BYTES: usize = 10 * 1024 * 1024; // 10 MB
 #[template(path = "admin.html")]
 struct AdminTemplate;
 
-async fn admin_page() -> impl IntoResponse {
+async fn admin_page(_session: crate::middleware::AuthSession) -> impl IntoResponse {
     Html(AdminTemplate.render().unwrap())
 }
 
 // HTMX partial — list of posts for admin view
 async fn htmx_admin_posts(
+    _session: crate::middleware::AuthSession,
     State(state): State<Arc<AppState>>,
 ) -> impl IntoResponse {
     let posts = crate::db::get_posts(&state.pool, 0).await;
@@ -35,6 +36,7 @@ async fn htmx_admin_posts(
 }
 
 async fn upload_post(
+    _session: crate::middleware::AuthSession,
     State(state): State<Arc<AppState>>,
     mut multipart: Multipart,
 ) -> impl IntoResponse {
@@ -97,6 +99,7 @@ async fn upload_post(
 }
 
 async fn delete_post(
+    _session: crate::middleware::AuthSession,
     State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
 ) -> impl IntoResponse {
