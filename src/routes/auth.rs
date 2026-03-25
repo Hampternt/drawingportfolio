@@ -17,8 +17,18 @@ use crate::{AppState, db, middleware};
 #[template(path = "login.html")]
 struct LoginTemplate;
 
+#[derive(Template)]
+#[template(path = "register.html")]
+struct RegisterTemplate;
+
 async fn login_page() -> impl IntoResponse {
     Html(LoginTemplate.render().unwrap())
+}
+
+async fn register_page(
+    _: crate::middleware::LocalhostOnly,
+) -> impl IntoResponse {
+    Html(RegisterTemplate.render().unwrap())
 }
 
 #[derive(Serialize)]
@@ -207,6 +217,7 @@ async fn logout(
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/admin/login", get(login_page))
+        .route("/admin/register", get(register_page))
         .route("/api/auth/login/start", post(login_start))
         .route("/api/auth/login/finish", post(login_finish))
         .route("/api/auth/logout", post(logout))
