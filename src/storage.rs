@@ -1,22 +1,20 @@
 use aws_sdk_s3::{Client, config::Region, primitives::ByteStream};
 use aws_config::BehaviorVersion;
 
-pub struct R2Storage {
+pub struct ObjectStorage {
     client: Client,
     bucket: String,
     public_url: String,
 }
 
-impl R2Storage {
+impl ObjectStorage {
     pub async fn from_env() -> Self {
-        let account_id = std::env::var("R2_ACCOUNT_ID")
-            .unwrap_or_else(|_| "local".to_string());
-        let bucket = std::env::var("R2_BUCKET")
+        let endpoint = std::env::var("STORAGE_ENDPOINT")
+            .unwrap_or_else(|_| "http://localhost:9000".to_string());
+        let bucket = std::env::var("STORAGE_BUCKET")
             .unwrap_or_else(|_| "portfolio-images".to_string());
-        let public_url = std::env::var("R2_PUBLIC_URL")
+        let public_url = std::env::var("STORAGE_PUBLIC_URL")
             .unwrap_or_else(|_| "http://localhost:3000/static".to_string());
-
-        let endpoint = format!("https://{}.r2.cloudflarestorage.com", account_id);
 
         let config = aws_config::defaults(BehaviorVersion::latest())
             .endpoint_url(&endpoint)
@@ -30,7 +28,7 @@ impl R2Storage {
 
         let client = Client::from_conf(s3_config);
 
-        R2Storage { client, bucket, public_url }
+        ObjectStorage { client, bucket, public_url }
     }
 
     /// Upload bytes, return the public URL for the stored object.
@@ -43,7 +41,7 @@ impl R2Storage {
             .content_type(content_type)
             .send()
             .await
-            .map_err(|e| format!("R2 upload failed: {e}"))?;
+            .map_err(|e| format!("upload failed: {e}"))?;
 
         Ok(format!("{}/{}", self.public_url.trim_end_matches('/'), key))
     }
@@ -60,7 +58,7 @@ impl R2Storage {
             .key(key)
             .send()
             .await
-            .map_err(|e| format!("R2 delete failed: {e}"))?;
+            .map_err(|e| format!("delete failed: {e}"))?;
 
         Ok(())
     }
