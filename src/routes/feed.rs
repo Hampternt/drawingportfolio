@@ -118,7 +118,7 @@ mod tests {
             .await
             .unwrap();
         crate::db::run_migrations(&pool).await;
-        let storage = crate::storage::R2Storage::from_env().await;
+        let storage = crate::storage::ObjectStorage::from_env().await;
         let state = Arc::new(crate::AppState { pool, storage });
         router().with_state(state)
     }

@@ -12,7 +12,7 @@ use url::Url;
 
 pub struct AppState {
     pub pool: db::DbPool,
-    pub storage: storage::R2Storage,
+    pub storage: storage::ObjectStorage,
     pub webauthn: Webauthn,
 }
 
@@ -27,7 +27,7 @@ async fn main() {
     let pool = db::connect(&database_url).await;
     db::run_migrations(&pool).await;
 
-    let storage = storage::R2Storage::from_env().await;
+    let storage = storage::ObjectStorage::from_env().await;
 
     let rp_id = std::env::var("RP_ID").unwrap_or_else(|_| "localhost".to_string());
     let rp_origin = std::env::var("RP_ORIGIN")
