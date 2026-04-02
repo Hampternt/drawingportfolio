@@ -1,12 +1,16 @@
-use sqlx::{SqlitePool, sqlite::SqlitePoolOptions};
+use sqlx::{SqlitePool, sqlite::{SqlitePoolOptions, SqliteConnectOptions}};
+use std::str::FromStr;
 use crate::models::{Post, Session, PasskeyCredential, AuthChallengeState};
 
 pub type DbPool = SqlitePool;
 
 pub async fn connect(database_url: &str) -> DbPool {
+    let options = SqliteConnectOptions::from_str(database_url)
+        .expect("invalid DATABASE_URL")
+        .create_if_missing(true);
     SqlitePoolOptions::new()
         .max_connections(5)
-        .connect(database_url)
+        .connect_with(options)
         .await
         .expect("failed to connect to SQLite")
 }
