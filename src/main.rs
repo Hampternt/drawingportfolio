@@ -54,6 +54,7 @@ async fn main() {
     }
 
     let app = Router::new()
+        .merge(routes::hub::router())
         .merge(routes::feed::router())
         .merge(routes::admin::router())
         .merge(routes::auth::router())

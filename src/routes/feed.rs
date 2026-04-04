@@ -11,7 +11,7 @@ use serde::Deserialize;
 use crate::{AppState, models::Post};
 
 #[derive(Template)]
-#[template(path = "feed.html")]
+#[template(path = "artportfolio/feed.html")]
 struct FeedTemplate;
 
 #[derive(Deserialize)]
@@ -44,7 +44,7 @@ async fn htmx_posts(
         if has_more {
             let load_more = format!(
                 "<div class=\"load-more\" id=\"load-more\">\
-                  <button hx-get=\"/htmx/posts?page={next_page}\" \
+                  <button hx-get=\"/artportfolio/htmx/posts?page={next_page}\" \
                           hx-target=\"#load-more\" \
                           hx-swap=\"outerHTML\">\
                     Load more\
@@ -99,9 +99,9 @@ pub fn html_escape(s: &str) -> String {
 
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
-        .route("/", get(feed_page))
-        .route("/htmx/posts", get(htmx_posts))
-        .route("/api/posts", get(api_posts))
+        .route("/artportfolio", get(feed_page))
+        .route("/artportfolio/htmx/posts", get(htmx_posts))
+        .route("/artportfolio/api/posts", get(api_posts))
 }
 
 #[cfg(test)]
@@ -119,7 +119,12 @@ mod tests {
             .unwrap();
         crate::db::run_migrations(&pool).await;
         let storage = crate::storage::ObjectStorage::from_env().await;
-        let state = Arc::new(crate::AppState { pool, storage });
+        let rp_origin = url::Url::parse("http://localhost:3000").unwrap();
+        let webauthn = webauthn_rs::prelude::WebauthnBuilder::new("localhost", &rp_origin)
+            .unwrap()
+            .build()
+            .unwrap();
+        let state = Arc::new(crate::AppState { pool, storage, webauthn });
         router().with_state(state)
     }
 
@@ -127,7 +132,7 @@ mod tests {
     async fn test_api_posts_empty() {
         let app = test_app().await;
         let resp = app
-            .oneshot(Request::builder().uri("/api/posts").body(Body::empty()).unwrap())
+            .oneshot(Request::builder().uri("/artportfolio/api/posts").body(Body::empty()).unwrap())
             .await
             .unwrap();
         assert_eq!(resp.status(), StatusCode::OK);

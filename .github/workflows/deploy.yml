@@ -1,0 +1,50 @@
+name: Deploy
+
+on:
+  push:
+    branches: [master]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build
+        run: SQLX_OFFLINE=true cargo build --release
+
+      - name: Deploy to server
+        env:
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          SERVER: ${{ secrets.DEPLOY_HOST }}
+        run: |
+          echo "$SSH_KEY" > /tmp/deploy_key
+          chmod 600 /tmp/deploy_key
+          SSH="ssh -i /tmp/deploy_key -o StrictHostKeyChecking=no root@$SERVER"
+          SCP="scp -i /tmp/deploy_key -o StrictHostKeyChecking=no"
+
+          # Copy binary atomically (write to .new, then move to avoid serving partial binary)
+          $SCP target/release/drawingportfolio root@$SERVER:/opt/portfolio/drawingportfolio.new
+          $SSH "mv /opt/portfolio/drawingportfolio.new /opt/portfolio/drawingportfolio"
+
+          # Sync static assets
+          rsync -az -e "ssh -i /tmp/deploy_key -o StrictHostKeyChecking=no" \
+            static/ root@$SERVER:/opt/portfolio/static/
+
+          # Restart service
+          $SSH "systemctl restart portfolio"
+
+          rm /tmp/deploy_key

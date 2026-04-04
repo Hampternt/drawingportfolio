@@ -3,21 +3,20 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Portfolio</title>
+  <title>{% block title %}Portfolio{% endblock %}</title>
   <link rel="stylesheet" href="/static/style.css">
   <script src="https://unpkg.com/htmx.org@2.0.4" integrity="sha384-HGfztofotfshcF7+8n44JQL2oJmowVChPTg48S+jvZoztPfvwD79OC/LTtG6dMp+" crossorigin="anonymous"></script>
+  {% block head %}{% endblock %}
 </head>
 <body>
   <header>
-    <h1>Drawing Portfolio</h1>
+    <a href="/" class="site-title">Portfolio</a>
+    <nav>
+      <a href="/artportfolio">Drawing Portfolio</a>
+    </nav>
   </header>
   <main>
-    <div id="feed"
-         hx-get="/htmx/posts?page=0"
-         hx-trigger="load"
-         hx-swap="innerHTML">
-      <p>Loading...</p>
-    </div>
+    {% block content %}{% endblock %}
   </main>
 </body>
 </html>
