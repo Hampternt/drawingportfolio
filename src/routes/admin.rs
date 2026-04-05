@@ -10,6 +10,16 @@ use std::sync::Arc;
 use crate::AppState;
 
 const MAX_IMAGE_BYTES: usize = 35 * 1024 * 1024; // 35 MB
+const MAX_COMPRESS_BYTES: usize = 4 * 1024 * 1024; // 4 MB threshold for auto-compression
+
+fn compress_to_webp(bytes: &[u8]) -> Result<Vec<u8>, String> {
+    let img = image::load_from_memory(bytes)
+        .map_err(|e| format!("decode failed: {e}"))?;
+    let mut buf = std::io::Cursor::new(Vec::new());
+    img.write_to(&mut buf, image::ImageFormat::WebP)
+        .map_err(|e| format!("encode failed: {e}"))?;
+    Ok(buf.into_inner())
+}
 
 #[derive(Template)]
 #[template(path = "admin.html")]
@@ -41,19 +51,30 @@ async fn upload_post(
     mut multipart: Multipart,
 ) -> impl IntoResponse {
     let mut caption = None::<String>;
-    let mut image_data = None::<(Vec<u8>, String)>; // (bytes, content_type)
+    let mut image_data = None::<(Vec<u8>, String)>;
+    let mut keep_original = false;
+    let mut format = crate::models::PostFormat::Single.as_str().to_string();
+    let mut source = "admin".to_string();
 
     while let Ok(Some(field)) = multipart.next_field().await {
         match field.name() {
             Some("caption") => {
                 caption = field.text().await.ok();
             }
+            Some("keep_original") => {
+                keep_original = field.text().await.ok().as_deref() == Some("true");
+            }
+            Some("format") => {
+                if let Ok(v) = field.text().await { format = v; }
+            }
+            Some("source") => {
+                if let Ok(v) = field.text().await { source = v; }
+            }
             Some("image") => {
                 let content_type = field.content_type()
                     .unwrap_or("application/octet-stream")
                     .to_string();
 
-                // Validate MIME type
                 if !matches!(content_type.as_str(), "image/jpeg" | "image/png" | "image/webp") {
                     return (StatusCode::BAD_REQUEST, Html("Invalid image type".to_string()))
                         .into_response();
@@ -66,13 +87,12 @@ async fn upload_post(
                         .into_response();
                 }
 
-                // Validate magic bytes
                 let ext = match validate_magic_bytes(&bytes) {
                     Some(ext) => ext,
                     None => return (StatusCode::BAD_REQUEST, Html("Invalid image file".to_string())).into_response(),
                 };
 
-                image_data = Some((bytes.to_vec(), format!("image/{}", ext)));
+                image_data = Some((bytes.to_vec(), format!("image/{ext}")));
             }
             _ => {}
         }
@@ -84,21 +104,45 @@ async fn upload_post(
         None => return (StatusCode::BAD_REQUEST, Html("Missing image".to_string())).into_response(),
     };
 
-    // Generate unique key
-    let key = format!("{}.{}", uuid::Uuid::new_v4(), content_type.split('/').last().unwrap_or("jpg"));
+    // Compress if above threshold and user did not opt out
+    let (final_bytes, final_content_type) = if !keep_original && bytes.len() > MAX_COMPRESS_BYTES {
+        match compress_to_webp(&bytes) {
+            Ok(webp) => {
+                tracing::info!("compressed {} bytes -> {} bytes as webp", bytes.len(), webp.len());
+                (webp, "image/webp".to_string())
+            }
+            Err(e) => {
+                tracing::warn!("compression failed, storing original: {e}");
+                (bytes, content_type)
+            }
+        }
+    } else {
+        (bytes, content_type)
+    };
 
-    let bytes_len = bytes.len();
-    let image_url = match state.storage.upload(&key, bytes, &content_type).await {
+    let file_size_bytes = final_bytes.len() as i64;
+    let ext = final_content_type.split('/').last().unwrap_or("jpg");
+    let key = format!("{}.{}", uuid::Uuid::new_v4(), ext);
+
+    let image_url = match state.storage.upload(&key, final_bytes, &final_content_type).await {
         Ok(url) => url,
         Err(e) => {
-            tracing::error!("R2 upload error: {e}");
+            tracing::error!("storage upload error: {e}");
             return (StatusCode::INTERNAL_SERVER_ERROR, Html("Upload failed".to_string())).into_response();
         }
     };
 
-    let post = crate::db::insert_post(&state.pool, caption.trim(), &image_url, crate::models::PostFormat::Single.as_str(), bytes_len as i64).await;
-    tracing::info!("post created: id={}, key={key}, size={} bytes", post.id, bytes_len);
-    Html(admin_post_card_html(&post)).into_response()
+    let post = crate::db::insert_post(
+        &state.pool, caption.trim(), &image_url, &format, file_size_bytes,
+    ).await;
+    tracing::info!("post created: id={}, key={key}, size={file_size_bytes} bytes, format={format}", post.id);
+
+    let card_html = if source == "gallery" {
+        crate::routes::feed::post_card_html(&post)
+    } else {
+        admin_post_card_html(&post)
+    };
+    Html(card_html).into_response()
 }
 
 async fn delete_post(
@@ -202,5 +246,24 @@ mod tests {
         assert_eq!(html_escape("a & b"), "a &amp; b");
         assert_eq!(html_escape("<script>"), "&lt;script&gt;");
         assert_eq!(html_escape("\"quoted\""), "&quot;quoted&quot;");
+    }
+
+    #[test]
+    fn test_compress_to_webp_returns_webp_bytes() {
+        // Minimal valid 1x1 red PNG (generated with correct CRCs)
+        let png: Vec<u8> = vec![
+            0x89,0x50,0x4E,0x47,0x0D,0x0A,0x1A,0x0A,
+            0x00,0x00,0x00,0x0D,0x49,0x48,0x44,0x52,
+            0x00,0x00,0x00,0x01,0x00,0x00,0x00,0x01,
+            0x08,0x02,0x00,0x00,0x00,0x90,0x77,0x53,0xDE,
+            0x00,0x00,0x00,0x0C,0x49,0x44,0x41,0x54,
+            0x78,0x9C,0x63,0xF8,0xCF,0xC0,0x00,0x00,
+            0x03,0x01,0x01,0x00,0xC9,0xFE,0x92,0xEF,
+            0x00,0x00,0x00,0x00,0x49,0x45,0x4E,0x44,
+            0xAE,0x42,0x60,0x82,
+        ];
+        let result = compress_to_webp(&png);
+        assert!(result.is_ok(), "compression should succeed: {:?}", result.err());
+        assert_eq!(&result.unwrap()[0..4], b"RIFF", "output should be a WebP (RIFF) file");
     }
 }
