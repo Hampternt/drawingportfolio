@@ -9,7 +9,7 @@ use askama::Template;
 use std::sync::Arc;
 use crate::AppState;
 
-const MAX_IMAGE_BYTES: usize = 10 * 1024 * 1024; // 10 MB
+const MAX_IMAGE_BYTES: usize = 35 * 1024 * 1024; // 35 MB
 
 #[derive(Template)]
 #[template(path = "admin.html")]
