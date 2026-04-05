@@ -235,6 +235,8 @@ main {
   cursor: pointer;
 }
 
+.btn-secondary:hover { background: #f5f5f5; }
+
 /* ── Command palette ───────────────────────────── */
 #palette-overlay {
   position: fixed;

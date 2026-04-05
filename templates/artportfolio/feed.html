@@ -24,7 +24,7 @@
         <input type="file" name="image" id="composer-image"
                accept="image/jpeg,image/png,image/webp" required
                onchange="onFileSelect(this)">
-        <label for="composer-image">Drop image here or click to browse</label>
+        <label for="composer-image">Click to browse</label>
         <span id="file-name" class="file-name-hint"></span>
       </div>
       <div id="compression-opt" hidden>
@@ -43,6 +43,7 @@
 </div>
 
 <script>
+// Must match MAX_COMPRESS_BYTES in src/routes/admin.rs
 const COMPRESS_THRESHOLD = 4 * 1024 * 1024;
 
 function toggleComposer() {
@@ -51,6 +52,12 @@ function toggleComposer() {
   const willShow = composer.hidden;
   composer.hidden = !willShow;
   btn.setAttribute('aria-expanded', String(willShow));
+  if (!willShow) {
+    // Reset state when closing so next open starts clean
+    document.getElementById('composer-form').reset();
+    document.getElementById('file-name').textContent = '';
+    document.getElementById('compression-opt').hidden = true;
+  }
 }
 
 function onFileSelect(input) {
