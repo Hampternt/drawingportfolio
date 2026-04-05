@@ -184,4 +184,19 @@ mod tests {
         let bad = vec![0x00, 0x01, 0x02];
         assert_eq!(validate_magic_bytes(&bad), None);
     }
+
+    #[test]
+    fn test_magic_bytes_webp() {
+        let mut webp = b"RIFF".to_vec();
+        webp.extend_from_slice(&[0x00, 0x00, 0x00, 0x00]); // file size (ignored)
+        webp.extend_from_slice(b"WEBP");
+        assert_eq!(validate_magic_bytes(&webp), Some("webp"));
+    }
+
+    #[test]
+    fn test_html_escape_special_chars() {
+        assert_eq!(html_escape("a & b"), "a &amp; b");
+        assert_eq!(html_escape("<script>"), "&lt;script&gt;");
+        assert_eq!(html_escape("\"quoted\""), "&quot;quoted&quot;");
+    }
 }
