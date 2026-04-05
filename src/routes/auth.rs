@@ -110,6 +110,7 @@ async fn register_finish(
                 .unwrap_or_else(|| Uuid::new_v4().to_string());
             let passkey_json = serde_json::to_string(&passkey).unwrap();
             db::save_credential(&state.pool, &cred_id, &passkey_json).await;
+            tracing::info!("passkey registered successfully, cred_id={cred_id}");
             Json(serde_json::json!({ "ok": true })).into_response()
         }
         Err(e) => Json(serde_json::json!({ "ok": false, "error": e.to_string() })).into_response(),
@@ -128,6 +129,7 @@ async fn login_start(
         .collect();
 
     if passkeys.is_empty() {
+        tracing::warn!("login attempted but no passkeys registered");
         return (StatusCode::FORBIDDEN,
                 Json(serde_json::json!({ "ok": false, "error": "no passkeys registered" }))).into_response();
     }
@@ -178,6 +180,7 @@ async fn login_finish(
                 .format("%Y-%m-%dT%H:%M:%S")
                 .to_string();
             db::create_session(&state.pool, &session_id, &expires).await;
+            tracing::info!("login successful, session created");
 
             let cookie = middleware::make_session_cookie(&session_id);
             let mut headers = axum::http::HeaderMap::new();
@@ -187,7 +190,10 @@ async fn login_finish(
             );
             (headers, Json(serde_json::json!({ "ok": true }))).into_response()
         }
-        Err(e) => Json(serde_json::json!({ "ok": false, "error": e.to_string() })).into_response(),
+        Err(e) => {
+            tracing::warn!("login failed: {e}");
+            Json(serde_json::json!({ "ok": false, "error": e.to_string() })).into_response()
+        }
     }
 }
 
@@ -198,6 +204,7 @@ async fn logout(
     if let Some(cookies) = headers.get("cookie").and_then(|v| v.to_str().ok()) {
         for cookie in cookies.split(';') {
             if let Some(id) = cookie.trim().strip_prefix("session=") {
+                tracing::info!("logout: deleting session");
                 db::delete_session(&state.pool, id).await;
             }
         }
