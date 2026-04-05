@@ -78,9 +78,10 @@ async fn upload_post(
         }
     }
 
-    let (caption, (bytes, content_type)) = match (caption, image_data) {
-        (Some(c), Some(d)) if !c.trim().is_empty() => (c, d),
-        _ => return (StatusCode::BAD_REQUEST, Html("Missing caption or image".to_string())).into_response(),
+    let caption = caption.unwrap_or_default();
+    let (bytes, content_type) = match image_data {
+        Some(d) => d,
+        None => return (StatusCode::BAD_REQUEST, Html("Missing image".to_string())).into_response(),
     };
 
     // Generate unique key
@@ -124,12 +125,16 @@ fn validate_magic_bytes(bytes: &[u8]) -> Option<&'static str> {
 }
 
 fn admin_post_card_html(post: &crate::models::Post) -> String {
+    let caption_html = if post.caption.is_empty() {
+        String::new()
+    } else {
+        format!("    <p>{}</p>\n", html_escape(&post.caption))
+    };
     format!(
         r##"<div class="admin-post" id="admin-post-{}">
   <img src="{}" alt="">
   <div class="info">
-    <p>{}</p>
-    <small>{}</small>
+{caption_html}    <small>{}</small>
   </div>
   <button class="delete-btn"
           hx-delete="/api/admin/posts/{}"
@@ -141,7 +146,6 @@ fn admin_post_card_html(post: &crate::models::Post) -> String {
 </div>"##,
         post.id,
         html_escape(&post.image_url),
-        html_escape(&post.caption),
         html_escape(&post.created_at),
         post.id,
         post.id,

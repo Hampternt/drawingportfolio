@@ -80,15 +80,18 @@ async fn api_posts(
 }
 
 pub fn post_card_html(post: &Post) -> String {
+    let caption_html = if post.caption.is_empty() {
+        String::new()
+    } else {
+        format!("  <p class=\"caption\">{}</p>\n", html_escape(&post.caption))
+    };
     format!(
         r#"<article class="post-card" id="post-{}">
   <img src="{}" alt="{}" loading="lazy">
-  <p class="caption">{}</p>
-  <small class="date">{}</small>
+{caption_html}  <small class="date">{}</small>
 </article>"#,
         post.id,
         html_escape(&post.image_url),
-        html_escape(&post.caption),
         html_escape(&post.caption),
         html_escape(&post.created_at),
     )
@@ -157,6 +160,20 @@ mod tests {
         };
         let posts = crate::db::get_posts(&pool, 0).await;
         assert!(posts.len() > 20, "expected 21 rows with has_more=true");
+    }
+
+    #[test]
+    fn test_post_card_empty_caption_omits_p_tag() {
+        let post = crate::models::Post {
+            id: 2,
+            caption: "".to_string(),
+            image_url: "https://example.com/img.jpg".to_string(),
+            format: "single".to_string(),
+            file_size_bytes: 0,
+            created_at: "2024-01-01T00:00:00".to_string(),
+        };
+        let html = post_card_html(&post);
+        assert!(!html.contains("class=\"caption\""), "empty caption must not render p.caption");
     }
 
     #[test]
