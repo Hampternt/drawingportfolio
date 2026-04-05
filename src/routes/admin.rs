@@ -86,6 +86,7 @@ async fn upload_post(
     // Generate unique key
     let key = format!("{}.{}", uuid::Uuid::new_v4(), content_type.split('/').last().unwrap_or("jpg"));
 
+    let bytes_len = bytes.len();
     let image_url = match state.storage.upload(&key, bytes, &content_type).await {
         Ok(url) => url,
         Err(e) => {
@@ -95,6 +96,7 @@ async fn upload_post(
     };
 
     let post = crate::db::insert_post(&state.pool, caption.trim(), &image_url).await;
+    tracing::info!("post created: id={}, key={key}, size={} bytes", post.id, bytes_len);
     Html(admin_post_card_html(&post)).into_response()
 }
 
@@ -104,7 +106,12 @@ async fn delete_post(
     Path(id): Path<i64>,
 ) -> impl IntoResponse {
     if let Some(image_url) = crate::db::delete_post_and_get_url(&state.pool, id).await {
-        state.storage.delete_by_url(&image_url).await.ok();
+        tracing::info!("deleting post id={id}");
+        if let Err(e) = state.storage.delete_by_url(&image_url).await {
+            tracing::error!("storage delete failed for post id={id}: {e}");
+        }
+    } else {
+        tracing::warn!("delete requested for nonexistent post id={id}");
     }
     StatusCode::OK
 }
