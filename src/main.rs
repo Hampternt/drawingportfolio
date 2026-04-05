@@ -6,6 +6,7 @@ mod storage;
 
 use std::sync::Arc;
 use axum::Router;
+use axum::extract::DefaultBodyLimit;
 use tower_http::services::ServeDir;
 use tower_http::trace::TraceLayer;
 use webauthn_rs::prelude::*;
@@ -60,6 +61,7 @@ async fn main() {
         .merge(routes::admin::router())
         .merge(routes::auth::router())
         .nest_service("/static", ServeDir::new("static"))
+        .layer(DefaultBodyLimit::max(35 * 1024 * 1024))
         .layer(TraceLayer::new_for_http())
         .with_state(state)
         .fallback(handler_404);

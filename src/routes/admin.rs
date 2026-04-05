@@ -62,7 +62,7 @@ async fn upload_post(
                 let bytes = field.bytes().await.unwrap_or_default();
 
                 if bytes.len() > MAX_IMAGE_BYTES {
-                    return (StatusCode::PAYLOAD_TOO_LARGE, Html("Image too large (max 10MB)".to_string()))
+                    return (StatusCode::PAYLOAD_TOO_LARGE, Html("Image too large (max 35MB)".to_string()))
                         .into_response();
                 }
 
