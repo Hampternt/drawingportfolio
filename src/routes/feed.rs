@@ -137,4 +137,34 @@ mod tests {
             .unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
     }
+
+    #[tokio::test]
+    async fn test_api_posts_has_more() {
+        let pool = {
+            let pool = sqlx::sqlite::SqlitePoolOptions::new()
+                .connect("sqlite::memory:")
+                .await
+                .unwrap();
+            crate::db::run_migrations(&pool).await;
+            for i in 0..21 {
+                crate::db::insert_post(&pool, &format!("caption {i}"), "https://example.com/img.jpg").await;
+            }
+            pool
+        };
+        let posts = crate::db::get_posts(&pool, 0).await;
+        assert!(posts.len() > 20, "expected 21 rows with has_more=true");
+    }
+
+    #[test]
+    fn test_post_card_html_escapes_content() {
+        let post = crate::models::Post {
+            id: 1,
+            caption: "<script>alert(1)</script>".to_string(),
+            image_url: "https://example.com/img.jpg".to_string(),
+            created_at: "2024-01-01T00:00:00".to_string(),
+        };
+        let html = post_card_html(&post);
+        assert!(!html.contains("<script>"), "raw script tag should be escaped");
+        assert!(html.contains("&lt;script&gt;"));
+    }
 }
