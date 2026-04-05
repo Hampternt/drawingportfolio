@@ -23,6 +23,9 @@ jobs:
             target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
+      - name: Test
+        run: SQLX_OFFLINE=true cargo test
+
       - name: Build
         run: SQLX_OFFLINE=true cargo build --release
 
