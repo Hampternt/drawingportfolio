@@ -211,4 +211,28 @@ mod tests {
         delete_session(&pool, id).await;
         assert!(get_session(&pool, id).await.is_none());
     }
+
+    #[tokio::test]
+    async fn test_expired_session_rejected() {
+        let pool = test_pool().await;
+        create_session(&pool, "expired-id", "2000-01-01T00:00:00").await;
+        assert!(get_session(&pool, "expired-id").await.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_cleanup_removes_expired() {
+        let pool = test_pool().await;
+        create_session(&pool, "old-session", "2000-01-01T00:00:00").await;
+        save_challenge(&pool, "old-challenge", "{}", "2000-01-01T00:00:00").await;
+        cleanup_expired(&pool).await;
+        assert!(get_session(&pool, "old-session").await.is_none());
+        assert!(take_challenge(&pool, "old-challenge").await.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_delete_nonexistent_post_returns_none() {
+        let pool = test_pool().await;
+        let result = delete_post_and_get_url(&pool, 99999).await;
+        assert!(result.is_none());
+    }
 }
