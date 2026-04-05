@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "INSERT INTO posts (caption, image_url) VALUES (?, ?) RETURNING id",
+  "query": "INSERT INTO posts (caption, image_url, format, file_size_bytes) VALUES (?, ?, ?, ?) RETURNING id",
   "describe": {
     "columns": [
       {
@@ -10,11 +10,11 @@
       }
     ],
     "parameters": {
-      "Right": 2
+      "Right": 4
     },
     "nullable": [
       false
     ]
   },
-  "hash": "e04c76834de2304f61403f8d23cdf9d4faf37d94356ee871c0a184b7625a3b16"
+  "hash": "34728805130bef748869b752527b9c8e3bbfcd5b68d7bd1d2d88abad367e9eb9"
 }

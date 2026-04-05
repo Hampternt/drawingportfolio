@@ -5,7 +5,29 @@ pub struct Post {
     pub id: i64,
     pub caption: String,
     pub image_url: String,
+    pub format: String,
+    pub file_size_bytes: i64,
     pub created_at: String,
+}
+
+/// Extensibility hook: add new variants here as post formats are implemented.
+#[derive(Debug, Clone, PartialEq)]
+pub enum PostFormat {
+    Single,
+}
+
+impl PostFormat {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Single => "single",
+        }
+    }
+}
+
+impl Default for PostFormat {
+    fn default() -> Self {
+        Self::Single
+    }
 }
 
 #[derive(Debug, Clone, sqlx::FromRow)]

@@ -20,12 +20,20 @@ pub async fn run_migrations(pool: &DbPool) {
         .execute(pool)
         .await
         .expect("failed to run migrations");
+
+    // Migration 002: idempotent — errors on duplicate column are intentionally ignored
+    let _ = sqlx::query("ALTER TABLE posts ADD COLUMN format TEXT NOT NULL DEFAULT 'single'")
+        .execute(pool)
+        .await;
+    let _ = sqlx::query("ALTER TABLE posts ADD COLUMN file_size_bytes INTEGER NOT NULL DEFAULT 0")
+        .execute(pool)
+        .await;
 }
 
 pub async fn get_posts(pool: &DbPool, page: i64) -> Vec<Post> {
     let offset = page * 20;
     sqlx::query_as!(Post,
-        "SELECT id, caption, image_url, created_at FROM posts ORDER BY created_at DESC LIMIT 21 OFFSET ?",
+        "SELECT id, caption, image_url, format, file_size_bytes, created_at FROM posts ORDER BY created_at DESC LIMIT 21 OFFSET ?",
         offset
     )
     .fetch_all(pool)
@@ -33,10 +41,10 @@ pub async fn get_posts(pool: &DbPool, page: i64) -> Vec<Post> {
     .unwrap_or_default()
 }
 
-pub async fn insert_post(pool: &DbPool, caption: &str, image_url: &str) -> Post {
+pub async fn insert_post(pool: &DbPool, caption: &str, image_url: &str, format: &str, file_size_bytes: i64) -> Post {
     let id = sqlx::query!(
-        "INSERT INTO posts (caption, image_url) VALUES (?, ?) RETURNING id",
-        caption, image_url
+        "INSERT INTO posts (caption, image_url, format, file_size_bytes) VALUES (?, ?, ?, ?) RETURNING id",
+        caption, image_url, format, file_size_bytes
     )
     .fetch_one(pool)
     .await
@@ -44,7 +52,7 @@ pub async fn insert_post(pool: &DbPool, caption: &str, image_url: &str) -> Post 
     .id;
 
     sqlx::query_as!(Post,
-        "SELECT id, caption, image_url, created_at FROM posts WHERE id = ?", id
+        "SELECT id, caption, image_url, format, file_size_bytes, created_at FROM posts WHERE id = ?", id
     )
     .fetch_one(pool)
     .await
@@ -186,7 +194,7 @@ mod tests {
     #[tokio::test]
     async fn test_insert_and_get_post() {
         let pool = test_pool().await;
-        let post = insert_post(&pool, "test caption", "https://example.com/img.jpg").await;
+        let post = insert_post(&pool, "test caption", "https://example.com/img.jpg", crate::models::PostFormat::Single.as_str(), 0).await;
         assert_eq!(post.caption, "test caption");
         let posts = get_posts(&pool, 0).await;
         assert_eq!(posts.len(), 1);
@@ -196,7 +204,7 @@ mod tests {
     #[tokio::test]
     async fn test_delete_post() {
         let pool = test_pool().await;
-        let post = insert_post(&pool, "to delete", "https://example.com/img.jpg").await;
+        let post = insert_post(&pool, "to delete", "https://example.com/img.jpg", crate::models::PostFormat::Single.as_str(), 0).await;
         let url = delete_post_and_get_url(&pool, post.id).await;
         assert_eq!(url, Some("https://example.com/img.jpg".to_string()));
         assert!(get_posts(&pool, 0).await.is_empty());
@@ -234,5 +242,22 @@ mod tests {
         let pool = test_pool().await;
         let result = delete_post_and_get_url(&pool, 99999).await;
         assert!(result.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_insert_post_stores_format_and_filesize() {
+        let pool = test_pool().await;
+        let fmt = crate::models::PostFormat::Single.as_str();
+        let post = insert_post(&pool, "hello", "https://example.com/img.jpg", fmt, 12345).await;
+        assert_eq!(post.format, "single");
+        assert_eq!(post.file_size_bytes, 12345);
+    }
+
+    #[tokio::test]
+    async fn test_insert_post_empty_caption() {
+        let pool = test_pool().await;
+        let fmt = crate::models::PostFormat::Single.as_str();
+        let post = insert_post(&pool, "", "https://example.com/img.jpg", fmt, 0).await;
+        assert_eq!(post.caption, "");
     }
 }

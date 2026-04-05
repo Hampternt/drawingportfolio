@@ -147,7 +147,7 @@ mod tests {
                 .unwrap();
             crate::db::run_migrations(&pool).await;
             for i in 0..21 {
-                crate::db::insert_post(&pool, &format!("caption {i}"), "https://example.com/img.jpg").await;
+                crate::db::insert_post(&pool, &format!("caption {i}"), "https://example.com/img.jpg", crate::models::PostFormat::Single.as_str(), 0).await;
             }
             pool
         };
@@ -161,6 +161,8 @@ mod tests {
             id: 1,
             caption: "<script>alert(1)</script>".to_string(),
             image_url: "https://example.com/img.jpg".to_string(),
+            format: crate::models::PostFormat::Single.as_str().to_string(),
+            file_size_bytes: 0,
             created_at: "2024-01-01T00:00:00".to_string(),
         };
         let html = post_card_html(&post);

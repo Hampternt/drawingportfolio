@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT id, caption, image_url, created_at FROM posts WHERE id = ?",
+  "query": "SELECT id, caption, image_url, format, file_size_bytes, created_at FROM posts WHERE id = ?",
   "describe": {
     "columns": [
       {
@@ -19,8 +19,18 @@
         "type_info": "Text"
       },
       {
-        "name": "created_at",
+        "name": "format",
         "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "file_size_bytes",
+        "ordinal": 4,
+        "type_info": "Integer"
+      },
+      {
+        "name": "created_at",
+        "ordinal": 5,
         "type_info": "Text"
       }
     ],
@@ -31,8 +41,10 @@
       false,
       false,
       false,
+      false,
+      false,
       false
     ]
   },
-  "hash": "b649b4a9e8b63b6e9df7f9010c6dd3c5b2afb0888aa8c4d3d27001333e77b65b"
+  "hash": "a09d5ae53d668d41c3c5ba1336c49e776ce9acb54e2df63cbe7e87aae67bcac1"
 }

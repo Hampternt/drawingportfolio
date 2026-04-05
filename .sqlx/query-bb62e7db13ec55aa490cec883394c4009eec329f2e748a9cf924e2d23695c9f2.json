@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT id, caption, image_url, created_at FROM posts ORDER BY created_at DESC LIMIT 21 OFFSET ?",
+  "query": "SELECT id, caption, image_url, format, file_size_bytes, created_at FROM posts ORDER BY created_at DESC LIMIT 21 OFFSET ?",
   "describe": {
     "columns": [
       {
@@ -19,8 +19,18 @@
         "type_info": "Text"
       },
       {
-        "name": "created_at",
+        "name": "format",
         "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "file_size_bytes",
+        "ordinal": 4,
+        "type_info": "Integer"
+      },
+      {
+        "name": "created_at",
+        "ordinal": 5,
         "type_info": "Text"
       }
     ],
@@ -31,8 +41,10 @@
       false,
       false,
       false,
+      false,
+      false,
       false
     ]
   },
-  "hash": "7760aa75903aab34493065c3b050bfa3c4e2f52132a73965b8259575a45522df"
+  "hash": "bb62e7db13ec55aa490cec883394c4009eec329f2e748a9cf924e2d23695c9f2"
 }

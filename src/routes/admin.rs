@@ -95,7 +95,7 @@ async fn upload_post(
         }
     };
 
-    let post = crate::db::insert_post(&state.pool, caption.trim(), &image_url).await;
+    let post = crate::db::insert_post(&state.pool, caption.trim(), &image_url, crate::models::PostFormat::Single.as_str(), bytes_len as i64).await;
     tracing::info!("post created: id={}, key={key}, size={} bytes", post.id, bytes_len);
     Html(admin_post_card_html(&post)).into_response()
 }
