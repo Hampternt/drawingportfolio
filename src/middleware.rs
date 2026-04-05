@@ -19,6 +19,9 @@ impl FromRequestParts<Arc<AppState>> for AuthSession {
             if db::get_session(&state.pool, &id).await.is_some() {
                 return Ok(AuthSession(id));
             }
+            tracing::warn!("rejected expired/invalid session");
+        } else {
+            tracing::warn!("rejected request with no session cookie");
         }
 
         Err(Redirect::to("/admin/login").into_response())
