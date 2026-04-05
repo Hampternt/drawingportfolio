@@ -8,19 +8,23 @@ use axum::{
 use askama::Template;
 use std::sync::Arc;
 use serde::Deserialize;
-use crate::{AppState, models::Post};
+use crate::{AppState, models::Post, middleware::OptionalAuth};
 
 #[derive(Template)]
 #[template(path = "artportfolio/feed.html")]
-struct FeedTemplate;
+struct FeedTemplate {
+    is_admin: bool,
+}
 
 #[derive(Deserialize)]
 pub struct PageQuery {
     pub page: Option<i64>,
 }
 
-async fn feed_page() -> impl IntoResponse {
-    Html(FeedTemplate.render().unwrap())
+async fn feed_page(
+    OptionalAuth(is_admin): OptionalAuth,
+) -> impl IntoResponse {
+    Html(FeedTemplate { is_admin }.render().unwrap())
 }
 
 async fn htmx_posts(

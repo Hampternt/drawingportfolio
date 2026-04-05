@@ -28,6 +28,22 @@ impl FromRequestParts<Arc<AppState>> for AuthSession {
     }
 }
 
+/// Extractor: checks session without ever redirecting. Returns true if logged in.
+pub struct OptionalAuth(pub bool);
+
+impl FromRequestParts<Arc<AppState>> for OptionalAuth {
+    type Rejection = std::convert::Infallible;
+
+    async fn from_request_parts(parts: &mut Parts, state: &Arc<AppState>) -> Result<Self, Self::Rejection> {
+        let is_admin = if let Some(id) = extract_session_cookie(parts) {
+            db::get_session(&state.pool, &id).await.is_some()
+        } else {
+            false
+        };
+        Ok(OptionalAuth(is_admin))
+    }
+}
+
 pub fn extract_session_cookie(parts: &Parts) -> Option<String> {
     let cookies = parts.headers.get("cookie")?.to_str().ok()?;
     for cookie in cookies.split(';') {

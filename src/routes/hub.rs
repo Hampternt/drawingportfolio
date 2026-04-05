@@ -1,14 +1,18 @@
 use axum::{Router, routing::get, response::{Html, IntoResponse}};
 use askama::Template;
 use std::sync::Arc;
-use crate::AppState;
+use crate::{AppState, middleware::OptionalAuth};
 
 #[derive(Template)]
 #[template(path = "hub/hub.html")]
-struct HubTemplate;
+struct HubTemplate {
+    is_admin: bool,
+}
 
-async fn hub_page() -> impl IntoResponse {
-    Html(HubTemplate.render().unwrap())
+async fn hub_page(
+    OptionalAuth(is_admin): OptionalAuth,
+) -> impl IntoResponse {
+    Html(HubTemplate { is_admin }.render().unwrap())
 }
 
 pub fn router() -> Router<Arc<AppState>> {
