@@ -22,10 +22,7 @@ pub async fn run_migrations(pool: &DbPool) {
         .expect("failed to run migrations");
 
     // Migration 002: idempotent — errors on duplicate column are intentionally ignored
-    let _ = sqlx::query("ALTER TABLE posts ADD COLUMN format TEXT NOT NULL DEFAULT 'single'")
-        .execute(pool)
-        .await;
-    let _ = sqlx::query("ALTER TABLE posts ADD COLUMN file_size_bytes INTEGER NOT NULL DEFAULT 0")
+    let _ = sqlx::query(include_str!("../migrations/002_add_post_fields.sql"))
         .execute(pool)
         .await;
 }
