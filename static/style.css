@@ -234,3 +234,53 @@ main {
   padding: 0.4rem 0.9rem;
   cursor: pointer;
 }
+
+/* ── Command palette ───────────────────────────── */
+#palette-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.45);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 18vh;
+  z-index: 1000;
+}
+
+#palette-overlay[hidden] { display: none; }
+
+#palette-box {
+  background: #fff;
+  border-radius: 10px;
+  box-shadow: 0 8px 40px rgba(0,0,0,0.18);
+  width: 100%;
+  max-width: 480px;
+  overflow: hidden;
+}
+
+#palette-input {
+  width: 100%;
+  box-sizing: border-box;
+  border: none;
+  border-bottom: 1px solid #e8e8e8;
+  padding: 0.9rem 1rem;
+  font-size: 1rem;
+  outline: none;
+}
+
+#palette-results {
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.palette-item {
+  padding: 0.65rem 1rem;
+  cursor: pointer;
+  font-size: 0.95rem;
+  color: #222;
+}
+
+.palette-item:hover,
+.palette-selected {
+  background: #f0f0f0;
+}
