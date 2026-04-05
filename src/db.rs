@@ -102,14 +102,18 @@ pub async fn delete_session(pool: &DbPool, id: &str) {
 }
 
 pub async fn cleanup_expired(pool: &DbPool) {
-    sqlx::query!("DELETE FROM sessions WHERE expires_at <= datetime('now')")
+    let sessions = sqlx::query!("DELETE FROM sessions WHERE expires_at <= datetime('now')")
         .execute(pool)
         .await
         .ok();
-    sqlx::query!("DELETE FROM auth_challenge_state WHERE expires_at <= datetime('now')")
+    let challenges = sqlx::query!("DELETE FROM auth_challenge_state WHERE expires_at <= datetime('now')")
         .execute(pool)
         .await
         .ok();
+
+    let session_rows = sessions.map(|r| r.rows_affected()).unwrap_or(0);
+    let challenge_rows = challenges.map(|r| r.rows_affected()).unwrap_or(0);
+    tracing::info!("cleanup: removed {session_rows} expired sessions, {challenge_rows} expired challenges");
 }
 
 pub async fn get_all_credentials(pool: &DbPool) -> Vec<PasskeyCredential> {
