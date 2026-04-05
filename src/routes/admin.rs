@@ -53,7 +53,7 @@ async fn upload_post(
     let mut caption = None::<String>;
     let mut image_data = None::<(Vec<u8>, String)>;
     let mut keep_original = false;
-    let mut format = crate::models::PostFormat::Single.as_str().to_string();
+    let mut post_format = crate::models::PostFormat::Single.as_str().to_string();
     let mut source = "admin".to_string();
 
     while let Ok(Some(field)) = multipart.next_field().await {
@@ -62,13 +62,20 @@ async fn upload_post(
                 caption = field.text().await.ok();
             }
             Some("keep_original") => {
-                keep_original = field.text().await.ok().as_deref() == Some("true");
+                // Accept "true", "1", and "on" (HTML checkbox default)
+                keep_original = matches!(
+                    field.text().await.ok().as_deref(),
+                    Some("true") | Some("1") | Some("on")
+                );
             }
             Some("format") => {
-                if let Ok(v) = field.text().await { format = v; }
+                if let Ok(v) = field.text().await { post_format = v; }
             }
             Some("source") => {
-                if let Ok(v) = field.text().await { source = v; }
+                // Only accept known source values; default to "admin"
+                if let Ok(v) = field.text().await {
+                    source = if v == "gallery" { v } else { "admin".to_string() };
+                }
             }
             Some("image") => {
                 let content_type = field.content_type()
@@ -133,9 +140,9 @@ async fn upload_post(
     };
 
     let post = crate::db::insert_post(
-        &state.pool, caption.trim(), &image_url, &format, file_size_bytes,
+        &state.pool, caption.trim(), &image_url, &post_format, file_size_bytes,
     ).await;
-    tracing::info!("post created: id={}, key={key}, size={file_size_bytes} bytes, format={format}", post.id);
+    tracing::info!("post created: id={}, key={key}, size={file_size_bytes} bytes, format={post_format}", post.id);
 
     let card_html = if source == "gallery" {
         crate::routes::feed::post_card_html(&post)
