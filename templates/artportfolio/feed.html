@@ -3,6 +3,72 @@
 {% block title %}Drawing Portfolio{% endblock %}
 
 {% block content %}
+{% if is_admin %}
+<div id="composer-wrap">
+  <button id="new-post-btn" onclick="toggleComposer()" type="button" aria-expanded="false">+ New Post</button>
+  <div id="composer" hidden>
+    <div class="composer-formats">
+      <button class="fmt-btn active" type="button">Single Image</button>
+      <button class="fmt-btn" type="button" disabled title="Coming soon">Gallery</button>
+      <button class="fmt-btn" type="button" disabled title="Coming soon">Board</button>
+    </div>
+    <form id="composer-form"
+          hx-post="/api/admin/posts"
+          hx-encoding="multipart/form-data"
+          hx-target="#feed"
+          hx-swap="afterbegin"
+          hx-on::after-request="onComposerResponse(event)">
+      <input type="hidden" name="format" value="single">
+      <input type="hidden" name="source" value="gallery">
+      <div class="drop-zone">
+        <input type="file" name="image" id="composer-image"
+               accept="image/jpeg,image/png,image/webp" required
+               onchange="onFileSelect(this)">
+        <label for="composer-image">Drop image here or click to browse</label>
+        <span id="file-name" class="file-name-hint"></span>
+      </div>
+      <div id="compression-opt" hidden>
+        <label class="compression-label">
+          <input type="checkbox" name="keep_original" value="true">
+          Keep original file without compression
+        </label>
+      </div>
+      <textarea name="caption" placeholder="Caption (optional)" rows="2"></textarea>
+      <div class="composer-actions">
+        <button type="submit" class="btn-primary">Upload</button>
+        <button type="button" class="btn-secondary" onclick="toggleComposer()">Cancel</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+const COMPRESS_THRESHOLD = 4 * 1024 * 1024;
+
+function toggleComposer() {
+  const composer = document.getElementById('composer');
+  const btn = document.getElementById('new-post-btn');
+  const willShow = composer.hidden;
+  composer.hidden = !willShow;
+  btn.setAttribute('aria-expanded', String(willShow));
+}
+
+function onFileSelect(input) {
+  const file = input.files[0];
+  document.getElementById('file-name').textContent = file ? file.name : '';
+  document.getElementById('compression-opt').hidden = !(file && file.size > COMPRESS_THRESHOLD);
+}
+
+function onComposerResponse(evt) {
+  if (evt.detail.successful) {
+    document.getElementById('composer-form').reset();
+    document.getElementById('file-name').textContent = '';
+    document.getElementById('compression-opt').hidden = true;
+  }
+}
+</script>
+{% endif %}
+
 <div id="feed"
      hx-get="/artportfolio/htmx/posts?page=0"
      hx-trigger="load"
