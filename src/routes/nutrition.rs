@@ -170,7 +170,7 @@ async fn fitness_page(
     let lib_html = library_list_html(&food_items, is_admin);
     Html(FitnessTemplate {
         is_admin,
-        today: today.clone(),
+        today,
         day_section_html: day_html,
         library_html: lib_html,
     }.render().unwrap())
@@ -207,7 +207,6 @@ async fn add_food_item(
     let mut saturated_fat = 0f64;
     let mut image_url = String::new();
     let mut image_bytes: Option<Vec<u8>> = None;
-    let mut image_content_type = String::new();
 
     while let Ok(Some(field)) = multipart.next_field().await {
         match field.name() {
@@ -228,9 +227,6 @@ async fn add_food_item(
             Some("saturated_fat") => saturated_fat = field.text().await.unwrap_or_default().trim().parse().unwrap_or(0.0),
             Some("image_url") => image_url = field.text().await.unwrap_or_default().trim().to_string(),
             Some("image") => {
-                if let Some(ct) = field.content_type() {
-                    image_content_type = ct.to_string();
-                }
                 let bytes = field.bytes().await.unwrap_or_default();
                 if !bytes.is_empty() {
                     image_bytes = Some(bytes.to_vec());
@@ -244,17 +240,15 @@ async fn add_food_item(
         return (StatusCode::BAD_REQUEST, Html("<p>Name is required</p>".to_string())).into_response();
     }
 
-    // Upload image to S3 if provided
-    if let Some(bytes) = image_bytes {
-        use crate::routes::admin::validate_magic_bytes;
-        if validate_magic_bytes(&bytes).is_some() {
-            let ext = if image_content_type.contains("png") { "png" }
-                else if image_content_type.contains("webp") { "webp" }
-                else { "jpg" };
-            let key = format!("food/{}.{}", uuid::Uuid::new_v4(), ext);
-            match state.storage.upload(&key, bytes, &image_content_type).await {
-                Ok(url) => image_url = url,
-                Err(_) => {} // keep image_url as-is
+    // Upload image to S3 if provided and user is admin
+    if is_admin {
+        if let Some(bytes) = image_bytes {
+            if let Some(ext) = crate::routes::admin::validate_magic_bytes(&bytes) {
+                let ct = format!("image/{ext}");
+                let key = format!("food/{}.{}", uuid::Uuid::new_v4(), ext);
+                if let Ok(url) = state.storage.upload(&key, bytes, &ct).await {
+                    image_url = url;
+                }
             }
         }
     }
