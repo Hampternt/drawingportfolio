@@ -4,6 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Admin — Portfolio</title>
+  <link rel="preconnect" href="https://portfolio-images.hel1.your-objectstorage.com" crossorigin>
+  <link rel="dns-prefetch" href="https://portfolio-images.hel1.your-objectstorage.com">
   <link rel="stylesheet" href="/static/style.css">
   <script src="/static/htmx.min.js" defer></script>
   <style>
@@ -20,7 +22,7 @@
   <script>const IS_ADMIN = true;</script>
   <script src="/static/palette.js" defer></script>
 </head>
-<body>
+<body hx-boost="true">
   <header>
     <h1>Portfolio Admin</h1>
     <a href="/">View site</a>

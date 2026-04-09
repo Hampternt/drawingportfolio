@@ -123,7 +123,10 @@ document.addEventListener('keydown', e => {
 // ── DOM injection ─────────────────────────────────
 // Build the overlay with DOM methods to avoid innerHTML with dynamic content.
 
-document.addEventListener('DOMContentLoaded', () => {
+function paletteInject() {
+  // Already injected (normal page load or previous boost navigation)
+  if (document.getElementById('palette-overlay')) return;
+
   const overlay = document.createElement('div');
   overlay.id = 'palette-overlay';
   overlay.hidden = true;
@@ -158,4 +161,9 @@ document.addEventListener('DOMContentLoaded', () => {
     paletteResults = paletteFilter(e.target.value);
     paletteRender();
   });
-});
+}
+
+// Initial page load
+document.addEventListener('DOMContentLoaded', paletteInject);
+// hx-boost replaces <body> content without a full page reload — re-inject after each swap
+document.addEventListener('htmx:afterSwap', paletteInject);
