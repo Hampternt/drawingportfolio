@@ -47,14 +47,14 @@ pub fn food_item_card_html(item: &crate::models::FoodItem, is_admin: bool) -> St
     };
     format!(
         r#"<li class="food-item-card" id="food-item-{}">
-  {}{}
+  {}
   <div class="food-info">
     <strong>{}</strong> {}
     <span class="food-macros">{} cal · P {}g · C {}g · F {}g</span>
   </div>
   {}
 </li>"#,
-        item.id, img_html, delete_btn,
+        item.id, img_html,
         html_escape(&item.name), brand_html,
         fmt_nutrient(item.calories), fmt_nutrient(item.protein),
         fmt_nutrient(item.carbs), fmt_nutrient(item.fat),
