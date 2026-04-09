@@ -1,6 +1,6 @@
 use sqlx::{SqlitePool, sqlite::{SqlitePoolOptions, SqliteConnectOptions}};
 use std::str::FromStr;
-use crate::models::{Post, Session, PasskeyCredential, AuthChallengeState};
+use crate::models::{Post, Session, PasskeyCredential, AuthChallengeState, FoodItem, MealEntryWithFood};
 
 pub type DbPool = SqlitePool;
 
@@ -23,6 +23,11 @@ pub async fn run_migrations(pool: &DbPool) {
 
     // Migration 002: idempotent — errors on duplicate column are intentionally ignored
     let _ = sqlx::query(include_str!("../migrations/002_add_post_fields.sql"))
+        .execute(pool)
+        .await;
+
+    // Migration 003: nutrition tracker tables
+    let _ = sqlx::query(include_str!("../migrations/003_nutrition.sql"))
         .execute(pool)
         .await;
 }
@@ -175,6 +180,136 @@ pub async fn take_challenge(pool: &DbPool, id: &str) -> Option<AuthChallengeStat
     row
 }
 
+pub async fn get_food_items(pool: &DbPool) -> Vec<FoodItem> {
+    sqlx::query_as!(FoodItem,
+        "SELECT id, name, brand, barcode, calories, protein, carbs, fat, fiber, sugar, sodium, saturated_fat, image_url, created_at FROM food_items ORDER BY name ASC"
+    )
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default()
+}
+
+pub async fn search_food_items(pool: &DbPool, q: &str) -> Vec<FoodItem> {
+    let pattern = format!("%{}%", q);
+    sqlx::query_as!(FoodItem,
+        "SELECT id, name, brand, barcode, calories, protein, carbs, fat, fiber, sugar, sodium, saturated_fat, image_url, created_at FROM food_items WHERE name LIKE ? OR brand LIKE ? ORDER BY name ASC LIMIT 20",
+        pattern, pattern
+    )
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default()
+}
+
+pub async fn insert_food_item(
+    pool: &DbPool,
+    name: &str,
+    brand: &str,
+    barcode: Option<&str>,
+    calories: f64,
+    protein: f64,
+    carbs: f64,
+    fat: f64,
+    fiber: f64,
+    sugar: f64,
+    sodium: f64,
+    saturated_fat: f64,
+    image_url: &str,
+) -> FoodItem {
+    let id = sqlx::query!(
+        "INSERT INTO food_items (name, brand, barcode, calories, protein, carbs, fat, fiber, sugar, sodium, saturated_fat, image_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
+        name, brand, barcode, calories, protein, carbs, fat, fiber, sugar, sodium, saturated_fat, image_url
+    )
+    .fetch_one(pool)
+    .await
+    .expect("failed to insert food item")
+    .id;
+
+    sqlx::query_as!(FoodItem,
+        "SELECT id, name, brand, barcode, calories, protein, carbs, fat, fiber, sugar, sodium, saturated_fat, image_url, created_at FROM food_items WHERE id = ?", id
+    )
+    .fetch_one(pool)
+    .await
+    .expect("failed to fetch inserted food item")
+}
+
+pub async fn delete_food_item(pool: &DbPool, id: i64) -> Option<String> {
+    let row = sqlx::query!("SELECT image_url FROM food_items WHERE id = ?", id)
+        .fetch_optional(pool)
+        .await
+        .ok()
+        .flatten();
+
+    if let Some(r) = row {
+        sqlx::query!("DELETE FROM food_items WHERE id = ?", id)
+            .execute(pool)
+            .await
+            .ok();
+        Some(r.image_url)
+    } else {
+        None
+    }
+}
+
+pub async fn get_meal_entries_for_date(pool: &DbPool, date: &str) -> Vec<MealEntryWithFood> {
+    let rows = sqlx::query!(
+        r#"SELECT
+            me.id as entry_id,
+            fi.name as food_name,
+            me.grams,
+            fi.calories as base_calories,
+            fi.protein as base_protein,
+            fi.carbs as base_carbs,
+            fi.fat as base_fat,
+            fi.fiber as base_fiber,
+            fi.sugar as base_sugar,
+            fi.sodium as base_sodium,
+            fi.saturated_fat as base_saturated_fat
+        FROM meal_entries me
+        JOIN food_items fi ON fi.id = me.food_item_id
+        WHERE me.date = ?
+        ORDER BY me.created_at ASC"#,
+        date
+    )
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default();
+
+    rows.into_iter().map(|r| {
+        let factor = r.grams / 100.0;
+        MealEntryWithFood {
+            entry_id: r.entry_id,
+            food_name: r.food_name,
+            grams: r.grams,
+            calories: r.base_calories * factor,
+            protein: r.base_protein * factor,
+            carbs: r.base_carbs * factor,
+            fat: r.base_fat * factor,
+            fiber: r.base_fiber * factor,
+            sugar: r.base_sugar * factor,
+            sodium: r.base_sodium * factor,
+            saturated_fat: r.base_saturated_fat * factor,
+        }
+    }).collect()
+}
+
+pub async fn insert_meal_entry(pool: &DbPool, food_item_id: i64, date: &str, grams: f64) -> Result<i64, sqlx::Error> {
+    let id = sqlx::query!(
+        "INSERT INTO meal_entries (food_item_id, date, grams) VALUES (?, ?, ?) RETURNING id",
+        food_item_id, date, grams
+    )
+    .fetch_one(pool)
+    .await?
+    .id;
+    Ok(id.ok_or_else(|| sqlx::Error::RowNotFound)?)
+}
+
+pub async fn delete_meal_entry(pool: &DbPool, id: i64) {
+    sqlx::query!("DELETE FROM meal_entries WHERE id = ?", id)
+        .execute(pool)
+        .await
+        .ok();
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -256,5 +391,65 @@ mod tests {
         let fmt = crate::models::PostFormat::Single.as_str();
         let post = insert_post(&pool, "", "https://example.com/img.jpg", fmt, 0).await;
         assert_eq!(post.caption, "");
+    }
+
+    #[tokio::test]
+    async fn test_insert_and_get_food_item() {
+        let pool = test_pool().await;
+        let item = insert_food_item(&pool, "Chicken Breast", "Generic", None, 165.0, 31.0, 0.0, 3.6, 0.0, 0.0, 74.0, 1.0, "").await;
+        assert_eq!(item.name, "Chicken Breast");
+        assert_eq!(item.calories, 165.0);
+        assert!(item.barcode.is_none());
+        let items = get_food_items(&pool).await;
+        assert_eq!(items.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_search_food_items() {
+        let pool = test_pool().await;
+        insert_food_item(&pool, "Chicken Breast", "Generic", None, 165.0, 31.0, 0.0, 3.6, 0.0, 0.0, 74.0, 1.0, "").await;
+        insert_food_item(&pool, "Brown Rice", "Generic", None, 112.0, 2.6, 23.5, 0.9, 1.8, 0.0, 5.0, 0.2, "").await;
+        let results = search_food_items(&pool, "chicken").await;
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].name, "Chicken Breast");
+    }
+
+    #[tokio::test]
+    async fn test_delete_food_item() {
+        let pool = test_pool().await;
+        let item = insert_food_item(&pool, "Test Item", "", None, 100.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, "https://example.com/img.jpg").await;
+        let url = delete_food_item(&pool, item.id).await;
+        assert_eq!(url, Some("https://example.com/img.jpg".to_string()));
+        assert!(get_food_items(&pool).await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_insert_meal_entry_and_get_for_date() {
+        let pool = test_pool().await;
+        let item = insert_food_item(&pool, "White Rice", "", None, 130.0, 2.7, 28.6, 0.3, 0.4, 0.0, 1.0, 0.1, "").await;
+        insert_meal_entry(&pool, item.id, "2026-04-09", 200.0).await.unwrap();
+        let entries = get_meal_entries_for_date(&pool, "2026-04-09").await;
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].food_name, "White Rice");
+        assert_eq!(entries[0].grams, 200.0);
+        assert!((entries[0].calories - 260.0).abs() < 0.01);
+    }
+
+    #[tokio::test]
+    async fn test_delete_meal_entry() {
+        let pool = test_pool().await;
+        let item = insert_food_item(&pool, "Apple", "", None, 52.0, 0.3, 14.0, 0.2, 2.4, 10.0, 1.0, 0.0, "").await;
+        let entry_id = insert_meal_entry(&pool, item.id, "2026-04-09", 150.0).await.unwrap();
+        delete_meal_entry(&pool, entry_id).await;
+        assert!(get_meal_entries_for_date(&pool, "2026-04-09").await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_meal_entry_wrong_date_not_returned() {
+        let pool = test_pool().await;
+        let item = insert_food_item(&pool, "Banana", "", None, 89.0, 1.1, 23.0, 0.3, 2.6, 12.0, 1.0, 0.0, "").await;
+        insert_meal_entry(&pool, item.id, "2026-04-08", 100.0).await.unwrap();
+        let entries = get_meal_entries_for_date(&pool, "2026-04-09").await;
+        assert!(entries.is_empty());
     }
 }

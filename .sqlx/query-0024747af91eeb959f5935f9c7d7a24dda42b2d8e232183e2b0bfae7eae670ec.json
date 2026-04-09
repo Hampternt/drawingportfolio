@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT image_url FROM food_items WHERE id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "image_url",
+        "ordinal": 0,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "0024747af91eeb959f5935f9c7d7a24dda42b2d8e232183e2b0bfae7eae670ec"
+}
