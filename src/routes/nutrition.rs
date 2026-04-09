@@ -253,6 +253,15 @@ async fn add_food_item(
         }
     }
 
+    // Only allow OpenFoodFacts CDN URLs or empty — prevent arbitrary image URL injection
+    if !image_url.is_empty()
+        && !image_url.starts_with("https://images.openfoodfacts.org/")
+        && !image_url.starts_with("https://static.openfoodfacts.org/")
+        && !image_url.starts_with("https://world.openfoodfacts.org/")
+    {
+        image_url = String::new();
+    }
+
     let _item = crate::db::insert_food_item(
         &state.pool, &name, &brand, barcode.as_deref(),
         calories, protein, carbs, fat, fiber, sugar, sodium, saturated_fat, &image_url,

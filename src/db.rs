@@ -233,19 +233,23 @@ pub async fn insert_food_item(
 }
 
 pub async fn delete_food_item(pool: &DbPool, id: i64) -> Option<String> {
+    let mut tx = pool.begin().await.ok()?;
+
     let row = sqlx::query!("SELECT image_url FROM food_items WHERE id = ?", id)
-        .fetch_optional(pool)
+        .fetch_optional(&mut *tx)
         .await
         .ok()
         .flatten();
 
     if let Some(r) = row {
         sqlx::query!("DELETE FROM food_items WHERE id = ?", id)
-            .execute(pool)
+            .execute(&mut *tx)
             .await
             .ok();
+        tx.commit().await.ok();
         Some(r.image_url)
     } else {
+        tx.rollback().await.ok();
         None
     }
 }
