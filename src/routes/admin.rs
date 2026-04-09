@@ -168,7 +168,7 @@ async fn delete_post(
     StatusCode::OK
 }
 
-fn validate_magic_bytes(bytes: &[u8]) -> Option<&'static str> {
+pub fn validate_magic_bytes(bytes: &[u8]) -> Option<&'static str> {
     if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) { return Some("jpeg"); }
     if bytes.starts_with(b"\x89PNG\r\n\x1a\n") { return Some("png"); }
     if bytes.starts_with(b"RIFF") && bytes.get(8..12) == Some(b"WEBP") { return Some("webp"); }

@@ -1,0 +1,7 @@
+{% extends "base.html" %}
+{% block title %}Fitness{% endblock %}
+{% block content %}
+<h1>Fitness Tracker</h1>
+<div id="day-section">{{ day_section_html|safe }}</div>
+<div id="food-library">{{ library_html|safe }}</div>
+{% endblock %}

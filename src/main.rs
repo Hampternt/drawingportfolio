@@ -60,6 +60,7 @@ async fn main() {
         .merge(routes::feed::router())
         .merge(routes::admin::router())
         .merge(routes::auth::router())
+        .merge(routes::nutrition::router())
         .nest_service("/static", ServeDir::new("static"))
         .layer(DefaultBodyLimit::max(35 * 1024 * 1024))
         .layer(TraceLayer::new_for_http())
