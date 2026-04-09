@@ -1,7 +1,118 @@
 {% extends "base.html" %}
-{% block title %}Fitness{% endblock %}
+{% block title %}Fitness Tracker{% endblock %}
+
 {% block content %}
-<h1>Fitness Tracker</h1>
-<div id="day-section">{{ day_section_html|safe }}</div>
-<div id="food-library">{{ library_html|safe }}</div>
+<section class="fitness-page">
+
+  <!-- Date navigator -->
+  <div class="fitness-date-nav">
+    <button id="prev-day" class="btn-secondary">←</button>
+    <input type="date" id="date-picker" value="{{ today }}">
+    <button id="next-day" class="btn-secondary">→</button>
+  </div>
+
+  <!-- Day section: totals + meal log + log form (pre-rendered by Rust) -->
+  <div id="day-section">
+    {{ day_section_html|safe }}
+  </div>
+
+  <!-- Food library section -->
+  <section class="food-library-section">
+    <div class="library-header">
+      <h2>Food Library</h2>
+      <div class="library-actions">
+        <input type="text" id="library-search" placeholder="Search…"
+               hx-get="/fitness/htmx/search" hx-trigger="input changed delay:300ms"
+               hx-target="#food-library" hx-include="this">
+        <button class="btn-secondary" onclick="toggleAddForm()">+ Add food</button>
+        <button class="btn-secondary" id="scan-btn" onclick="startBarcodeScanner('add-food-form')">Scan barcode</button>
+      </div>
+    </div>
+
+    <!-- Add food form (hidden by default) -->
+    <form id="add-food-form" class="nutrient-form" hidden
+          hx-post="/api/nutrition/food-items"
+          hx-target="#food-library"
+          hx-swap="innerHTML"
+          hx-encoding="multipart/form-data"
+          hx-on::after-request="this.reset(); document.getElementById('add-food-form').hidden = true;">
+      <input type="text" name="name" placeholder="Name *" required>
+      <input type="text" name="brand" placeholder="Brand">
+      <input type="text" name="barcode" id="barcode-field" placeholder="Barcode">
+      <div class="nutrient-grid">
+        <label>Calories/100g<input type="number" name="calories" step="0.1" min="0" value="0"></label>
+        <label>Protein/100g<input type="number" name="protein" step="0.1" min="0" value="0"></label>
+        <label>Carbs/100g<input type="number" name="carbs" step="0.1" min="0" value="0"></label>
+        <label>Fat/100g<input type="number" name="fat" step="0.1" min="0" value="0"></label>
+        <label>Fiber/100g<input type="number" name="fiber" step="0.1" min="0" value="0"></label>
+        <label>Sugar/100g<input type="number" name="sugar" step="0.1" min="0" value="0"></label>
+        <label>Sodium/100g (mg)<input type="number" name="sodium" step="0.1" min="0" value="0"></label>
+        <label>Sat. fat/100g<input type="number" name="saturated_fat" step="0.1" min="0" value="0"></label>
+      </div>
+      {% if is_admin %}
+      <label class="file-label">Image <input type="file" name="image" accept="image/jpeg,image/png,image/webp"></label>
+      {% endif %}
+      <input type="hidden" name="image_url" id="image-url-field" value="">
+      <div class="form-actions">
+        <button type="submit" class="btn-primary">Save food</button>
+        <button type="button" class="btn-secondary" onclick="toggleAddForm()">Cancel</button>
+      </div>
+    </form>
+
+    <!-- Camera preview for barcode scanning -->
+    <div id="barcode-scanner" hidden>
+      <video id="barcode-video" autoplay playsinline></video>
+      <button class="btn-secondary" onclick="stopBarcodeScanner()">Cancel scan</button>
+      <p id="scan-status">Scanning…</p>
+    </div>
+
+    <!-- Manual barcode fallback (shown when BarcodeDetector unavailable) -->
+    <div id="manual-barcode" hidden>
+      <input type="text" id="manual-barcode-input" placeholder="Enter barcode number">
+      <button class="btn-primary" onclick="lookupManualBarcode()">Look up</button>
+      <button class="btn-secondary" onclick="document.getElementById('manual-barcode').hidden = true">Cancel</button>
+    </div>
+
+    <div id="food-library">
+      {{ library_html|safe }}
+    </div>
+  </section>
+
+</section>
+
+<script>
+const TODAY = "{{ today }}";
+let currentDate = TODAY;
+
+// Date navigation
+function loadDay(date) {
+  currentDate = date;
+  document.getElementById('date-picker').value = date;
+  htmx.ajax('GET', '/fitness/htmx/day?date=' + date, {target: '#day-section', swap: 'innerHTML'});
+}
+
+document.getElementById('prev-day').addEventListener('click', () => {
+  const d = new Date(currentDate + 'T00:00:00');
+  d.setDate(d.getDate() - 1);
+  loadDay(d.toISOString().slice(0, 10));
+});
+
+document.getElementById('next-day').addEventListener('click', () => {
+  const d = new Date(currentDate + 'T00:00:00');
+  d.setDate(d.getDate() + 1);
+  loadDay(d.toISOString().slice(0, 10));
+});
+
+document.getElementById('date-picker').addEventListener('change', (e) => {
+  loadDay(e.target.value);
+});
+
+// Add food form toggle
+function toggleAddForm() {
+  const form = document.getElementById('add-food-form');
+  form.hidden = !form.hidden;
+  if (!form.hidden) form.querySelector('[name="name"]').focus();
+}
+</script>
+<script src="/static/barcode.js" defer></script>
 {% endblock %}
