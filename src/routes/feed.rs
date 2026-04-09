@@ -14,6 +14,9 @@ use crate::{AppState, models::Post, middleware::OptionalAuth};
 #[template(path = "artportfolio/feed.html")]
 struct FeedTemplate {
     is_admin: bool,
+    /// First page of posts rendered as HTML, injected directly into the page.
+    /// Eliminates the extra HTMX round trip that would otherwise happen on load.
+    initial_posts_html: String,
 }
 
 #[derive(Deserialize)]
@@ -23,8 +26,17 @@ pub struct PageQuery {
 
 async fn feed_page(
     OptionalAuth(is_admin): OptionalAuth,
+    State(state): State<Arc<AppState>>,
 ) -> impl IntoResponse {
-    Html(FeedTemplate { is_admin }.render().unwrap())
+    // Fetch first page here so posts arrive in the very first HTTP response.
+    // Without this, the browser would load the page and then fire a second
+    // request to /artportfolio/htmx/posts?page=0 before anything was visible.
+    let mut posts = crate::db::get_posts(&state.pool, 0).await;
+    let has_more = posts.len() > 20;
+    if has_more { posts.truncate(20); }
+    let initial_posts_html = render_posts_html(&posts, has_more, 1);
+
+    Html(FeedTemplate { is_admin, initial_posts_html }.render().unwrap())
 }
 
 async fn htmx_posts(
@@ -35,31 +47,32 @@ async fn htmx_posts(
     let mut posts = crate::db::get_posts(&state.pool, page).await;
     let has_more = posts.len() > 20;
     if has_more { posts.truncate(20); }
+    Html(render_posts_html(&posts, has_more, page + 1))
+}
 
-    let next_page = page + 1;
-    let mut html = String::new();
-
-    if posts.is_empty() && page == 0 {
-        html.push_str(r#"<div class="empty-state"><p>No posts yet.</p></div>"#);
-    } else {
-        for post in &posts {
-            html.push_str(&post_card_html(post));
-        }
-        if has_more {
-            let load_more = format!(
-                "<div class=\"load-more\" id=\"load-more\">\
-                  <button hx-get=\"/artportfolio/htmx/posts?page={next_page}\" \
-                          hx-target=\"#load-more\" \
-                          hx-swap=\"outerHTML\">\
-                    Load more\
-                  </button>\
-                </div>"
-            );
-            html.push_str(&load_more);
-        }
+/// Renders a page of posts into an HTML string.
+/// Used both for the inline first page (feed_page) and subsequent HTMX loads (htmx_posts),
+/// so the two code paths always produce identical markup.
+fn render_posts_html(posts: &[Post], has_more: bool, next_page: i64) -> String {
+    if posts.is_empty() && next_page == 1 {
+        return r#"<div class="empty-state"><p>No posts yet.</p></div>"#.to_string();
     }
-
-    Html(html)
+    let mut html = String::new();
+    for post in posts {
+        html.push_str(&post_card_html(post));
+    }
+    if has_more {
+        html.push_str(&format!(
+            "<div class=\"load-more\" id=\"load-more\">\
+              <button hx-get=\"/artportfolio/htmx/posts?page={next_page}\" \
+                      hx-target=\"#load-more\" \
+                      hx-swap=\"outerHTML\">\
+                Load more\
+              </button>\
+            </div>"
+        ));
+    }
+    html
 }
 
 #[derive(serde::Serialize)]

@@ -23,6 +23,11 @@ const COMMANDS = [
     action() { location.href = '/artportfolio'; },
   },
   {
+    label: 'Go to Fitness Tracker',
+    keywords: ['fitness', 'food', 'nutrition', 'calories', 'meals', 'health', 'tracker'],
+    action() { location.href = '/fitness'; },
+  },
+  {
     label: 'Go to Hub',
     keywords: ['home', 'hub', 'index', 'start', 'main'],
     action() { location.href = '/'; },

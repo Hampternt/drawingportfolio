@@ -6,3 +6,4 @@ portfolio.db-wal
 .worktrees
 CLAUDE.md
 docs/superpowers/
+.superpowers/

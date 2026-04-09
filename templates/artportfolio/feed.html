@@ -76,10 +76,7 @@ function onComposerResponse(evt) {
 </script>
 {% endif %}
 
-<div id="feed"
-     hx-get="/artportfolio/htmx/posts?page=0"
-     hx-trigger="load"
-     hx-swap="innerHTML">
-  <p>Loading...</p>
+<div id="feed">
+  {{ initial_posts_html|safe }}
 </div>
 {% endblock %}

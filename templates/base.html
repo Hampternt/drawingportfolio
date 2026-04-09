@@ -4,13 +4,17 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{% block title %}Portfolio{% endblock %}</title>
+  <!-- Pre-warm TLS connection to image CDN so first image loads faster -->
+  <link rel="preconnect" href="https://portfolio-images.hel1.your-objectstorage.com" crossorigin>
+  <link rel="dns-prefetch" href="https://portfolio-images.hel1.your-objectstorage.com">
   <link rel="stylesheet" href="/static/style.css">
-  <script src="https://unpkg.com/htmx.org@2.0.4" integrity="sha384-HGfztofotfshcF7+8n44JQL2oJmowVChPTg48S+jvZoztPfvwD79OC/LTtG6dMp+" crossorigin="anonymous"></script>
+  <!-- Self-hosted HTMX — eliminates DNS lookup + TLS handshake to unpkg.com -->
+  <script src="/static/htmx.min.js" defer></script>
   <script>const IS_ADMIN = {% if is_admin %}true{% else %}false{% endif %};</script>
   <script src="/static/palette.js" defer></script>
   {% block head %}{% endblock %}
 </head>
-<body>
+<body hx-boost="true">
   <header>
     <a href="/" class="site-title">Portfolio</a>
     <nav>
