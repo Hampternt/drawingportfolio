@@ -37,7 +37,7 @@ pub fn food_item_card_html(item: &crate::models::FoodItem, is_admin: bool) -> St
     };
     let delete_btn = if is_admin {
         format!(
-            "<button class=\"delete-btn\" hx-delete=\"/api/nutrition/food-items/{}\" \
+            "<button class=\"food-delete-btn\" hx-delete=\"/api/nutrition/food-items/{}\" \
              hx-target=\"#food-library\" hx-swap=\"innerHTML\" \
              hx-confirm=\"Delete this food item?\">×</button>",
             item.id
@@ -65,7 +65,7 @@ pub fn food_item_card_html(item: &crate::models::FoodItem, is_admin: bool) -> St
 pub fn meal_entry_row_html(entry: &crate::models::MealEntryWithFood, date: &str, is_admin: bool) -> String {
     let delete_btn = if is_admin {
         format!(
-            "<button class=\"delete-btn\" hx-delete=\"/api/nutrition/entries/{}?date={}\" \
+            "<button class=\"food-delete-btn\" hx-delete=\"/api/nutrition/entries/{}?date={}\" \
              hx-target=\"#day-section\" hx-swap=\"innerHTML\">×</button>",
             entry.entry_id, html_escape(date)
         )

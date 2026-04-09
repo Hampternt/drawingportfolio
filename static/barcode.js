@@ -37,6 +37,7 @@ async function startBarcodeScanner(formId) {
     }
     barcodeAnimFrame = requestAnimationFrame(detect);
   } catch (err) {
+    document.getElementById('barcode-scanner').hidden = true;
     document.getElementById('scan-status').textContent = 'Camera error: ' + err.message;
   }
 }

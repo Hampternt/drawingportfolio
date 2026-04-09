@@ -21,9 +21,7 @@
     <div class="library-header">
       <h2>Food Library</h2>
       <div class="library-actions">
-        <input type="text" id="library-search" placeholder="Search…"
-               hx-get="/fitness/htmx/search" hx-trigger="input changed delay:300ms"
-               hx-target="#food-library" hx-include="this">
+        <input type="text" id="library-search" placeholder="Search…" oninput="filterLibrary(this.value)">
         <button class="btn-secondary" onclick="toggleAddForm()">+ Add food</button>
         <button class="btn-secondary" id="scan-btn" onclick="startBarcodeScanner('add-food-form')">Scan barcode</button>
       </div>
@@ -85,7 +83,16 @@ const TODAY = "{{ today }}";
 let currentDate = TODAY;
 
 // Date navigation
+function filterLibrary(q) {
+  const term = q.toLowerCase();
+  document.querySelectorAll('#food-library .food-item-card').forEach(card => {
+    const text = card.textContent.toLowerCase();
+    card.style.display = text.includes(term) ? '' : 'none';
+  });
+}
+
 function loadDay(date) {
+  if (!date) return;
   currentDate = date;
   document.getElementById('date-picker').value = date;
   htmx.ajax('GET', '/fitness/htmx/day?date=' + date, {target: '#day-section', swap: 'innerHTML'});

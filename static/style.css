@@ -360,7 +360,7 @@ main {
 .food-brand { font-size: 0.8rem; color: #777; margin-left: 0.25rem; }
 .food-macros { font-size: 0.8rem; color: #555; }
 
-.delete-btn {
+.food-delete-btn {
   background: none;
   border: none;
   cursor: pointer;
@@ -369,7 +369,7 @@ main {
   padding: 0 0.25rem;
   flex-shrink: 0;
 }
-.delete-btn:hover { color: #c00; }
+.food-delete-btn:hover { color: #c00; }
 
 .nutrient-form {
   background: #f9f9f9;
