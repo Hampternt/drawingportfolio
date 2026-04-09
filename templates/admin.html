@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Admin — Portfolio</title>
   <link rel="stylesheet" href="/static/style.css">
-  <script src="https://unpkg.com/htmx.org@2.0.4" integrity="sha384-HGfztofotfshcF7+8n44JQL2oJmowVChPTg48S+jvZoztPfvwD79OC/LTtG6dMp+" crossorigin="anonymous"></script>
+  <script src="/static/htmx.min.js" defer></script>
   <style>
     .admin-form { background: #fff; border: 1px solid #ddd; border-radius: 8px; padding: 1.5rem; margin-bottom: 2rem; }
     .admin-form textarea { width: 100%; min-height: 80px; padding: 0.5rem; margin: 0.5rem 0; font: inherit; border: 1px solid #ccc; border-radius: 4px; }
@@ -27,6 +27,9 @@
     <form action="/api/auth/logout" method="post" style="display:inline">
       <button type="submit">Log out</button>
     </form>
+    <button class="palette-hint" onclick="document.dispatchEvent(new KeyboardEvent('keydown',{key:'k',ctrlKey:true,bubbles:true}))" aria-label="Open command palette">
+      <kbd>Ctrl</kbd><kbd>K</kbd>
+    </button>
   </header>
   <main>
     <section class="admin-form">

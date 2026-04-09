@@ -21,6 +21,9 @@
       <a href="/artportfolio">Drawing Portfolio</a>
       <a href="/fitness">Fitness</a>
     </nav>
+    <button class="palette-hint" onclick="document.dispatchEvent(new KeyboardEvent('keydown',{key:'k',ctrlKey:true,bubbles:true}))" aria-label="Open command palette">
+      <kbd>Ctrl</kbd><kbd>K</kbd>
+    </button>
   </header>
   <main>
     {% block content %}{% endblock %}
