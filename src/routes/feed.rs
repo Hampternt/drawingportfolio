@@ -98,9 +98,21 @@ pub fn post_card_html(post: &Post) -> String {
     } else {
         format!("  <p class=\"caption\">{}</p>\n", html_escape(&post.caption))
     };
+    let avif_source = if !post.avif_url.is_empty() {
+        format!("    <source srcset=\"{}\" type=\"image/avif\">\n", html_escape(&post.avif_url))
+    } else {
+        String::new()
+    };
+    let webp_source = if !post.webp_url.is_empty() {
+        format!("    <source srcset=\"{}\" type=\"image/webp\">\n", html_escape(&post.webp_url))
+    } else {
+        String::new()
+    };
     format!(
         r#"<article class="post-card" id="post-{}">
-  <img src="{}" alt="{}" loading="lazy">
+  <picture>
+{avif_source}{webp_source}    <img src="{}" alt="{}" loading="lazy">
+  </picture>
 {caption_html}  <small class="date">{}</small>
 </article>"#,
         post.id,
@@ -167,7 +179,7 @@ mod tests {
                 .unwrap();
             crate::db::run_migrations(&pool).await;
             for i in 0..21 {
-                crate::db::insert_post(&pool, &format!("caption {i}"), "https://example.com/img.jpg", crate::models::PostFormat::Single.as_str(), 0).await;
+                crate::db::insert_post(&pool, &format!("caption {i}"), "https://example.com/img.jpg", "", "", crate::models::PostFormat::Single.as_str(), 0).await;
             }
             pool
         };
@@ -181,6 +193,8 @@ mod tests {
             id: 2,
             caption: "".to_string(),
             image_url: "https://example.com/img.jpg".to_string(),
+            webp_url: "".to_string(),
+            avif_url: "".to_string(),
             format: "single".to_string(),
             file_size_bytes: 0,
             created_at: "2024-01-01T00:00:00".to_string(),
@@ -195,6 +209,8 @@ mod tests {
             id: 1,
             caption: "<script>alert(1)</script>".to_string(),
             image_url: "https://example.com/img.jpg".to_string(),
+            webp_url: "".to_string(),
+            avif_url: "".to_string(),
             format: crate::models::PostFormat::Single.as_str().to_string(),
             file_size_bytes: 0,
             created_at: "2024-01-01T00:00:00".to_string(),
@@ -202,5 +218,43 @@ mod tests {
         let html = post_card_html(&post);
         assert!(!html.contains("<script>"), "raw script tag should be escaped");
         assert!(html.contains("&lt;script&gt;"));
+    }
+
+    #[test]
+    fn test_post_card_picture_element_with_variants() {
+        let post = crate::models::Post {
+            id: 3,
+            caption: "".to_string(),
+            image_url: "https://example.com/img.jpeg".to_string(),
+            webp_url: "https://example.com/img-webp.webp".to_string(),
+            avif_url: "https://example.com/img-avif.avif".to_string(),
+            format: "single".to_string(),
+            file_size_bytes: 0,
+            created_at: "2024-01-01T00:00:00".to_string(),
+        };
+        let html = post_card_html(&post);
+        assert!(html.contains("<picture>"), "should contain picture element");
+        assert!(html.contains("type=\"image/avif\""), "should contain avif source");
+        assert!(html.contains("type=\"image/webp\""), "should contain webp source");
+        assert!(html.contains("img-avif.avif"), "should reference avif url");
+        assert!(html.contains("img-webp.webp"), "should reference webp url");
+    }
+
+    #[test]
+    fn test_post_card_picture_omits_sources_for_empty_variant_urls() {
+        let post = crate::models::Post {
+            id: 4,
+            caption: "".to_string(),
+            image_url: "https://example.com/img.jpeg".to_string(),
+            webp_url: "".to_string(),
+            avif_url: "".to_string(),
+            format: "single".to_string(),
+            file_size_bytes: 0,
+            created_at: "2024-01-01T00:00:00".to_string(),
+        };
+        let html = post_card_html(&post);
+        assert!(html.contains("<picture>"), "picture element should always be present");
+        assert!(!html.contains("image/avif"), "no avif source for empty url");
+        assert!(!html.contains("image/webp"), "no webp source for empty url");
     }
 }

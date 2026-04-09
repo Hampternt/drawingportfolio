@@ -27,12 +27,6 @@
         <label for="composer-image">Click to browse</label>
         <span id="file-name" class="file-name-hint"></span>
       </div>
-      <div id="compression-opt" hidden>
-        <label class="compression-label">
-          <input type="checkbox" name="keep_original" value="true">
-          Keep original file without compression
-        </label>
-      </div>
       <textarea name="caption" placeholder="Caption (optional)" rows="2"></textarea>
       <div class="composer-actions">
         <button type="submit" class="btn-primary">Upload</button>
@@ -43,9 +37,6 @@
 </div>
 
 <script>
-// Must match MAX_COMPRESS_BYTES in src/routes/admin.rs
-const COMPRESS_THRESHOLD = 4 * 1024 * 1024;
-
 function toggleComposer() {
   const composer = document.getElementById('composer');
   const btn = document.getElementById('new-post-btn');
@@ -56,21 +47,18 @@ function toggleComposer() {
     // Reset state when closing so next open starts clean
     document.getElementById('composer-form').reset();
     document.getElementById('file-name').textContent = '';
-    document.getElementById('compression-opt').hidden = true;
   }
 }
 
 function onFileSelect(input) {
   const file = input.files[0];
   document.getElementById('file-name').textContent = file ? file.name : '';
-  document.getElementById('compression-opt').hidden = !(file && file.size > COMPRESS_THRESHOLD);
 }
 
 function onComposerResponse(evt) {
   if (evt.detail.successful) {
     document.getElementById('composer-form').reset();
     document.getElementById('file-name').textContent = '';
-    document.getElementById('compression-opt').hidden = true;
   }
 }
 </script>

@@ -30,12 +30,17 @@ pub async fn run_migrations(pool: &DbPool) {
     let _ = sqlx::query(include_str!("../migrations/003_nutrition.sql"))
         .execute(pool)
         .await;
+
+    // Migration 004: image variant URLs (webp_url, avif_url)
+    let _ = sqlx::query(include_str!("../migrations/004_add_image_variants.sql"))
+        .execute(pool)
+        .await;
 }
 
 pub async fn get_posts(pool: &DbPool, page: i64) -> Vec<Post> {
     let offset = page * 20;
     sqlx::query_as!(Post,
-        "SELECT id, caption, image_url, format, file_size_bytes, created_at FROM posts ORDER BY created_at DESC LIMIT 21 OFFSET ?",
+        "SELECT id, caption, image_url, webp_url, avif_url, format, file_size_bytes, created_at FROM posts ORDER BY created_at DESC LIMIT 21 OFFSET ?",
         offset
     )
     .fetch_all(pool)
@@ -43,10 +48,18 @@ pub async fn get_posts(pool: &DbPool, page: i64) -> Vec<Post> {
     .unwrap_or_default()
 }
 
-pub async fn insert_post(pool: &DbPool, caption: &str, image_url: &str, format: &str, file_size_bytes: i64) -> Post {
+pub async fn insert_post(
+    pool: &DbPool,
+    caption: &str,
+    image_url: &str,
+    webp_url: &str,
+    avif_url: &str,
+    format: &str,
+    file_size_bytes: i64,
+) -> Post {
     let id = sqlx::query!(
-        "INSERT INTO posts (caption, image_url, format, file_size_bytes) VALUES (?, ?, ?, ?) RETURNING id",
-        caption, image_url, format, file_size_bytes
+        "INSERT INTO posts (caption, image_url, webp_url, avif_url, format, file_size_bytes) VALUES (?, ?, ?, ?, ?, ?) RETURNING id",
+        caption, image_url, webp_url, avif_url, format, file_size_bytes
     )
     .fetch_one(pool)
     .await
@@ -54,17 +67,23 @@ pub async fn insert_post(pool: &DbPool, caption: &str, image_url: &str, format: 
     .id;
 
     sqlx::query_as!(Post,
-        "SELECT id, caption, image_url, format, file_size_bytes, created_at FROM posts WHERE id = ?", id
+        "SELECT id, caption, image_url, webp_url, avif_url, format, file_size_bytes, created_at FROM posts WHERE id = ?", id
     )
     .fetch_one(pool)
     .await
     .expect("failed to fetch inserted post")
 }
 
-pub async fn delete_post_and_get_url(pool: &DbPool, id: i64) -> Option<String> {
+pub struct PostUrls {
+    pub image_url: String,
+    pub webp_url: String,
+    pub avif_url: String,
+}
+
+pub async fn delete_post_and_get_urls(pool: &DbPool, id: i64) -> Option<PostUrls> {
     let mut tx = pool.begin().await.ok()?;
 
-    let row = sqlx::query!("SELECT image_url FROM posts WHERE id = ?", id)
+    let row = sqlx::query!("SELECT image_url, webp_url, avif_url FROM posts WHERE id = ?", id)
         .fetch_optional(&mut *tx)
         .await
         .ok()
@@ -76,7 +95,11 @@ pub async fn delete_post_and_get_url(pool: &DbPool, id: i64) -> Option<String> {
             .await
             .ok();
         tx.commit().await.ok();
-        Some(r.image_url)
+        Some(PostUrls {
+            image_url: r.image_url,
+            webp_url: r.webp_url,
+            avif_url: r.avif_url,
+        })
     } else {
         tx.rollback().await.ok();
         None
@@ -330,7 +353,7 @@ mod tests {
     #[tokio::test]
     async fn test_insert_and_get_post() {
         let pool = test_pool().await;
-        let post = insert_post(&pool, "test caption", "https://example.com/img.jpg", crate::models::PostFormat::Single.as_str(), 0).await;
+        let post = insert_post(&pool, "test caption", "https://example.com/img.jpg", "", "", crate::models::PostFormat::Single.as_str(), 0).await;
         assert_eq!(post.caption, "test caption");
         let posts = get_posts(&pool, 0).await;
         assert_eq!(posts.len(), 1);
@@ -340,9 +363,13 @@ mod tests {
     #[tokio::test]
     async fn test_delete_post() {
         let pool = test_pool().await;
-        let post = insert_post(&pool, "to delete", "https://example.com/img.jpg", crate::models::PostFormat::Single.as_str(), 0).await;
-        let url = delete_post_and_get_url(&pool, post.id).await;
-        assert_eq!(url, Some("https://example.com/img.jpg".to_string()));
+        let post = insert_post(&pool, "to delete", "https://example.com/img.jpg", "https://example.com/img-webp.webp", "https://example.com/img-avif.avif", crate::models::PostFormat::Single.as_str(), 0).await;
+        let urls = delete_post_and_get_urls(&pool, post.id).await;
+        assert!(urls.is_some());
+        let urls = urls.unwrap();
+        assert_eq!(urls.image_url, "https://example.com/img.jpg");
+        assert_eq!(urls.webp_url, "https://example.com/img-webp.webp");
+        assert_eq!(urls.avif_url, "https://example.com/img-avif.avif");
         assert!(get_posts(&pool, 0).await.is_empty());
     }
 
@@ -376,7 +403,7 @@ mod tests {
     #[tokio::test]
     async fn test_delete_nonexistent_post_returns_none() {
         let pool = test_pool().await;
-        let result = delete_post_and_get_url(&pool, 99999).await;
+        let result = delete_post_and_get_urls(&pool, 99999).await;
         assert!(result.is_none());
     }
 
@@ -384,7 +411,7 @@ mod tests {
     async fn test_insert_post_stores_format_and_filesize() {
         let pool = test_pool().await;
         let fmt = crate::models::PostFormat::Single.as_str();
-        let post = insert_post(&pool, "hello", "https://example.com/img.jpg", fmt, 12345).await;
+        let post = insert_post(&pool, "hello", "https://example.com/img.jpg", "", "", fmt, 12345).await;
         assert_eq!(post.format, "single");
         assert_eq!(post.file_size_bytes, 12345);
     }
@@ -393,7 +420,7 @@ mod tests {
     async fn test_insert_post_empty_caption() {
         let pool = test_pool().await;
         let fmt = crate::models::PostFormat::Single.as_str();
-        let post = insert_post(&pool, "", "https://example.com/img.jpg", fmt, 0).await;
+        let post = insert_post(&pool, "", "https://example.com/img.jpg", "", "", fmt, 0).await;
         assert_eq!(post.caption, "");
     }
 

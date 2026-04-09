@@ -23,11 +23,29 @@ jobs:
             target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
+      - name: Prepare database for sqlx
+        run: |
+          python3 -c "
+          import sqlite3, pathlib
+          db = sqlite3.connect('ci.db')
+          for m in sorted(pathlib.Path('migrations').glob('*.sql')):
+              for s in m.read_text().split(';'):
+                  s = s.strip()
+                  if s:
+                      try: db.execute(s)
+                      except: pass
+          db.commit()
+          "
+
       - name: Test
-        run: SQLX_OFFLINE=true cargo test
+        env:
+          DATABASE_URL: sqlite:./ci.db
+        run: cargo test
 
       - name: Build
-        run: SQLX_OFFLINE=true cargo build --release
+        env:
+          DATABASE_URL: sqlite:./ci.db
+        run: cargo build --release
 
       - name: Deploy to server
         env:

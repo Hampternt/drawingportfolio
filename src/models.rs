@@ -5,6 +5,8 @@ pub struct Post {
     pub id: i64,
     pub caption: String,
     pub image_url: String,
+    pub webp_url: String,
+    pub avif_url: String,
     pub format: String,
     pub file_size_bytes: i64,
     pub created_at: String,

@@ -10,15 +10,39 @@ use std::sync::Arc;
 use crate::AppState;
 
 const MAX_IMAGE_BYTES: usize = 35 * 1024 * 1024; // 35 MB
-const MAX_COMPRESS_BYTES: usize = 4 * 1024 * 1024; // 4 MB threshold for auto-compression
 
-fn compress_to_webp(bytes: &[u8]) -> Result<Vec<u8>, String> {
-    let img = image::load_from_memory(bytes)
-        .map_err(|e| format!("decode failed: {e}"))?;
-    let mut buf = std::io::Cursor::new(Vec::new());
-    img.write_to(&mut buf, image::ImageFormat::WebP)
-        .map_err(|e| format!("encode failed: {e}"))?;
-    Ok(buf.into_inner())
+async fn encode_as_webp(bytes: Vec<u8>) -> Result<Vec<u8>, String> {
+    tokio::task::spawn_blocking(move || {
+        let img = image::load_from_memory(&bytes)
+            .map_err(|e| format!("decode failed: {e}"))?;
+        let mut buf = std::io::Cursor::new(Vec::new());
+        img.write_to(&mut buf, image::ImageFormat::WebP)
+            .map_err(|e| format!("webp encode failed: {e}"))?;
+        Ok(buf.into_inner())
+    })
+    .await
+    .map_err(|e| format!("spawn_blocking panicked: {e}"))?
+}
+
+async fn encode_as_avif(bytes: Vec<u8>) -> Result<Vec<u8>, String> {
+    tokio::task::spawn_blocking(move || {
+        let img = image::load_from_memory(&bytes)
+            .map_err(|e| format!("decode failed: {e}"))?;
+        let rgba = img.to_rgba8();
+        let (width, height) = rgba.dimensions();
+        let pixels: Vec<rgb::RGBA8> = rgba
+            .pixels()
+            .map(|p| rgb::RGBA8 { r: p[0], g: p[1], b: p[2], a: p[3] })
+            .collect();
+        let encoded = ravif::Encoder::new()
+            .with_quality(80.0)
+            .with_speed(6)
+            .encode_rgba(ravif::Img::new(&pixels, width as usize, height as usize))
+            .map_err(|e| format!("avif encode failed: {e}"))?;
+        Ok(encoded.avif_file)
+    })
+    .await
+    .map_err(|e| format!("spawn_blocking panicked: {e}"))?
 }
 
 #[derive(Template)]
@@ -51,8 +75,7 @@ async fn upload_post(
     mut multipart: Multipart,
 ) -> impl IntoResponse {
     let mut caption = None::<String>;
-    let mut image_data = None::<(Vec<u8>, String)>;
-    let mut keep_original = false;
+    let mut image_data = None::<(Vec<u8>, String, &'static str)>; // (bytes, content_type, ext)
     let mut post_format = crate::models::PostFormat::Single.as_str().to_string();
     let mut source = "admin".to_string();
 
@@ -60,13 +83,6 @@ async fn upload_post(
         match field.name() {
             Some("caption") => {
                 caption = field.text().await.ok();
-            }
-            Some("keep_original") => {
-                // Accept "true", "1", and "on" (HTML checkbox default)
-                keep_original = matches!(
-                    field.text().await.ok().as_deref(),
-                    Some("true") | Some("1") | Some("on")
-                );
             }
             Some("format") => {
                 if let Ok(v) = field.text().await { post_format = v; }
@@ -99,39 +115,37 @@ async fn upload_post(
                     None => return (StatusCode::BAD_REQUEST, Html("Invalid image file".to_string())).into_response(),
                 };
 
-                image_data = Some((bytes.to_vec(), format!("image/{ext}")));
+                image_data = Some((bytes.to_vec(), format!("image/{ext}"), ext));
             }
             _ => {}
         }
     }
 
     let caption = caption.unwrap_or_default();
-    let (bytes, content_type) = match image_data {
+    let (bytes, content_type, ext) = match image_data {
         Some(d) => d,
         None => return (StatusCode::BAD_REQUEST, Html("Missing image".to_string())).into_response(),
     };
 
-    // Compress if above threshold and user did not opt out
-    let (final_bytes, final_content_type) = if !keep_original && bytes.len() > MAX_COMPRESS_BYTES {
-        match compress_to_webp(&bytes) {
-            Ok(webp) => {
-                tracing::info!("compressed {} bytes -> {} bytes as webp", bytes.len(), webp.len());
-                (webp, "image/webp".to_string())
-            }
-            Err(e) => {
-                tracing::warn!("compression failed, storing original: {e}");
-                (bytes, content_type)
-            }
-        }
-    } else {
-        (bytes, content_type)
-    };
+    // Generate WebP and AVIF variants concurrently; both encode in a spawn_blocking thread
+    // so they don't block the async executor. Failures are non-fatal — the post will still
+    // be created, but those variant URLs will be empty (graceful fallback in <picture>).
+    let (webp_result, avif_result) = tokio::join!(
+        encode_as_webp(bytes.clone()),
+        encode_as_avif(bytes.clone()),
+    );
 
-    let file_size_bytes = final_bytes.len() as i64;
-    let ext = final_content_type.split('/').last().unwrap_or("jpg");
-    let key = format!("{}.{}", uuid::Uuid::new_v4(), ext);
+    let webp_bytes = webp_result.unwrap_or_else(|e| { tracing::warn!("webp encode failed: {e}"); Vec::new() });
+    let avif_bytes = avif_result.unwrap_or_else(|e| { tracing::warn!("avif encode failed: {e}"); Vec::new() });
 
-    let image_url = match state.storage.upload(&key, final_bytes, &final_content_type).await {
+    let file_size_bytes = bytes.len() as i64;
+    let uuid = uuid::Uuid::new_v4().to_string();
+    // Suffix variants with -webp/-avif to avoid collision when original ext is also .webp
+    let original_key = format!("{uuid}.{ext}");
+    let webp_key     = format!("{uuid}-webp.webp");
+    let avif_key     = format!("{uuid}-avif.avif");
+
+    let image_url = match state.storage.upload(&original_key, bytes, &content_type).await {
         Ok(url) => url,
         Err(e) => {
             tracing::error!("storage upload error: {e}");
@@ -139,10 +153,24 @@ async fn upload_post(
         }
     };
 
+    let webp_url = if !webp_bytes.is_empty() {
+        state.storage.upload(&webp_key, webp_bytes, "image/webp").await
+            .unwrap_or_else(|e| { tracing::error!("webp upload failed: {e}"); String::new() })
+    } else {
+        String::new()
+    };
+
+    let avif_url = if !avif_bytes.is_empty() {
+        state.storage.upload(&avif_key, avif_bytes, "image/avif").await
+            .unwrap_or_else(|e| { tracing::error!("avif upload failed: {e}"); String::new() })
+    } else {
+        String::new()
+    };
+
     let post = crate::db::insert_post(
-        &state.pool, caption.trim(), &image_url, &post_format, file_size_bytes,
+        &state.pool, caption.trim(), &image_url, &webp_url, &avif_url, &post_format, file_size_bytes,
     ).await;
-    tracing::info!("post created: id={}, key={key}, size={file_size_bytes} bytes, format={post_format}", post.id);
+    tracing::info!("post created: id={}, key={original_key}, size={file_size_bytes} bytes, format={post_format}", post.id);
 
     let card_html = if source == "gallery" {
         crate::routes::feed::post_card_html(&post)
@@ -157,10 +185,13 @@ async fn delete_post(
     State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
 ) -> impl IntoResponse {
-    if let Some(image_url) = crate::db::delete_post_and_get_url(&state.pool, id).await {
+    if let Some(urls) = crate::db::delete_post_and_get_urls(&state.pool, id).await {
         tracing::info!("deleting post id={id}");
-        if let Err(e) = state.storage.delete_by_url(&image_url).await {
-            tracing::error!("storage delete failed for post id={id}: {e}");
+        for url in [&urls.image_url, &urls.webp_url, &urls.avif_url] {
+            if url.is_empty() { continue; } // old posts may have no variants
+            if let Err(e) = state.storage.delete_by_url(url).await {
+                tracing::error!("storage delete failed for post id={id} url={url}: {e}");
+            }
         }
     } else {
         tracing::warn!("delete requested for nonexistent post id={id}");
@@ -181,9 +212,21 @@ fn admin_post_card_html(post: &crate::models::Post) -> String {
     } else {
         format!("    <p>{}</p>\n", html_escape(&post.caption))
     };
+    let avif_source = if !post.avif_url.is_empty() {
+        format!("    <source srcset=\"{}\" type=\"image/avif\">\n", html_escape(&post.avif_url))
+    } else {
+        String::new()
+    };
+    let webp_source = if !post.webp_url.is_empty() {
+        format!("    <source srcset=\"{}\" type=\"image/webp\">\n", html_escape(&post.webp_url))
+    } else {
+        String::new()
+    };
     format!(
         r##"<div class="admin-post" id="admin-post-{}">
-  <img src="{}" alt="">
+  <picture>
+{avif_source}{webp_source}    <img src="{}" alt="">
+  </picture>
   <div class="info">
 {caption_html}    <small>{}</small>
   </div>
@@ -222,6 +265,21 @@ pub fn router() -> Router<Arc<AppState>> {
 mod tests {
     use super::*;
 
+    // Minimal valid 1x1 red PNG (generated with correct CRCs)
+    fn test_png() -> Vec<u8> {
+        vec![
+            0x89,0x50,0x4E,0x47,0x0D,0x0A,0x1A,0x0A,
+            0x00,0x00,0x00,0x0D,0x49,0x48,0x44,0x52,
+            0x00,0x00,0x00,0x01,0x00,0x00,0x00,0x01,
+            0x08,0x02,0x00,0x00,0x00,0x90,0x77,0x53,0xDE,
+            0x00,0x00,0x00,0x0C,0x49,0x44,0x41,0x54,
+            0x78,0x9C,0x63,0xF8,0xCF,0xC0,0x00,0x00,
+            0x03,0x01,0x01,0x00,0xC9,0xFE,0x92,0xEF,
+            0x00,0x00,0x00,0x00,0x49,0x45,0x4E,0x44,
+            0xAE,0x42,0x60,0x82,
+        ]
+    }
+
     #[test]
     fn test_magic_bytes_jpeg() {
         let jpeg = vec![0xFF, 0xD8, 0xFF, 0xE0];
@@ -255,22 +313,20 @@ mod tests {
         assert_eq!(html_escape("\"quoted\""), "&quot;quoted&quot;");
     }
 
-    #[test]
-    fn test_compress_to_webp_returns_webp_bytes() {
-        // Minimal valid 1x1 red PNG (generated with correct CRCs)
-        let png: Vec<u8> = vec![
-            0x89,0x50,0x4E,0x47,0x0D,0x0A,0x1A,0x0A,
-            0x00,0x00,0x00,0x0D,0x49,0x48,0x44,0x52,
-            0x00,0x00,0x00,0x01,0x00,0x00,0x00,0x01,
-            0x08,0x02,0x00,0x00,0x00,0x90,0x77,0x53,0xDE,
-            0x00,0x00,0x00,0x0C,0x49,0x44,0x41,0x54,
-            0x78,0x9C,0x63,0xF8,0xCF,0xC0,0x00,0x00,
-            0x03,0x01,0x01,0x00,0xC9,0xFE,0x92,0xEF,
-            0x00,0x00,0x00,0x00,0x49,0x45,0x4E,0x44,
-            0xAE,0x42,0x60,0x82,
-        ];
-        let result = compress_to_webp(&png);
-        assert!(result.is_ok(), "compression should succeed: {:?}", result.err());
+    #[tokio::test]
+    async fn test_encode_as_webp_returns_webp_bytes() {
+        let result = encode_as_webp(test_png()).await;
+        assert!(result.is_ok(), "encode should succeed: {:?}", result.err());
         assert_eq!(&result.unwrap()[0..4], b"RIFF", "output should be a WebP (RIFF) file");
+    }
+
+    #[tokio::test]
+    async fn test_encode_as_avif_returns_nonempty_bytes() {
+        let result = encode_as_avif(test_png()).await;
+        assert!(result.is_ok(), "avif encode should succeed: {:?}", result.err());
+        let bytes = result.unwrap();
+        assert!(!bytes.is_empty());
+        // AVIF is an ISOBMFF container; bytes 4..8 are the 'ftyp' box type
+        assert_eq!(&bytes[4..8], b"ftyp", "output should be an AVIF/ISOBMFF file");
     }
 }

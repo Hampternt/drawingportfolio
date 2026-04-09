@@ -1,5 +1,7 @@
 /target
 .env
+.sqlx/
+ci.db
 portfolio.db
 portfolio.db-shm
 portfolio.db-wal
