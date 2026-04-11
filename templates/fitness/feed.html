@@ -48,6 +48,7 @@
         <label>Sat. fat/100g<input type="number" name="saturated_fat" step="0.1" min="0" value="0"></label>
       </div>
       <label class="package-size-label">Package / total size (g)<input type="number" name="package_size" id="package-size-field" step="0.1" min="0" placeholder="e.g. 565"></label>
+      <label class="package-size-label">Custom portions (g, comma-separated)<input type="text" name="custom_portions" placeholder="e.g. 125, 250, 375"></label>
       {% if is_admin %}
       <label class="file-label">Image <input type="file" name="image" accept="image/jpeg,image/png,image/webp"></label>
       {% endif %}
@@ -129,16 +130,36 @@ function onFoodSelect(select) {
   const gramsInput = form.querySelector('[name="grams"]');
   const opt = select.options[select.selectedIndex];
   const pkg = opt ? opt.dataset.packageSize : null;
+  const customPortions = opt ? (opt.dataset.customPortions || '') : '';
+  const hasPkg = pkg && parseFloat(pkg) > 0;
+  const hasCustom = customPortions.trim().length > 0;
 
-  if (pkg && parseFloat(pkg) > 0) {
+  // Rebuild portion options
+  portionSelect.innerHTML = '<option value="custom">Custom</option>';
+  if (hasPkg) {
+    const p = parseFloat(pkg);
+    portionSelect.innerHTML +=
+      '<option value="1">Full (' + p + 'g)</option>' +
+      '<option value="0.5">Half (' + Math.round(p * 0.5 * 10) / 10 + 'g)</option>' +
+      '<option value="0.25">Quarter (' + Math.round(p * 0.25 * 10) / 10 + 'g)</option>' +
+      '<option value="0.125">Eighth (' + Math.round(p * 0.125 * 10) / 10 + 'g)</option>';
+  }
+  if (hasCustom) {
+    customPortions.split(',').forEach(function(s) {
+      var g = parseFloat(s.trim());
+      if (g > 0) {
+        portionSelect.innerHTML += '<option value="cp:' + g + '">' + g + 'g</option>';
+      }
+    });
+  }
+
+  if (hasPkg || hasCustom) {
     portionSelect.disabled = false;
-    portionSelect.value = 'custom';
-    gramsInput.readOnly = false;
   } else {
     portionSelect.disabled = true;
-    portionSelect.value = 'custom';
-    gramsInput.readOnly = false;
   }
+  portionSelect.value = 'custom';
+  gramsInput.readOnly = false;
 }
 
 function onPortionChange(select) {
@@ -147,13 +168,16 @@ function onPortionChange(select) {
   const gramsInput = form.querySelector('[name="grams"]');
   const opt = foodSelect.options[foodSelect.selectedIndex];
   const pkg = opt ? parseFloat(opt.dataset.packageSize) : 0;
-  const fraction = select.value;
+  const val = select.value;
 
-  if (fraction === 'custom') {
+  if (val === 'custom') {
     gramsInput.readOnly = false;
     gramsInput.focus();
+  } else if (val.startsWith('cp:')) {
+    gramsInput.value = parseFloat(val.slice(3));
+    gramsInput.readOnly = true;
   } else if (pkg > 0) {
-    const grams = Math.round(pkg * parseFloat(fraction) * 10) / 10;
+    var grams = Math.round(pkg * parseFloat(val) * 10) / 10;
     gramsInput.value = grams;
     gramsInput.readOnly = true;
   }

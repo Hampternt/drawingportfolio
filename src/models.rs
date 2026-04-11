@@ -65,6 +65,7 @@ pub struct FoodItem {
     pub sodium: f64,
     pub saturated_fat: f64,
     pub package_size: Option<f64>,
+    pub custom_portions: String,
     pub image_url: String,
     pub created_at: String,
 }

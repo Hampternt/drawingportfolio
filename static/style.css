@@ -465,3 +465,8 @@ main {
 .portion-select:disabled { opacity: 0.4; cursor: not-allowed; }
 .package-size-label { display: block; font-size: 0.85rem; color: #555; margin: 0.5rem 0; }
 .package-size-label input { display: block; width: 100%; box-sizing: border-box; margin-top: 0.2rem; padding: 0.35rem 0.5rem; border: 1px solid #ddd; border-radius: 4px; }
+.food-admin-btns { display: flex; gap: 0.25rem; align-items: center; flex-shrink: 0; }
+.food-edit-btn { background: none; border: 1px solid #ddd; border-radius: 4px; cursor: pointer; color: #555; font-size: 0.75rem; padding: 0.15rem 0.4rem; }
+.food-edit-btn:hover { border-color: #888; color: #333; }
+.food-item-card.editing { display: block; }
+.edit-food-form { margin: 0; }
