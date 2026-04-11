@@ -10,6 +10,7 @@
   <link rel="stylesheet" href="/static/style.css">
   <!-- Self-hosted HTMX — eliminates DNS lookup + TLS handshake to unpkg.com -->
   <script src="/static/htmx.min.js" defer></script>
+  <script src="/static/htmx-ext-preload.js" defer></script>
   <script>const IS_ADMIN = {% if is_admin %}true{% else %}false{% endif %};</script>
   <script src="/static/palette.js" defer></script>
   {% block head %}{% endblock %}

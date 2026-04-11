@@ -158,7 +158,7 @@ async fn upload_post(
     });
 
     let card_html = if source == "gallery" {
-        crate::routes::feed::post_card_html(&post)
+        crate::routes::feed::post_card_html(&post, false)
     } else {
         admin_post_card_html(&post)
     };

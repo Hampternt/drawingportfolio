@@ -58,15 +58,17 @@ fn render_posts_html(posts: &[Post], has_more: bool, next_page: i64) -> String {
         return r#"<div class="empty-state"><p>No posts yet.</p></div>"#.to_string();
     }
     let mut html = String::new();
-    for post in posts {
-        html.push_str(&post_card_html(post));
+    for (i, post) in posts.iter().enumerate() {
+        html.push_str(&post_card_html(post, i == 0));
     }
     if has_more {
         html.push_str(&format!(
             "<div class=\"load-more\" id=\"load-more\">\
               <button hx-get=\"/artportfolio/htmx/posts?page={next_page}\" \
                       hx-target=\"#load-more\" \
-                      hx-swap=\"outerHTML\">\
+                      hx-swap=\"outerHTML\" \
+                      hx-ext=\"preload\" \
+                      preload=\"mousedown\">\
                 Load more\
               </button>\
             </div>"
@@ -92,12 +94,13 @@ async fn api_posts(
     Json(PostsResponse { posts, has_more })
 }
 
-pub fn post_card_html(post: &Post) -> String {
+pub fn post_card_html(post: &Post, is_first: bool) -> String {
     let caption_html = if post.caption.is_empty() {
         String::new()
     } else {
         format!("  <p class=\"caption\">{}</p>\n", html_escape(&post.caption))
     };
+    let loading = if is_first { r#"loading="eager" fetchpriority="high""# } else { r#"loading="lazy""# };
     let avif_source = if !post.avif_url.is_empty() {
         format!("    <source srcset=\"{}\" type=\"image/avif\">\n", html_escape(&post.avif_url))
     } else {
@@ -111,7 +114,7 @@ pub fn post_card_html(post: &Post) -> String {
     format!(
         r#"<article class="post-card" id="post-{}">
   <picture>
-{avif_source}{webp_source}    <img src="{}" alt="{}" loading="lazy">
+{avif_source}{webp_source}    <img src="{}" alt="{}" {loading}>
   </picture>
 {caption_html}  <small class="date">{}</small>
 </article>"#,
@@ -199,7 +202,7 @@ mod tests {
             file_size_bytes: 0,
             created_at: "2024-01-01T00:00:00".to_string(),
         };
-        let html = post_card_html(&post);
+        let html = post_card_html(&post, false);
         assert!(!html.contains("class=\"caption\""), "empty caption must not render p.caption");
     }
 
@@ -215,7 +218,7 @@ mod tests {
             file_size_bytes: 0,
             created_at: "2024-01-01T00:00:00".to_string(),
         };
-        let html = post_card_html(&post);
+        let html = post_card_html(&post, false);
         assert!(!html.contains("<script>"), "raw script tag should be escaped");
         assert!(html.contains("&lt;script&gt;"));
     }
@@ -232,7 +235,7 @@ mod tests {
             file_size_bytes: 0,
             created_at: "2024-01-01T00:00:00".to_string(),
         };
-        let html = post_card_html(&post);
+        let html = post_card_html(&post, false);
         assert!(html.contains("<picture>"), "should contain picture element");
         assert!(html.contains("type=\"image/avif\""), "should contain avif source");
         assert!(html.contains("type=\"image/webp\""), "should contain webp source");
@@ -252,7 +255,7 @@ mod tests {
             file_size_bytes: 0,
             created_at: "2024-01-01T00:00:00".to_string(),
         };
-        let html = post_card_html(&post);
+        let html = post_card_html(&post, false);
         assert!(html.contains("<picture>"), "picture element should always be present");
         assert!(!html.contains("image/avif"), "no avif source for empty url");
         assert!(!html.contains("image/webp"), "no webp source for empty url");
