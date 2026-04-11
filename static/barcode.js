@@ -89,6 +89,9 @@ async function lookupBarcode(barcode, formId) {
     setField(form, 'sugar', roundNutrient(n['sugars_100g'] ?? 0));
     setField(form, 'sodium', roundNutrient((n['sodium_100g'] ?? 0) * 1000)); // convert g to mg
     setField(form, 'saturated_fat', roundNutrient(n['saturated-fat_100g'] ?? 0));
+    // Package size from product quantity (e.g. "565" for a 565g pizza)
+    const pkgSize = parseFloat(p.product_quantity) || parseFloat(p.serving_quantity) || 0;
+    if (pkgSize > 0) setField(form, 'package_size', pkgSize);
     // Image URL (from OpenFoodFacts CDN — safe external URL, not user-generated)
     const imgUrl = p.image_front_url || p.image_url || '';
     const imgField = document.getElementById('image-url-field');

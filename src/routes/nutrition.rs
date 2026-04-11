@@ -35,6 +35,11 @@ pub fn food_item_card_html(item: &crate::models::FoodItem, is_admin: bool) -> St
     } else {
         format!("<span class=\"food-brand\">{}</span>", html_escape(&item.brand))
     };
+    let pkg_html = if let Some(pkg) = item.package_size {
+        format!("<span class=\"food-pkg\">{}g pkg</span>", fmt_nutrient(pkg))
+    } else {
+        String::new()
+    };
     let delete_btn = if is_admin {
         format!(
             "<button class=\"food-delete-btn\" hx-delete=\"/api/nutrition/food-items/{}\" \
@@ -50,7 +55,7 @@ pub fn food_item_card_html(item: &crate::models::FoodItem, is_admin: bool) -> St
   {}
   <div class="food-info">
     <strong>{}</strong> {}
-    <span class="food-macros">{} cal · P {}g · C {}g · F {}g</span>
+    <span class="food-macros">{} cal · P {}g · C {}g · F {}g{}</span>
   </div>
   {}
 </li>"#,
@@ -58,6 +63,7 @@ pub fn food_item_card_html(item: &crate::models::FoodItem, is_admin: bool) -> St
         html_escape(&item.name), brand_html,
         fmt_nutrient(item.calories), fmt_nutrient(item.protein),
         fmt_nutrient(item.carbs), fmt_nutrient(item.fat),
+        pkg_html,
         delete_btn
     )
 }
@@ -99,11 +105,19 @@ pub fn day_section_html(entries: &[crate::models::MealEntryWithFood], date: &str
         .join("\n");
 
     let options_html: String = food_items.iter()
-        .map(|fi| format!("<option value=\"{}\">{} {}</option>",
-            fi.id,
-            html_escape(&fi.name),
-            if fi.brand.is_empty() { String::new() } else { format!("({})", html_escape(&fi.brand)) }
-        ))
+        .map(|fi| {
+            let pkg_attr = if let Some(pkg) = fi.package_size {
+                format!(" data-package-size=\"{}\"", pkg)
+            } else {
+                String::new()
+            };
+            format!("<option value=\"{}\"{}>{} {}</option>",
+                fi.id,
+                pkg_attr,
+                html_escape(&fi.name),
+                if fi.brand.is_empty() { String::new() } else { format!("({})", html_escape(&fi.brand)) }
+            )
+        })
         .collect::<Vec<_>>()
         .join("\n");
 
@@ -120,11 +134,18 @@ pub fn day_section_html(entries: &[crate::models::MealEntryWithFood], date: &str
       hx-post="/api/nutrition/entries"
       hx-target="#day-section"
       hx-swap="innerHTML"
-      hx-on::after-request="this.reset()">
+      hx-on::after-request="this.reset(); onFoodSelect(this.querySelector('[name=food_item_id]'))">
   <input type="hidden" name="date" value="{}">
-  <select name="food_item_id" required>
+  <select name="food_item_id" required onchange="onFoodSelect(this)">
     <option value="">— pick food —</option>
 {}
+  </select>
+  <select name="portion" class="portion-select" onchange="onPortionChange(this)" disabled>
+    <option value="custom">Custom</option>
+    <option value="1">Full</option>
+    <option value="0.5">Half</option>
+    <option value="0.25">Quarter</option>
+    <option value="0.125">Eighth</option>
   </select>
   <input type="number" name="grams" value="100" min="1" max="5000" step="0.1" required>
   <span class="grams-label">g</span>
@@ -205,6 +226,7 @@ async fn add_food_item(
     let mut sugar = 0f64;
     let mut sodium = 0f64;
     let mut saturated_fat = 0f64;
+    let mut package_size: Option<f64> = None;
     let mut image_url = String::new();
     let mut image_bytes: Option<Vec<u8>> = None;
 
@@ -225,6 +247,10 @@ async fn add_food_item(
             Some("sugar") => sugar = field.text().await.unwrap_or_default().trim().parse().unwrap_or(0.0),
             Some("sodium") => sodium = field.text().await.unwrap_or_default().trim().parse().unwrap_or(0.0),
             Some("saturated_fat") => saturated_fat = field.text().await.unwrap_or_default().trim().parse().unwrap_or(0.0),
+            Some("package_size") => {
+                let v: f64 = field.text().await.unwrap_or_default().trim().parse().unwrap_or(0.0);
+                if v > 0.0 { package_size = Some(v); }
+            }
             Some("image_url") => image_url = field.text().await.unwrap_or_default().trim().to_string(),
             Some("image") => {
                 let bytes = field.bytes().await.unwrap_or_default();
@@ -264,7 +290,7 @@ async fn add_food_item(
 
     let _item = crate::db::insert_food_item(
         &state.pool, &name, &brand, barcode.as_deref(),
-        calories, protein, carbs, fat, fiber, sugar, sodium, saturated_fat, &image_url,
+        calories, protein, carbs, fat, fiber, sugar, sodium, saturated_fat, package_size, &image_url,
     ).await;
 
     let all_items = crate::db::get_food_items(&state.pool).await;
