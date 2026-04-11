@@ -459,3 +459,9 @@ main {
   margin-bottom: 1rem;
 }
 #manual-barcode input { flex: 1; padding: 0.4rem 0.6rem; border: 1px solid #ddd; border-radius: 4px; }
+
+.food-pkg { margin-left: 0.4rem; color: #888; font-size: 0.8rem; }
+.portion-select { padding: 0.4rem; border: 1px solid #ddd; border-radius: 4px; min-width: 80px; }
+.portion-select:disabled { opacity: 0.4; cursor: not-allowed; }
+.package-size-label { display: block; font-size: 0.85rem; color: #555; margin: 0.5rem 0; }
+.package-size-label input { display: block; width: 100%; box-sizing: border-box; margin-top: 0.2rem; padding: 0.35rem 0.5rem; border: 1px solid #ddd; border-radius: 4px; }

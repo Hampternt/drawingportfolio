@@ -47,6 +47,7 @@
         <label>Sodium/100g (mg)<input type="number" name="sodium" step="0.1" min="0" value="0"></label>
         <label>Sat. fat/100g<input type="number" name="saturated_fat" step="0.1" min="0" value="0"></label>
       </div>
+      <label class="package-size-label">Package / total size (g)<input type="number" name="package_size" id="package-size-field" step="0.1" min="0" placeholder="e.g. 565"></label>
       {% if is_admin %}
       <label class="file-label">Image <input type="file" name="image" accept="image/jpeg,image/png,image/webp"></label>
       {% endif %}
@@ -119,6 +120,43 @@ function toggleAddForm() {
   const form = document.getElementById('add-food-form');
   form.hidden = !form.hidden;
   if (!form.hidden) form.querySelector('[name="name"]').focus();
+}
+
+// Portion selector logic
+function onFoodSelect(select) {
+  const form = select.closest('form');
+  const portionSelect = form.querySelector('[name="portion"]');
+  const gramsInput = form.querySelector('[name="grams"]');
+  const opt = select.options[select.selectedIndex];
+  const pkg = opt ? opt.dataset.packageSize : null;
+
+  if (pkg && parseFloat(pkg) > 0) {
+    portionSelect.disabled = false;
+    portionSelect.value = 'custom';
+    gramsInput.readOnly = false;
+  } else {
+    portionSelect.disabled = true;
+    portionSelect.value = 'custom';
+    gramsInput.readOnly = false;
+  }
+}
+
+function onPortionChange(select) {
+  const form = select.closest('form');
+  const foodSelect = form.querySelector('[name="food_item_id"]');
+  const gramsInput = form.querySelector('[name="grams"]');
+  const opt = foodSelect.options[foodSelect.selectedIndex];
+  const pkg = opt ? parseFloat(opt.dataset.packageSize) : 0;
+  const fraction = select.value;
+
+  if (fraction === 'custom') {
+    gramsInput.readOnly = false;
+    gramsInput.focus();
+  } else if (pkg > 0) {
+    const grams = Math.round(pkg * parseFloat(fraction) * 10) / 10;
+    gramsInput.value = grams;
+    gramsInput.readOnly = true;
+  }
 }
 </script>
 <script src="/static/barcode.js" defer></script>

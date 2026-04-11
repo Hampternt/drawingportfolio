@@ -35,6 +35,11 @@ pub async fn run_migrations(pool: &DbPool) {
     let _ = sqlx::query(include_str!("../migrations/004_add_image_variants.sql"))
         .execute(pool)
         .await;
+
+    // Migration 005: package size for food items
+    let _ = sqlx::query(include_str!("../migrations/005_add_package_size.sql"))
+        .execute(pool)
+        .await;
 }
 
 pub async fn get_posts(pool: &DbPool, page: i64) -> Vec<Post> {
@@ -212,7 +217,7 @@ pub async fn take_challenge(pool: &DbPool, id: &str) -> Option<AuthChallengeStat
 
 pub async fn get_food_items(pool: &DbPool) -> Vec<FoodItem> {
     sqlx::query_as!(FoodItem,
-        "SELECT id, name, brand, barcode, calories, protein, carbs, fat, fiber, sugar, sodium, saturated_fat, image_url, created_at FROM food_items ORDER BY name ASC"
+        "SELECT id, name, brand, barcode, calories, protein, carbs, fat, fiber, sugar, sodium, saturated_fat, package_size, image_url, created_at FROM food_items ORDER BY name ASC"
     )
     .fetch_all(pool)
     .await
@@ -222,7 +227,7 @@ pub async fn get_food_items(pool: &DbPool) -> Vec<FoodItem> {
 pub async fn search_food_items(pool: &DbPool, q: &str) -> Vec<FoodItem> {
     let pattern = format!("%{}%", q);
     sqlx::query_as!(FoodItem,
-        "SELECT id, name, brand, barcode, calories, protein, carbs, fat, fiber, sugar, sodium, saturated_fat, image_url, created_at FROM food_items WHERE name LIKE ? OR brand LIKE ? ORDER BY name ASC LIMIT 20",
+        "SELECT id, name, brand, barcode, calories, protein, carbs, fat, fiber, sugar, sodium, saturated_fat, package_size, image_url, created_at FROM food_items WHERE name LIKE ? OR brand LIKE ? ORDER BY name ASC LIMIT 20",
         pattern, pattern
     )
     .fetch_all(pool)
@@ -243,11 +248,12 @@ pub async fn insert_food_item(
     sugar: f64,
     sodium: f64,
     saturated_fat: f64,
+    package_size: Option<f64>,
     image_url: &str,
 ) -> FoodItem {
     let id = sqlx::query!(
-        "INSERT INTO food_items (name, brand, barcode, calories, protein, carbs, fat, fiber, sugar, sodium, saturated_fat, image_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
-        name, brand, barcode, calories, protein, carbs, fat, fiber, sugar, sodium, saturated_fat, image_url
+        "INSERT INTO food_items (name, brand, barcode, calories, protein, carbs, fat, fiber, sugar, sodium, saturated_fat, package_size, image_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
+        name, brand, barcode, calories, protein, carbs, fat, fiber, sugar, sodium, saturated_fat, package_size, image_url
     )
     .fetch_one(pool)
     .await
@@ -255,7 +261,7 @@ pub async fn insert_food_item(
     .id;
 
     sqlx::query_as!(FoodItem,
-        "SELECT id, name, brand, barcode, calories, protein, carbs, fat, fiber, sugar, sodium, saturated_fat, image_url, created_at FROM food_items WHERE id = ?", id
+        "SELECT id, name, brand, barcode, calories, protein, carbs, fat, fiber, sugar, sodium, saturated_fat, package_size, image_url, created_at FROM food_items WHERE id = ?", id
     )
     .fetch_one(pool)
     .await
@@ -434,7 +440,7 @@ mod tests {
     #[tokio::test]
     async fn test_insert_and_get_food_item() {
         let pool = test_pool().await;
-        let item = insert_food_item(&pool, "Chicken Breast", "Generic", None, 165.0, 31.0, 0.0, 3.6, 0.0, 0.0, 74.0, 1.0, "").await;
+        let item = insert_food_item(&pool, "Chicken Breast", "Generic", None, 165.0, 31.0, 0.0, 3.6, 0.0, 0.0, 74.0, 1.0, None, "").await;
         assert_eq!(item.name, "Chicken Breast");
         assert_eq!(item.calories, 165.0);
         assert!(item.barcode.is_none());
@@ -445,8 +451,8 @@ mod tests {
     #[tokio::test]
     async fn test_search_food_items() {
         let pool = test_pool().await;
-        insert_food_item(&pool, "Chicken Breast", "Generic", None, 165.0, 31.0, 0.0, 3.6, 0.0, 0.0, 74.0, 1.0, "").await;
-        insert_food_item(&pool, "Brown Rice", "Generic", None, 112.0, 2.6, 23.5, 0.9, 1.8, 0.0, 5.0, 0.2, "").await;
+        insert_food_item(&pool, "Chicken Breast", "Generic", None, 165.0, 31.0, 0.0, 3.6, 0.0, 0.0, 74.0, 1.0, None, "").await;
+        insert_food_item(&pool, "Brown Rice", "Generic", None, 112.0, 2.6, 23.5, 0.9, 1.8, 0.0, 5.0, 0.2, None, "").await;
         let results = search_food_items(&pool, "chicken").await;
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].name, "Chicken Breast");
@@ -455,7 +461,7 @@ mod tests {
     #[tokio::test]
     async fn test_delete_food_item() {
         let pool = test_pool().await;
-        let item = insert_food_item(&pool, "Test Item", "", None, 100.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, "https://example.com/img.jpg").await;
+        let item = insert_food_item(&pool, "Test Item", "", None, 100.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, None, "https://example.com/img.jpg").await;
         let url = delete_food_item(&pool, item.id).await;
         assert_eq!(url, Some("https://example.com/img.jpg".to_string()));
         assert!(get_food_items(&pool).await.is_empty());
@@ -464,7 +470,7 @@ mod tests {
     #[tokio::test]
     async fn test_insert_meal_entry_and_get_for_date() {
         let pool = test_pool().await;
-        let item = insert_food_item(&pool, "White Rice", "", None, 130.0, 2.7, 28.6, 0.3, 0.4, 0.0, 1.0, 0.1, "").await;
+        let item = insert_food_item(&pool, "White Rice", "", None, 130.0, 2.7, 28.6, 0.3, 0.4, 0.0, 1.0, 0.1, None, "").await;
         insert_meal_entry(&pool, item.id, "2026-04-09", 200.0).await.unwrap();
         let entries = get_meal_entries_for_date(&pool, "2026-04-09").await;
         assert_eq!(entries.len(), 1);
@@ -476,7 +482,7 @@ mod tests {
     #[tokio::test]
     async fn test_delete_meal_entry() {
         let pool = test_pool().await;
-        let item = insert_food_item(&pool, "Apple", "", None, 52.0, 0.3, 14.0, 0.2, 2.4, 10.0, 1.0, 0.0, "").await;
+        let item = insert_food_item(&pool, "Apple", "", None, 52.0, 0.3, 14.0, 0.2, 2.4, 10.0, 1.0, 0.0, None, "").await;
         let entry_id = insert_meal_entry(&pool, item.id, "2026-04-09", 150.0).await.unwrap();
         delete_meal_entry(&pool, entry_id).await;
         assert!(get_meal_entries_for_date(&pool, "2026-04-09").await.is_empty());
@@ -485,7 +491,7 @@ mod tests {
     #[tokio::test]
     async fn test_meal_entry_wrong_date_not_returned() {
         let pool = test_pool().await;
-        let item = insert_food_item(&pool, "Banana", "", None, 89.0, 1.1, 23.0, 0.3, 2.6, 12.0, 1.0, 0.0, "").await;
+        let item = insert_food_item(&pool, "Banana", "", None, 89.0, 1.1, 23.0, 0.3, 2.6, 12.0, 1.0, 0.0, None, "").await;
         insert_meal_entry(&pool, item.id, "2026-04-08", 100.0).await.unwrap();
         let entries = get_meal_entries_for_date(&pool, "2026-04-09").await;
         assert!(entries.is_empty());
