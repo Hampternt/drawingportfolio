@@ -74,6 +74,13 @@ pub async fn insert_post(
     .expect("failed to fetch inserted post")
 }
 
+pub async fn update_post_avif_url(pool: &DbPool, id: i64, avif_url: &str) -> Result<(), sqlx::Error> {
+    sqlx::query!("UPDATE posts SET avif_url = ? WHERE id = ?", avif_url, id)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
 pub struct PostUrls {
     pub image_url: String,
     pub webp_url: String,

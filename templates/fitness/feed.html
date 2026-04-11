@@ -79,8 +79,8 @@
 </section>
 
 <script>
-const TODAY = "{{ today }}";
-let currentDate = TODAY;
+window.TODAY = "{{ today }}";
+window.currentDate = window.TODAY;
 
 // Date navigation
 function filterLibrary(q) {
@@ -93,26 +93,26 @@ function filterLibrary(q) {
 
 function loadDay(date) {
   if (!date) return;
-  currentDate = date;
+  window.currentDate = date;
   document.getElementById('date-picker').value = date;
   htmx.ajax('GET', '/fitness/htmx/day?date=' + date, {target: '#day-section', swap: 'innerHTML'});
 }
 
-document.getElementById('prev-day').addEventListener('click', () => {
-  const d = new Date(currentDate + 'T00:00:00');
+document.getElementById('prev-day').onclick = () => {
+  const d = new Date(window.currentDate + 'T00:00:00');
   d.setDate(d.getDate() - 1);
   loadDay(d.toISOString().slice(0, 10));
-});
+};
 
-document.getElementById('next-day').addEventListener('click', () => {
-  const d = new Date(currentDate + 'T00:00:00');
+document.getElementById('next-day').onclick = () => {
+  const d = new Date(window.currentDate + 'T00:00:00');
   d.setDate(d.getDate() + 1);
   loadDay(d.toISOString().slice(0, 10));
-});
+};
 
-document.getElementById('date-picker').addEventListener('change', (e) => {
+document.getElementById('date-picker').onchange = (e) => {
   loadDay(e.target.value);
-});
+};
 
 // Add food form toggle
 function toggleAddForm() {

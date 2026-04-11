@@ -36,12 +36,7 @@
   <main>
     <section class="admin-form">
       <h2>New Post</h2>
-      <form id="upload-form"
-            hx-post="/api/admin/posts"
-            hx-encoding="multipart/form-data"
-            hx-target="#posts-list"
-            hx-swap="afterbegin"
-            hx-on::after-request="this.reset()">
+      <form id="upload-form">
         <label>Caption<br>
           <textarea name="caption" placeholder="Caption (optional)"></textarea>
         </label><br>
@@ -62,5 +57,59 @@
       </div>
     </section>
   </main>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  const form = document.getElementById('upload-form');
+  const status = document.getElementById('upload-status');
+  const btn = form.querySelector('button[type=submit]');
+
+  form.addEventListener('submit', async function (e) {
+    e.preventDefault();
+    const fileInput = form.querySelector('input[type=file]');
+    const file = fileInput.files[0];
+    if (!file) return;
+
+    btn.disabled = true;
+    status.textContent = 'Converting…';
+
+    let blob;
+    try {
+      blob = await new Promise((resolve, reject) => {
+        const img = new Image();
+        const url = URL.createObjectURL(file);
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          canvas.width = img.naturalWidth;
+          canvas.height = img.naturalHeight;
+          canvas.getContext('2d').drawImage(img, 0, 0);
+          URL.revokeObjectURL(url);
+          canvas.toBlob(b => b ? resolve(b) : reject(new Error('toBlob failed')), 'image/webp', 0.85);
+        };
+        img.onerror = reject;
+        img.src = url;
+      });
+    } catch (_) {
+      blob = file; // fallback: send original if canvas conversion fails
+    }
+
+    const fd = new FormData(form);
+    fd.set('image', blob, 'image.webp');
+
+    status.textContent = 'Uploading…';
+    try {
+      const resp = await fetch('/api/admin/posts', { method: 'POST', body: fd });
+      if (!resp.ok) { status.textContent = 'Upload failed (' + resp.status + ')'; btn.disabled = false; return; }
+      const html = await resp.text();
+      document.getElementById('posts-list').insertAdjacentHTML('afterbegin', html);
+      form.reset();
+      status.textContent = '';
+    } catch (_) {
+      status.textContent = 'Network error';
+    } finally {
+      btn.disabled = false;
+    }
+  });
+});
+</script>
 </body>
 </html>

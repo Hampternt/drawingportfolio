@@ -11,19 +11,6 @@ use crate::AppState;
 
 const MAX_IMAGE_BYTES: usize = 35 * 1024 * 1024; // 35 MB
 
-async fn encode_as_webp(bytes: Vec<u8>) -> Result<Vec<u8>, String> {
-    tokio::task::spawn_blocking(move || {
-        let img = image::load_from_memory(&bytes)
-            .map_err(|e| format!("decode failed: {e}"))?;
-        let mut buf = std::io::Cursor::new(Vec::new());
-        img.write_to(&mut buf, image::ImageFormat::WebP)
-            .map_err(|e| format!("webp encode failed: {e}"))?;
-        Ok(buf.into_inner())
-    })
-    .await
-    .map_err(|e| format!("spawn_blocking panicked: {e}"))?
-}
-
 async fn encode_as_avif(bytes: Vec<u8>) -> Result<Vec<u8>, String> {
     tokio::task::spawn_blocking(move || {
         let img = image::load_from_memory(&bytes)
@@ -127,23 +114,14 @@ async fn upload_post(
         None => return (StatusCode::BAD_REQUEST, Html("Missing image".to_string())).into_response(),
     };
 
-    // Generate WebP and AVIF variants concurrently; both encode in a spawn_blocking thread
-    // so they don't block the async executor. Failures are non-fatal — the post will still
-    // be created, but those variant URLs will be empty (graceful fallback in <picture>).
-    let (webp_result, avif_result) = tokio::join!(
-        encode_as_webp(bytes.clone()),
-        encode_as_avif(bytes.clone()),
-    );
-
-    let webp_bytes = webp_result.unwrap_or_else(|e| { tracing::warn!("webp encode failed: {e}"); Vec::new() });
-    let avif_bytes = avif_result.unwrap_or_else(|e| { tracing::warn!("avif encode failed: {e}"); Vec::new() });
-
+    // Client sends WebP (converted via canvas); upload original directly and return immediately.
+    // AVIF encoding is detached into a background task — it backfills avif_url after the
+    // response is sent. Failure is non-fatal: avif_url stays empty, <picture> falls back to WebP.
+    let bytes_for_avif = bytes.clone();
     let file_size_bytes = bytes.len() as i64;
     let uuid = uuid::Uuid::new_v4().to_string();
-    // Suffix variants with -webp/-avif to avoid collision when original ext is also .webp
     let original_key = format!("{uuid}.{ext}");
-    let webp_key     = format!("{uuid}-webp.webp");
-    let avif_key     = format!("{uuid}-avif.avif");
+    let avif_key = format!("{uuid}-avif.avif");
 
     let image_url = match state.storage.upload(&original_key, bytes, &content_type).await {
         Ok(url) => url,
@@ -152,25 +130,32 @@ async fn upload_post(
             return (StatusCode::INTERNAL_SERVER_ERROR, Html("Upload failed".to_string())).into_response();
         }
     };
-
-    let webp_url = if !webp_bytes.is_empty() {
-        state.storage.upload(&webp_key, webp_bytes, "image/webp").await
-            .unwrap_or_else(|e| { tracing::error!("webp upload failed: {e}"); String::new() })
-    } else {
-        String::new()
-    };
-
-    let avif_url = if !avif_bytes.is_empty() {
-        state.storage.upload(&avif_key, avif_bytes, "image/avif").await
-            .unwrap_or_else(|e| { tracing::error!("avif upload failed: {e}"); String::new() })
-    } else {
-        String::new()
-    };
+    let webp_url = image_url.clone(); // already WebP from client
 
     let post = crate::db::insert_post(
-        &state.pool, caption.trim(), &image_url, &webp_url, &avif_url, &post_format, file_size_bytes,
+        &state.pool, caption.trim(), &image_url, &webp_url, "", &post_format, file_size_bytes,
     ).await;
     tracing::info!("post created: id={}, key={original_key}, size={file_size_bytes} bytes, format={post_format}", post.id);
+
+    let state_clone = Arc::clone(&state);
+    let post_id = post.id;
+    tokio::spawn(async move {
+        match encode_as_avif(bytes_for_avif).await {
+            Ok(avif_bytes) => {
+                match state_clone.storage.upload(&avif_key, avif_bytes, "image/avif").await {
+                    Ok(avif_url) => {
+                        if let Err(e) = crate::db::update_post_avif_url(&state_clone.pool, post_id, &avif_url).await {
+                            tracing::error!("avif db update failed for post id={post_id}: {e}");
+                        } else {
+                            tracing::info!("avif variant ready for post id={post_id}");
+                        }
+                    }
+                    Err(e) => tracing::error!("avif upload failed for post id={post_id}: {e}"),
+                }
+            }
+            Err(e) => tracing::warn!("avif encode failed for post id={post_id}: {e}"),
+        }
+    });
 
     let card_html = if source == "gallery" {
         crate::routes::feed::post_card_html(&post)
@@ -311,13 +296,6 @@ mod tests {
         assert_eq!(html_escape("a & b"), "a &amp; b");
         assert_eq!(html_escape("<script>"), "&lt;script&gt;");
         assert_eq!(html_escape("\"quoted\""), "&quot;quoted&quot;");
-    }
-
-    #[tokio::test]
-    async fn test_encode_as_webp_returns_webp_bytes() {
-        let result = encode_as_webp(test_png()).await;
-        assert!(result.is_ok(), "encode should succeed: {:?}", result.err());
-        assert_eq!(&result.unwrap()[0..4], b"RIFF", "output should be a WebP (RIFF) file");
     }
 
     #[tokio::test]

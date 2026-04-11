@@ -1,8 +1,8 @@
 // Barcode scanning via native BarcodeDetector API with OpenFoodFacts lookup.
 // Security: all data from external API is set via .value = (not innerHTML).
 
-let barcodeStream = null;
-let barcodeAnimFrame = null;
+window.barcodeStream = null;
+window.barcodeAnimFrame = null;
 
 async function startBarcodeScanner(formId) {
   if (!('BarcodeDetector' in window)) {
