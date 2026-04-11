@@ -66,9 +66,7 @@ fn render_posts_html(posts: &[Post], has_more: bool, next_page: i64) -> String {
             "<div class=\"load-more\" id=\"load-more\">\
               <button hx-get=\"/artportfolio/htmx/posts?page={next_page}\" \
                       hx-target=\"#load-more\" \
-                      hx-swap=\"outerHTML\" \
-                      hx-ext=\"preload\" \
-                      preload=\"mousedown\">\
+                      hx-swap=\"outerHTML\">\
                 Load more\
               </button>\
             </div>"
