@@ -1,11 +1,8 @@
 /target
 .env
-.sqlx/
 ci.db
 portfolio.db
 portfolio.db-shm
 portfolio.db-wal
 .worktrees
-CLAUDE.md
-docs/superpowers/
 .superpowers/

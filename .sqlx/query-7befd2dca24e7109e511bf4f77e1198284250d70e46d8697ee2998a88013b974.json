@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO drawing_tasks (image_id, title, prompt, subject, difficulty, task_type) VALUES (?, ?, ?, ?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 6
+    },
+    "nullable": []
+  },
+  "hash": "7befd2dca24e7109e511bf4f77e1198284250d70e46d8697ee2998a88013b974"
+}

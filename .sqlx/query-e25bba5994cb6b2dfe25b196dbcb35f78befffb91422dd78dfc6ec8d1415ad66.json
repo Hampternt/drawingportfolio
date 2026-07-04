@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO task_images (title, image_url) VALUES (?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "e25bba5994cb6b2dfe25b196dbcb35f78befffb91422dd78dfc6ec8d1415ad66"
+}

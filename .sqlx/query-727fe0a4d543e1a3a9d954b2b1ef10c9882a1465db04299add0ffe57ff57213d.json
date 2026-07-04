@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM auth_challenge_state WHERE expires_at <= datetime('now')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": []
+  },
+  "hash": "727fe0a4d543e1a3a9d954b2b1ef10c9882a1465db04299add0ffe57ff57213d"
+}

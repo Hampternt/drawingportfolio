@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT DISTINCT subject as \"subject!\" FROM drawing_tasks WHERE subject != '' ORDER BY subject ASC",
+  "describe": {
+    "columns": [
+      {
+        "name": "subject!",
+        "ordinal": 0,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "56201ec2968fe4af2900f61348f09e212e2270b84d5f94cffdfd17b9a75e8f5f"
+}

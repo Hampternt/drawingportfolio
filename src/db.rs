@@ -1,6 +1,6 @@
 use sqlx::{SqlitePool, sqlite::{SqlitePoolOptions, SqliteConnectOptions}};
 use std::str::FromStr;
-use crate::models::{Post, Session, PasskeyCredential, AuthChallengeState, FoodItem, MealEntryWithFood};
+use crate::models::{Post, Session, PasskeyCredential, AuthChallengeState, FoodItem, MealEntryWithFood, TaskImage, DrawingTaskWithImage};
 
 pub type DbPool = SqlitePool;
 
@@ -45,6 +45,12 @@ pub async fn run_migrations(pool: &DbPool) {
     let _ = sqlx::query(include_str!("../migrations/006_add_custom_portions.sql"))
         .execute(pool)
         .await;
+
+    // Migration 007: drawing task images and tasks
+    sqlx::query(include_str!("../migrations/007_drawing_tasks.sql"))
+        .execute(pool)
+        .await
+        .expect("failed to run drawing tasks migration");
 }
 
 pub async fn get_posts(pool: &DbPool, page: i64) -> Vec<Post> {
@@ -393,6 +399,173 @@ pub async fn delete_meal_entry(pool: &DbPool, id: i64) {
         .ok();
 }
 
+// ── Drawing tasks ─────────────────────────────────────────────────────────────
+
+/// Filter/sort parameters for the /tasks page. Empty string = "no filter".
+/// `sort` is one of: "newest" (default), "oldest", "easiest", "hardest".
+pub struct TaskFilters {
+    pub subject: String,
+    pub difficulty: String,
+    pub task_type: String,
+    pub sort: String,
+}
+
+pub async fn insert_task_image(pool: &DbPool, title: &str, image_url: &str) {
+    sqlx::query!(
+        "INSERT INTO task_images (title, image_url) VALUES (?, ?)",
+        title, image_url
+    )
+    .execute(pool)
+    .await
+    .expect("failed to insert task image");
+}
+
+pub async fn get_task_images(pool: &DbPool) -> Vec<TaskImage> {
+    sqlx::query_as!(TaskImage,
+        "SELECT id, title, image_url, created_at FROM task_images ORDER BY created_at DESC, id DESC"
+    )
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default()
+}
+
+/// Deletes a reference image and all tasks attached to it, returning the
+/// image URL so the caller can remove the object from S3.
+/// (Tasks are deleted explicitly — SQLite only honours ON DELETE CASCADE
+/// when the foreign_keys pragma is enabled, which we don't rely on.)
+pub async fn delete_task_image(pool: &DbPool, id: i64) -> Option<String> {
+    let mut tx = pool.begin().await.ok()?;
+
+    let row = sqlx::query!("SELECT image_url FROM task_images WHERE id = ?", id)
+        .fetch_optional(&mut *tx)
+        .await
+        .ok()
+        .flatten();
+
+    if let Some(r) = row {
+        sqlx::query!("DELETE FROM drawing_tasks WHERE image_id = ?", id)
+            .execute(&mut *tx)
+            .await
+            .ok();
+        sqlx::query!("DELETE FROM task_images WHERE id = ?", id)
+            .execute(&mut *tx)
+            .await
+            .ok();
+        tx.commit().await.ok();
+        Some(r.image_url)
+    } else {
+        tx.rollback().await.ok();
+        None
+    }
+}
+
+pub async fn insert_drawing_task(
+    pool: &DbPool,
+    image_id: i64,
+    title: &str,
+    prompt: &str,
+    subject: &str,
+    difficulty: &str,
+    task_type: &str,
+) {
+    sqlx::query!(
+        "INSERT INTO drawing_tasks (image_id, title, prompt, subject, difficulty, task_type) VALUES (?, ?, ?, ?, ?, ?)",
+        image_id, title, prompt, subject, difficulty, task_type
+    )
+    .execute(pool)
+    .await
+    .expect("failed to insert drawing task");
+}
+
+pub async fn delete_drawing_task(pool: &DbPool, id: i64) {
+    sqlx::query!("DELETE FROM drawing_tasks WHERE id = ?", id)
+        .execute(pool)
+        .await
+        .ok();
+}
+
+pub async fn toggle_task_completed(pool: &DbPool, id: i64) {
+    sqlx::query!("UPDATE drawing_tasks SET completed = 1 - completed WHERE id = ?", id)
+        .execute(pool)
+        .await
+        .ok();
+}
+
+pub async fn get_tasks_filtered(pool: &DbPool, f: &TaskFilters) -> Vec<DrawingTaskWithImage> {
+    let rows = sqlx::query!(
+        r#"SELECT
+            dt.id as "id!",
+            dt.image_id as "image_id!",
+            dt.title as "title!",
+            dt.prompt as "prompt!",
+            dt.subject as "subject!",
+            dt.difficulty as "difficulty!",
+            dt.task_type as "task_type!",
+            dt.completed as "completed!",
+            dt.created_at as "created_at!",
+            ti.title as "image_title!",
+            ti.image_url as "image_url!"
+        FROM drawing_tasks dt
+        JOIN task_images ti ON ti.id = dt.image_id
+        WHERE (?1 = '' OR dt.subject = ?1)
+          AND (?2 = '' OR dt.difficulty = ?2)
+          AND (?3 = '' OR dt.task_type = ?3)
+        ORDER BY
+            CASE WHEN ?4 = 'easiest' THEN
+                CASE dt.difficulty WHEN 'easy' THEN 0 WHEN 'medium' THEN 1 WHEN 'hard' THEN 2 ELSE 3 END
+            END ASC,
+            CASE WHEN ?4 = 'hardest' THEN
+                CASE dt.difficulty WHEN 'hard' THEN 0 WHEN 'medium' THEN 1 WHEN 'easy' THEN 2 ELSE 3 END
+            END ASC,
+            CASE WHEN ?4 = 'oldest' THEN dt.id END ASC,
+            dt.id DESC"#,
+        f.subject, f.difficulty, f.task_type, f.sort
+    )
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default();
+
+    rows.into_iter().map(|r| DrawingTaskWithImage {
+        id: r.id,
+        image_id: r.image_id,
+        title: r.title,
+        prompt: r.prompt,
+        subject: r.subject,
+        difficulty: r.difficulty,
+        task_type: r.task_type,
+        completed: r.completed != 0,
+        created_at: r.created_at,
+        image_title: r.image_title,
+        image_url: r.image_url,
+    }).collect()
+}
+
+/// Distinct non-empty subjects, for the filter dropdown and admin datalist.
+pub async fn get_task_subjects(pool: &DbPool) -> Vec<String> {
+    sqlx::query!(
+        r#"SELECT DISTINCT subject as "subject!" FROM drawing_tasks WHERE subject != '' ORDER BY subject ASC"#
+    )
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default()
+    .into_iter()
+    .map(|r| r.subject)
+    .collect()
+}
+
+/// Distinct non-empty task types, for the filter dropdown and admin datalist.
+pub async fn get_task_types(pool: &DbPool) -> Vec<String> {
+    sqlx::query!(
+        r#"SELECT DISTINCT task_type as "task_type!" FROM drawing_tasks WHERE task_type != '' ORDER BY task_type ASC"#
+    )
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default()
+    .into_iter()
+    .map(|r| r.task_type)
+    .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -529,6 +702,140 @@ mod tests {
         let entry_id = insert_meal_entry(&pool, item.id, "2026-04-09", 150.0).await.unwrap();
         delete_meal_entry(&pool, entry_id).await;
         assert!(get_meal_entries_for_date(&pool, "2026-04-09").await.is_empty());
+    }
+
+    fn no_filters() -> TaskFilters {
+        TaskFilters {
+            subject: String::new(),
+            difficulty: String::new(),
+            task_type: String::new(),
+            sort: "newest".to_string(),
+        }
+    }
+
+    async fn seed_image(pool: &DbPool) -> i64 {
+        insert_task_image(pool, "Test model", "https://example.com/model.jpg").await;
+        get_task_images(pool).await[0].id
+    }
+
+    #[tokio::test]
+    async fn test_insert_task_and_get() {
+        let pool = test_pool().await;
+        let img_id = seed_image(&pool).await;
+        insert_drawing_task(&pool, img_id, "Draw the hands", "Focus on the hands only", "anatomy", "hard", "focus study").await;
+        let tasks = get_tasks_filtered(&pool, &no_filters()).await;
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0].title, "Draw the hands");
+        assert_eq!(tasks[0].image_url, "https://example.com/model.jpg");
+        assert_eq!(tasks[0].image_title, "Test model");
+        assert!(!tasks[0].completed);
+    }
+
+    #[tokio::test]
+    async fn test_multiple_tasks_on_one_image() {
+        let pool = test_pool().await;
+        let img_id = seed_image(&pool).await;
+        insert_drawing_task(&pool, img_id, "Focus on hands", "", "anatomy", "hard", "focus study").await;
+        insert_drawing_task(&pool, img_id, "Redraw in ink style", "", "style", "medium", "style study").await;
+        insert_drawing_task(&pool, img_id, "Change the lighting", "", "lighting", "easy", "modification").await;
+        let tasks = get_tasks_filtered(&pool, &no_filters()).await;
+        assert_eq!(tasks.len(), 3);
+        assert!(tasks.iter().all(|t| t.image_id == img_id));
+    }
+
+    #[tokio::test]
+    async fn test_task_filters() {
+        let pool = test_pool().await;
+        let img_id = seed_image(&pool).await;
+        insert_drawing_task(&pool, img_id, "A", "", "anatomy", "hard", "focus study").await;
+        insert_drawing_task(&pool, img_id, "B", "", "style", "easy", "style study").await;
+
+        let mut f = no_filters();
+        f.subject = "anatomy".to_string();
+        let tasks = get_tasks_filtered(&pool, &f).await;
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0].title, "A");
+
+        let mut f = no_filters();
+        f.difficulty = "easy".to_string();
+        let tasks = get_tasks_filtered(&pool, &f).await;
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0].title, "B");
+
+        let mut f = no_filters();
+        f.task_type = "style study".to_string();
+        let tasks = get_tasks_filtered(&pool, &f).await;
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0].title, "B");
+    }
+
+    #[tokio::test]
+    async fn test_task_sort_by_difficulty() {
+        let pool = test_pool().await;
+        let img_id = seed_image(&pool).await;
+        insert_drawing_task(&pool, img_id, "hard one", "", "", "hard", "").await;
+        insert_drawing_task(&pool, img_id, "easy one", "", "", "easy", "").await;
+        insert_drawing_task(&pool, img_id, "medium one", "", "", "medium", "").await;
+
+        let mut f = no_filters();
+        f.sort = "easiest".to_string();
+        let tasks = get_tasks_filtered(&pool, &f).await;
+        let difficulties: Vec<&str> = tasks.iter().map(|t| t.difficulty.as_str()).collect();
+        assert_eq!(difficulties, vec!["easy", "medium", "hard"]);
+
+        f.sort = "hardest".to_string();
+        let tasks = get_tasks_filtered(&pool, &f).await;
+        let difficulties: Vec<&str> = tasks.iter().map(|t| t.difficulty.as_str()).collect();
+        assert_eq!(difficulties, vec!["hard", "medium", "easy"]);
+    }
+
+    #[tokio::test]
+    async fn test_toggle_task_completed() {
+        let pool = test_pool().await;
+        let img_id = seed_image(&pool).await;
+        insert_drawing_task(&pool, img_id, "toggle me", "", "", "medium", "").await;
+        let id = get_tasks_filtered(&pool, &no_filters()).await[0].id;
+
+        toggle_task_completed(&pool, id).await;
+        assert!(get_tasks_filtered(&pool, &no_filters()).await[0].completed);
+        toggle_task_completed(&pool, id).await;
+        assert!(!get_tasks_filtered(&pool, &no_filters()).await[0].completed);
+    }
+
+    #[tokio::test]
+    async fn test_delete_task_image_removes_tasks() {
+        let pool = test_pool().await;
+        let img_id = seed_image(&pool).await;
+        insert_drawing_task(&pool, img_id, "orphan-to-be", "", "", "medium", "").await;
+
+        let url = delete_task_image(&pool, img_id).await;
+        assert_eq!(url, Some("https://example.com/model.jpg".to_string()));
+        assert!(get_task_images(&pool).await.is_empty());
+        assert!(get_tasks_filtered(&pool, &no_filters()).await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_delete_drawing_task() {
+        let pool = test_pool().await;
+        let img_id = seed_image(&pool).await;
+        insert_drawing_task(&pool, img_id, "delete me", "", "", "medium", "").await;
+        let id = get_tasks_filtered(&pool, &no_filters()).await[0].id;
+        delete_drawing_task(&pool, id).await;
+        assert!(get_tasks_filtered(&pool, &no_filters()).await.is_empty());
+        // image stays
+        assert_eq!(get_task_images(&pool).await.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_task_filter_options() {
+        let pool = test_pool().await;
+        let img_id = seed_image(&pool).await;
+        insert_drawing_task(&pool, img_id, "A", "", "anatomy", "hard", "focus study").await;
+        insert_drawing_task(&pool, img_id, "B", "", "style", "easy", "style study").await;
+        insert_drawing_task(&pool, img_id, "C", "", "", "easy", "").await;
+
+        assert_eq!(get_task_subjects(&pool).await, vec!["anatomy", "style"]);
+        assert_eq!(get_task_types(&pool).await, vec!["focus study", "style study"]);
     }
 
     #[tokio::test]

@@ -10,6 +10,7 @@
   <link rel="stylesheet" href="/static/style.css">
   <link rel="prefetch" href="/artportfolio">
   <link rel="prefetch" href="/fitness">
+  <link rel="prefetch" href="/tasks">
   <!-- Self-hosted HTMX — eliminates DNS lookup + TLS handshake to unpkg.com -->
   <script src="/static/htmx.min.js" defer></script>
   <script>const IS_ADMIN = {% if is_admin %}true{% else %}false{% endif %};</script>
@@ -21,6 +22,7 @@
     <a href="/" class="site-title">Portfolio</a>
     <nav>
       <a href="/artportfolio">Drawing Portfolio</a>
+      <a href="/tasks">Drawing Tasks</a>
       <a href="/fitness">Fitness</a>
     </nav>
     <button class="palette-hint" onclick="document.dispatchEvent(new KeyboardEvent('keydown',{key:'k',ctrlKey:true,bubbles:true}))" aria-label="Open command palette">

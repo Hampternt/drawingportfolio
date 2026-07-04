@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE drawing_tasks SET completed = 1 - completed WHERE id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "d63287aeb4f8e98ec10127bda1d2d31111f9981b9707c2e5b9012988fd5c27ce"
+}

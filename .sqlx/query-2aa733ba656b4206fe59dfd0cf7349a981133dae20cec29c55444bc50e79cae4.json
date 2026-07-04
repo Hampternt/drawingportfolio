@@ -1,0 +1,62 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT id, caption, image_url, webp_url, avif_url, format, file_size_bytes, created_at FROM posts WHERE id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "id",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "caption",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "image_url",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "webp_url",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "avif_url",
+        "ordinal": 4,
+        "type_info": "Text"
+      },
+      {
+        "name": "format",
+        "ordinal": 5,
+        "type_info": "Text"
+      },
+      {
+        "name": "file_size_bytes",
+        "ordinal": 6,
+        "type_info": "Integer"
+      },
+      {
+        "name": "created_at",
+        "ordinal": 7,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "2aa733ba656b4206fe59dfd0cf7349a981133dae20cec29c55444bc50e79cae4"
+}
