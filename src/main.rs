@@ -13,7 +13,7 @@
 mod db;         // All database queries (SQLite via sqlx)
 mod middleware; // Custom request extractors: AuthSession, OptionalAuth, LocalhostOnly
 mod models;     // Plain data structs that mirror database rows
-mod routes;     // One sub-module per feature area (hub, feed, admin, auth, nutrition)
+mod routes;     // One sub-module per feature area (hub, feed, admin, auth, nutrition, tasks)
 mod storage;    // S3-compatible object storage wrapper (Hetzner)
 
 use std::sync::Arc;
@@ -127,6 +127,7 @@ async fn main() {
         .merge(routes::admin::router())      // GET /admin, POST/DELETE /api/admin/posts
         .merge(routes::auth::router())       // POST /api/auth/... (WebAuthn ceremonies)
         .merge(routes::nutrition::router())  // GET /fitness, POST/DELETE /api/nutrition/...
+        .merge(routes::tasks::router())      // GET /tasks, POST/DELETE /api/tasks/...
         // Serve files from the `static/` directory on disk at the /static URL prefix.
         // Unlike templates (compiled into the binary), these are read from disk at runtime.
         .nest_service("/static", ServeDir::new("static"))

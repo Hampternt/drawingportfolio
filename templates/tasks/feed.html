@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Drawing Tasks{% endblock %}
+
+{% block content %}
+<section class="tasks-page">
+
+  <div class="tasks-intro">
+    <h1>Drawing Tasks</h1>
+    <p>Practice prompts attached to reference images — filter by subject, difficulty and task type, then grind.</p>
+  </div>
+
+  <!-- Board: filter bar + task list (pre-rendered by Rust).
+       Also re-fetches itself when the admin panel fires a refresh-board
+       event via the HX-Trigger response header. -->
+  <div id="task-board"
+       hx-get="/tasks/htmx/board"
+       hx-trigger="refresh-board from:body"
+       hx-include="#task-filters"
+       hx-swap="innerHTML">
+    {{ board_html|safe }}
+  </div>
+
+  {% if is_admin %}
+  <div id="task-admin">
+    {{ admin_html|safe }}
+  </div>
+  {% endif %}
+
+</section>
+{% endblock %}

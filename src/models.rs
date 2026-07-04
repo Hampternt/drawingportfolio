@@ -70,6 +70,33 @@ pub struct FoodItem {
     pub created_at: String,
 }
 
+/// A reference image that drawing tasks are attached to.
+/// One image can have many tasks (different focus, style, modification, …).
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct TaskImage {
+    pub id: i64,
+    pub title: String,
+    pub image_url: String,
+    pub created_at: String,
+}
+
+/// A drawing task joined with its reference image — what the /tasks page lists.
+/// `subject`, `difficulty` and `task_type` are the three filterable axes.
+#[derive(Debug, Clone)]
+pub struct DrawingTaskWithImage {
+    pub id: i64,
+    pub image_id: i64,
+    pub title: String,
+    pub prompt: String,
+    pub subject: String,
+    pub difficulty: String,
+    pub task_type: String,
+    pub completed: bool,
+    pub created_at: String,
+    pub image_title: String,
+    pub image_url: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct MealEntry {
     pub id: i64,
