@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT DISTINCT task_type as \"task_type!\" FROM drawing_tasks WHERE task_type != '' ORDER BY task_type ASC",
+  "describe": {
+    "columns": [
+      {
+        "name": "task_type!",
+        "ordinal": 0,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "7cd71b15cf00a28fbe8597393128a8068600f659a5b9cf996638b9a0a7df4db4"
+}

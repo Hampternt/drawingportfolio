@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT image_url FROM task_images WHERE id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "image_url",
+        "ordinal": 0,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "6f19da634c6fa78c6db9e1002a7ae2cf6e1e9b5c97852c3167dffe06c7c7c025"
+}

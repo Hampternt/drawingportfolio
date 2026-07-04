@@ -1,0 +1,32 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT image_url, webp_url, avif_url FROM posts WHERE id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "image_url",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "webp_url",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "avif_url",
+        "ordinal": 2,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "196139dc9f07b83cecc456b1d5b729d614e0b7deaafdc0ece52c07105890a34f"
+}

@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM drawing_tasks WHERE image_id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "435bac00729c60f7d28c41c35665efbf500ed8c68bc60fb6e78ab7927b1c2b4b"
+}

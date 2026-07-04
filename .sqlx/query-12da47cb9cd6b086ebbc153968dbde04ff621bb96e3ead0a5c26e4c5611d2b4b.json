@@ -1,0 +1,80 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT\n            dt.id as \"id!\",\n            dt.image_id as \"image_id!\",\n            dt.title as \"title!\",\n            dt.prompt as \"prompt!\",\n            dt.subject as \"subject!\",\n            dt.difficulty as \"difficulty!\",\n            dt.task_type as \"task_type!\",\n            dt.completed as \"completed!\",\n            dt.created_at as \"created_at!\",\n            ti.title as \"image_title!\",\n            ti.image_url as \"image_url!\"\n        FROM drawing_tasks dt\n        JOIN task_images ti ON ti.id = dt.image_id\n        WHERE (?1 = '' OR dt.subject = ?1)\n          AND (?2 = '' OR dt.difficulty = ?2)\n          AND (?3 = '' OR dt.task_type = ?3)\n        ORDER BY\n            CASE WHEN ?4 = 'easiest' THEN\n                CASE dt.difficulty WHEN 'easy' THEN 0 WHEN 'medium' THEN 1 WHEN 'hard' THEN 2 ELSE 3 END\n            END ASC,\n            CASE WHEN ?4 = 'hardest' THEN\n                CASE dt.difficulty WHEN 'hard' THEN 0 WHEN 'medium' THEN 1 WHEN 'easy' THEN 2 ELSE 3 END\n            END ASC,\n            CASE WHEN ?4 = 'oldest' THEN dt.id END ASC,\n            dt.id DESC",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "image_id!",
+        "ordinal": 1,
+        "type_info": "Integer"
+      },
+      {
+        "name": "title!",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "prompt!",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "subject!",
+        "ordinal": 4,
+        "type_info": "Text"
+      },
+      {
+        "name": "difficulty!",
+        "ordinal": 5,
+        "type_info": "Text"
+      },
+      {
+        "name": "task_type!",
+        "ordinal": 6,
+        "type_info": "Text"
+      },
+      {
+        "name": "completed!",
+        "ordinal": 7,
+        "type_info": "Integer"
+      },
+      {
+        "name": "created_at!",
+        "ordinal": 8,
+        "type_info": "Text"
+      },
+      {
+        "name": "image_title!",
+        "ordinal": 9,
+        "type_info": "Text"
+      },
+      {
+        "name": "image_url!",
+        "ordinal": 10,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "12da47cb9cd6b086ebbc153968dbde04ff621bb96e3ead0a5c26e4c5611d2b4b"
+}
