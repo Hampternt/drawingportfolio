@@ -292,3 +292,69 @@ async fn test_non_members_cannot_mutate_a_room() {
     let res = post_form(&app, &mallory, &format!("/room/{code}/event"), "kind=drink").await;
     assert_eq!(res.status(), StatusCode::NO_CONTENT);
 }
+
+#[tokio::test]
+async fn test_screen_is_public() {
+    let app = test_app().await;
+    let cookie = login(&app, "alice", "1234").await;
+    let code = create_room(&app, &cookie).await;
+
+    // No cookie at all — spectator view must render.
+    let res = app
+        .oneshot(
+            Request::get(format!("/room/{code}/screen"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let html = body_string(res).await;
+    assert!(html.contains(&code));
+    assert!(html.contains("alice"));
+}
+
+#[tokio::test]
+async fn test_sse_endpoint_streams_event_stream() {
+    use futures::StreamExt; // for .next() on the body data stream
+    let app = test_app().await;
+    let cookie = login(&app, "alice", "1234").await;
+    let code = create_room(&app, &cookie).await;
+
+    let res = app
+        .clone()
+        .oneshot(
+            Request::get(format!("/room/{code}/sse"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    assert!(res.headers()[header::CONTENT_TYPE]
+        .to_str()
+        .unwrap()
+        .starts_with("text/event-stream"));
+    assert_eq!(res.headers()["x-accel-buffering"], "no");
+    // Don't collect the body — it's an infinite stream. Read one frame:
+    let mut body = res.into_body().into_data_stream();
+    let first = body.next().await.unwrap().unwrap();
+    let text = String::from_utf8(first.to_vec()).unwrap();
+    assert!(text.contains("event: leaderboard"));
+    assert!(text.contains("alice"));
+
+    // A mutation while the stream is open pushes a fresh leaderboard frame.
+    let res = post_form(&app, &cookie, &format!("/room/{code}/event"), "kind=drink").await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+    let second = body.next().await.unwrap().unwrap();
+    let text = String::from_utf8(second.to_vec()).unwrap();
+    assert!(text.contains("event: leaderboard"));
+    assert!(text.contains("1 drinks"));
+
+    // Ending the room pushes the terminal "ended" event.
+    let res = post_form(&app, &cookie, &format!("/room/{code}/end"), "").await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+    let third = body.next().await.unwrap().unwrap();
+    let text = String::from_utf8(third.to_vec()).unwrap();
+    assert!(text.contains("event: ended"));
+}

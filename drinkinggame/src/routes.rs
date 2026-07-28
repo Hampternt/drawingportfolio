@@ -4,14 +4,19 @@ use axum::extract::Path;
 use axum::extract::State;
 use axum::http::header;
 use axum::http::StatusCode;
+use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{Html, IntoResponse, Redirect};
 use axum::routing::{get, post};
 use axum::Router;
+use futures::StreamExt;
 use serde::Deserialize;
+use std::convert::Infallible;
+use tokio_stream::wrappers::BroadcastStream;
 
 use crate::auth::{self, OptionalPlayer, PlayerSession};
 use crate::db;
 use crate::error::GameError;
+use crate::hub::RoomMessage;
 use crate::render;
 use crate::rooms;
 use crate::GameState;
@@ -239,6 +244,70 @@ async fn end_room_handler(
     Redirect::to(&format!("{}/", state.base_path)).into_response()
 }
 
+async fn sse_stream(
+    State(state): State<GameState>,
+    Path(code): Path<String>,
+) -> axum::response::Response {
+    let Some(room) = db::get_open_room(&state.pool, &code.to_uppercase()).await else {
+        return GameError::RoomNotFound.into_response();
+    };
+
+    // Subscribe BEFORE rendering the snapshot — no update can slip between.
+    let rx = state.hub.subscribe(room.id);
+    let rows = db::leaderboard(&state.pool, room.id).await;
+    let initial = render::leaderboard_items(&rows);
+
+    let stream = futures::stream::once(async move {
+        Ok::<_, Infallible>(Event::default().event("leaderboard").data(initial))
+    })
+    .chain(BroadcastStream::new(rx).filter_map(|msg| async move {
+        match msg {
+            Ok(RoomMessage::Leaderboard(html)) => {
+                Some(Ok(Event::default().event("leaderboard").data(html)))
+            }
+            Ok(RoomMessage::Ended) => Some(Ok(Event::default().event("ended").data(""))),
+            // Lagged receiver: skip — the next update carries full state anyway.
+            Err(_) => None,
+        }
+    }));
+
+    (
+        // Belt-and-braces alongside nginx's proxy_buffering off.
+        [(header::HeaderName::from_static("x-accel-buffering"), "no")],
+        Sse::new(stream).keep_alive(KeepAlive::default()),
+    )
+        .into_response()
+}
+
+#[derive(Template)]
+#[template(path = "screen.html")]
+struct ScreenTemplate {
+    base_path: String,
+    code: String,
+    leaderboard_items: String,
+}
+
+async fn screen_page(
+    State(state): State<GameState>,
+    Path(code): Path<String>,
+) -> axum::response::Response {
+    let code = code.to_uppercase();
+    let Some(room) = db::get_open_room(&state.pool, &code).await else {
+        return error_page(
+            &state,
+            StatusCode::NOT_FOUND,
+            "Room not found or already ended",
+        );
+    };
+    let rows = db::leaderboard(&state.pool, room.id).await;
+    let tpl = ScreenTemplate {
+        base_path: state.base_path.to_string(),
+        code,
+        leaderboard_items: render::leaderboard_items(&rows),
+    };
+    Html(tpl.render().unwrap()).into_response()
+}
+
 async fn game_css() -> impl IntoResponse {
     (
         [(header::CONTENT_TYPE, "text/css")],
@@ -264,6 +333,8 @@ pub fn router() -> Router<GameState> {
         .route("/room/{code}/event", post(log_event))
         .route("/room/{code}/undo", post(undo_event))
         .route("/room/{code}/end", post(end_room_handler))
+        .route("/room/{code}/sse", get(sse_stream))
+        .route("/room/{code}/screen", get(screen_page))
         .route("/assets/game.css", get(game_css))
         .route("/assets/htmx.min.js", get(htmx_js))
 }
