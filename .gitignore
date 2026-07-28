@@ -4,5 +4,6 @@ ci.db
 portfolio.db
 portfolio.db-shm
 portfolio.db-wal
+drinkinggame.db*
 .worktrees
 .superpowers/
