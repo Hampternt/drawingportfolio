@@ -254,6 +254,21 @@ async fn sse_stream(
 
     // Subscribe BEFORE rendering the snapshot — no update can slip between.
     let rx = state.hub.subscribe(room.id);
+    // Re-check after subscribing: if the room was ended in the window between
+    // the lookup and the subscribe, the subscribe above resurrected a channel
+    // entry that the end path already removed — drop it again and tell the
+    // client the night is over instead of leaking a zombie hub entry.
+    if db::get_open_room(&state.pool, &room.code).await.is_none() {
+        state.hub.remove(room.id);
+        let stream = futures::stream::once(async move {
+            Ok::<_, Infallible>(Event::default().event("ended").data(""))
+        });
+        return (
+            [(header::HeaderName::from_static("x-accel-buffering"), "no")],
+            Sse::new(stream).keep_alive(KeepAlive::default()),
+        )
+            .into_response();
+    }
     let rows = db::leaderboard(&state.pool, room.id).await;
     let initial = render::leaderboard_items(&rows);
 

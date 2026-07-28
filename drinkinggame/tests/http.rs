@@ -358,3 +358,31 @@ async fn test_sse_endpoint_streams_event_stream() {
     let text = String::from_utf8(third.to_vec()).unwrap();
     assert!(text.contains("event: ended"));
 }
+
+#[tokio::test]
+async fn test_sse_on_already_ended_room_is_not_found_and_stays_closed() {
+    // The subscribe-after-end race (subscribe() re-creating a hub entry that
+    // end_room_handler already removed) isn't reachable through the public
+    // endpoint contract — get_open_room's first check already returns 404
+    // for an ended room, before any subscribe happens. This test confirms
+    // that contract holds and that hitting /sse again after end never
+    // resurrects a zombie hub entry that a client could still connect to.
+    let app = test_app().await;
+    let cookie = login(&app, "alice", "1234").await;
+    let code = create_room(&app, &cookie).await;
+
+    let res = post_form(&app, &cookie, &format!("/room/{code}/end"), "").await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+
+    // A fresh SSE request after the room is closed must be rejected outright,
+    // not silently re-open a stream.
+    let res = app
+        .oneshot(
+            Request::get(format!("/room/{code}/sse"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::NOT_FOUND);
+}
