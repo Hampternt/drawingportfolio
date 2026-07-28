@@ -194,6 +194,9 @@ async fn log_event(
     let Some(room) = db::get_open_room(&state.pool, &code.to_uppercase()).await else {
         return GameError::RoomNotFound.into_response();
     };
+    if !db::is_room_member(&state.pool, room.id, player.id).await {
+        return StatusCode::FORBIDDEN.into_response();
+    }
     db::insert_event(&state.pool, room.id, player.id, &form.kind).await;
     db::touch_room(&state.pool, room.id).await;
     crate::mechanics::on_event(room.id, player.id, &form.kind);
@@ -209,6 +212,9 @@ async fn undo_event(
     let Some(room) = db::get_open_room(&state.pool, &code.to_uppercase()).await else {
         return GameError::RoomNotFound.into_response();
     };
+    if !db::is_room_member(&state.pool, room.id, player.id).await {
+        return StatusCode::FORBIDDEN.into_response();
+    }
     if db::undo_last_event(&state.pool, room.id, player.id).await {
         db::touch_room(&state.pool, room.id).await;
         broadcast_leaderboard(&state, room.id).await;
@@ -218,12 +224,15 @@ async fn undo_event(
 
 async fn end_room_handler(
     State(state): State<GameState>,
-    PlayerSession(_player): PlayerSession,
+    PlayerSession(player): PlayerSession,
     Path(code): Path<String>,
 ) -> axum::response::Response {
     let Some(room) = db::get_open_room(&state.pool, &code.to_uppercase()).await else {
         return GameError::RoomNotFound.into_response();
     };
+    if !db::is_room_member(&state.pool, room.id, player.id).await {
+        return StatusCode::FORBIDDEN.into_response();
+    }
     db::end_room(&state.pool, room.id).await;
     state.hub.publish(room.id, crate::hub::RoomMessage::Ended);
     state.hub.remove(room.id);

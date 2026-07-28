@@ -116,6 +116,17 @@ pub async fn join_room(pool: &DbPool, room_id: i64, player_id: i64) {
     touch_room(pool, room_id).await;
 }
 
+pub async fn is_room_member(pool: &DbPool, room_id: i64, player_id: i64) -> bool {
+    let row: (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM room_players WHERE room_id = ?1 AND player_id = ?2")
+            .bind(room_id)
+            .bind(player_id)
+            .fetch_one(pool)
+            .await
+            .expect("is_room_member failed");
+    row.0 > 0
+}
+
 pub async fn touch_room(pool: &DbPool, room_id: i64) {
     sqlx::query("UPDATE rooms SET last_activity_at = datetime('now') WHERE id = ?1")
         .bind(room_id)

@@ -273,3 +273,22 @@ async fn test_end_room_closes_it_for_everyone() {
     let res = post_form(&app, &cookie, &format!("/room/{code}/event"), "kind=drink").await;
     assert_eq!(res.status(), StatusCode::NOT_FOUND);
 }
+
+#[tokio::test]
+async fn test_non_members_cannot_mutate_a_room() {
+    let app = test_app().await;
+    let alice = login(&app, "alice", "1234").await;
+    let mallory = login(&app, "mallory", "6666").await;
+    let code = create_room(&app, &alice).await;
+
+    // Mallory has a session but never joined this room.
+    let res = post_form(&app, &mallory, &format!("/room/{code}/event"), "kind=drink").await;
+    assert_eq!(res.status(), StatusCode::FORBIDDEN);
+    let res = post_form(&app, &mallory, &format!("/room/{code}/end"), "").await;
+    assert_eq!(res.status(), StatusCode::FORBIDDEN);
+
+    // After visiting the room page (auto-join), Mallory is a member and may act.
+    room_page_html(&app, &mallory, &code).await;
+    let res = post_form(&app, &mallory, &format!("/room/{code}/event"), "kind=drink").await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+}
