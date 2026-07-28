@@ -4,9 +4,13 @@
 pub mod auth;
 pub mod db;
 pub mod error;
+pub mod hub;
 pub mod models;
 pub mod render;
 pub mod rooms;
+pub mod routes;
+
+use std::sync::Arc;
 
 /// Everything the crate needs from its host. No portfolio types leak in here.
 pub struct Config {
@@ -16,4 +20,29 @@ pub struct Config {
     /// Used only for URL generation in templates/redirects — routing itself
     /// is prefix-agnostic because .nest_service() strips the prefix.
     pub base_path: String,
+}
+
+#[derive(Clone)]
+pub struct GameState {
+    pub pool: db::DbPool,
+    pub hub: hub::RoomHub,
+    pub base_path: Arc<str>,
+}
+
+/// Build the game as a self-contained, stateless Router — the crate owns its
+/// pool and hub, so this composes with any host via .nest_service().
+pub async fn router(config: Config) -> axum::Router {
+    let pool = db::connect(&config.database_url).await;
+    db::run_migrations(&pool).await;
+    router_with_pool(pool, &config.base_path)
+}
+
+/// Test seam: integration tests inject an in-memory pool here.
+pub fn router_with_pool(pool: db::DbPool, base_path: &str) -> axum::Router {
+    let state = GameState {
+        pool,
+        hub: hub::RoomHub::new(),
+        base_path: Arc::from(base_path),
+    };
+    routes::router().with_state(state)
 }
