@@ -22,10 +22,20 @@ pub fn gen_room_code() -> String {
 pub async fn create_room_with_unique_code(pool: &DbPool) -> Room {
     for _ in 0..20 {
         let code = gen_room_code();
-        if let Ok(id) = db::insert_room(pool, &code).await {
-            return db::get_room_by_id(pool, id)
-                .await
-                .expect("room row must exist after insert");
+        match db::insert_room(pool, &code).await {
+            Ok(id) => {
+                return db::get_room_by_id(pool, id)
+                    .await
+                    .expect("room row must exist after insert");
+            }
+            // Open-room code collision: roll a new code and retry.
+            Err(e)
+                if e.as_database_error()
+                    .is_some_and(|d| d.is_unique_violation()) =>
+            {
+                continue
+            }
+            Err(e) => panic!("insert_room failed: {e}"),
         }
     }
     panic!("could not find a free room code after 20 attempts");

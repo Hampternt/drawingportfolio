@@ -137,23 +137,14 @@ pub async fn end_room(pool: &DbPool, room_id: i64) {
 pub async fn end_inactive_rooms(pool: &DbPool, max_idle_hours: i64) -> Vec<i64> {
     let modifier = format!("-{max_idle_hours} hours");
     let ids: Vec<(i64,)> = sqlx::query_as(
-        "SELECT id FROM rooms
-         WHERE ended_at IS NULL AND last_activity_at < datetime('now', ?1)",
+        "UPDATE rooms SET ended_at = datetime('now')
+         WHERE ended_at IS NULL AND last_activity_at < datetime('now', ?1)
+         RETURNING id",
     )
     .bind(&modifier)
     .fetch_all(pool)
     .await
-    .expect("end_inactive_rooms select failed");
-
-    sqlx::query(
-        "UPDATE rooms SET ended_at = datetime('now')
-         WHERE ended_at IS NULL AND last_activity_at < datetime('now', ?1)",
-    )
-    .bind(&modifier)
-    .execute(pool)
-    .await
-    .expect("end_inactive_rooms update failed");
-
+    .expect("end_inactive_rooms failed");
     ids.into_iter().map(|(id,)| id).collect()
 }
 
