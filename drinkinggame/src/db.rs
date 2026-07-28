@@ -1,4 +1,4 @@
-use crate::models::{Player, Room};
+use crate::models::{LeaderboardRow, Player, Room};
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use std::str::FromStr;
 
@@ -148,6 +148,72 @@ pub async fn end_inactive_rooms(pool: &DbPool, max_idle_hours: i64) -> Vec<i64> 
     ids.into_iter().map(|(id,)| id).collect()
 }
 
+pub async fn insert_event(pool: &DbPool, room_id: i64, player_id: i64, kind: &str) {
+    sqlx::query("INSERT INTO events (room_id, player_id, kind) VALUES (?1, ?2, ?3)")
+        .bind(room_id)
+        .bind(player_id)
+        .bind(kind)
+        .execute(pool)
+        .await
+        .expect("insert_event failed");
+}
+
+/// Tombstones the caller's most recent live event in this room.
+/// Returns false when there is nothing left to undo.
+pub async fn undo_last_event(pool: &DbPool, room_id: i64, player_id: i64) -> bool {
+    let res = sqlx::query(
+        "UPDATE events SET undone_at = datetime('now')
+         WHERE id = (
+             SELECT id FROM events
+             WHERE room_id = ?1 AND player_id = ?2 AND undone_at IS NULL
+             ORDER BY id DESC LIMIT 1
+         )",
+    )
+    .bind(room_id)
+    .bind(player_id)
+    .execute(pool)
+    .await
+    .expect("undo_last_event failed");
+    res.rows_affected() > 0
+}
+
+/// Per-room standings: every member appears (LEFT JOIN), zero rows and all.
+/// Sorted by total descending, then name for a stable order.
+pub async fn leaderboard(pool: &DbPool, room_id: i64) -> Vec<LeaderboardRow> {
+    sqlx::query_as::<_, LeaderboardRow>(
+        "SELECT p.name,
+                COALESCE(SUM(CASE WHEN e.kind = 'drink' THEN 1 ELSE 0 END), 0) AS drinks,
+                COALESCE(SUM(CASE WHEN e.kind = 'shot'  THEN 1 ELSE 0 END), 0) AS shots
+         FROM room_players rp
+         JOIN players p ON p.id = rp.player_id
+         LEFT JOIN events e
+              ON e.room_id = rp.room_id
+             AND e.player_id = rp.player_id
+             AND e.undone_at IS NULL
+         WHERE rp.room_id = ?1
+         GROUP BY p.id
+         ORDER BY (drinks + shots) DESC, p.name ASC",
+    )
+    .bind(room_id)
+    .fetch_all(pool)
+    .await
+    .expect("leaderboard failed")
+}
+
+/// Lifetime totals across all rooms — the long-term profile stat.
+pub async fn lifetime_counts(pool: &DbPool, player_id: i64) -> (i64, i64) {
+    let row: (i64, i64) = sqlx::query_as(
+        "SELECT COALESCE(SUM(CASE WHEN kind = 'drink' THEN 1 ELSE 0 END), 0),
+                COALESCE(SUM(CASE WHEN kind = 'shot'  THEN 1 ELSE 0 END), 0)
+         FROM events WHERE player_id = ?1 AND undone_at IS NULL",
+    )
+    .bind(player_id)
+    .fetch_one(pool)
+    .await
+    .expect("lifetime_counts failed");
+    row
+}
+
 #[cfg(test)]
 pub(crate) async fn test_pool() -> DbPool {
     // max_connections(1): each :memory: connection is a SEPARATE empty db,
@@ -204,5 +270,83 @@ mod tests {
         cleanup_expired_sessions(&pool).await;
         // Live session survives the sweep.
         assert!(get_session_player(&pool, "tok-live").await.is_some());
+    }
+
+    async fn seed_room_with_players(pool: &DbPool) -> (i64, i64, i64) {
+        let a = insert_player(pool, "alice", "h").await.unwrap();
+        let b = insert_player(pool, "bob", "h").await.unwrap();
+        let room = crate::rooms::create_room_with_unique_code(pool).await;
+        join_room(pool, room.id, a).await;
+        join_room(pool, room.id, b).await;
+        (room.id, a, b)
+    }
+
+    #[tokio::test]
+    async fn test_leaderboard_fold_and_order() {
+        let pool = test_pool().await;
+        let (room, alice, bob) = seed_room_with_players(&pool).await;
+        insert_event(&pool, room, alice, "drink").await;
+        insert_event(&pool, room, alice, "shot").await;
+        insert_event(&pool, room, bob, "drink").await;
+
+        let lb = leaderboard(&pool, room).await;
+        assert_eq!(lb.len(), 2);
+        assert_eq!(
+            (lb[0].name.as_str(), lb[0].drinks, lb[0].shots),
+            ("alice", 1, 1)
+        );
+        assert_eq!(
+            (lb[1].name.as_str(), lb[1].drinks, lb[1].shots),
+            ("bob", 1, 0)
+        );
+    }
+
+    #[tokio::test]
+    async fn test_members_with_no_events_appear_with_zeros() {
+        let pool = test_pool().await;
+        let (room, _alice, _bob) = seed_room_with_players(&pool).await;
+        let lb = leaderboard(&pool, room).await;
+        assert_eq!(lb.len(), 2);
+        assert!(lb.iter().all(|r| r.drinks == 0 && r.shots == 0));
+    }
+
+    #[tokio::test]
+    async fn test_undo_tombstones_latest_only() {
+        let pool = test_pool().await;
+        let (room, alice, _bob) = seed_room_with_players(&pool).await;
+        insert_event(&pool, room, alice, "drink").await;
+        insert_event(&pool, room, alice, "shot").await;
+
+        assert!(undo_last_event(&pool, room, alice).await); // kills the shot
+        let lb = leaderboard(&pool, room).await;
+        let a = lb.iter().find(|r| r.name == "alice").unwrap();
+        assert_eq!((a.drinks, a.shots), (1, 0));
+
+        assert!(undo_last_event(&pool, room, alice).await); // kills the drink
+        assert!(!undo_last_event(&pool, room, alice).await); // nothing left
+
+        // Rows still exist — tombstoned, not deleted.
+        let total: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM events WHERE room_id = ?1")
+            .bind(room)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(total.0, 2);
+    }
+
+    #[tokio::test]
+    async fn test_lifetime_counts_span_rooms_and_respect_undo() {
+        let pool = test_pool().await;
+        let alice = insert_player(&pool, "alice", "h").await.unwrap();
+        let r1 = crate::rooms::create_room_with_unique_code(&pool).await;
+        let r2 = crate::rooms::create_room_with_unique_code(&pool).await;
+        join_room(&pool, r1.id, alice).await;
+        join_room(&pool, r2.id, alice).await;
+        insert_event(&pool, r1.id, alice, "drink").await;
+        insert_event(&pool, r2.id, alice, "drink").await;
+        insert_event(&pool, r2.id, alice, "shot").await;
+        undo_last_event(&pool, r2.id, alice).await; // removes the shot
+
+        assert_eq!(lifetime_counts(&pool, alice).await, (2, 0));
     }
 }
