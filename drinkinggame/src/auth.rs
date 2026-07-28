@@ -5,11 +5,15 @@ use argon2::password_hash::{
     rand_core::OsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString,
 };
 use argon2::Argon2;
+use axum::extract::FromRequestParts;
+use axum::http::request::Parts;
+use axum::response::{IntoResponse, Redirect};
 use rand::RngCore;
 
 use crate::db::{self, DbPool};
 use crate::error::GameError;
 use crate::models::Player;
+use crate::GameState;
 
 pub const COOKIE_NAME: &str = "dg_session";
 
@@ -101,6 +105,53 @@ pub fn new_session_id() -> String {
 /// phones, and Strict would drop the cookie on those navigations.
 pub fn session_cookie(id: &str) -> String {
     format!("{COOKIE_NAME}={id}; HttpOnly; SameSite=Lax; Max-Age=7776000; Path=/")
+}
+
+fn extract_session_cookie(parts: &Parts) -> Option<String> {
+    let cookies = parts.headers.get("cookie")?.to_str().ok()?;
+    for cookie in cookies.split(';') {
+        if let Some(val) = cookie.trim().strip_prefix(&format!("{COOKIE_NAME}=")) {
+            return Some(val.to_string());
+        }
+    }
+    None
+}
+
+/// Requires a live session; otherwise redirects to the game landing page.
+pub struct PlayerSession(pub Player);
+
+impl FromRequestParts<GameState> for PlayerSession {
+    type Rejection = axum::response::Response;
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &GameState,
+    ) -> Result<Self, Self::Rejection> {
+        if let Some(id) = extract_session_cookie(parts) {
+            if let Some(player) = db::get_session_player(&state.pool, &id).await {
+                return Ok(PlayerSession(player));
+            }
+        }
+        Err(Redirect::to(&format!("{}/", state.base_path)).into_response())
+    }
+}
+
+/// Checks the session without ever rejecting.
+pub struct OptionalPlayer(pub Option<Player>);
+
+impl FromRequestParts<GameState> for OptionalPlayer {
+    type Rejection = std::convert::Infallible;
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &GameState,
+    ) -> Result<Self, Self::Rejection> {
+        let player = match extract_session_cookie(parts) {
+            Some(id) => db::get_session_player(&state.pool, &id).await,
+            None => None,
+        };
+        Ok(OptionalPlayer(player))
+    }
 }
 
 #[cfg(test)]

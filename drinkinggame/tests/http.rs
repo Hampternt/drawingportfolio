@@ -52,3 +52,62 @@ async fn test_assets_are_served() {
         assert_eq!(res.headers()[header::CONTENT_TYPE], ct, "{path}");
     }
 }
+
+/// Logs in (registering on first use) and returns the "dg_session=..." pair.
+async fn login(app: &Router, name: &str, pin: &str) -> String {
+    let res = app
+        .clone()
+        .oneshot(
+            Request::post("/login")
+                .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                .body(Body::from(format!("name={name}&pin={pin}")))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+    res.headers()[header::SET_COOKIE]
+        .to_str()
+        .unwrap()
+        .split(';')
+        .next()
+        .unwrap()
+        .to_string()
+}
+
+#[tokio::test]
+async fn test_login_sets_cookie_and_landing_recognizes_it() {
+    let app = test_app().await;
+    let cookie = login(&app, "hampter", "1234").await;
+    assert!(cookie.starts_with("dg_session="));
+
+    let res = app
+        .oneshot(
+            Request::get("/")
+                .header(header::COOKIE, &cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let html = body_string(res).await;
+    assert!(html.contains("hampter"));
+    assert!(html.contains("Lifetime: 0 drinks"));
+}
+
+#[tokio::test]
+async fn test_wrong_pin_is_rejected() {
+    let app = test_app().await;
+    login(&app, "hampter", "1234").await;
+    let res = app
+        .oneshot(
+            Request::post("/login")
+                .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                .body(Body::from("name=hampter&pin=9999"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+    assert!(body_string(res).await.contains("wrong PIN"));
+}
