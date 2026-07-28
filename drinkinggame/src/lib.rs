@@ -13,6 +13,9 @@ pub mod routes;
 
 use std::sync::Arc;
 
+/// Rooms idle longer than this are ended by the hourly sweep.
+pub const MAX_IDLE_HOURS: i64 = 12;
+
 /// Everything the crate needs from its host. No portfolio types leak in here.
 pub struct Config {
     /// e.g. "sqlite:./drinkinggame.db"
@@ -30,6 +33,22 @@ pub struct GameState {
     pub base_path: Arc<str>,
 }
 
+fn spawn_cleanup(state: GameState) {
+    tokio::spawn(async move {
+        // Hourly, mirroring the portfolio's cleanup cadence.
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(3600));
+        loop {
+            interval.tick().await;
+            db::cleanup_expired_sessions(&state.pool).await;
+            for room_id in db::end_inactive_rooms(&state.pool, MAX_IDLE_HOURS).await {
+                state.hub.publish(room_id, hub::RoomMessage::Ended);
+                state.hub.remove(room_id);
+                tracing::info!("ended inactive room {room_id}");
+            }
+        }
+    });
+}
+
 /// Build the game as a self-contained, stateless Router — the crate owns its
 /// pool and hub, so this composes with any host via .nest_service().
 pub async fn router(config: Config) -> axum::Router {
@@ -45,5 +64,7 @@ pub fn router_with_pool(pool: db::DbPool, base_path: &str) -> axum::Router {
         hub: hub::RoomHub::new(),
         base_path: Arc::from(base_path),
     };
+    spawn_cleanup(state.clone());
+    mechanics::spawn_ticker(state.clone());
     routes::router().with_state(state)
 }
