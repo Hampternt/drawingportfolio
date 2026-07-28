@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Drinks</title>
+  <link rel="stylesheet" href="{{ base_path }}/assets/game.css">
+</head>
+<body>
+  <h1>Drinks</h1>
+  {% if logged_in %}
+  <p>Hey, <strong>{{ player_name }}</strong>.
+     <span class="lifetime">Lifetime: {{ lifetime_drinks }} drinks &middot; {{ lifetime_shots }} shots</span></p>
+  <form method="post" action="{{ base_path }}/rooms">
+    <button type="submit">Start a night</button>
+  </form>
+  <form method="post" action="{{ base_path }}/join">
+    <input name="code" placeholder="ROOM CODE" maxlength="4" autocapitalize="characters"
+           autocomplete="off" required>
+    <button type="submit">Join</button>
+  </form>
+  {% else %}
+  <form method="post" action="{{ base_path }}/login">
+    <input name="name" placeholder="Your name" maxlength="20" required>
+    <input name="pin" placeholder="4-digit PIN" inputmode="numeric" pattern="[0-9]{4}"
+           maxlength="4" required>
+    <button type="submit">Let's go</button>
+    <p class="lifetime">New name? This registers it. Known name? PIN logs you in from any phone.</p>
+  </form>
+  {% endif %}
+</body>
+</html>

@@ -15,7 +15,9 @@ cargo fmt              # format
 cargo fmt --check      # check formatting without modifying
 ```
 
-When building without a live database (e.g. on the server): `SQLX_OFFLINE=true cargo build --release`
+When building without a live database (e.g. on the server): `SQLX_OFFLINE=true cargo build --release`. The `drinkinggame` crate uses runtime-checked sqlx queries — it has no `.sqlx` cache entries, and `cargo sqlx prepare` remains portfolio-only.
+
+The repo is a cargo workspace — `cargo build` / `cargo test` at the root cover both the `drawingportfolio` binary and the `drinkinggame` crate. `cargo run -p drinkinggame` serves the drinking game standalone on `:3001` (no portfolio, no nginx).
 
 Tests live in `src/db.rs`, `src/routes/feed.rs`, and `src/routes/admin.rs`.
 
@@ -31,6 +33,7 @@ Copy `.env.example` to `.env`. Key variables:
 | `STORAGE_BUCKET` | Bucket name |
 | `STORAGE_PUBLIC_URL` | Public base URL for served images |
 | `RP_ID` / `RP_ORIGIN` | WebAuthn relying party (domain / full origin URL) |
+| `DRINKS_DATABASE_URL` | SQLite path for the drinking game (separate file from the portfolio DB) |
 
 DB migrations run automatically at startup via `db::run_migrations()`.
 
@@ -57,6 +60,8 @@ Single Rust/Axum binary with server-side rendering via Askama templates + HTMX f
 **Data layer (`src/db.rs`):** All SQLx queries — posts CRUD, session management (30-day expiry), passkey credential storage, ephemeral auth challenge state (5-min expiry). Nutrition functions: `get_food_items()`, `search_food_items(q)`, `insert_food_item()`, `delete_food_item()` (returns image URL for S3 cleanup), `get_meal_entries_for_date(date)`, `insert_meal_entry()`, `delete_meal_entry()`. Migrations run via `include_str!()` in `run_migrations()` — four migrations exist (001 initial schema, 002 adds `format`/`file_size_bytes` to posts, 003 adds `food_items`/`meal_entries`, 004 adds `webp_url`/`avif_url` to posts). Add new migrations as additional `sqlx::query(...).execute(pool)` calls; use `IF NOT EXISTS` / `PRAGMA table_info` guards for idempotence.
 
 **Storage (`src/storage.rs`):** `ObjectStorage` wraps aws-sdk-s3 with `force_path_style(true)` (required for non-AWS endpoints). Upload returns a public URL constructed from `STORAGE_PUBLIC_URL`.
+
+`/drinks` is the `drinkinggame` crate (own DB, own name+PIN sessions, SSE leaderboards) nested via `nest_service` in `main.rs`; its templates do NOT extend `base.html` (recorded exception).
 
 ## Key implementation details
 
@@ -105,9 +110,11 @@ Deployment is automated via `.github/workflows/deploy.yml` — push to `master` 
 
 Deploy config is in `deploy/`:
 - `portfolio.service` — systemd unit (runs as `portfolio` user, reads `.env`)
-- `nginx.conf` — reverse proxy with rate limiting on `/api/auth/` (10 req/min, burst 5). **Not deployed by CI/CD** — must be manually copied to `/etc/nginx/sites-available/portfolio` and nginx reloaded. Use `127.0.0.1:3000` not `localhost:3000` (nginx resolves localhost to IPv6 `[::1]` but Axum only binds IPv4). Certbot manages SSL lines — always include them or HTTPS breaks.
+- `nginx.conf` — reverse proxy with rate limiting on `/api/auth/` (10 req/min, burst 5). **Not deployed by CI/CD** — must be manually copied to `/etc/nginx/sites-available/portfolio` and nginx reloaded. Use `127.0.0.1:3000` not `localhost:3000` (nginx resolves localhost to IPv6 `[::1]` but Axum only binds IPv4). Certbot manages SSL lines — always include them or HTTPS breaks. Also has two manual locations for the drinking game: `/drinks/room/*/sse` disables proxy buffering (SSE would never arrive otherwise), and `/drinks/login` has its own `zone=drinks_login` rate limit (30 req/min, burst 10) so a party's worth of guests behind one NAT IP registering at once don't hit raw 503s.
 
 Only `static/` (served from disk) and `.env` must be present alongside the binary — Askama templates are compiled in. `/opt/portfolio/src/` on the server is a stale old checkout unused by the deploy process.
+
+On first deploy of the drinking game, add `DRINKS_DATABASE_URL=sqlite:///opt/portfolio/drinkinggame.db` to the server's `.env` — the relative-path fallback only works locally because `portfolio.service` sets `WorkingDirectory`.
 
 Server update command:
 ```bash

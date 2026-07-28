@@ -1,0 +1,25 @@
+[package]
+name = "drinkinggame"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+axum = "0.8"
+tokio = { version = "1", features = ["full"] }
+tokio-stream = { version = "0.1", features = ["sync"] }
+futures = "0.3"
+sqlx = { version = "0.8", features = ["sqlite", "runtime-tokio"] }
+askama = "0.15"
+# Manual .render() + axum::response::Html, matching the portfolio convention.
+serde = { version = "1", features = ["derive"] }
+argon2 = "0.5"
+rand = "0.8"
+thiserror = "2"
+tracing = "0.1"
+# For the standalone bin only:
+dotenvy = "0.15"
+tracing-subscriber = "0.3"
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"

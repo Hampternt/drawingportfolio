@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Room {{ code }} — Big Screen</title>
+  <link rel="stylesheet" href="{{ base_path }}/assets/game.css">
+</head>
+<body class="screen">
+  <p>Join at <strong>{{ base_path }}/</strong> with code</p>
+  <p class="room-code">{{ code }}</p>
+  <ol id="leaderboard">{{ leaderboard_items|safe }}</ol>
+  <script>
+    const es = new EventSource("{{ base_path }}/room/{{ code }}/sse");
+    es.addEventListener("leaderboard", (e) => {
+      document.getElementById("leaderboard").innerHTML = e.data;
+    });
+    es.addEventListener("ended", () => {
+      es.close();
+      document.getElementById("leaderboard").innerHTML =
+        '<li class="lb-empty">Night over</li>';
+    });
+  </script>
+</body>
+</html>
