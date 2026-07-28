@@ -1,6 +1,11 @@
 //! Drinking game — party drink tracker, mounted under /drinks in the
 //! portfolio server or served standalone via the bin target.
 
+pub mod db;
+pub mod error;
+pub mod models;
+pub mod render;
+
 /// Everything the crate needs from its host. No portfolio types leak in here.
 pub struct Config {
     /// e.g. "sqlite:./drinkinggame.db"
