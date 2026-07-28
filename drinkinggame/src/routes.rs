@@ -168,6 +168,68 @@ async fn login(
     }
 }
 
+/// Re-render the standings and push to every subscribed screen in the room.
+pub(crate) async fn broadcast_leaderboard(state: &GameState, room_id: i64) {
+    let rows = db::leaderboard(&state.pool, room_id).await;
+    state.hub.publish(
+        room_id,
+        crate::hub::RoomMessage::Leaderboard(render::leaderboard_items(&rows)),
+    );
+}
+
+#[derive(Deserialize)]
+struct EventForm {
+    kind: String,
+}
+
+async fn log_event(
+    State(state): State<GameState>,
+    PlayerSession(player): PlayerSession,
+    Path(code): Path<String>,
+    Form(form): Form<EventForm>,
+) -> axum::response::Response {
+    if form.kind != "drink" && form.kind != "shot" {
+        return StatusCode::UNPROCESSABLE_ENTITY.into_response();
+    }
+    let Some(room) = db::get_open_room(&state.pool, &code.to_uppercase()).await else {
+        return GameError::RoomNotFound.into_response();
+    };
+    db::insert_event(&state.pool, room.id, player.id, &form.kind).await;
+    db::touch_room(&state.pool, room.id).await;
+    crate::mechanics::on_event(room.id, player.id, &form.kind);
+    broadcast_leaderboard(&state, room.id).await;
+    StatusCode::NO_CONTENT.into_response()
+}
+
+async fn undo_event(
+    State(state): State<GameState>,
+    PlayerSession(player): PlayerSession,
+    Path(code): Path<String>,
+) -> axum::response::Response {
+    let Some(room) = db::get_open_room(&state.pool, &code.to_uppercase()).await else {
+        return GameError::RoomNotFound.into_response();
+    };
+    if db::undo_last_event(&state.pool, room.id, player.id).await {
+        db::touch_room(&state.pool, room.id).await;
+        broadcast_leaderboard(&state, room.id).await;
+    }
+    StatusCode::NO_CONTENT.into_response()
+}
+
+async fn end_room_handler(
+    State(state): State<GameState>,
+    PlayerSession(_player): PlayerSession,
+    Path(code): Path<String>,
+) -> axum::response::Response {
+    let Some(room) = db::get_open_room(&state.pool, &code.to_uppercase()).await else {
+        return GameError::RoomNotFound.into_response();
+    };
+    db::end_room(&state.pool, room.id).await;
+    state.hub.publish(room.id, crate::hub::RoomMessage::Ended);
+    state.hub.remove(room.id);
+    Redirect::to(&format!("{}/", state.base_path)).into_response()
+}
+
 async fn game_css() -> impl IntoResponse {
     (
         [(header::CONTENT_TYPE, "text/css")],
@@ -190,6 +252,9 @@ pub fn router() -> Router<GameState> {
         .route("/rooms", post(create_room))
         .route("/join", post(join_room_handler))
         .route("/room/{code}", get(room_page))
+        .route("/room/{code}/event", post(log_event))
+        .route("/room/{code}/undo", post(undo_event))
+        .route("/room/{code}/end", post(end_room_handler))
         .route("/assets/game.css", get(game_css))
         .route("/assets/htmx.min.js", get(htmx_js))
 }

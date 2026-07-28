@@ -198,3 +198,78 @@ async fn test_room_requires_session_and_dead_codes_are_friendly() {
     assert_eq!(res.status(), StatusCode::NOT_FOUND);
     assert!(body_string(res).await.contains("Back home"));
 }
+
+async fn post_form(app: &Router, cookie: &str, path: &str, body: &str) -> axum::response::Response {
+    app.clone()
+        .oneshot(
+            Request::post(path)
+                .header(header::COOKIE, cookie)
+                .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                .body(Body::from(body.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap()
+}
+
+async fn room_page_html(app: &Router, cookie: &str, code: &str) -> String {
+    let res = app
+        .clone()
+        .oneshot(
+            Request::get(format!("/room/{code}"))
+                .header(header::COOKIE, cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    body_string(res).await
+}
+
+#[tokio::test]
+async fn test_log_undo_and_leaderboard_counts() {
+    let app = test_app().await;
+    let cookie = login(&app, "alice", "1234").await;
+    let code = create_room(&app, &cookie).await;
+
+    let res = post_form(&app, &cookie, &format!("/room/{code}/event"), "kind=drink").await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+    post_form(&app, &cookie, &format!("/room/{code}/event"), "kind=shot").await;
+    assert!(room_page_html(&app, &cookie, &code)
+        .await
+        .contains("1 drinks &middot; 1 shots"));
+
+    post_form(&app, &cookie, &format!("/room/{code}/undo"), "").await;
+    assert!(room_page_html(&app, &cookie, &code)
+        .await
+        .contains("1 drinks &middot; 0 shots"));
+
+    // Junk kind is rejected.
+    let res = post_form(&app, &cookie, &format!("/room/{code}/event"), "kind=beer").await;
+    assert_eq!(res.status(), StatusCode::UNPROCESSABLE_ENTITY);
+}
+
+#[tokio::test]
+async fn test_end_room_closes_it_for_everyone() {
+    let app = test_app().await;
+    let cookie = login(&app, "alice", "1234").await;
+    let code = create_room(&app, &cookie).await;
+
+    let res = post_form(&app, &cookie, &format!("/room/{code}/end"), "").await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+
+    // Room page is now a friendly 404; logging is rejected too.
+    let res = app
+        .clone()
+        .oneshot(
+            Request::get(format!("/room/{code}"))
+                .header(header::COOKIE, &cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::NOT_FOUND);
+    let res = post_form(&app, &cookie, &format!("/room/{code}/event"), "kind=drink").await;
+    assert_eq!(res.status(), StatusCode::NOT_FOUND);
+}

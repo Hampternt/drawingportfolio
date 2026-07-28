@@ -5,6 +5,7 @@ pub mod auth;
 pub mod db;
 pub mod error;
 pub mod hub;
+pub mod mechanics;
 pub mod models;
 pub mod render;
 pub mod rooms;
