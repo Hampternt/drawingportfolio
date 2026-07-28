@@ -1,4 +1,4 @@
-use crate::models::Player;
+use crate::models::{Player, Room};
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use std::str::FromStr;
 
@@ -73,6 +73,88 @@ pub async fn cleanup_expired_sessions(pool: &DbPool) {
         .execute(pool)
         .await
         .expect("cleanup_expired_sessions failed");
+}
+
+pub async fn insert_room(pool: &DbPool, code: &str) -> Result<i64, sqlx::Error> {
+    let res = sqlx::query("INSERT INTO rooms (code) VALUES (?1)")
+        .bind(code)
+        .execute(pool)
+        .await?;
+    Ok(res.last_insert_rowid())
+}
+
+pub async fn get_open_room(pool: &DbPool, code: &str) -> Option<Room> {
+    sqlx::query_as::<_, Room>(
+        "SELECT id, code, created_at, last_activity_at, ended_at
+         FROM rooms WHERE code = ?1 AND ended_at IS NULL",
+    )
+    .bind(code)
+    .fetch_optional(pool)
+    .await
+    .expect("get_open_room failed")
+}
+
+pub async fn get_room_by_id(pool: &DbPool, room_id: i64) -> Option<Room> {
+    sqlx::query_as::<_, Room>(
+        "SELECT id, code, created_at, last_activity_at, ended_at
+         FROM rooms WHERE id = ?1",
+    )
+    .bind(room_id)
+    .fetch_optional(pool)
+    .await
+    .expect("get_room_by_id failed")
+}
+
+/// Idempotent: rejoining is a no-op apart from the activity bump.
+pub async fn join_room(pool: &DbPool, room_id: i64, player_id: i64) {
+    sqlx::query("INSERT OR IGNORE INTO room_players (room_id, player_id) VALUES (?1, ?2)")
+        .bind(room_id)
+        .bind(player_id)
+        .execute(pool)
+        .await
+        .expect("join_room failed");
+    touch_room(pool, room_id).await;
+}
+
+pub async fn touch_room(pool: &DbPool, room_id: i64) {
+    sqlx::query("UPDATE rooms SET last_activity_at = datetime('now') WHERE id = ?1")
+        .bind(room_id)
+        .execute(pool)
+        .await
+        .expect("touch_room failed");
+}
+
+pub async fn end_room(pool: &DbPool, room_id: i64) {
+    sqlx::query("UPDATE rooms SET ended_at = datetime('now') WHERE id = ?1 AND ended_at IS NULL")
+        .bind(room_id)
+        .execute(pool)
+        .await
+        .expect("end_room failed");
+}
+
+/// Ends rooms idle longer than max_idle_hours; returns their ids so the
+/// caller can drop broadcast channels.
+pub async fn end_inactive_rooms(pool: &DbPool, max_idle_hours: i64) -> Vec<i64> {
+    let modifier = format!("-{max_idle_hours} hours");
+    let ids: Vec<(i64,)> = sqlx::query_as(
+        "SELECT id FROM rooms
+         WHERE ended_at IS NULL AND last_activity_at < datetime('now', ?1)",
+    )
+    .bind(&modifier)
+    .fetch_all(pool)
+    .await
+    .expect("end_inactive_rooms select failed");
+
+    sqlx::query(
+        "UPDATE rooms SET ended_at = datetime('now')
+         WHERE ended_at IS NULL AND last_activity_at < datetime('now', ?1)",
+    )
+    .bind(&modifier)
+    .execute(pool)
+    .await
+    .expect("end_inactive_rooms update failed");
+
+    ids.into_iter().map(|(id,)| id).collect()
 }
 
 #[cfg(test)]

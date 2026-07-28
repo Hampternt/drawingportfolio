@@ -6,6 +6,7 @@ pub mod db;
 pub mod error;
 pub mod models;
 pub mod render;
+pub mod rooms;
 
 /// Everything the crate needs from its host. No portfolio types leak in here.
 pub struct Config {
