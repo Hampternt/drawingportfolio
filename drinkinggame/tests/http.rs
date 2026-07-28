@@ -111,3 +111,90 @@ async fn test_wrong_pin_is_rejected() {
     assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
     assert!(body_string(res).await.contains("wrong PIN"));
 }
+
+/// Creates a room as `cookie`'s player and returns the room code.
+async fn create_room(app: &Router, cookie: &str) -> String {
+    let res = app
+        .clone()
+        .oneshot(
+            Request::post("/rooms")
+                .header(header::COOKIE, cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+    let loc = res.headers()[header::LOCATION].to_str().unwrap();
+    loc.rsplit('/').next().unwrap().to_string()
+}
+
+#[tokio::test]
+async fn test_create_room_and_view_it() {
+    let app = test_app().await;
+    let cookie = login(&app, "alice", "1234").await;
+    let code = create_room(&app, &cookie).await;
+    assert_eq!(code.len(), 4);
+
+    let res = app
+        .oneshot(
+            Request::get(format!("/room/{code}"))
+                .header(header::COOKIE, &cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let html = body_string(res).await;
+    assert!(html.contains("+1 Drink"));
+    assert!(html.contains("alice")); // creator is on the leaderboard
+}
+
+#[tokio::test]
+async fn test_visiting_room_auto_joins() {
+    let app = test_app().await;
+    let alice = login(&app, "alice", "1234").await;
+    let bob = login(&app, "bob", "5678").await;
+    let code = create_room(&app, &alice).await;
+
+    // Bob opens the shared link — no explicit join step.
+    let res = app
+        .clone()
+        .oneshot(
+            Request::get(format!("/room/{code}"))
+                .header(header::COOKIE, &bob)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let html = body_string(res).await;
+    assert!(html.contains("alice") && html.contains("bob"));
+}
+
+#[tokio::test]
+async fn test_room_requires_session_and_dead_codes_are_friendly() {
+    let app = test_app().await;
+    // No cookie -> redirected to landing.
+    let res = app
+        .clone()
+        .oneshot(Request::get("/room/XXXX").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+
+    // Cookie but nonexistent room -> friendly 404 page with a home link.
+    let cookie = login(&app, "alice", "1234").await;
+    let res = app
+        .oneshot(
+            Request::get("/room/XXXX")
+                .header(header::COOKIE, &cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::NOT_FOUND);
+    assert!(body_string(res).await.contains("Back home"));
+}

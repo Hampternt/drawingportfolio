@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Room {{ code }}</title>
+  <link rel="stylesheet" href="{{ base_path }}/assets/game.css">
+  <script src="{{ base_path }}/assets/htmx.min.js" defer></script>
+</head>
+<body>
+  <p class="room-code">{{ code }}</p>
+  <p>Drinking as <strong>{{ player_name }}</strong></p>
+
+  <div class="btn-row">
+    <button class="btn-big" hx-post="{{ base_path }}/room/{{ code }}/event"
+            hx-vals='{"kind":"drink"}' hx-swap="none">+1 Drink</button>
+    <button class="btn-big" hx-post="{{ base_path }}/room/{{ code }}/event"
+            hx-vals='{"kind":"shot"}' hx-swap="none">+1 Shot</button>
+  </div>
+  <div class="btn-row">
+    <button class="btn-undo" hx-post="{{ base_path }}/room/{{ code }}/undo"
+            hx-swap="none">Undo</button>
+    <form method="post" action="{{ base_path }}/room/{{ code }}/end"
+          onsubmit="return confirm('End the night for everyone?')">
+      <button type="submit" class="btn-end">End night</button>
+    </form>
+  </div>
+
+  <ol id="leaderboard">{{ leaderboard_items|safe }}</ol>
+
+  <script>
+    const es = new EventSource("{{ base_path }}/room/{{ code }}/sse");
+    es.addEventListener("leaderboard", (e) => {
+      document.getElementById("leaderboard").innerHTML = e.data;
+    });
+    es.addEventListener("ended", () => {
+      es.close();
+      window.location = "{{ base_path }}/";
+    });
+  </script>
+</body>
+</html>

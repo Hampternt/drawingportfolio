@@ -1,15 +1,19 @@
 use askama::Template;
 use axum::extract::Form;
+use axum::extract::Path;
 use axum::extract::State;
 use axum::http::header;
+use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Redirect};
 use axum::routing::{get, post};
 use axum::Router;
 use serde::Deserialize;
 
-use crate::auth::{self, OptionalPlayer};
+use crate::auth::{self, OptionalPlayer, PlayerSession};
 use crate::db;
 use crate::error::GameError;
+use crate::render;
+use crate::rooms;
 use crate::GameState;
 
 #[derive(Template)]
@@ -40,6 +44,68 @@ pub fn error_page(
         message: message.to_string(),
     };
     (status, Html(tpl.render().unwrap())).into_response()
+}
+
+#[derive(Template)]
+#[template(path = "room.html")]
+struct RoomTemplate {
+    base_path: String,
+    code: String,
+    player_name: String,
+    leaderboard_items: String,
+}
+
+async fn create_room(
+    State(state): State<GameState>,
+    PlayerSession(player): PlayerSession,
+) -> impl IntoResponse {
+    let room = rooms::create_room_with_unique_code(&state.pool).await;
+    db::join_room(&state.pool, room.id, player.id).await;
+    Redirect::to(&format!("{}/room/{}", state.base_path, room.code))
+}
+
+#[derive(Deserialize)]
+struct JoinForm {
+    code: String,
+}
+
+async fn join_room_handler(
+    State(state): State<GameState>,
+    PlayerSession(_player): PlayerSession,
+    Form(form): Form<JoinForm>,
+) -> axum::response::Response {
+    let code = form.code.trim().to_uppercase();
+    match db::get_open_room(&state.pool, &code).await {
+        // The room page itself performs the join — one code path for both
+        // form joins and shared-link joins.
+        Some(_) => Redirect::to(&format!("{}/room/{code}", state.base_path)).into_response(),
+        None => error_page(&state, StatusCode::NOT_FOUND, "No open room with that code"),
+    }
+}
+
+async fn room_page(
+    State(state): State<GameState>,
+    PlayerSession(player): PlayerSession,
+    Path(code): Path<String>,
+) -> axum::response::Response {
+    let code = code.to_uppercase();
+    let Some(room) = db::get_open_room(&state.pool, &code).await else {
+        return error_page(
+            &state,
+            StatusCode::NOT_FOUND,
+            "Room not found or already ended",
+        );
+    };
+    // Visiting a room joins it: room URLs double as invite links.
+    db::join_room(&state.pool, room.id, player.id).await;
+    let rows = db::leaderboard(&state.pool, room.id).await;
+    let tpl = RoomTemplate {
+        base_path: state.base_path.to_string(),
+        code,
+        player_name: player.name,
+        leaderboard_items: render::leaderboard_items(&rows),
+    };
+    Html(tpl.render().unwrap()).into_response()
 }
 
 async fn landing(
@@ -121,6 +187,9 @@ pub fn router() -> Router<GameState> {
     Router::new()
         .route("/", get(landing))
         .route("/login", post(login))
+        .route("/rooms", post(create_room))
+        .route("/join", post(join_room_handler))
+        .route("/room/{code}", get(room_page))
         .route("/assets/game.css", get(game_css))
         .route("/assets/htmx.min.js", get(htmx_js))
 }
