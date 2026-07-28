@@ -90,6 +90,16 @@ async fn main() {
         .build()
         .expect("failed to build WebAuthn");
 
+    // --- Drinking game (separate crate, own SQLite file, own sessions) ---
+    // Built as a self-contained Router<()>; nest_service strips the /drinks
+    // prefix while base_path makes the game generate /drinks/... URLs.
+    let drinks = drinkinggame::router(drinkinggame::Config {
+        database_url: std::env::var("DRINKS_DATABASE_URL")
+            .unwrap_or_else(|_| "sqlite:./drinkinggame.db".to_string()),
+        base_path: "/drinks".to_string(),
+    })
+    .await;
+
     // Wrap AppState in Arc so it can be shared across every route handler.
     // From this point on, `state` is never mutated — it's read-only shared data.
     let state = Arc::new(AppState { pool, storage, webauthn });
@@ -128,6 +138,7 @@ async fn main() {
         .merge(routes::auth::router())       // POST /api/auth/... (WebAuthn ceremonies)
         .merge(routes::nutrition::router())  // GET /fitness, POST/DELETE /api/nutrition/...
         .merge(routes::tasks::router())      // GET /tasks, POST/DELETE /api/tasks/...
+        .nest_service("/drinks", drinks)  // party drink tracker (drinkinggame crate)
         // Serve files from the `static/` directory on disk at the /static URL prefix.
         // Unlike templates (compiled into the binary), these are read from disk at runtime.
         .nest_service("/static", ServeDir::new("static"))
