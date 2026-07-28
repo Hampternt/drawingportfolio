@@ -33,6 +33,11 @@ impl IntoResponse for GameError {
             r#"<p class="error">{}</p>"#,
             crate::render::html_escape(&self.to_string())
         );
-        (status, [(header::CONTENT_TYPE, "text/html; charset=utf-8")], body).into_response()
+        (
+            status,
+            [(header::CONTENT_TYPE, "text/html; charset=utf-8")],
+            body,
+        )
+            .into_response()
     }
 }

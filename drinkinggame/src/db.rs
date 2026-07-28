@@ -42,6 +42,39 @@ pub async fn insert_player(pool: &DbPool, name: &str, pin_hash: &str) -> Result<
     Ok(res.last_insert_rowid())
 }
 
+/// ttl is a SQLite datetime modifier, e.g. "+90 days". Tests pass "-1 days"
+/// to create an already-expired session.
+pub async fn create_session(pool: &DbPool, id: &str, player_id: i64, ttl: &str) {
+    sqlx::query(
+        "INSERT INTO sessions (id, player_id, expires_at) VALUES (?1, ?2, datetime('now', ?3))",
+    )
+    .bind(id)
+    .bind(player_id)
+    .bind(ttl)
+    .execute(pool)
+    .await
+    .expect("create_session failed");
+}
+
+pub async fn get_session_player(pool: &DbPool, session_id: &str) -> Option<Player> {
+    sqlx::query_as::<_, Player>(
+        "SELECT p.id, p.name, p.pin_hash, p.created_at
+         FROM sessions s JOIN players p ON p.id = s.player_id
+         WHERE s.id = ?1 AND s.expires_at > datetime('now')",
+    )
+    .bind(session_id)
+    .fetch_optional(pool)
+    .await
+    .expect("get_session_player failed")
+}
+
+pub async fn cleanup_expired_sessions(pool: &DbPool) {
+    sqlx::query("DELETE FROM sessions WHERE expires_at <= datetime('now')")
+        .execute(pool)
+        .await
+        .expect("cleanup_expired_sessions failed");
+}
+
 #[cfg(test)]
 pub(crate) async fn test_pool() -> DbPool {
     // max_connections(1): each :memory: connection is a SEPARATE empty db,
@@ -82,5 +115,21 @@ mod tests {
         assert!(insert_player(&pool, "hampter", "h2").await.is_err());
         // Lookup also matches case-insensitively (COLLATE NOCASE on the column).
         assert!(get_player_by_name(&pool, "HAMPTER").await.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_session_roundtrip_and_expiry() {
+        let pool = test_pool().await;
+        let pid = insert_player(&pool, "sess", "h").await.unwrap();
+        create_session(&pool, "tok-live", pid, "+90 days").await;
+        create_session(&pool, "tok-dead", pid, "-1 days").await;
+
+        assert_eq!(get_session_player(&pool, "tok-live").await.unwrap().id, pid);
+        assert!(get_session_player(&pool, "tok-dead").await.is_none());
+        assert!(get_session_player(&pool, "tok-unknown").await.is_none());
+
+        cleanup_expired_sessions(&pool).await;
+        // Live session survives the sweep.
+        assert!(get_session_player(&pool, "tok-live").await.is_some());
     }
 }
