@@ -322,15 +322,18 @@ pub async fn get_active_game(pool: &DbPool, room_id: i64) -> Option<Game> {
 
 /// Claims the next undrawn card index for player_id and returns it.
 /// A double-tap race loses on UNIQUE(game_id, card_index) and retries with
-/// the next index. Terminates: at most 52 conflicts before DeckExhausted.
+/// the next index. Terminates unconditionally when any unique-violation
+/// insert reaches 52 (no more indices to claim).
 pub async fn insert_draw(pool: &DbPool, game_id: i64, player_id: i64) -> Result<i64, GameError> {
     loop {
-        let (count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM game_draws WHERE game_id = ?1")
-            .bind(game_id)
-            .fetch_one(pool)
-            .await
-            .map_err(GameError::from)?;
-        if count >= 52 {
+        let (next_index,): (i64,) = sqlx::query_as(
+            "SELECT COALESCE(MAX(card_index) + 1, 0) FROM game_draws WHERE game_id = ?1",
+        )
+        .bind(game_id)
+        .fetch_one(pool)
+        .await
+        .map_err(GameError::from)?;
+        if next_index >= 52 {
             return Err(GameError::DeckExhausted);
         }
         let res = sqlx::query(
@@ -338,11 +341,11 @@ pub async fn insert_draw(pool: &DbPool, game_id: i64, player_id: i64) -> Result<
         )
         .bind(game_id)
         .bind(player_id)
-        .bind(count)
+        .bind(next_index)
         .execute(pool)
         .await;
         match res {
-            Ok(_) => return Ok(count),
+            Ok(_) => return Ok(next_index),
             Err(e)
                 if e.as_database_error()
                     .is_some_and(|d| d.is_unique_violation()) =>
@@ -673,8 +676,15 @@ mod tests {
         insert_draw(&pool, game, alice).await.unwrap();
         let draw_id = get_draws(&pool, game).await[0].id;
 
+        // Create a second game in a different room to test game_id guard
+        let room2 = crate::rooms::create_room_with_unique_code(&pool).await;
+        let deck = crate::cards::deck_to_string(&crate::cards::shuffled_deck());
+        let game2 = start_game(&pool, room2.id, &crate::rules::standard_rules_json(), &deck)
+            .await
+            .unwrap();
+
         assert!(!spend_draw(&pool, game, draw_id, bob).await); // not the holder
-        assert!(!spend_draw(&pool, game + 1, draw_id, alice).await); // wrong game
+        assert!(!spend_draw(&pool, game2, draw_id, alice).await); // wrong game
         assert!(spend_draw(&pool, game, draw_id, alice).await); // holder spends
         assert!(!spend_draw(&pool, game, draw_id, alice).await); // already spent
         assert!(!spend_draw(&pool, game, 9999, alice).await); // no such draw
