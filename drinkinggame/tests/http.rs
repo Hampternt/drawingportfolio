@@ -577,6 +577,57 @@ async fn test_52nd_draw_auto_ends_game() {
         .contains("Start Ring of Fire"));
 }
 
+/// Regression test: the 52nd draw must broadcast the final card BEFORE the
+/// game-over summary — not end the game first and skip straight to idle.
+#[tokio::test]
+async fn test_52nd_draw_broadcasts_final_card_before_game_over() {
+    use futures::StreamExt;
+    let app = test_app().await;
+    let cookie = login(&app, "alice", "1234").await;
+    let code = create_room(&app, &cookie).await;
+    post_form(
+        &app,
+        &cookie,
+        &format!("/room/{code}/game/start"),
+        "preset_id=1",
+    )
+    .await;
+    for _ in 0..51 {
+        post_form(&app, &cookie, &format!("/room/{code}/game/draw"), "").await;
+    }
+
+    // Subscribe before the 52nd (final) draw.
+    let res = app
+        .clone()
+        .oneshot(
+            Request::get(format!("/room/{code}/sse"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let mut body = res.into_body().into_data_stream();
+    // Drain the initial two-frame snapshot (leaderboard, then game).
+    body.next().await.unwrap().unwrap();
+    body.next().await.unwrap().unwrap();
+
+    let res = post_form(&app, &cookie, &format!("/room/{code}/game/draw"), "").await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+
+    // First pushed frame: the active panel showing the 52nd card, not idle.
+    let first = String::from_utf8(body.next().await.unwrap().unwrap().to_vec()).unwrap();
+    assert!(first.contains("event: game"));
+    assert!(first.contains("0 cards left"));
+    assert!(first.contains("card-face"));
+    assert!(!first.contains("Start Ring of Fire"));
+
+    // Second pushed frame: the game-over summary followed by the idle panel.
+    let second = String::from_utf8(body.next().await.unwrap().unwrap().to_vec()).unwrap();
+    assert!(second.contains("event: game"));
+    assert!(second.contains("Game over"));
+    assert!(second.contains("Start Ring of Fire"));
+}
+
 #[tokio::test]
 async fn test_end_game_early() {
     let app = test_app().await;

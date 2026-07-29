@@ -167,9 +167,14 @@ pub async fn draw_handler(
     };
     db::touch_room(&state.pool, room.id).await;
     if index == 51 {
-        // Last card: auto-end and broadcast the summary.
+        // Last card: render + publish the active panel showing the 52nd card
+        // BEFORE ending the game. broadcast_panel/current_panel goes through
+        // db::get_active_game, which filters ended_at IS NULL — calling
+        // end_game first would make this "final card" frame render the idle
+        // panel instead of the card that was just drawn.
+        let html = active_panel(&state, &game, &room.code, None).await;
+        state.hub.publish(room.id, RoomMessage::Game(html));
         db::end_game(&state.pool, game.id).await;
-        broadcast_panel(&state, room.id, &room.code, None).await; // show the final card…
         broadcast_game_over(&state, room.id, &room.code, game.id).await; // …then the summary
     } else {
         broadcast_panel(&state, room.id, &room.code, None).await;
