@@ -32,3 +32,29 @@ pub struct RulePreset {
     pub rules_json: String,
     pub created_at: String,
 }
+
+#[derive(sqlx::FromRow, Clone, Debug)]
+pub struct Game {
+    pub id: i64,
+    pub room_id: i64,
+    pub rules_json: String,
+    pub deck_order: String,
+    pub created_at: String,
+    pub ended_at: Option<String>,
+}
+
+/// A draw joined with the drawer's name, for rendering.
+#[derive(sqlx::FromRow, Clone, Debug)]
+pub struct DrawRow {
+    pub id: i64,
+    pub player_id: i64,
+    pub player_name: String,
+    pub card_index: i64,
+    pub spent_at: Option<String>,
+}
+
+#[derive(sqlx::FromRow, Clone, Debug, PartialEq)]
+pub struct DrawCount {
+    pub name: String,
+    pub draws: i64,
+}

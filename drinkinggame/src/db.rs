@@ -1,4 +1,5 @@
-use crate::models::{LeaderboardRow, Player, Room, RulePreset};
+use crate::error::GameError;
+use crate::models::{DrawCount, DrawRow, Game, LeaderboardRow, Player, Room, RulePreset};
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use std::str::FromStr;
 
@@ -281,6 +282,128 @@ pub async fn delete_preset(pool: &DbPool, id: i64) -> bool {
     res.rows_affected() > 0
 }
 
+/// GameAlreadyActive when the partial unique index (one active game per
+/// room) rejects the insert.
+pub async fn start_game(
+    pool: &DbPool,
+    room_id: i64,
+    rules_json: &str,
+    deck_order: &str,
+) -> Result<i64, GameError> {
+    let res =
+        sqlx::query("INSERT INTO games (room_id, rules_json, deck_order) VALUES (?1, ?2, ?3)")
+            .bind(room_id)
+            .bind(rules_json)
+            .bind(deck_order)
+            .execute(pool)
+            .await;
+    match res {
+        Ok(r) => Ok(r.last_insert_rowid()),
+        Err(e)
+            if e.as_database_error()
+                .is_some_and(|d| d.is_unique_violation()) =>
+        {
+            Err(GameError::GameAlreadyActive)
+        }
+        Err(e) => Err(e.into()),
+    }
+}
+
+pub async fn get_active_game(pool: &DbPool, room_id: i64) -> Option<Game> {
+    sqlx::query_as::<_, Game>(
+        "SELECT id, room_id, rules_json, deck_order, created_at, ended_at
+         FROM games WHERE room_id = ?1 AND ended_at IS NULL",
+    )
+    .bind(room_id)
+    .fetch_optional(pool)
+    .await
+    .expect("get_active_game failed")
+}
+
+/// Claims the next undrawn card index for player_id and returns it.
+/// A double-tap race loses on UNIQUE(game_id, card_index) and retries with
+/// the next index. Terminates: at most 52 conflicts before DeckExhausted.
+pub async fn insert_draw(pool: &DbPool, game_id: i64, player_id: i64) -> Result<i64, GameError> {
+    loop {
+        let (count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM game_draws WHERE game_id = ?1")
+            .bind(game_id)
+            .fetch_one(pool)
+            .await
+            .map_err(GameError::from)?;
+        if count >= 52 {
+            return Err(GameError::DeckExhausted);
+        }
+        let res = sqlx::query(
+            "INSERT INTO game_draws (game_id, player_id, card_index) VALUES (?1, ?2, ?3)",
+        )
+        .bind(game_id)
+        .bind(player_id)
+        .bind(count)
+        .execute(pool)
+        .await;
+        match res {
+            Ok(_) => return Ok(count),
+            Err(e)
+                if e.as_database_error()
+                    .is_some_and(|d| d.is_unique_violation()) =>
+            {
+                continue
+            }
+            Err(e) => return Err(e.into()),
+        }
+    }
+}
+
+pub async fn get_draws(pool: &DbPool, game_id: i64) -> Vec<DrawRow> {
+    sqlx::query_as::<_, DrawRow>(
+        "SELECT gd.id, gd.player_id, p.name AS player_name, gd.card_index, gd.spent_at
+         FROM game_draws gd JOIN players p ON p.id = gd.player_id
+         WHERE gd.game_id = ?1 ORDER BY gd.card_index",
+    )
+    .bind(game_id)
+    .fetch_all(pool)
+    .await
+    .expect("get_draws failed")
+}
+
+/// True only when the draw exists in game_id, belongs to player_id, and is
+/// unspent — the game_id guard stops spends against draws from ended games.
+pub async fn spend_draw(pool: &DbPool, game_id: i64, draw_id: i64, player_id: i64) -> bool {
+    let res = sqlx::query(
+        "UPDATE game_draws SET spent_at = datetime('now')
+         WHERE id = ?1 AND player_id = ?2 AND game_id = ?3 AND spent_at IS NULL",
+    )
+    .bind(draw_id)
+    .bind(player_id)
+    .bind(game_id)
+    .execute(pool)
+    .await
+    .expect("spend_draw failed");
+    res.rows_affected() > 0
+}
+
+pub async fn end_game(pool: &DbPool, game_id: i64) {
+    sqlx::query("UPDATE games SET ended_at = datetime('now') WHERE id = ?1 AND ended_at IS NULL")
+        .bind(game_id)
+        .execute(pool)
+        .await
+        .expect("end_game failed");
+}
+
+/// Per-player draw totals, most draws first, then name for stable order.
+pub async fn draw_counts(pool: &DbPool, game_id: i64) -> Vec<DrawCount> {
+    sqlx::query_as::<_, DrawCount>(
+        "SELECT p.name, COUNT(*) AS draws
+         FROM game_draws gd JOIN players p ON p.id = gd.player_id
+         WHERE gd.game_id = ?1
+         GROUP BY p.id ORDER BY draws DESC, p.name ASC",
+    )
+    .bind(game_id)
+    .fetch_all(pool)
+    .await
+    .expect("draw_counts failed")
+}
+
 /// Lifetime totals across all rooms — the long-term profile stat.
 pub async fn lifetime_counts(pool: &DbPool, player_id: i64) -> (i64, i64) {
     let row: (i64, i64) = sqlx::query_as(
@@ -476,5 +599,107 @@ mod tests {
         assert!(list_presets(&pool).await.is_empty());
         run_migrations(&pool).await; // deploy re-runs migrations
         assert_eq!(list_presets(&pool).await[0].name, "Standard");
+    }
+
+    async fn seed_game(pool: &DbPool) -> (i64, i64, i64, i64) {
+        let (room, alice, bob) = seed_room_with_players(pool).await;
+        let deck = crate::cards::deck_to_string(&crate::cards::shuffled_deck());
+        let game = start_game(pool, room, &crate::rules::standard_rules_json(), &deck)
+            .await
+            .unwrap();
+        (room, game, alice, bob)
+    }
+
+    #[tokio::test]
+    async fn test_one_active_game_per_room() {
+        let pool = test_pool().await;
+        let (room, _game, _a, _b) = seed_game(&pool).await;
+        let deck = crate::cards::deck_to_string(&crate::cards::shuffled_deck());
+        let err = start_game(&pool, room, "[]", &deck).await.unwrap_err();
+        assert!(matches!(err, crate::error::GameError::GameAlreadyActive));
+        // Ending frees the room for a new game.
+        let game = get_active_game(&pool, room).await.unwrap();
+        end_game(&pool, game.id).await;
+        assert!(get_active_game(&pool, room).await.is_none());
+        assert!(start_game(&pool, room, "[]", &deck).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_draws_come_back_in_deck_order() {
+        let pool = test_pool().await;
+        let (_room, game, alice, bob) = seed_game(&pool).await;
+        assert_eq!(insert_draw(&pool, game, alice).await.unwrap(), 0);
+        assert_eq!(insert_draw(&pool, game, bob).await.unwrap(), 1);
+        assert_eq!(insert_draw(&pool, game, alice).await.unwrap(), 2);
+        let draws = get_draws(&pool, game).await;
+        assert_eq!(
+            draws.iter().map(|d| d.card_index).collect::<Vec<_>>(),
+            vec![0, 1, 2]
+        );
+        assert_eq!(draws[0].player_name, "alice");
+        assert_eq!(draws[1].player_name, "bob");
+    }
+
+    #[tokio::test]
+    async fn test_double_draw_on_same_index_conflicts_and_retries() {
+        let pool = test_pool().await;
+        let (_room, game, alice, bob) = seed_game(&pool).await;
+        // Simulate alice's in-flight draw landing first on index 0.
+        sqlx::query("INSERT INTO game_draws (game_id, player_id, card_index) VALUES (?1, ?2, 0)")
+            .bind(game)
+            .bind(alice)
+            .execute(&pool)
+            .await
+            .unwrap();
+        // Bob's insert_draw must skip to index 1, not fail or duplicate.
+        assert_eq!(insert_draw(&pool, game, bob).await.unwrap(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_deck_exhaustion() {
+        let pool = test_pool().await;
+        let (_room, game, alice, _bob) = seed_game(&pool).await;
+        for i in 0..52 {
+            assert_eq!(insert_draw(&pool, game, alice).await.unwrap(), i);
+        }
+        let err = insert_draw(&pool, game, alice).await.unwrap_err();
+        assert!(matches!(err, crate::error::GameError::DeckExhausted));
+    }
+
+    #[tokio::test]
+    async fn test_spend_only_holder_only_once() {
+        let pool = test_pool().await;
+        let (_room, game, alice, bob) = seed_game(&pool).await;
+        insert_draw(&pool, game, alice).await.unwrap();
+        let draw_id = get_draws(&pool, game).await[0].id;
+
+        assert!(!spend_draw(&pool, game, draw_id, bob).await); // not the holder
+        assert!(!spend_draw(&pool, game + 1, draw_id, alice).await); // wrong game
+        assert!(spend_draw(&pool, game, draw_id, alice).await); // holder spends
+        assert!(!spend_draw(&pool, game, draw_id, alice).await); // already spent
+        assert!(!spend_draw(&pool, game, 9999, alice).await); // no such draw
+        assert!(get_draws(&pool, game).await[0].spent_at.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_draw_counts_order_and_totals() {
+        let pool = test_pool().await;
+        let (_room, game, alice, bob) = seed_game(&pool).await;
+        insert_draw(&pool, game, bob).await.unwrap();
+        insert_draw(&pool, game, alice).await.unwrap();
+        insert_draw(&pool, game, bob).await.unwrap();
+        assert_eq!(
+            draw_counts(&pool, game).await,
+            vec![
+                DrawCount {
+                    name: "bob".into(),
+                    draws: 2
+                },
+                DrawCount {
+                    name: "alice".into(),
+                    draws: 1
+                },
+            ]
+        );
     }
 }
