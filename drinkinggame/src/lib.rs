@@ -2,6 +2,7 @@
 //! portfolio server or served standalone via the bin target.
 
 pub mod auth;
+pub mod cards;
 pub mod db;
 pub mod error;
 pub mod hub;
