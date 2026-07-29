@@ -9,11 +9,15 @@
 <body class="screen">
   <p>Join at <strong>{{ base_path }}/</strong> with code</p>
   <p class="room-code">{{ code }}</p>
+  <div id="game-panel">{{ game_panel|safe }}</div>
   <ol id="leaderboard">{{ leaderboard_items|safe }}</ol>
   <script>
     const es = new EventSource("{{ base_path }}/room/{{ code }}/sse");
     es.addEventListener("leaderboard", (e) => {
       document.getElementById("leaderboard").innerHTML = e.data;
+    });
+    es.addEventListener("game", (e) => {
+      document.getElementById("game-panel").innerHTML = e.data;
     });
     es.addEventListener("ended", () => {
       es.close();

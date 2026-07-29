@@ -7,7 +7,7 @@
   <link rel="stylesheet" href="{{ base_path }}/assets/game.css">
   <script src="{{ base_path }}/assets/htmx.min.js" defer></script>
 </head>
-<body>
+<body data-player-id="{{ player_id }}">
   <p class="room-code">{{ code }}</p>
   <p>Drinking as <strong>{{ player_name }}</strong></p>
 
@@ -26,6 +26,9 @@
     </form>
   </div>
 
+  <div id="game-error"></div>
+  <div id="game-panel">{{ game_panel|safe }}</div>
+
   <ol id="leaderboard">{{ leaderboard_items|safe }}</ol>
 
   <script>
@@ -33,9 +36,31 @@
     es.addEventListener("leaderboard", (e) => {
       document.getElementById("leaderboard").innerHTML = e.data;
     });
+    es.addEventListener("game", (e) => {
+      const panel = document.getElementById("game-panel");
+      panel.innerHTML = e.data;
+      htmx.process(panel); // SSE-injected HTML bypasses htmx's own scan
+      revealUseButtons();
+    });
     es.addEventListener("ended", () => {
       es.close();
       window.location = "{{ base_path }}/";
+    });
+    // Use buttons arrive hidden in the broadcast HTML (same fragment for
+    // every screen); reveal only the ones this player holds.
+    function revealUseButtons() {
+      const me = document.body.dataset.playerId;
+      document.querySelectorAll("#game-panel .use-btn").forEach((b) => {
+        if (b.dataset.holderId === me) b.hidden = false;
+      });
+    }
+    document.addEventListener("DOMContentLoaded", revealUseButtons);
+    // Surface 4xx game errors (already-friendly HTML fragments) briefly.
+    document.body.addEventListener("htmx:responseError", (e) => {
+      const el = document.getElementById("game-error");
+      if (!el) return;
+      el.innerHTML = e.detail.xhr.responseText;
+      setTimeout(() => { el.innerHTML = ""; }, 4000);
     });
   </script>
 </body>

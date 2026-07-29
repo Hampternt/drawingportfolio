@@ -56,8 +56,10 @@ pub fn error_page(
 struct RoomTemplate {
     base_path: String,
     code: String,
+    player_id: i64,
     player_name: String,
     leaderboard_items: String,
+    game_panel: String,
 }
 
 async fn create_room(
@@ -104,11 +106,14 @@ async fn room_page(
     // Visiting a room joins it: room URLs double as invite links.
     db::join_room(&state.pool, room.id, player.id).await;
     let rows = db::leaderboard(&state.pool, room.id).await;
+    let game_panel = crate::game::current_panel(&state, room.id, &code, None).await;
     let tpl = RoomTemplate {
         base_path: state.base_path.to_string(),
         code,
+        player_id: player.id,
         player_name: player.name,
         leaderboard_items: render::leaderboard_items(&rows),
+        game_panel,
     };
     Html(tpl.render().unwrap()).into_response()
 }
@@ -271,10 +276,12 @@ async fn sse_stream(
     }
     let rows = db::leaderboard(&state.pool, room.id).await;
     let initial = render::leaderboard_items(&rows);
+    let initial_game = crate::game::current_panel(&state, room.id, &room.code, None).await;
 
-    let stream = futures::stream::once(async move {
-        Ok::<_, Infallible>(Event::default().event("leaderboard").data(initial))
-    })
+    let stream = futures::stream::iter([
+        Ok::<_, Infallible>(Event::default().event("leaderboard").data(initial)),
+        Ok::<_, Infallible>(Event::default().event("game").data(initial_game)),
+    ])
     .chain(BroadcastStream::new(rx).filter_map(|msg| async move {
         match msg {
             Ok(RoomMessage::Leaderboard(html)) => {
@@ -301,6 +308,7 @@ struct ScreenTemplate {
     base_path: String,
     code: String,
     leaderboard_items: String,
+    game_panel: String,
 }
 
 async fn screen_page(
@@ -316,10 +324,12 @@ async fn screen_page(
         );
     };
     let rows = db::leaderboard(&state.pool, room.id).await;
+    let game_panel = crate::game::current_panel(&state, room.id, &code, None).await;
     let tpl = ScreenTemplate {
         base_path: state.base_path.to_string(),
         code,
         leaderboard_items: render::leaderboard_items(&rows),
+        game_panel,
     };
     Html(tpl.render().unwrap()).into_response()
 }
@@ -349,6 +359,13 @@ pub fn router() -> Router<GameState> {
         .route("/room/{code}/event", post(log_event))
         .route("/room/{code}/undo", post(undo_event))
         .route("/room/{code}/end", post(end_room_handler))
+        .route(
+            "/room/{code}/game/start",
+            post(crate::game::start_game_handler),
+        )
+        .route("/room/{code}/game/draw", post(crate::game::draw_handler))
+        .route("/room/{code}/game/spend", post(crate::game::spend_handler))
+        .route("/room/{code}/game/end", post(crate::game::end_game_handler))
         .route("/room/{code}/sse", get(sse_stream))
         .route("/room/{code}/screen", get(screen_page))
         .route("/assets/game.css", get(game_css))

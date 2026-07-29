@@ -5,6 +5,7 @@ pub mod auth;
 pub mod cards;
 pub mod db;
 pub mod error;
+pub mod game;
 pub mod hub;
 pub mod mechanics;
 pub mod models;
