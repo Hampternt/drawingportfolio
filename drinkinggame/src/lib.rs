@@ -11,6 +11,7 @@ pub mod models;
 pub mod render;
 pub mod rooms;
 pub mod routes;
+pub mod rules;
 
 use std::sync::Arc;
 
