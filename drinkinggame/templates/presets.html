@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Rule presets</title>
+  <link rel="stylesheet" href="{{ base_path }}/assets/game.css">
+</head>
+<body>
+  <h1>Rule presets</h1>
+  <ul class="preset-list">{{ preset_rows|safe }}</ul>
+  <h2>New preset</h2>
+  <form method="post" action="{{ base_path }}/presets" class="preset-create">
+    <input name="name" placeholder="Preset name" maxlength="40" required>
+    <select name="source_id">{{ source_options|safe }}</select>
+    <button type="submit">Create as copy</button>
+  </form>
+  <p><a href="{{ base_path }}/">Back home</a></p>
+</body>
+</html>

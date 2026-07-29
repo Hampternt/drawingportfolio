@@ -9,6 +9,7 @@ pub mod game;
 pub mod hub;
 pub mod mechanics;
 pub mod models;
+pub mod presets;
 pub mod render;
 pub mod rooms;
 pub mod routes;

@@ -370,4 +370,16 @@ pub fn router() -> Router<GameState> {
         .route("/room/{code}/screen", get(screen_page))
         .route("/assets/game.css", get(game_css))
         .route("/assets/htmx.min.js", get(htmx_js))
+        .route(
+            "/presets",
+            get(crate::presets::presets_page).post(crate::presets::create_preset),
+        )
+        .route(
+            "/presets/{id}",
+            get(crate::presets::edit_preset_page).post(crate::presets::save_preset),
+        )
+        .route(
+            "/presets/{id}/delete",
+            post(crate::presets::delete_preset_handler),
+        )
 }

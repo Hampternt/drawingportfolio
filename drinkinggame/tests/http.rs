@@ -696,3 +696,144 @@ async fn test_screen_and_sse_carry_game_panel() {
     assert!(third.contains("event: game"));
     assert!(third.contains("51 cards left"));
 }
+
+#[tokio::test]
+async fn test_presets_require_login() {
+    let app = test_app().await;
+    let res = app
+        .oneshot(Request::get("/presets").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::SEE_OTHER); // PlayerSession redirect
+}
+
+#[tokio::test]
+async fn test_presets_list_and_create_copy() {
+    let app = test_app().await;
+    let cookie = login(&app, "alice", "1234").await;
+    let res = app
+        .clone()
+        .oneshot(
+            Request::get("/presets")
+                .header(header::COOKIE, &cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    assert!(body_string(res).await.contains("Standard"));
+
+    // Create a copy of Standard.
+    let res = post_form(&app, &cookie, "/presets", "name=House&source_id=1").await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+    let loc = res.headers()[header::LOCATION]
+        .to_str()
+        .unwrap()
+        .to_string();
+    assert!(loc.starts_with("/presets/"));
+
+    // Edit page shows the copied rules.
+    let res = app
+        .clone()
+        .oneshot(
+            Request::get(&loc)
+                .header(header::COOKIE, &cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let html = body_string(res).await;
+    assert!(html.contains("House"));
+    assert!(html.contains("Waterfall"));
+
+    // Duplicate name is a friendly conflict.
+    let res = post_form(&app, &cookie, "/presets", "name=House&source_id=1").await;
+    assert_eq!(res.status(), StatusCode::CONFLICT);
+}
+
+/// Builds the full 13-rank save body from the standard rules, with one
+/// override applied.
+fn edit_body(name: &str, override_rank: u8, new_title: &str) -> String {
+    let mut parts = vec![format!("name={name}")];
+    for r in drinkinggame::rules::standard_rules() {
+        let title = if r.rank == override_rank {
+            new_title
+        } else {
+            &r.title
+        };
+        parts.push(format!("title_{}={}", r.rank, urlencode(title)));
+        parts.push(format!("text_{}={}", r.rank, urlencode(&r.text)));
+        if r.holdable {
+            parts.push(format!("holdable_{}=on", r.rank));
+        }
+    }
+    parts.join("&")
+}
+
+/// Minimal urlencoding for test bodies (spaces and ampersands only —
+/// standard rule text contains no other reserved characters).
+fn urlencode(s: &str) -> String {
+    s.replace('%', "%25")
+        .replace('&', "%26")
+        .replace('+', "%2B")
+        .replace(' ', "+")
+}
+
+#[tokio::test]
+async fn test_preset_save_and_delete() {
+    let (app, pool) = test_app_with_pool().await;
+    let cookie = login(&app, "alice", "1234").await;
+    let res = post_form(&app, &cookie, "/presets", "name=House&source_id=1").await;
+    let loc = res.headers()[header::LOCATION]
+        .to_str()
+        .unwrap()
+        .to_string();
+    let id: i64 = loc.rsplit('/').next().unwrap().parse().unwrap();
+
+    // Save with rank 4 renamed.
+    let res = post_form(&app, &cookie, &loc, &edit_body("House", 4, "Floor")).await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+    let saved = drinkinggame::db::get_preset(&pool, id).await.unwrap();
+    let rules = drinkinggame::rules::parse_rules(&saved.rules_json);
+    assert_eq!(drinkinggame::rules::rule_for_rank(&rules, 4).title, "Floor");
+    assert!(drinkinggame::rules::rule_for_rank(&rules, 5).holdable); // survives roundtrip
+
+    // Delete — including that deleting is allowed for any preset.
+    let res = post_form(&app, &cookie, &format!("{loc}/delete"), "").await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+    assert!(drinkinggame::db::get_preset(&pool, id).await.is_none());
+}
+
+#[tokio::test]
+async fn test_running_game_unaffected_by_preset_edit() {
+    let (app, pool) = test_app_with_pool().await;
+    let cookie = login(&app, "alice", "1234").await;
+    let code = create_room(&app, &cookie).await;
+    post_form(
+        &app,
+        &cookie,
+        &format!("/room/{code}/game/start"),
+        "preset_id=1",
+    )
+    .await;
+    // Mutate Standard after the game started.
+    post_form(
+        &app,
+        &cookie,
+        "/presets/1",
+        &edit_body("Standard", 1, "Tsunami"),
+    )
+    .await;
+    // The running game still holds the snapshot.
+    let room = drinkinggame::db::get_open_room(&pool, &code).await.unwrap();
+    let game = drinkinggame::db::get_active_game(&pool, room.id)
+        .await
+        .unwrap();
+    let rules = drinkinggame::rules::parse_rules(&game.rules_json);
+    assert_eq!(
+        drinkinggame::rules::rule_for_rank(&rules, 1).title,
+        "Waterfall"
+    );
+}

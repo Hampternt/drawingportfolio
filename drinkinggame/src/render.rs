@@ -67,10 +67,8 @@ pub fn card_face_html(card: Card) -> String {
     )
 }
 
-/// Idle state: preset picker + start button. First preset (Standard, lowest
-/// id) is the <select> default by position.
-pub fn game_idle_panel(base_path: &str, code: &str, presets: &[RulePreset]) -> String {
-    let options: String = presets
+pub fn preset_options(presets: &[RulePreset]) -> String {
+    presets
         .iter()
         .map(|p| {
             format!(
@@ -79,7 +77,46 @@ pub fn game_idle_panel(base_path: &str, code: &str, presets: &[RulePreset]) -> S
                 html_escape(&p.name)
             )
         })
-        .collect();
+        .collect()
+}
+
+/// <li> rows for the preset list page: edit link + delete form.
+pub fn preset_rows(base_path: &str, presets: &[RulePreset]) -> String {
+    presets
+        .iter()
+        .map(|p| {
+            format!(
+                r#"<li><a href="{base_path}/presets/{}">{}</a><form method="post" action="{base_path}/presets/{}/delete" onsubmit="return confirm('Delete this preset?')"><button class="btn-delete">Delete</button></form></li>"#,
+                p.id,
+                html_escape(&p.name),
+                p.id,
+            )
+        })
+        .collect()
+}
+
+/// One <fieldset> per rank for the edit form. Field names are rank-suffixed
+/// (title_1..title_13 etc.) — the save handler reassembles them by rank.
+pub fn preset_edit_rows(rules: &[crate::rules::RuleEntry]) -> String {
+    rules
+        .iter()
+        .map(|r| {
+            let label = Card { rank: r.rank, suit: crate::cards::Suit::Spades }.rank_label();
+            let checked = if r.holdable { " checked" } else { "" };
+            format!(
+                r#"<fieldset class="rank-row"><legend>{label}</legend><input name="title_{rank}" value="{title}" maxlength="40" required><textarea name="text_{rank}" rows="2" maxlength="300" required>{text}</textarea><label class="hold-label"><input type="checkbox" name="holdable_{rank}"{checked}> Holdable</label></fieldset>"#,
+                rank = r.rank,
+                title = html_escape(&r.title),
+                text = html_escape(&r.text),
+            )
+        })
+        .collect()
+}
+
+/// Idle state: preset picker + start button. First preset (Standard, lowest
+/// id) is the <select> default by position.
+pub fn game_idle_panel(base_path: &str, code: &str, presets: &[RulePreset]) -> String {
+    let options = preset_options(presets);
     format!(
         r#"<div class="game-idle">
 <form hx-post="{base_path}/room/{code}/game/start" hx-swap="none">
@@ -295,6 +332,28 @@ mod tests {
         let html = game_active_panel(&view);
         assert!(html.contains("52 cards left"));
         assert!(html.contains("Tap to draw"));
+    }
+
+    #[test]
+    fn test_preset_rows_link_and_delete() {
+        let html = preset_rows("/drinks", &[preset(3, "House <1>")]);
+        assert!(html.contains(r#"href="/drinks/presets/3""#));
+        assert!(html.contains("House &lt;1&gt;"));
+        assert!(html.contains(r#"action="/drinks/presets/3/delete""#));
+    }
+
+    #[test]
+    fn test_preset_edit_rows_cover_all_13_ranks() {
+        let html = preset_edit_rows(&crate::rules::standard_rules());
+        for n in 1..=13 {
+            assert!(html.contains(&format!(r#"name="title_{n}""#)));
+            assert!(html.contains(&format!(r#"name="text_{n}""#)));
+            assert!(html.contains(&format!(r#"name="holdable_{n}""#)));
+        }
+        assert!(html.contains("<legend>A</legend>"));
+        assert!(html.contains("<legend>K</legend>"));
+        // Holdables (5, 7) come back pre-checked.
+        assert_eq!(html.matches("checked").count(), 2);
     }
 
     #[test]

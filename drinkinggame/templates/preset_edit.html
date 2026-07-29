@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Edit preset</title>
+  <link rel="stylesheet" href="{{ base_path }}/assets/game.css">
+</head>
+<body>
+  <h1>Edit preset</h1>
+  <form method="post" action="{{ base_path }}/presets/{{ id }}" class="preset-edit">
+    <input name="name" value="{{ name }}" maxlength="40" required>
+    {{ rank_rows|safe }}
+    <button type="submit">Save all 13 rules</button>
+  </form>
+  <p><a href="{{ base_path }}/presets">Back to presets</a></p>
+</body>
+</html>

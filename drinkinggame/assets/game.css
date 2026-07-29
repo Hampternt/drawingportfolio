@@ -85,3 +85,9 @@ a { color: var(--accent); }
 .screen .card-suit { font-size: 2.6rem; }
 .screen .btn-draw, .screen .btn-game-end, .screen .use-btn,
 .screen .game-idle, .screen .presets-link { display: none; }
+.preset-list { list-style: none; padding: 0; width: 100%; max-width: 420px; }
+.preset-list li { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; }
+.preset-create, .preset-edit { display: flex; flex-direction: column; gap: 0.5rem; width: 100%; max-width: 420px; }
+.rank-row { border: 1px solid var(--muted); border-radius: 0.5rem; display: flex; flex-direction: column; gap: 0.4rem; }
+.hold-label { font-size: 0.9rem; color: var(--muted); }
+.btn-delete { color: var(--danger); border-color: var(--danger); font-size: 0.85rem; }
