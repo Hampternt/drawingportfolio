@@ -280,6 +280,7 @@ async fn sse_stream(
             Ok(RoomMessage::Leaderboard(html)) => {
                 Some(Ok(Event::default().event("leaderboard").data(html)))
             }
+            Ok(RoomMessage::Game(html)) => Some(Ok(Event::default().event("game").data(html))),
             Ok(RoomMessage::Ended) => Some(Ok(Event::default().event("ended").data(""))),
             // Lagged receiver: skip — the next update carries full state anyway.
             Err(_) => None,
