@@ -1,4 +1,4 @@
-use crate::models::{LeaderboardRow, Player, Room};
+use crate::models::{LeaderboardRow, Player, Room, RulePreset};
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use std::str::FromStr;
 
@@ -20,6 +20,17 @@ pub async fn run_migrations(pool: &DbPool) {
         .execute(pool)
         .await
         .expect("drinks migration 001 failed");
+    sqlx::query(include_str!("../migrations/002_ring_of_fire.sql"))
+        .execute(pool)
+        .await
+        .expect("drinks migration 002 failed");
+    // Seed guard: recreate the Standard preset only if missing, so deleting
+    // it is permitted but it returns on next deploy (accepted v1 quirk).
+    sqlx::query("INSERT OR IGNORE INTO rule_presets (name, rules_json) VALUES ('Standard', ?1)")
+        .bind(crate::rules::standard_rules_json())
+        .execute(pool)
+        .await
+        .expect("standard preset seed failed");
 }
 
 pub async fn get_player_by_name(pool: &DbPool, name: &str) -> Option<Player> {
@@ -211,6 +222,65 @@ pub async fn leaderboard(pool: &DbPool, room_id: i64) -> Vec<LeaderboardRow> {
     .expect("leaderboard failed")
 }
 
+pub async fn list_presets(pool: &DbPool) -> Vec<RulePreset> {
+    sqlx::query_as::<_, RulePreset>(
+        "SELECT id, name, rules_json, created_at FROM rule_presets ORDER BY id",
+    )
+    .fetch_all(pool)
+    .await
+    .expect("list_presets failed")
+}
+
+pub async fn get_preset(pool: &DbPool, id: i64) -> Option<RulePreset> {
+    sqlx::query_as::<_, RulePreset>(
+        "SELECT id, name, rules_json, created_at FROM rule_presets WHERE id = ?1",
+    )
+    .bind(id)
+    .fetch_optional(pool)
+    .await
+    .expect("get_preset failed")
+}
+
+/// Returns Err on UNIQUE violation (name taken) — callers map it to a
+/// friendly error.
+pub async fn insert_preset(
+    pool: &DbPool,
+    name: &str,
+    rules_json: &str,
+) -> Result<i64, sqlx::Error> {
+    let res = sqlx::query("INSERT INTO rule_presets (name, rules_json) VALUES (?1, ?2)")
+        .bind(name)
+        .bind(rules_json)
+        .execute(pool)
+        .await?;
+    Ok(res.last_insert_rowid())
+}
+
+/// Ok(false) when the id doesn't exist; Err on a name collision.
+pub async fn update_preset(
+    pool: &DbPool,
+    id: i64,
+    name: &str,
+    rules_json: &str,
+) -> Result<bool, sqlx::Error> {
+    let res = sqlx::query("UPDATE rule_presets SET name = ?2, rules_json = ?3 WHERE id = ?1")
+        .bind(id)
+        .bind(name)
+        .bind(rules_json)
+        .execute(pool)
+        .await?;
+    Ok(res.rows_affected() > 0)
+}
+
+pub async fn delete_preset(pool: &DbPool, id: i64) -> bool {
+    let res = sqlx::query("DELETE FROM rule_presets WHERE id = ?1")
+        .bind(id)
+        .execute(pool)
+        .await
+        .expect("delete_preset failed");
+    res.rows_affected() > 0
+}
+
 /// Lifetime totals across all rooms — the long-term profile stat.
 pub async fn lifetime_counts(pool: &DbPool, player_id: i64) -> (i64, i64) {
     let row: (i64, i64) = sqlx::query_as(
@@ -359,5 +429,52 @@ mod tests {
         undo_last_event(&pool, r2.id, alice).await; // removes the shot
 
         assert_eq!(lifetime_counts(&pool, alice).await, (2, 0));
+    }
+
+    #[tokio::test]
+    async fn test_standard_preset_is_seeded_and_seed_is_idempotent() {
+        let pool = test_pool().await;
+        run_migrations(&pool).await; // second run must not duplicate the seed
+        let presets = list_presets(&pool).await;
+        assert_eq!(presets.len(), 1);
+        assert_eq!(presets[0].name, "Standard");
+        let rules = crate::rules::parse_rules(&presets[0].rules_json);
+        assert_eq!(rules, crate::rules::standard_rules());
+    }
+
+    #[tokio::test]
+    async fn test_preset_crud_roundtrip() {
+        let pool = test_pool().await;
+        let json = crate::rules::standard_rules_json();
+        let id = insert_preset(&pool, "House", &json).await.unwrap();
+        assert_eq!(get_preset(&pool, id).await.unwrap().name, "House");
+        // Duplicate name rejected.
+        assert!(insert_preset(&pool, "House", &json).await.is_err());
+        // Update name + rules.
+        let mut rules = crate::rules::standard_rules();
+        rules[3].title = "Floor".to_string();
+        let new_json = serde_json::to_string(&rules).unwrap();
+        assert!(update_preset(&pool, id, "House 2", &new_json)
+            .await
+            .unwrap());
+        let got = get_preset(&pool, id).await.unwrap();
+        assert_eq!(got.name, "House 2");
+        assert_eq!(crate::rules::parse_rules(&got.rules_json)[3].title, "Floor");
+        // Update of a missing id reports false.
+        assert!(!update_preset(&pool, 9999, "X", &new_json).await.unwrap());
+        // Delete.
+        assert!(delete_preset(&pool, id).await);
+        assert!(get_preset(&pool, id).await.is_none());
+        assert!(!delete_preset(&pool, id).await);
+    }
+
+    #[tokio::test]
+    async fn test_delete_standard_preset_returns_after_migration_rerun() {
+        let pool = test_pool().await;
+        let standard = &list_presets(&pool).await[0];
+        assert!(delete_preset(&pool, standard.id).await);
+        assert!(list_presets(&pool).await.is_empty());
+        run_migrations(&pool).await; // deploy re-runs migrations
+        assert_eq!(list_presets(&pool).await[0].name, "Standard");
     }
 }

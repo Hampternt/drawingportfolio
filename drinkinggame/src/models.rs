@@ -24,3 +24,11 @@ pub struct LeaderboardRow {
     pub drinks: i64,
     pub shots: i64,
 }
+
+#[derive(sqlx::FromRow, Clone, Debug)]
+pub struct RulePreset {
+    pub id: i64,
+    pub name: String,
+    pub rules_json: String,
+    pub created_at: String,
+}
