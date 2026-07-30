@@ -108,30 +108,37 @@ mod tests {
     #[tokio::test]
     async fn test_room_locks_serialize_access() {
         let locks = RoomLocks::default();
-        let counter = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let ordering: Arc<std::sync::Mutex<Vec<&'static str>>> =
+            Arc::new(std::sync::Mutex::new(Vec::new()));
 
         // Task 1
         let lock1 = locks.for_room(1);
-        let counter1 = counter.clone();
+        let ordering1 = ordering.clone();
         let task1 = tokio::spawn(async move {
             let _guard = lock1.lock().await;
+            ordering1.lock().unwrap().push("start");
             tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-            counter1.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            ordering1.lock().unwrap().push("end");
         });
+
+        // Small delay to ensure task1 gets the lock first
+        tokio::time::sleep(std::time::Duration::from_millis(1)).await;
 
         // Task 2
         let lock2 = locks.for_room(1);
-        let counter2 = counter.clone();
+        let ordering2 = ordering.clone();
         let task2 = tokio::spawn(async move {
             let _guard = lock2.lock().await;
+            ordering2.lock().unwrap().push("start");
             tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-            counter2.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            ordering2.lock().unwrap().push("end");
         });
 
         task1.await.unwrap();
         task2.await.unwrap();
 
-        // Both tasks should have incremented the counter
-        assert_eq!(counter.load(std::sync::atomic::Ordering::SeqCst), 2);
+        // Verify strict serialization: no interleaving
+        let final_ordering = ordering.lock().unwrap();
+        assert_eq!(*final_ordering, vec!["start", "end", "start", "end"]);
     }
 }

@@ -266,6 +266,7 @@ async fn sse_stream(
     // client the night is over instead of leaking a zombie hub entry.
     if db::get_open_room(&state.pool, &room.code).await.is_none() {
         state.hub.remove(room.id);
+        state.locks.remove(room.id);
         let stream = futures::stream::once(async move {
             Ok::<_, Infallible>(Event::default().event("ended").data(""))
         });
