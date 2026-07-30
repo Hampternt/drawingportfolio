@@ -1,0 +1,931 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics><meta name="design_doc_mode" content="canvas">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800;900&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#08070c;font-family:'Space Grotesk',system-ui,sans-serif}
+a{color:#b48ef7;text-decoration:none}a:hover{color:#d3bcff}
+@keyframes tumbleA{0%{transform:rotate(-24deg) scale(.72);opacity:.25}55%{transform:rotate(10deg) scale(1.06);opacity:1}100%{transform:none;opacity:1}}
+@keyframes tumbleB{0%{transform:rotate(24deg) scale(.72);opacity:.25}55%{transform:rotate(-10deg) scale(1.06);opacity:1}100%{transform:none;opacity:1}}
+@keyframes popA{0%{transform:translateY(-8px) scale(.96);opacity:0}100%{transform:none;opacity:1}}
+@keyframes popB{0%{transform:translateY(-8px) scale(.96);opacity:0}100%{transform:none;opacity:1}}
+@keyframes livePulse{0%,100%{opacity:1;box-shadow:0 0 0 0 rgba(247,118,142,.55)}70%{opacity:.75;box-shadow:0 0 0 7px rgba(247,118,142,0)}}
+@keyframes floatUp{0%{transform:translateY(6px) scale(.5) rotate(-6deg);opacity:0}18%{transform:translateY(-10px) scale(1.15) rotate(4deg);opacity:1}100%{transform:translateY(-104px) scale(.95) rotate(-3deg);opacity:0}}
+@keyframes floatUpBig{0%{transform:translateY(10px) scale(.5);opacity:0}18%{transform:translateY(-18px) scale(1.15);opacity:1}100%{transform:translateY(-150px) scale(.95);opacity:0}}
+</style></helmet>
+
+<div style="padding:56px 60px 80px;display:flex;flex-direction:column;gap:44px">
+
+<div style="display:flex;flex-direction:column;gap:10px;max-width:880px">
+<div style="display:flex;align-items:center;gap:10px">
+<span style="font:800 10px/1 'Archivo';letter-spacing:.14em;padding:6px 9px;background:#ffb570;color:#241a10;border-radius:5px">NEW GAME</span>
+<span style="font:700 15px 'Archivo';color:#f2eef8">3 Man — two dice, one victim, live seating order</span>
+</div>
+<p style="margin:0;font:400 13px/1.65 'Space Grotesk';color:#8d87a0">Same shell as the Ring of Fire redesign — room code, tabs, thumb-zone drink bar, emotes and sound hooks. What's new is the <strong style="color:#f2eef8">seat strip</strong>: 7 and 9 only mean anything if the app knows who is physically left and right of the roller, so seating is a first-class, reorderable object rather than join order. Roll, resolve, pass. Doubles open the give-away flow.</p>
+</div>
+
+<div style="display:flex;gap:44px;align-items:flex-start;flex-wrap:wrap">
+
+<div style="display:flex;flex-direction:column;gap:12px">
+<span style="font:500 11px 'Space Grotesk';letter-spacing:.08em;color:#8d87a0">PHONE — /drinks/room/QK4M</span>
+<x-import component-from-global-scope="IOSDevice" from="./ios-frame.jsx" dark="{{ true }}" hint-size="402px,874px">
+<div style="position:relative;height:100%;display:flex;flex-direction:column;background:#0b0910;color:#f2eef8;font-family:'Space Grotesk',system-ui,sans-serif;overflow:hidden">
+
+<div style="position:absolute;left:0;right:0;bottom:112px;height:0;z-index:40;pointer-events:none">
+<sc-for list="{{ pops }}" as="p" hint-placeholder-count="0">
+<span style="position:absolute;bottom:0;font-size:34px;line-height:1;animation:floatUp .95s cubic-bezier(.25,.9,.35,1) forwards;left:{{ p.left }}">{{ p.glyph }}</span>
+</sc-for>
+</div>
+
+<div style="display:flex;align-items:center;gap:10px;padding:58px 16px 8px;border-bottom:1px solid rgba(242,238,248,.09)">
+<div style="display:flex;align-items:center;gap:7px;background:#17141f;border:1px solid rgba(242,238,248,.10);border-radius:9px;padding:6px 10px">
+<span style="width:7px;height:7px;border-radius:50%;background:#f7768e;animation:livePulse 2.2s infinite"></span>
+<span style="font:800 15px/1 'Archivo';letter-spacing:.22em">QK4M</span>
+</div>
+<span style="flex:none;white-space:nowrap;font:800 10px 'Archivo';letter-spacing:.08em;padding:5px 7px;border-radius:7px;background:rgba(255,181,112,.16);border:1px solid rgba(255,181,112,.4);color:#ffb570">3 MAN {{ threeManLabel }}</span>
+<div style="display:flex;align-items:center;gap:6px;margin-left:auto">
+<span style="font:500 12px 'Space Grotesk';color:#8d87a0;white-space:nowrap">{{ playerCount }} at the table</span>
+<button onClick="{{ toggleMute }}" title="Sound effects" style="width:28px;height:28px;flex:none;display:grid;place-items:center;border-radius:8px;cursor:pointer;background:{{ soundBg }};border:1px solid rgba(242,238,248,.12);color:{{ soundFg }};font:700 13px 'Space Grotesk'">{{ soundIcon }}</button>
+</div>
+</div>
+
+<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px;padding:10px 16px 0">
+<button onClick="{{ goGame }}" style="font:700 12px 'Space Grotesk';letter-spacing:.06em;padding:9px 0;border:none;border-radius:8px;cursor:pointer;background:{{ tabGameBg }};color:{{ tabGameFg }}">GAME</button>
+<button onClick="{{ goStand }}" style="font:700 12px 'Space Grotesk';letter-spacing:.06em;padding:9px 0;border:none;border-radius:8px;cursor:pointer;background:{{ tabStandBg }};color:{{ tabStandFg }}">STANDINGS</button>
+<button onClick="{{ goTable }}" style="font:700 12px 'Space Grotesk';letter-spacing:.06em;padding:9px 0;border:none;border-radius:8px;cursor:pointer;background:{{ tabTableBg }};color:{{ tabTableFg }}">TABLE</button>
+</div>
+
+<div style="flex:1;min-height:0;overflow-y:auto;padding:14px 16px 8px;display:flex;flex-direction:column;gap:14px">
+
+<sc-if value="{{ showGame }}" hint-placeholder-val="{{ true }}">
+<div style="display:flex;flex-direction:column;gap:14px">
+
+<sc-if value="{{ pMyTurn }}" hint-placeholder-val="{{ true }}">
+<div style="display:flex;align-items:center;gap:11px;background:rgba(180,142,247,.16);border:1px solid rgba(180,142,247,.5);border-radius:13px;padding:12px 14px;animation:{{ popAnim }} .3s ease-out">
+<span style="width:9px;height:9px;flex:none;border-radius:50%;background:#b48ef7;animation:livePulse 1.6s infinite"></span>
+<span style="font:900 17px/1 'Archivo';letter-spacing:.06em;color:#d9c6ff">{{ myTurnBanner }}</span>
+<span style="margin-left:auto;font:500 11px 'Space Grotesk';color:#8d87a0">the dice are with you</span>
+</div>
+</sc-if>
+
+<div style="display:flex;flex-direction:column;gap:9px;background:#17141f;border:1px solid rgba(242,238,248,.09);border-radius:14px;padding:12px">
+<div style="display:flex;align-items:baseline;justify-content:space-between;gap:8px">
+<span style="white-space:nowrap;font:600 9px 'Space Grotesk';letter-spacing:.1em;color:#8d87a0">SEATING · CLOCKWISE</span>
+<span style="white-space:nowrap;font:500 9px 'Space Grotesk';letter-spacing:.06em;color:#8d87a0">LEFT = NEXT TO ROLL</span>
+</div>
+<div style="display:flex;gap:4px;align-items:flex-end;overflow-x:auto;padding-bottom:2px;scrollbar-width:none">
+<sc-for list="{{ seats }}" as="s" hint-placeholder-count="8">
+<div style="flex:none;display:flex;flex-direction:column;align-items:center;gap:4px;width:40px">
+<span style="white-space:nowrap;font:800 8px 'Archivo';letter-spacing:.04em;height:11px;color:{{ s.tagColor }}">{{ s.tag }}</span>
+<span style="width:{{ s.size }};height:{{ s.size }};border-radius:50%;display:grid;place-items:center;font:800 13px 'Archivo';background:{{ s.bg }};border:2px solid {{ s.border }};color:{{ s.fg }}">{{ s.initial }}</span>
+<span style="font:600 9px 'Space Grotesk';color:{{ s.nameColor }};width:40px;text-align:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ s.name }}</span>
+</div>
+</sc-for>
+</div>
+</div>
+
+<sc-if value="{{ hasVerdict }}" hint-placeholder-val="{{ true }}">
+<div style="animation:{{ popAnim }} .3s ease-out;display:flex;flex-direction:column;gap:12px;background:#17141f;border:1px solid rgba(242,238,248,.09);border-radius:18px;padding:16px">
+<div style="display:flex;align-items:center;gap:12px;transition:opacity .3s ease;opacity:{{ diceOpacity }}">
+<div style="display:flex;gap:8px">
+<div style="width:52px;height:52px;border-radius:11px;background:#f7f3ea;padding:6px;display:grid;grid-template-columns:1fr 1fr 1fr;grid-template-rows:1fr 1fr 1fr;place-items:center;animation:tumbleA .42s cubic-bezier(.2,.8,.2,1);animation-name:{{ tumbleOne }}">
+<sc-for list="{{ dieAPips }}" as="c" hint-placeholder-count="9"><span style="width:64%;aspect-ratio:1;border-radius:50%;background:{{ c.bg }}"></span></sc-for>
+</div>
+<div style="width:52px;height:52px;border-radius:11px;background:#f7f3ea;padding:6px;display:grid;grid-template-columns:1fr 1fr 1fr;grid-template-rows:1fr 1fr 1fr;place-items:center;animation-name:{{ tumbleTwo }};animation-duration:.42s;animation-timing-function:cubic-bezier(.2,.8,.2,1)">
+<sc-for list="{{ dieBPips }}" as="c" hint-placeholder-count="9"><span style="width:64%;aspect-ratio:1;border-radius:50%;background:{{ c.bg }}"></span></sc-for>
+</div>
+</div>
+<div style="display:flex;flex-direction:column;gap:1px;margin-left:auto;align-items:flex-end">
+<span style="font:900 40px/.9 'Archivo';letter-spacing:-.03em;color:{{ sumColor }};font-variant-numeric:tabular-nums">{{ sum }}</span>
+<span style="white-space:nowrap;font:600 10px 'Space Grotesk';letter-spacing:.1em;color:#8d87a0">{{ verdictCaption }}</span>
+</div>
+</div>
+<div style="display:flex;flex-direction:column;gap:8px">
+<sc-for list="{{ calls }}" as="c" hint-placeholder-count="1">
+<div style="display:flex;align-items:center;gap:11px;background:{{ c.bg }};border:1px solid {{ c.border }};border-radius:12px;padding:11px 12px">
+<span style="width:30px;height:30px;flex:none;border-radius:50%;display:grid;place-items:center;font:800 12px 'Archivo';background:{{ c.chipBg }};color:{{ c.chipFg }}">{{ c.initial }}</span>
+<div style="display:flex;flex-direction:column;gap:1px;min-width:0">
+<span style="font:900 16px/1 'Archivo'">{{ c.headline }}</span>
+<span style="font:500 11px 'Space Grotesk';color:#8d87a0">{{ c.reason }}</span>
+</div>
+<span style="margin-left:auto;font:900 24px/1 'Archivo';color:#f7768e;font-variant-numeric:tabular-nums">{{ c.amount }}</span>
+</div>
+</sc-for>
+<sc-if value="{{ noCalls }}" hint-placeholder-val="{{ false }}">
+<div style="border:1px dashed rgba(242,238,248,.16);border-radius:12px;padding:13px;text-align:center;font:600 13px 'Space Grotesk';color:#8d87a0">Nothing. Nobody drinks. Pass it on.</div>
+</sc-if>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ pHandOff }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;flex-direction:column;gap:12px;background:linear-gradient(160deg,rgba(255,181,112,.2),rgba(255,181,112,.04));border:1px solid rgba(255,181,112,.5);border-radius:18px;padding:16px">
+<div style="display:flex;flex-direction:column;gap:3px">
+<span style="font:600 10px 'Space Grotesk';letter-spacing:.12em;color:#ffb570">YOU ROLLED A THREE · PASS IT ON</span>
+<h3 style="margin:0;font:900 24px/1 'Archivo';letter-spacing:-.02em">Who's 3 Man now?</h3>
+<p style="margin:0;font:400 13px/1.45 'Space Grotesk';color:#cdc6dd">You don't drink for this one — you hand the title over. Every 3 from here is theirs.</p>
+</div>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:7px">
+<sc-for list="{{ handOffTargets }}" as="t" hint-placeholder-count="7">
+<button onClick="{{ t.pick }}" style="display:flex;align-items:center;gap:8px;padding:11px 10px;border-radius:11px;cursor:pointer;background:#17141f;border:1px solid rgba(255,181,112,.28);color:#f2eef8">
+<span style="width:24px;height:24px;flex:none;border-radius:50%;display:grid;place-items:center;font:800 10px 'Archivo';background:#262232;color:#cdc6dd">{{ t.initial }}</span>
+<span style="font:600 12px 'Space Grotesk';overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ t.name }}</span>
+</button>
+</sc-for>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ handOffNote }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;align-items:center;gap:10px;background:rgba(255,181,112,.12);border:1px solid rgba(255,181,112,.45);border-radius:12px;padding:11px 13px">
+<span style="font:800 11px 'Archivo';letter-spacing:.08em;color:#ffb570">3 MAN</span>
+<span style="font:600 13px/1.3 'Space Grotesk';color:#f2eef8">{{ handOffNote }}</span>
+</div>
+</sc-if>
+
+<sc-if value="{{ pAssign }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;flex-direction:column;gap:12px;background:linear-gradient(160deg,rgba(255,181,112,.16),rgba(255,181,112,.04));border:1px solid rgba(255,181,112,.4);border-radius:18px;padding:16px">
+<div style="display:flex;flex-direction:column;gap:3px">
+<span style="font:600 10px 'Space Grotesk';letter-spacing:.12em;color:#ffb570">DOUBLE {{ doubleValue }} · GIVE THE DICE AWAY</span>
+<p style="margin:0;font:400 13px/1.45 'Space Grotesk';color:#cdc6dd">They drink whatever they roll. If a {{ doubleValue }} comes back, you drink the combined total.</p>
+</div>
+
+<sc-if value="{{ needsMode }}" hint-placeholder-val="{{ true }}">
+<div style="display:flex;flex-direction:column;gap:8px">
+<button onClick="{{ setBoth }}" style="display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:14px;border-radius:13px;cursor:pointer;background:{{ modeBothBg }};border:1px solid rgba(255,181,112,.4);color:#f2eef8;text-align:left">
+<span style="font:900 16px/1 'Archivo'">Both dice to one person</span>
+<span style="font:400 12px 'Space Grotesk';color:#8d87a0">They roll two and drink the total.</span>
+</button>
+<button onClick="{{ setSplit }}" style="display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:14px;border-radius:13px;cursor:pointer;background:{{ modeSplitBg }};border:1px solid rgba(255,181,112,.4);color:#f2eef8;text-align:left">
+<span style="font:900 16px/1 'Archivo'">One die each to two people</span>
+<span style="font:400 12px 'Space Grotesk';color:#8d87a0">Two different people, one die apiece.</span>
+</button>
+</div>
+</sc-if>
+
+<sc-if value="{{ needsTargets }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;flex-direction:column;gap:9px">
+<div style="display:flex;align-items:center;gap:8px">
+<span style="font:800 10px 'Archivo';letter-spacing:.1em;color:#ffb570">{{ modeLabel }}</span>
+<button onClick="{{ resetMode }}" style="margin-left:auto;font:600 10px 'Space Grotesk';padding:5px 8px;border-radius:7px;cursor:pointer;background:transparent;border:1px solid rgba(242,238,248,.18);color:#8d87a0">CHANGE</button>
+</div>
+<div style="display:grid;gap:8px;grid-template-columns:{{ slotCols }}">
+<sc-for list="{{ slots }}" as="s" hint-placeholder-count="2">
+<button onClick="{{ s.clear }}" style="display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:11px 12px;border-radius:12px;cursor:pointer;background:{{ s.bg }};border:1px solid {{ s.border }};color:#f2eef8;text-align:left">
+<span style="font:600 10px 'Space Grotesk';letter-spacing:.1em;color:#8d87a0">{{ s.label }}</span>
+<span style="font:900 17px/1 'Archivo'">{{ s.target }}</span>
+</button>
+</sc-for>
+</div>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:7px">
+<sc-for list="{{ giftTargets }}" as="t" hint-placeholder-count="8">
+<button onClick="{{ t.pick }}" style="display:flex;align-items:center;gap:8px;padding:9px 10px;border-radius:11px;cursor:pointer;border:1px solid rgba(242,238,248,.12);color:#f2eef8;background:{{ t.bg }}">
+<span style="width:24px;height:24px;flex:none;border-radius:50%;display:grid;place-items:center;font:800 10px 'Archivo';background:#262232;color:#cdc6dd">{{ t.initial }}</span>
+<span style="font:600 12px 'Space Grotesk';overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ t.name }}</span>
+</button>
+</sc-for>
+</div>
+<button onClick="{{ sendGifts }}" style="font:900 16px 'Archivo';letter-spacing:.04em;padding:16px 0;border:none;border-radius:13px;cursor:pointer;background:{{ sendBg }};color:{{ sendFg }}">{{ sendLabel }}</button>
+</div>
+</sc-if>
+</div>
+</sc-if>
+
+<sc-if value="{{ pGifts }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;flex-direction:column;gap:10px">
+<span style="font:600 10px 'Space Grotesk';letter-spacing:.12em;color:#ffb570">DOUBLE {{ doubleValue }} FROM {{ doubleOwner }}</span>
+<sc-for list="{{ gifts }}" as="g" hint-placeholder-count="2">
+<div style="display:flex;align-items:center;gap:12px;background:#17141f;border:1px solid {{ g.border }};border-radius:14px;padding:12px">
+<span style="width:34px;height:34px;flex:none;border-radius:50%;display:grid;place-items:center;font:800 13px 'Archivo';background:#262232;color:#cdc6dd">{{ g.initial }}</span>
+<div style="display:flex;flex-direction:column;gap:1px;min-width:0">
+<span style="font:900 16px/1 'Archivo'">{{ g.name }}</span>
+<span style="font:500 11px 'Space Grotesk';color:#8d87a0">{{ g.status }}</span>
+</div>
+<div style="margin-left:auto">
+<sc-if value="{{ g.rolled }}" hint-placeholder-val="{{ false }}">
+<span style="font:900 28px/1 'Archivo';color:{{ g.resultColor }};font-variant-numeric:tabular-nums">{{ g.value }}</span>
+</sc-if>
+<sc-if value="{{ g.pending }}" hint-placeholder-val="{{ true }}">
+<button onClick="{{ g.roll }}" style="font:900 13px 'Archivo';letter-spacing:.04em;padding:12px 16px;border:none;border-radius:11px;cursor:pointer;background:#b48ef7;color:#191624">ROLL</button>
+</sc-if>
+</div>
+</div>
+</sc-for>
+<sc-if value="{{ paybackText }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;align-items:center;gap:11px;background:rgba(247,118,142,.12);border:1px solid rgba(247,118,142,.45);border-radius:12px;padding:12px">
+<span style="font:900 15px/1.2 'Archivo';color:#f7768e">{{ paybackText }}</span>
+</div>
+</sc-if>
+</div>
+</sc-if>
+
+<sc-if value="{{ pMyTurn }}" hint-placeholder-val="{{ true }}">
+<button onClick="{{ roll }}" style="display:flex;flex-direction:column;align-items:center;gap:3px;width:100%;padding:20px 0;border:none;border-radius:16px;cursor:pointer;background:#b48ef7;color:#191624;box-shadow:0 8px 22px rgba(180,142,247,.28)" style-active="transform:scale(.98)">
+<span style="font:900 23px/1 'Archivo';letter-spacing:.02em">ROLL THE DICE</span>
+<span style="font:500 11px 'Space Grotesk';letter-spacing:.08em;color:rgba(25,22,36,.65)">YOUR TURN · SEAT {{ mySeat }}</span>
+</button>
+</sc-if>
+
+<sc-if value="{{ pWaiting }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;flex-direction:column;gap:10px">
+<div style="display:flex;align-items:center;gap:12px;border:1px dashed rgba(242,238,248,.18);border-radius:16px;padding:18px">
+<span style="width:38px;height:38px;flex:none;border-radius:50%;display:grid;place-items:center;font:800 14px 'Archivo';background:#262232;color:#cdc6dd">{{ rollerInitial }}</span>
+<div style="display:flex;flex-direction:column;gap:2px">
+<span style="font:900 19px/1 'Archivo'">{{ rollerName }} is rolling</span>
+<span style="font:500 12px 'Space Grotesk';color:#8d87a0">{{ myExposure }}</span>
+</div>
+</div>
+<button onClick="{{ roll }}" style="align-self:flex-start;font:600 11px 'Space Grotesk';padding:8px 11px;border-radius:9px;cursor:pointer;background:transparent;border:1px solid rgba(242,238,248,.18);color:#8d87a0">› simulate their roll (prototype)</button>
+</div>
+</sc-if>
+
+<sc-if value="{{ canPass }}" hint-placeholder-val="{{ false }}">
+<button onClick="{{ pass }}" style="display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:17px 0;border:none;border-radius:15px;cursor:pointer;background:#262232;color:#f2eef8" style-active="transform:scale(.98)">
+<span style="font:900 17px/1 'Archivo';letter-spacing:.03em">PASS TO {{ nextName }}</span>
+</button>
+</sc-if>
+
+</div>
+</sc-if>
+
+<sc-if value="{{ showStandings }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;flex-direction:column;gap:9px">
+<sc-for list="{{ standings }}" as="p" hint-placeholder-count="8">
+<div style="display:flex;align-items:center;gap:12px;background:{{ p.bg }};border:1px solid {{ p.border }};border-radius:13px;padding:12px 13px">
+<span style="width:22px;font:900 15px 'Archivo';color:{{ p.rankColor }};font-variant-numeric:tabular-nums">{{ p.rank }}</span>
+<div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:5px">
+<div style="display:flex;align-items:center;gap:6px"><span style="font:800 16px/1 'Archivo'">{{ p.name }}</span><span style="font:800 8px 'Archivo';letter-spacing:.08em;color:#ffb570">{{ p.badge }}</span></div>
+<div style="height:4px;border-radius:2px;background:#221d2e;overflow:hidden"><div style="height:100%;border-radius:2px;background:#b48ef7;transition:width .4s ease;width:{{ p.barPct }}"></div></div>
+</div>
+<div style="display:flex;align-items:baseline;gap:3px"><span style="font:900 22px/1 'Archivo';color:#b48ef7;font-variant-numeric:tabular-nums">{{ p.drinks }}</span><span style="font:600 11px 'Space Grotesk';color:#8d87a0">D</span></div>
+<div style="display:flex;align-items:baseline;gap:3px"><span style="font:900 22px/1 'Archivo';color:#ffb570;font-variant-numeric:tabular-nums">{{ p.shots }}</span><span style="font:600 11px 'Space Grotesk';color:#8d87a0">S</span></div>
+</div>
+</sc-for>
+</div>
+</sc-if>
+
+<sc-if value="{{ showTable }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;flex-direction:column;gap:16px">
+<div style="display:flex;flex-direction:column;gap:4px">
+<span style="font:600 10px 'Space Grotesk';letter-spacing:.12em;color:#8d87a0">SEATING ORDER</span>
+<p style="margin:0;font:400 12px/1.5 'Space Grotesk';color:#8d87a0">7 and 9 hit the roller's neighbours, so this list has to match the actual room. Drag order is set here — move people until it looks like the table.</p>
+</div>
+<div style="display:flex;flex-direction:column;gap:7px">
+<sc-for list="{{ seatRows }}" as="s" hint-placeholder-count="8">
+<div style="display:flex;align-items:center;gap:10px;background:{{ s.bg }};border:1px solid {{ s.border }};border-radius:12px;padding:9px 10px">
+<span style="width:18px;font:900 13px 'Archivo';color:#8d87a0;font-variant-numeric:tabular-nums">{{ s.pos }}</span>
+<span style="width:28px;height:28px;flex:none;border-radius:50%;display:grid;place-items:center;font:800 11px 'Archivo';background:#262232;color:#cdc6dd">{{ s.initial }}</span>
+<div style="display:flex;flex-direction:column;gap:1px;min-width:0">
+<span style="font:700 14px/1 'Space Grotesk';overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ s.name }}</span>
+<span style="font:600 9px 'Archivo';letter-spacing:.08em;color:{{ s.tagColor }}">{{ s.tag }}</span>
+</div>
+<div style="margin-left:auto;display:flex;gap:5px">
+<button onClick="{{ s.up }}" style="width:32px;height:32px;display:grid;place-items:center;border-radius:9px;cursor:pointer;background:#262232;border:none;color:#cdc6dd;font:700 13px 'Space Grotesk'">↑</button>
+<button onClick="{{ s.down }}" style="width:32px;height:32px;display:grid;place-items:center;border-radius:9px;cursor:pointer;background:#262232;border:none;color:#cdc6dd;font:700 13px 'Space Grotesk'">↓</button>
+<button onClick="{{ s.makeThree }}" style="height:32px;padding:0 10px;border-radius:9px;cursor:pointer;background:transparent;border:1px solid rgba(255,181,112,.4);color:#ffb570;font:700 10px 'Space Grotesk'">3 MAN</button>
+</div>
+</div>
+</sc-for>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:8px">
+<span style="font:600 10px 'Space Grotesk';letter-spacing:.12em;color:#8d87a0">THE RULES · TAP TO EDIT</span>
+<sc-for list="{{ ruleCards }}" as="r" hint-placeholder-count="5">
+<div style="display:flex;gap:12px;align-items:flex-start;background:#17141f;border:1px solid rgba(242,238,248,.09);border-radius:12px;padding:11px 13px">
+<span style="width:34px;flex:none;font:900 19px/1 'Archivo';color:#ffb570;text-align:center">{{ r.key }}</span>
+<div style="display:flex;flex-direction:column;gap:2px">
+<span style="font:800 13px/1.15 'Archivo'">{{ r.title }}</span>
+<span style="font:400 12px/1.4 'Space Grotesk';color:#8d87a0">{{ r.text }}</span>
+</div>
+</div>
+</sc-for>
+</div>
+
+<button style="font:600 13px 'Space Grotesk';padding:13px 0;border-radius:11px;cursor:pointer;background:transparent;border:1px solid rgba(247,118,142,.45);color:#f7768e">End the night for everyone</button>
+</div>
+</sc-if>
+
+</div>
+
+<div style="display:grid;grid-template-columns:1fr 1fr 52px;gap:8px;padding:10px 16px 32px;border-top:1px solid rgba(242,238,248,.09);background:#0e0c14">
+<button onClick="{{ drink }}" style="display:flex;flex-direction:column;align-items:center;gap:1px;padding:13px 0;border:none;border-radius:14px;cursor:pointer;background:#b48ef7;color:#191624" style-active="transform:scale(.97)">
+<span style="font:900 17px/1 'Archivo';letter-spacing:.03em">+1 DRINK</span>
+<span style="font:600 11px 'Space Grotesk';color:rgba(25,22,36,.6);font-variant-numeric:tabular-nums">{{ myDrinksLabel }}</span>
+</button>
+<button onClick="{{ shot }}" style="display:flex;flex-direction:column;align-items:center;gap:1px;padding:13px 0;border:none;border-radius:14px;cursor:pointer;background:#ffb570;color:#241a10" style-active="transform:scale(.97)">
+<span style="font:900 17px/1 'Archivo';letter-spacing:.03em">+1 SHOT</span>
+<span style="font:600 11px 'Space Grotesk';color:rgba(36,26,16,.6);font-variant-numeric:tabular-nums">{{ myShotsLabel }}</span>
+</button>
+<button onClick="{{ undo }}" style="display:grid;place-items:center;border:1px solid rgba(242,238,248,.18);border-radius:14px;cursor:pointer;background:transparent;color:#8d87a0;font:600 11px 'Space Grotesk'">UNDO</button>
+</div>
+
+</div>
+</x-import>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:12px">
+<span style="font:500 11px 'Space Grotesk';letter-spacing:.08em;color:#8d87a0">BIG SCREEN — /drinks/room/QK4M/screen · 1280×720</span>
+<div style="position:relative;width:1280px;height:720px;border-radius:14px;overflow:hidden;background:#0b0910;color:#f2eef8;display:grid;grid-template-columns:1fr 420px;grid-template-rows:minmax(0,1fr) {{ stripHeight }};font-family:'Space Grotesk',system-ui,sans-serif">
+
+<div style="position:absolute;left:40px;right:460px;bottom:200px;height:0;z-index:40;pointer-events:none">
+<sc-for list="{{ pops }}" as="p" hint-placeholder-count="0">
+<span style="position:absolute;bottom:0;font-size:54px;line-height:1;animation:floatUpBig 1.1s cubic-bezier(.25,.9,.35,1) forwards;left:{{ p.left }}">{{ p.glyph }}</span>
+</sc-for>
+</div>
+
+<div style="min-width:0;min-height:0;overflow:hidden;padding:40px;display:flex;flex-direction:column;gap:26px;border-right:1px solid rgba(242,238,248,.09)">
+<div style="display:flex;align-items:center;gap:12px;flex:none">
+<span style="width:10px;height:10px;border-radius:50%;background:#f7768e;animation:livePulse 2.2s infinite"></span>
+<span style="font:600 15px 'Space Grotesk';letter-spacing:.18em;color:#8d87a0">3 MAN</span>
+<span style="font:600 15px 'Space Grotesk';color:#ffb570">{{ threeManLabel }}</span>
+<span style="margin-left:auto;font:600 15px 'Space Grotesk';letter-spacing:.06em;color:#f2eef8">{{ waitingLabel }}</span>
+</div>
+
+<sc-if value="{{ hasVerdict }}" hint-placeholder-val="{{ true }}">
+<div style="display:flex;gap:36px;align-items:center;min-width:0;transition:opacity .3s ease;opacity:{{ diceOpacity }}">
+<div style="display:flex;gap:18px;flex:none">
+<div style="width:150px;height:150px;border-radius:24px;background:#f7f3ea;padding:16px;display:grid;grid-template-columns:1fr 1fr 1fr;grid-template-rows:1fr 1fr 1fr;place-items:center;box-shadow:0 20px 50px rgba(0,0,0,.55);animation-name:{{ tumbleOne }};animation-duration:.5s;animation-timing-function:cubic-bezier(.2,.8,.2,1)">
+<sc-for list="{{ dieAPips }}" as="c" hint-placeholder-count="9"><span style="width:66%;aspect-ratio:1;border-radius:50%;background:{{ c.bg }}"></span></sc-for>
+</div>
+<div style="width:150px;height:150px;border-radius:24px;background:#f7f3ea;padding:16px;display:grid;grid-template-columns:1fr 1fr 1fr;grid-template-rows:1fr 1fr 1fr;place-items:center;box-shadow:0 20px 50px rgba(0,0,0,.55);animation-name:{{ tumbleTwo }};animation-duration:.5s;animation-timing-function:cubic-bezier(.2,.8,.2,1)">
+<sc-for list="{{ dieBPips }}" as="c" hint-placeholder-count="9"><span style="width:66%;aspect-ratio:1;border-radius:50%;background:{{ c.bg }}"></span></sc-for>
+</div>
+</div>
+<div style="display:flex;flex-direction:column;gap:2px;min-width:0">
+<span style="font:700 15px 'Space Grotesk';letter-spacing:.16em;color:#8d87a0">{{ verdictCaption }}</span>
+<span style="font-family:'Archivo';font-weight:900;line-height:.82;letter-spacing:-.05em;color:{{ sumColor }};font-variant-numeric:tabular-nums;font-size:{{ sumSize }}">{{ sum }}</span>
+<span style="font:600 22px 'Space Grotesk';color:#8d87a0">{{ headlineReason }}</span>
+</div>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:12px;min-width:0">
+<sc-for list="{{ calls }}" as="c" hint-placeholder-count="1">
+<div style="display:flex;align-items:center;gap:18px;background:{{ c.bg }};border:1px solid {{ c.border }};border-radius:16px;padding:16px 20px">
+<span style="width:52px;height:52px;flex:none;border-radius:50%;display:grid;place-items:center;font:800 20px 'Archivo';background:{{ c.chipBg }};color:{{ c.chipFg }}">{{ c.initial }}</span>
+<div style="display:flex;flex-direction:column;gap:2px;min-width:0">
+<span style="font:900 34px/1 'Archivo'">{{ c.headline }}</span>
+<span style="font:600 18px 'Space Grotesk';color:#8d87a0">{{ c.reason }}</span>
+</div>
+<span style="margin-left:auto;font:900 46px/1 'Archivo';color:#f7768e;font-variant-numeric:tabular-nums">{{ c.amount }}</span>
+</div>
+</sc-for>
+<sc-if value="{{ noCalls }}" hint-placeholder-val="{{ false }}">
+<div style="border:1px dashed rgba(242,238,248,.18);border-radius:16px;padding:22px;text-align:center;font:700 24px 'Space Grotesk';color:#8d87a0">Nobody drinks. Pass it on.</div>
+</sc-if>
+<sc-if value="{{ pHandOff }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;align-items:center;gap:16px;background:rgba(255,181,112,.14);border:1px solid rgba(255,181,112,.5);border-radius:16px;padding:20px 24px">
+<span style="font:800 15px 'Archivo';letter-spacing:.1em;color:#ffb570">HANDING OVER</span>
+<span style="font:900 34px/1 'Archivo'">{{ rollerName }} is picking a new 3 Man</span>
+</div>
+</sc-if>
+<sc-if value="{{ handOffNote }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;align-items:center;gap:16px;background:rgba(255,181,112,.14);border:1px solid rgba(255,181,112,.5);border-radius:16px;padding:18px 24px">
+<span style="flex:none;white-space:nowrap;font:800 15px 'Archivo';letter-spacing:.1em;color:#ffb570">3 MAN</span>
+<span style="font:900 30px/1.1 'Archivo'">{{ handOffNote }}</span>
+</div>
+</sc-if>
+
+<sc-if value="{{ pAssign }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;align-items:center;gap:20px;background:rgba(255,181,112,.14);border:1px solid rgba(255,181,112,.5);border-radius:16px;padding:20px 24px">
+<span style="flex:none;white-space:nowrap;font:800 15px 'Archivo';letter-spacing:.1em;color:#ffb570">DOUBLE {{ doubleValue }}</span>
+<span style="font:900 34px/1.05 'Archivo'">{{ doubleOwner }} is handing the dice out</span>
+<span style="margin-left:auto;flex:none;white-space:nowrap;font:600 17px 'Space Grotesk';color:#8d87a0">{{ modeLabel }}</span>
+</div>
+</sc-if>
+
+<sc-if value="{{ showGiftsScreen }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;flex-direction:column;gap:12px;min-width:0">
+<div style="display:flex;align-items:center;gap:14px">
+<span style="flex:none;white-space:nowrap;font:800 15px 'Archivo';letter-spacing:.1em;color:#ffb570">DOUBLE {{ doubleValue }}</span>
+<span style="font:600 20px 'Space Grotesk';color:#8d87a0">from {{ doubleOwner }} — drink what you roll</span>
+</div>
+<div style="display:flex;gap:16px">
+<sc-for list="{{ gifts }}" as="g" hint-placeholder-count="2">
+<div style="flex:1;min-width:0;display:flex;align-items:center;gap:16px;background:#17141f;border:1px solid {{ g.border }};border-radius:16px;padding:16px 20px">
+<span style="width:52px;height:52px;flex:none;border-radius:50%;display:grid;place-items:center;font:800 20px 'Archivo';background:#262232;color:#cdc6dd">{{ g.initial }}</span>
+<div style="display:flex;flex-direction:column;gap:2px;min-width:0">
+<span style="font:900 30px/1 'Archivo'">{{ g.name }}</span>
+<span style="font:600 17px 'Space Grotesk';color:#8d87a0">{{ g.status }}</span>
+</div>
+<span style="margin-left:auto;flex:none;font:900 46px/1 'Archivo';color:{{ g.resultColor }};font-variant-numeric:tabular-nums">{{ g.screenValue }}</span>
+</div>
+</sc-for>
+</div>
+<sc-if value="{{ paybackText }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;align-items:center;gap:16px;background:rgba(247,118,142,.14);border:1px solid rgba(247,118,142,.5);border-radius:16px;padding:18px 24px">
+<span style="flex:none;white-space:nowrap;font:800 15px 'Archivo';letter-spacing:.1em;color:#f7768e">CAME BACK</span>
+<span style="font:900 32px/1.05 'Archivo'">{{ paybackText }}</span>
+</div>
+</sc-if>
+</div>
+</sc-if>
+</div>
+</sc-if>
+
+<sc-if value="{{ screenWaiting }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;flex-direction:column;gap:16px;justify-content:center;height:100%">
+<span style="font:600 15px 'Space Grotesk';letter-spacing:.18em;color:#8d87a0">WAITING ON</span>
+<h2 style="margin:0;font:900 92px/.9 'Archivo';letter-spacing:-.04em">{{ rollerName }}</h2>
+<p style="margin:0;font:400 26px 'Space Grotesk';color:#cdc6dd">Two dice. Three, seven, nine, eleven — or a double.</p>
+</div>
+</sc-if>
+</div>
+
+<div style="min-width:0;min-height:0;overflow:hidden;padding:36px 32px;display:flex;flex-direction:column;gap:14px;background:#0e0c14">
+<div style="display:flex;align-items:flex-start;gap:16px;flex:none">
+<div style="display:flex;flex-direction:column;gap:2px">
+<span style="font:600 13px 'Space Grotesk';letter-spacing:.16em;color:#8d87a0">JOIN</span>
+<span style="font:900 44px/1 'Archivo';letter-spacing:.1em;color:#b48ef7">QK4M</span>
+</div>
+<sc-if value="{{ showJoinQr }}" hint-placeholder-val="{{ true }}">
+<div style="margin-left:auto;width:84px;height:84px;border-radius:10px;border:1px dashed rgba(242,238,248,.28);display:grid;place-items:center;text-align:center;padding:6px">
+<span style="font:600 11px/1.3 'Space Grotesk';color:#8d87a0">QR<br>placeholder</span>
+</div>
+</sc-if>
+</div>
+<div style="display:flex;align-items:center;gap:10px;flex:none">
+<span style="font:600 13px 'Space Grotesk';letter-spacing:.16em;color:#8d87a0">STANDINGS</span>
+<div style="flex:1;height:1px;background:rgba(242,238,248,.09)"></div>
+</div>
+<div style="flex:1;min-height:0;display:flex;flex-direction:column;gap:5px">
+<sc-for list="{{ standings }}" as="p" hint-placeholder-count="8">
+<div style="flex:1;min-height:0;display:flex;align-items:center;gap:12px;background:{{ p.bg }};border:1px solid {{ p.border }};border-radius:10px;padding:0 14px">
+<span style="width:20px;font:900 18px 'Archivo';color:{{ p.rankColor }};font-variant-numeric:tabular-nums">{{ p.rank }}</span>
+<span style="flex:1;min-width:0;font:800 22px/1 'Archivo';overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ p.name }}</span>
+<span style="font:800 11px 'Archivo';letter-spacing:.06em;color:#ffb570">{{ p.badge }}</span>
+<div style="display:flex;align-items:baseline;gap:3px"><span style="font:900 24px/1 'Archivo';color:#b48ef7;font-variant-numeric:tabular-nums">{{ p.drinks }}</span><span style="font:600 12px 'Space Grotesk';color:#8d87a0">D</span></div>
+<div style="display:flex;align-items:baseline;gap:3px;width:48px;justify-content:flex-end"><span style="font:900 24px/1 'Archivo';color:#ffb570;font-variant-numeric:tabular-nums">{{ p.shots }}</span><span style="font:600 12px 'Space Grotesk';color:#8d87a0">S</span></div>
+</div>
+</sc-for>
+</div>
+</div>
+
+<div style="grid-column:1 / -1;min-width:0;overflow:hidden;padding:22px 40px;display:flex;flex-direction:column;gap:12px;border-top:1px solid rgba(242,238,248,.09);background:#0e0c14">
+<div style="display:flex;align-items:baseline;gap:14px">
+<span style="font:600 13px 'Space Grotesk';letter-spacing:.16em;color:#8d87a0">THE TABLE · CLOCKWISE</span>
+<span style="font:600 13px 'Space Grotesk';color:#8d87a0">7 hits the left · 9 hits the right · 11 hits the roller</span>
+</div>
+<div style="flex:1;min-height:0;display:flex;gap:14px;align-items:center;overflow:hidden">
+<sc-for list="{{ seats }}" as="s" hint-placeholder-count="8">
+<div style="flex:none;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;width:110px">
+<span style="white-space:nowrap;font:800 11px 'Archivo';letter-spacing:.06em;line-height:13px;color:{{ s.tagColor }}">{{ s.tag }}</span>
+<span style="flex:none;width:{{ s.sizeBig }};height:{{ s.sizeBig }};border-radius:50%;display:grid;place-items:center;font:800 20px 'Archivo';background:{{ s.bg }};border:2px solid {{ s.border }};color:{{ s.fg }}">{{ s.initial }}</span>
+<span style="font:700 15px/17px 'Space Grotesk';color:{{ s.nameColor }};max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:{{ seatNameDisplay }}">{{ s.name }}</span>
+</div>
+</sc-for>
+</div>
+</div>
+
+</div>
+</div>
+
+</div>
+
+<div style="display:flex;flex-wrap:wrap;gap:40px;align-items:flex-start;border-top:1px solid rgba(242,238,248,.09);padding-top:40px">
+<div style="display:flex;flex-direction:column;gap:10px;max-width:430px">
+<span style="font:500 11px 'Space Grotesk';letter-spacing:.08em;color:#8d87a0">DESIGN DECISIONS</span>
+<ul style="margin:0;padding-left:18px;font:400 13px/1.7 'Space Grotesk';color:#8d87a0">
+<li><strong style="color:#f2eef8">Seating is an object, not join order.</strong> The TABLE tab reorders it live with ↑/↓ (drunk-proof 44px targets beat drag). Left and right are then unambiguous, and the strip shows the two exposed neighbours on every screen.</li>
+<li><strong style="color:#f2eef8">"Left" is defined out loud</strong> — LEFT = next to roll. One label kills the whole argument.</li>
+<li><strong style="color:#f2eef8">One verdict, not a rules quiz.</strong> The dice are the smaller element; the sum and "who drinks and why" are the hero. Multiple triggers stack as separate rows (a 3 and a double can both fire).</li>
+<li><strong style="color:#f2eef8">Doubles are a guided flow</strong>: pick <em>both dice to one person</em> (they roll two and drink the total) or <em>one die each to two people</em>, send, each victim rolls, and the payback row fires automatically if a matching number comes back.</li>
+<li><strong style="color:#f2eef8">3 Man is a badge that travels</strong> — visible in the top bar, the seat strip, standings and the big screen, reassignable from the TABLE tab.</li>
+</ul>
+</div>
+<div style="display:flex;flex-direction:column;gap:10px;max-width:430px">
+<span style="font:500 11px 'Space Grotesk';letter-spacing:.08em;color:#8d87a0">OPEN QUESTIONS FOR YOU</span>
+<ul style="margin:0;padding-left:18px;font:400 13px/1.7 'Space Grotesk';color:#8d87a0">
+<li>How does the <em>first</em> 3 Man get chosen — first to roll a 3, loser of the last game, or just picked? Right now the opening 3 Man is set by hand in the TABLE tab.</li>
+<li>Can the 3 Man hand the title straight back to the person who gave it to them, or should the previous holder be locked out for a turn?</li>
+<li>Does a double of 3s count once or twice against the 3 Man? Currently each 3 counts, so 3+3 is two drinks plus the give-away.</li>
+<li>Should a gifted die that lands on a 3 / 7 / 9 / 11 trigger those rules too, or only the drink-what-you-roll rule? Currently only the latter.</li>
+<li>Auto-pass the dice after a verdict, or keep the explicit PASS button? Explicit is safer when phones lag behind the table.</li>
+</ul>
+</div>
+</div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:2000,&quot;height&quot;:1500},&quot;countEachThree&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Rules&quot;},&quot;autoPassDice&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Rules&quot;},&quot;seatOrbSize&quot;:{&quot;editor&quot;:&quot;range&quot;,&quot;default&quot;:62,&quot;min&quot;:40,&quot;max&quot;:78,&quot;step&quot;:2,&quot;unit&quot;:&quot;px&quot;,&quot;tsType&quot;:&quot;number&quot;,&quot;section&quot;:&quot;Big screen&quot;},&quot;showSeatNames&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Big screen&quot;},&quot;showJoinQr&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Big screen&quot;},&quot;spectatorSumSize&quot;:{&quot;editor&quot;:&quot;range&quot;,&quot;default&quot;:124,&quot;min&quot;:80,&quot;max&quot;:180,&quot;step&quot;:4,&quot;unit&quot;:&quot;px&quot;,&quot;tsType&quot;:&quot;number&quot;,&quot;section&quot;:&quot;Big screen&quot;}}">
+const ME = 'hampus';
+const SOUNDS = {drinks:'sounds/drink.mp3', shots:'sounds/shot.mp3', roll:'sounds/dice-roll.mp3', give:'sounds/dice-give.mp3'};
+const POP_GLYPH = {drinks:'\u{1F37A}', shots:'\u{1F943}'};
+const PIP_MAP = {
+  1:[0,0,0,0,1,0,0,0,0],
+  2:[1,0,0,0,0,0,0,0,1],
+  3:[1,0,0,0,1,0,0,0,1],
+  4:[1,0,1,0,0,0,1,0,1],
+  5:[1,0,1,0,1,0,1,0,1],
+  6:[1,0,1,1,0,1,1,0,1]
+};
+const RULE_CARDS = [
+  {key:'3', title:'Three man drinks', text:'Any die showing a 3, or a total of 3. Each 3 counts. Unless the 3 Man rolled it — then they pick someone else to be 3 Man instead of drinking.'},
+  {key:'7', title:'Left of the roller', text:'The next person to roll takes it.'},
+  {key:'9', title:'Right of the roller', text:'The person who just rolled before takes it.'},
+  {key:'11', title:'The roller drinks', text:'Nobody to blame.'},
+  {key:'==', title:'Double: give the dice away', text:'Both dice to one person, or one die each to two people. They drink what they roll — and if your number comes back, you drink the combined total.'}
+];
+const d6 = () => 1 + Math.floor(Math.random() * 6);
+
+class Component extends DCLogic {
+  state = {
+    tab: 'game',
+    order: ['hampus','alice','bob','elin','oskar','mira','jonas','tove'],
+    rollerIdx: 0,
+    threeMan: 'bob',
+    phase: 'ready',
+    dice: null,
+    calls: [],
+    slots: [null, null],
+    giftMode: null,
+    gifts: [],
+    lastRoller: null,
+    stale: false,
+    doubleValue: null,
+    doubleOwner: null,
+    payback: null,
+    pendingDouble: false,
+    handOffCount: 0,
+    handOffNote: null,
+    players: {
+      hampus:{drinks:6,shots:2}, alice:{drinks:5,shots:1}, bob:{drinks:7,shots:0},
+      elin:{drinks:4,shots:2}, oskar:{drinks:3,shots:1}, mira:{drinks:2,shots:0},
+      jonas:{drinks:2,shots:1}, tove:{drinks:1,shots:0}
+    },
+    muted: false,
+    pops: [], nextPop: 1,
+    bump: 0,
+    log: []
+  };
+
+  play(kind) {
+    if (this.state.muted || !SOUNDS[kind]) return;
+    try { const a = new Audio(SOUNDS[kind]); a.volume = 0.7; a.play().catch(() => {}); } catch (e) {}
+  }
+
+  emote(kind) {
+    const id = this.state.nextPop;
+    const pop = {id, glyph: POP_GLYPH[kind] || POP_GLYPH.drinks, x: 12 + Math.random() * 64};
+    this.setState(s => ({pops:[...s.pops, pop], nextPop: s.nextPop + 1}));
+    setTimeout(() => this.setState(s => ({pops: s.pops.filter(p => p.id !== id)})), 1150);
+  }
+
+  addDrinks(name, n) {
+    this.setState(s => ({
+      players: {...s.players, [name]: {...s.players[name], drinks: s.players[name].drinks + n}}
+    }));
+  }
+
+  bumpMe(field, delta) {
+    if (delta > 0) { this.emote(field); this.play(field); }
+    this.setState(s => ({
+      players: {...s.players, [ME]: {...s.players[ME], [field]: Math.max(0, s.players[ME][field] + delta)}},
+      log: delta > 0 ? [...s.log, field] : s.log
+    }));
+  }
+
+  left(i) { const o = this.state.order; return o[(i + 1) % o.length]; }
+  right(i) { const o = this.state.order; return o[(i - 1 + o.length) % o.length]; }
+
+  roll = () => {
+    const s = this.state;
+    if (s.phase !== 'ready') return;
+    this.play('roll');
+    const a = d6(), b = d6();
+    const sum = a + b;
+    const roller = s.order[s.rollerIdx];
+    const calls = [];
+    const rawThrees = (a === 3 ? 1 : 0) + (b === 3 ? 1 : 0) + (sum === 3 ? 1 : 0);
+    const threes = (this.props.countEachThree ?? true) ? rawThrees : Math.min(1, rawThrees);
+    // The 3 Man rolling a 3 doesn't drink — they hand the title on.
+    const handOff = threes > 0 && roller === s.threeMan;
+    if (threes && !handOff) calls.push({name: s.threeMan, amount: threes, reason: threes > 1 ? 'two 3s on the table' : (sum === 3 ? 'total of three' : 'a three showed up'), tag: '3 MAN'});
+    if (sum === 7) calls.push({name: this.left(s.rollerIdx), amount: 1, reason: 'seven — left of the roller', tag: 'LEFT'});
+    if (sum === 9) calls.push({name: this.right(s.rollerIdx), amount: 1, reason: 'nine — right of the roller', tag: 'RIGHT'});
+    if (sum === 11) calls.push({name: roller, amount: 1, reason: 'eleven — the roller', tag: 'ROLLER'});
+    calls.forEach(c => this.addDrinks(c.name, c.amount));
+    const isDouble = a === b;
+    this.setState({
+      dice: [a, b], calls,
+      lastRoller: roller,
+      stale: false,
+      handOffNote: null,
+      phase: handOff ? 'handoff' : (isDouble ? 'assign' : 'rolled'),
+      pendingDouble: handOff && isDouble,
+      handOffCount: handOff ? threes : 0,
+      doubleValue: isDouble ? a : null,
+      doubleOwner: isDouble ? roller : null,
+      slots: [null, null], giftMode: null, gifts: [], payback: null,
+      bump: s.bump + 1
+    });
+    if (!handOff && !isDouble && (this.props.autoPassDice ?? false)) {
+      clearTimeout(this._autoPass);
+      this._autoPass = setTimeout(() => { if (this.state.phase === 'rolled') this.pass(); }, 3200);
+    }
+  };
+
+  componentWillUnmount() { clearTimeout(this._autoPass); }
+
+  giveThreeMan(name) {
+    this.setState(s => ({
+      threeMan: name,
+      phase: s.pendingDouble ? 'assign' : 'rolled',
+      pendingDouble: false,
+      handOffNote: name + ' is the new 3 Man — handed over by ' + s.order[s.rollerIdx]
+    }));
+  }
+
+  // 'both' = both dice to one person (they roll two). 'split' = one die each
+  // to two different people.
+  setGiftMode(mode) {
+    this.setState({giftMode: mode, slots: mode === 'both' ? [null] : [null, null]});
+  }
+
+  pickTarget(name) {
+    this.setState(s => {
+      const slots = [...s.slots];
+      // Split mode is two different people — no doubling up.
+      if (s.giftMode === 'split' && slots.includes(name)) return {};
+      const i = slots.indexOf(null);
+      if (i === -1) return {};
+      slots[i] = name;
+      return {slots};
+    });
+  }
+
+  clearSlot(i) {
+    this.setState(s => { const slots = [...s.slots]; slots[i] = null; return {slots}; });
+  }
+
+  sendGifts = () => {
+    const s = this.state;
+    if (!s.giftMode || s.slots.some(x => !x)) return;
+    this.play('give');
+    this.setState({
+      phase: 'gifts',
+      gifts: s.slots.map((n, i) => ({slot:i, name:n, dice: s.giftMode === 'both' ? 2 : 1, values:null}))
+    });
+  };
+
+  rollGift(slot) {
+    this.play('roll');
+    const s = this.state;
+    const target = s.gifts.find(g => g.slot === slot);
+    const values = Array.from({length: target.dice}, () => d6());
+    const total = values.reduce((n, v) => n + v, 0);
+    const gifts = s.gifts.map(g => g.slot === slot ? {...g, values} : g);
+    this.addDrinks(target.name, total);
+    const done = gifts.every(g => g.values !== null);
+    let payback = s.payback;
+    if (done) {
+      const all = gifts.reduce((acc, g) => acc.concat(g.values), []);
+      if (all.includes(s.doubleValue)) {
+        const combined = all.reduce((n, v) => n + v, 0);
+        payback = s.doubleOwner + ' drinks ' + combined + ' — a ' + s.doubleValue + ' came back';
+        this.addDrinks(s.doubleOwner, combined);
+      }
+    }
+    this.setState({gifts, payback, bump: s.bump + 1});
+  }
+
+  // The dice stay on the table: everything from the last roll keeps rendering
+  // until someone actually rolls again, just marked stale.
+  pass = () => {
+    this.setState(s => ({
+      rollerIdx: (s.rollerIdx + 1) % s.order.length,
+      phase: 'ready',
+      stale: true,
+      slots: [null, null],
+      pendingDouble: false
+    }));
+  };
+
+  move(name, dir) {
+    this.setState(s => {
+      const o = [...s.order];
+      const i = o.indexOf(name);
+      const j = i + dir;
+      if (j < 0 || j >= o.length) return {};
+      const roller = o[s.rollerIdx];
+      [o[i], o[j]] = [o[j], o[i]];
+      return {order: o, rollerIdx: o.indexOf(roller)};
+    });
+  }
+
+  renderVals() {
+    const s = this.state;
+    const roller = s.order[s.rollerIdx];
+    const leftName = this.left(s.rollerIdx);
+    const rightName = this.right(s.rollerIdx);
+    const cap = n => n.charAt(0).toUpperCase();
+    const dice = s.dice;
+    const sum = dice ? dice[0] + dice[1] : 0;
+    const pips = v => PIP_MAP[v].map(on => ({bg: on ? '#14121a' : 'transparent'}));
+
+    const orb = this.props.seatOrbSize ?? 62;
+    const showNames = this.props.showSeatNames ?? true;
+    // Band has to clear: its own 44px padding + 17px caption line + 12px gap,
+    // then each seat column (13px tag + 4px gap + roller orb + optional name).
+    const stripHeight = Math.max(150, 44 + 17 + 12 + 13 + 4 + (orb + 12) + (showNames ? 21 : 0));
+
+    const tagFor = n => n === roller ? 'ROLLING' : (n === leftName ? '\u2190 7' : (n === rightName ? '9 \u2192' : (n === s.threeMan ? '3 MAN' : '')));
+    const tagColorFor = n => n === roller ? '#b48ef7' : (n === leftName || n === rightName ? '#f7768e' : (n === s.threeMan ? '#ffb570' : 'transparent'));
+    const seats = s.order.map(n => ({
+      name: n,
+      initial: cap(n),
+      tag: tagFor(n),
+      tagColor: tagColorFor(n),
+      size: n === roller ? '42px' : '34px',
+      sizeBig: (n === roller ? orb + 12 : orb) + 'px',
+      bg: n === roller ? '#b48ef7' : '#17141f',
+      fg: n === roller ? '#191624' : '#cdc6dd',
+      border: n === roller ? '#b48ef7' : (n === leftName || n === rightName ? 'rgba(247,118,142,.5)' : (n === s.threeMan ? 'rgba(255,181,112,.5)' : 'rgba(242,238,248,.12)')),
+      nameColor: n === roller ? '#f2eef8' : '#8d87a0'
+    }));
+
+    const list = s.order.map(n => ({name:n, ...s.players[n]}));
+    const sorted = [...list].sort((a, b) => (b.drinks - a.drinks) || (b.shots - a.shots));
+    const top = Math.max(1, sorted[0] ? sorted[0].drinks : 1);
+    const rankColors = ['#b48ef7','#cdc6dd','#a99cc4'];
+    const standings = sorted.map((p, i) => ({
+      rank: i + 1, name: p.name, drinks: p.drinks, shots: p.shots,
+      badge: p.name === s.threeMan ? '3 MAN' : '',
+      barPct: Math.round((p.drinks / top) * 100) + '%',
+      bg: p.name === ME ? 'rgba(180,142,247,.10)' : '#17141f',
+      border: p.name === ME ? 'rgba(180,142,247,.45)' : 'rgba(242,238,248,.09)',
+      rankColor: rankColors[i] || '#8d87a0'
+    }));
+
+    const calls = s.calls.map(c => ({
+      initial: cap(c.name),
+      headline: (c.name === ME ? 'You drink' : c.name + ' drinks'),
+      reason: c.reason,
+      amount: c.amount,
+      bg: c.name === ME ? 'rgba(247,118,142,.14)' : '#1b1825',
+      border: c.name === ME ? 'rgba(247,118,142,.5)' : 'rgba(242,238,248,.09)',
+      chipBg: c.name === ME ? '#f7768e' : '#262232',
+      chipFg: c.name === ME ? '#241014' : '#cdc6dd'
+    }));
+
+    const assigned = s.slots.filter(Boolean).length;
+    const myExposure = ME === leftName ? "You're on their left — a 7 is yours."
+      : ME === rightName ? "You're on their right — a 9 is yours."
+      : ME === s.threeMan ? "You're 3 Man — every 3 is yours."
+      : 'Nothing lands on you unless they double.';
+
+    return {
+      playerCount: s.order.length,
+      tab: s.tab,
+      goGame: () => this.setState({tab:'game'}),
+      goStand: () => this.setState({tab:'standings'}),
+      goTable: () => this.setState({tab:'table'}),
+      tabGameBg: s.tab === 'game' ? '#f2eef8' : '#17141f',
+      tabGameFg: s.tab === 'game' ? '#14121a' : '#8d87a0',
+      tabStandBg: s.tab === 'standings' ? '#f2eef8' : '#17141f',
+      tabStandFg: s.tab === 'standings' ? '#14121a' : '#8d87a0',
+      tabTableBg: s.tab === 'table' ? '#f2eef8' : '#17141f',
+      tabTableFg: s.tab === 'table' ? '#14121a' : '#8d87a0',
+      showGame: s.tab === 'game',
+      showStandings: s.tab === 'standings',
+      showTable: s.tab === 'table',
+
+      seats,
+      stripHeight: stripHeight + 'px',
+      seatNameDisplay: showNames ? 'block' : 'none',
+      showJoinQr: this.props.showJoinQr ?? true,
+      sumSize: (this.props.spectatorSumSize ?? 124) + 'px',
+      seatRows: s.order.map((n, i) => ({
+        name: n, pos: i + 1, initial: cap(n),
+        tag: tagFor(n) || (n === ME ? 'YOU' : ''),
+        tagColor: tagColorFor(n) === 'transparent' ? '#8d87a0' : tagColorFor(n),
+        bg: n === ME ? 'rgba(180,142,247,.10)' : '#17141f',
+        border: n === ME ? 'rgba(180,142,247,.4)' : 'rgba(242,238,248,.09)',
+        up: () => this.move(n, -1),
+        down: () => this.move(n, 1),
+        makeThree: () => this.setState({threeMan: n})
+      })),
+      ruleCards: RULE_CARDS,
+
+      hasVerdict: !!dice,
+      screenWaiting: !dice,
+      dieAPips: dice ? pips(dice[0]) : pips(1),
+      dieBPips: dice ? pips(dice[1]) : pips(1),
+      sum,
+      sumColor: sum === 7 || sum === 9 || sum === 11 || sum === 3 ? '#f7768e' : '#f2eef8',
+      headlineReason: s.phase === 'handoff' ? 'the 3 Man rolled a three' : (s.calls.length ? s.calls[0].reason : (s.doubleValue ? 'double ' + s.doubleValue + ' — give the dice away' : 'nothing doing')),
+      calls,
+      noCalls: !!dice && !s.stale && calls.length === 0 && !s.doubleValue && s.phase !== 'handoff' && !s.handOffNote,
+      tumbleOne: s.bump % 2 ? 'tumbleA' : 'tumbleB',
+      tumbleTwo: s.bump % 2 ? 'tumbleB' : 'tumbleA',
+      popAnim: s.bump % 2 ? 'popA' : 'popB',
+
+      rollerName: roller,
+      rollerInitial: cap(roller),
+      rollerLabel: roller === ME ? 'your roll' : roller + ' to roll',
+      stale: s.stale,
+      myTurnBanner: roller === ME ? 'YOUR TURN' : '',
+      waitingLabel: s.phase === 'ready'
+        ? (roller === ME ? 'your roll \u2014 dice are yours' : 'waiting on ' + roller)
+        : roller + ' is up',
+      verdictCaption: !s.lastRoller ? ''
+        : (s.stale ? 'LAST ROLL \u00b7 ' + s.lastRoller : (s.lastRoller === ME ? 'YOU ROLLED' : s.lastRoller.toUpperCase() + ' ROLLED')),
+      diceOpacity: s.stale ? '.5' : '1',
+      showGiftsScreen: s.gifts.length > 0,
+      threeManLabel: s.threeMan,
+      mySeat: s.order.indexOf(ME) + 1,
+      nextName: this.left(s.rollerIdx),
+      myExposure,
+
+      pMyTurn: s.phase === 'ready' && roller === ME,
+      pWaiting: s.phase === 'ready' && roller !== ME,
+      pHandOff: s.phase === 'handoff',
+      handOffCount: s.handOffCount,
+      handOffNote: s.handOffNote,
+      handOffTargets: s.order.filter(n => n !== s.threeMan).map(n => ({
+        name: n, initial: cap(n), pick: () => this.giveThreeMan(n)
+      })),
+      pAssign: s.phase === 'assign',
+      pGifts: s.phase === 'gifts',
+      canPass: s.phase === 'rolled' || (s.phase === 'gifts' && s.gifts.length > 0 && s.gifts.every(g => g.values !== null)),
+
+      doubleValue: s.doubleValue,
+      doubleOwner: s.doubleOwner,
+      giftMode: s.giftMode,
+      needsMode: s.phase === 'assign' && !s.giftMode,
+      needsTargets: s.phase === 'assign' && !!s.giftMode,
+      modeBothBg: s.giftMode === 'both' ? 'rgba(255,181,112,.22)' : '#17141f',
+      modeSplitBg: s.giftMode === 'split' ? 'rgba(255,181,112,.22)' : '#17141f',
+      setBoth: () => this.setGiftMode('both'),
+      setSplit: () => this.setGiftMode('split'),
+      resetMode: () => this.setState({giftMode: null, slots: [null, null]}),
+      modeLabel: s.giftMode === 'both' ? 'BOTH DICE \u2192 ONE PERSON' : 'ONE DIE EACH \u2192 TWO PEOPLE',
+      slots: s.slots.map((v, i) => ({
+        label: s.giftMode === 'both' ? 'BOTH DICE' : 'DIE ' + (i + 1),
+        target: v || 'pick someone',
+        bg: v ? 'rgba(255,181,112,.16)' : '#17141f',
+        border: v ? 'rgba(255,181,112,.5)' : 'rgba(242,238,248,.12)',
+        clear: () => this.clearSlot(i)
+      })),
+      slotCols: s.giftMode === 'both' ? '1fr' : '1fr 1fr',
+      giftTargets: s.order.filter(n => n !== s.doubleOwner).map(n => ({
+        name: n, initial: cap(n),
+        taken: s.giftMode === 'split' && s.slots.includes(n),
+        bg: (s.giftMode === 'split' && s.slots.includes(n)) ? 'rgba(255,181,112,.14)' : '#17141f',
+        pick: () => this.pickTarget(n)
+      })),
+      sendLabel: assigned === s.slots.length ? 'SEND THE DICE' : 'PICK ' + (s.slots.length - assigned) + ' MORE',
+      sendBg: assigned === s.slots.length ? '#ffb570' : '#262232',
+      sendFg: assigned === s.slots.length ? '#241a10' : '#8d87a0',
+      gifts: s.gifts.map(g => {
+        const total = g.values ? g.values.reduce((n, v) => n + v, 0) : null;
+        const matched = !!g.values && g.values.includes(s.doubleValue);
+        return {
+          name: g.name, initial: cap(g.name),
+          rolled: g.values !== null, pending: g.values === null,
+          value: total,
+          screenValue: total === null ? '\u2013' : total,
+          status: g.values === null
+            ? (g.dice === 2 ? 'rolls both dice' : 'rolls one die')
+            : (matched ? 'rolled ' + g.values.join(' + ') + ' — matched the double' : 'drinks ' + total + (g.dice === 2 ? ' (' + g.values.join(' + ') + ')' : '')),
+          border: matched ? 'rgba(247,118,142,.5)' : 'rgba(242,238,248,.09)',
+          resultColor: matched ? '#f7768e' : '#b48ef7',
+          roll: () => this.rollGift(g.slot)
+        };
+      }),
+      paybackText: s.payback,
+
+      roll: this.roll,
+      sendGifts: this.sendGifts,
+      pass: this.pass,
+      standings,
+      myDrinksLabel: s.players[ME].drinks + ' tonight',
+      myShotsLabel: s.players[ME].shots + ' tonight',
+      drink: () => this.bumpMe('drinks', 1),
+      shot: () => this.bumpMe('shots', 1),
+      undo: () => {
+        const last = s.log[s.log.length - 1];
+        if (!last) return;
+        this.setState(st => ({log: st.log.slice(0, -1)}));
+        this.bumpMe(last, -1);
+      },
+      pops: s.pops.map(p => ({glyph: p.glyph, left: p.x + '%'})),
+      toggleMute: () => this.setState(st => ({muted: !st.muted})),
+      soundIcon: s.muted ? '\u266A' : '\u266B',
+      soundBg: s.muted ? '#17141f' : 'rgba(180,142,247,.18)',
+      soundFg: s.muted ? '#8d87a0' : '#d9c6ff'
+    };
+  }
+}
+</script>
+</body>
+</html>

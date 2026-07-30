@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics><meta name="design_doc_mode" content="canvas">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800;900&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#08070c;font-family:'Space Grotesk',system-ui,sans-serif}
+a{color:#b48ef7;text-decoration:none}a:hover{color:#d3bcff}
+@keyframes flipA{0%{transform:rotateY(-92deg) scale(.9);opacity:.2}60%{transform:rotateY(8deg) scale(1.02);opacity:1}100%{transform:none;opacity:1}}
+@keyframes flipB{0%{transform:rotateY(-92deg) scale(.9);opacity:.2}60%{transform:rotateY(8deg) scale(1.02);opacity:1}100%{transform:none;opacity:1}}
+@keyframes popA{0%{transform:translateY(-8px) scale(.96);opacity:0}100%{transform:none;opacity:1}}
+@keyframes popB{0%{transform:translateY(-8px) scale(.96);opacity:0}100%{transform:none;opacity:1}}
+@keyframes livePulse{0%,100%{opacity:1;box-shadow:0 0 0 0 rgba(247,118,142,.55)}70%{opacity:.75;box-shadow:0 0 0 7px rgba(247,118,142,0)}}
+@keyframes marq{0%{transform:translateY(0)}100%{transform:translateY(-50%)}}
+@keyframes floatUp{0%{transform:translateY(6px) scale(.5) rotate(-6deg);opacity:0}18%{transform:translateY(-10px) scale(1.15) rotate(4deg);opacity:1}100%{transform:translateY(-104px) scale(.95) rotate(-3deg);opacity:0}}
+@keyframes floatUpBig{0%{transform:translateY(10px) scale(.5);opacity:0}18%{transform:translateY(-18px) scale(1.15);opacity:1}100%{transform:translateY(-150px) scale(.95);opacity:0}}
+</style></helmet>
+
+<div style="padding:56px 60px 80px;display:flex;flex-direction:column;gap:44px">
+
+<div style="display:flex;flex-direction:column;gap:10px;max-width:860px">
+<div style="display:flex;align-items:center;gap:10px">
+<span style="font:800 10px/1 'Archivo';letter-spacing:.14em;padding:6px 9px;background:#b48ef7;color:#191624;border-radius:5px">REDESIGN</span>
+<span style="font:700 15px 'Archivo';color:#f2eef8">Drinks — phone-first, big screen spectating</span>
+</div>
+<p style="margin:0;font:400 13px/1.65 'Space Grotesk';color:#8d87a0">Live prototype: the phone drives the big screen, exactly as SSE does today. Tap <strong style="color:#f2eef8">Tap to draw</strong>, use a held card, log drinks — both surfaces update. Same palette as <code>game.css</code>, with a real type scale (Archivo display / Space Grotesk UI), one hierarchy per surface, and the four additions you picked: QR join, who's here, house rules, end-of-night summary.</p>
+</div>
+
+<div style="display:flex;gap:44px;align-items:flex-start;flex-wrap:wrap">
+
+<div style="display:flex;flex-direction:column;gap:12px">
+<span style="font:500 11px 'Space Grotesk';letter-spacing:.08em;color:#8d87a0">PHONE — /drinks/room/QK4M</span>
+<x-import component-from-global-scope="IOSDevice" from="./ios-frame.jsx" dark="{{ true }}" hint-size="393px,852px">
+<div style="position:relative;height:100%;display:flex;flex-direction:column;background:#0b0910;color:#f2eef8;font-family:'Space Grotesk',system-ui,sans-serif;overflow:hidden">
+
+<div style="position:absolute;left:0;right:0;bottom:112px;height:0;z-index:40;pointer-events:none">
+<sc-for list="{{ pops }}" as="p" hint-placeholder-count="0">
+<span style="position:absolute;bottom:0;font-size:34px;line-height:1;animation:floatUp .95s cubic-bezier(.25,.9,.35,1) forwards;left:{{ p.left }}">{{ p.glyph }}</span>
+</sc-for>
+</div>
+
+
+<div style="display:flex;align-items:center;gap:10px;padding:58px 16px 8px;border-bottom:1px solid rgba(242,238,248,.09)">
+<div style="display:flex;align-items:center;gap:7px;background:#17141f;border:1px solid rgba(242,238,248,.10);border-radius:9px;padding:6px 10px">
+<span style="width:7px;height:7px;border-radius:50%;background:#f7768e;animation:livePulse 2.2s infinite"></span>
+<span style="font:800 15px/1 'Archivo';letter-spacing:.22em">QK4M</span>
+</div>
+<div style="display:flex;align-items:center;gap:6px;margin-left:auto">
+<sc-for list="{{ hereChips }}" as="p" hint-placeholder-count="4"><span style="width:26px;height:26px;border-radius:50%;display:grid;place-items:center;font:700 11px 'Archivo';background:#262232;border:1px solid rgba(242,238,248,.12);color:#cdc6dd">{{ p.initial }}</span></sc-for>
+<span style="font:500 12px 'Space Grotesk';color:#8d87a0;white-space:nowrap">{{ playerCount }} here</span>
+<button onClick="{{ toggleMute }}" title="Sound effects" style="width:28px;height:28px;flex:none;display:grid;place-items:center;border-radius:8px;cursor:pointer;background:{{ soundBg }};border:1px solid rgba(242,238,248,.12);color:{{ soundFg }};font:700 13px 'Space Grotesk'">{{ soundIcon }}</button>
+</div>
+</div>
+
+<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px;padding:10px 16px 0">
+<button onClick="{{ goGame }}" style="font:700 12px 'Space Grotesk';letter-spacing:.06em;padding:9px 0;border:none;border-radius:8px;cursor:pointer;background:{{ tabGameBg }};color:{{ tabGameFg }}">GAME</button>
+<button onClick="{{ goStand }}" style="font:700 12px 'Space Grotesk';letter-spacing:.06em;padding:9px 0;border:none;border-radius:8px;cursor:pointer;background:{{ tabStandBg }};color:{{ tabStandFg }}">STANDINGS</button>
+<button onClick="{{ goRoom }}" style="font:700 12px 'Space Grotesk';letter-spacing:.06em;padding:9px 0;border:none;border-radius:8px;cursor:pointer;background:{{ tabRoomBg }};color:{{ tabRoomFg }}">ROOM</button>
+</div>
+
+<div style="flex:1;min-height:0;overflow-y:auto;padding:14px 16px 8px;display:flex;flex-direction:column;gap:14px">
+
+<sc-if value="{{ showGameActive }}" hint-placeholder-val="{{ true }}">
+<div style="display:flex;flex-direction:column;gap:14px">
+<sc-if value="{{ announce }}" hint-placeholder-val="{{ false }}">
+<div style="animation:{{ popAnim }} .3s ease-out;background:rgba(180,142,247,.14);border:1px solid rgba(180,142,247,.45);border-radius:10px;padding:9px 12px;font:600 13px 'Space Grotesk';color:#d9c6ff">{{ announce }}</div>
+</sc-if>
+
+<div style="display:flex;align-items:center;gap:10px">
+<div style="flex:1;height:5px;border-radius:3px;background:#221d2e;overflow:hidden"><div style="height:100%;background:#b48ef7;border-radius:3px;transition:width .35s ease;width:{{ deckPct }}"></div></div>
+<span style="font:600 11px 'Space Grotesk';color:#8d87a0;white-space:nowrap">{{ remaining }} LEFT</span>
+</div>
+
+<div style="perspective:900px">
+<div style="animation:{{ flipAnim }} .45s cubic-bezier(.2,.8,.2,1);display:flex;flex-direction:column;gap:14px;background:#17141f;border:1px solid rgba(242,238,248,.09);border-radius:18px;padding:16px">
+<div style="display:flex;gap:14px;align-items:flex-start">
+<div style="width:104px;height:148px;flex-shrink:0;border-radius:12px;background:#f7f3ea;box-shadow:0 10px 26px rgba(0,0,0,.5);position:relative;display:grid;place-items:center;color:{{ cardColor }}">
+<span style="position:absolute;top:8px;left:10px;font:800 22px/1 'Archivo'">{{ cardRank }}</span>
+<span style="position:absolute;top:31px;left:11px;font:400 15px/1 'Archivo'">{{ cardGlyph }}</span>
+<span style="font:400 56px/1 'Archivo'">{{ cardGlyph }}</span>
+<span style="position:absolute;bottom:8px;right:10px;font:800 22px/1 'Archivo';transform:rotate(180deg)">{{ cardRank }}</span>
+</div>
+<div style="display:flex;flex-direction:column;gap:7px;min-width:0">
+<span style="font:600 11px 'Space Grotesk';letter-spacing:.1em;color:#8d87a0">{{ drawerLabel }}</span>
+<h2 style="margin:0;font:900 30px/.98 'Archivo';letter-spacing:-.02em;text-wrap:balance">{{ cardTitle }}</h2>
+<p style="margin:0;font:400 14px/1.45 'Space Grotesk';color:#cdc6dd;text-wrap:pretty">{{ cardText }}</p>
+</div>
+</div>
+<sc-if value="{{ pendingRule }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;gap:8px;border-top:1px solid rgba(242,238,248,.09);padding-top:12px">
+<input value="{{ ruleDraft }}" onChange="{{ onRuleDraft }}" placeholder="Your rule for the rest of the night" style="flex:1;min-width:0;font:500 14px 'Space Grotesk';padding:11px 12px;border-radius:10px;border:1px solid rgba(180,142,247,.5);background:#0b0910;color:#f2eef8"><button onClick="{{ addRule }}" style="font:800 13px 'Archivo';letter-spacing:.06em;padding:0 16px;border:none;border-radius:10px;cursor:pointer;background:#b48ef7;color:#191624">SET</button>
+</div>
+</sc-if>
+</div>
+</div>
+
+<button onClick="{{ draw }}" style="display:flex;flex-direction:column;align-items:center;gap:3px;width:100%;padding:18px 0;border:none;border-radius:16px;cursor:pointer;background:#b48ef7;color:#191624;box-shadow:0 8px 22px rgba(180,142,247,.28)" style-active="transform:scale(.98)">
+<span style="font:900 21px/1 'Archivo';letter-spacing:.02em">TAP TO DRAW</span>
+<span style="font:500 11px 'Space Grotesk';letter-spacing:.08em;color:rgba(25,22,36,.65)">FREE FOR ALL · ANYONE CAN PULL</span>
+</button>
+
+<sc-if value="{{ hasHeld }}" hint-placeholder-val="{{ true }}">
+<div style="display:flex;flex-direction:column;gap:8px">
+<span style="font:600 11px 'Space Grotesk';letter-spacing:.1em;color:#8d87a0">IN HAND</span>
+<div style="display:flex;gap:10px;overflow-x:auto;padding-bottom:2px">
+<sc-for list="{{ held }}" as="h" hint-placeholder-count="2">
+<div style="flex:none;display:flex;align-items:center;gap:10px;background:{{ h.bg }};border:1px solid {{ h.border }};border-radius:12px;padding:9px 11px">
+<div style="width:34px;height:48px;border-radius:6px;background:#f7f3ea;display:grid;place-items:center;color:{{ h.color }};font:800 15px 'Archivo'">{{ h.face }}</div>
+<div style="display:flex;flex-direction:column;gap:2px">
+<span style="font:800 13px/1 'Archivo'">{{ h.title }}</span>
+<span style="font:500 11px 'Space Grotesk';color:#8d87a0;white-space:nowrap">{{ h.holderLabel }}</span>
+</div>
+<sc-if value="{{ h.mine }}" hint-placeholder-val="{{ true }}">
+<button onClick="{{ h.use }}" style="font:800 12px 'Archivo';letter-spacing:.06em;padding:9px 13px;border:none;border-radius:9px;cursor:pointer;background:#b48ef7;color:#191624">USE</button>
+</sc-if>
+</div>
+</sc-for>
+</div>
+</div>
+</sc-if>
+
+<button onClick="{{ endGame }}" style="align-self:flex-start;font:600 12px 'Space Grotesk';padding:8px 12px;border-radius:9px;cursor:pointer;background:transparent;border:1px solid rgba(247,118,142,.45);color:#f7768e">End game early</button>
+</div>
+</sc-if>
+
+<sc-if value="{{ showGameIdle }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;flex-direction:column;gap:14px">
+<div style="background:#17141f;border:1px solid rgba(242,238,248,.09);border-radius:18px;padding:18px;display:flex;flex-direction:column;gap:4px">
+<span style="font:600 11px 'Space Grotesk';letter-spacing:.1em;color:#8d87a0">YOUR NIGHT SO FAR</span>
+<div style="display:flex;align-items:flex-end;gap:22px;margin-top:6px">
+<div style="display:flex;flex-direction:column"><span style="font:900 62px/.85 'Archivo';letter-spacing:-.04em;color:#b48ef7;font-variant-numeric:tabular-nums">{{ myDrinks }}</span><span style="font:600 12px 'Space Grotesk';letter-spacing:.1em;color:#8d87a0;margin-top:8px">DRINKS</span></div>
+<div style="display:flex;flex-direction:column"><span style="font:900 62px/.85 'Archivo';letter-spacing:-.04em;color:#ffb570;font-variant-numeric:tabular-nums">{{ myShots }}</span><span style="font:600 12px 'Space Grotesk';letter-spacing:.1em;color:#8d87a0;margin-top:8px">SHOTS</span></div>
+<span style="margin-left:auto;font:500 12px 'Space Grotesk';color:#8d87a0;text-align:right">{{ myRankLabel }}</span>
+</div>
+</div>
+<div style="background:linear-gradient(160deg,rgba(180,142,247,.16),rgba(180,142,247,.04));border:1px solid rgba(180,142,247,.35);border-radius:18px;padding:18px;display:flex;flex-direction:column;gap:12px">
+<div style="display:flex;flex-direction:column;gap:4px">
+<h2 style="margin:0;font:900 26px/1 'Archivo';letter-spacing:-.02em">Ring of Fire</h2>
+<p style="margin:0;font:400 13px/1.5 'Space Grotesk';color:#cdc6dd">52 cards, 13 rules, one King's Cup nobody wants. Everyone in the room sees every card.</p>
+</div>
+<div style="display:flex;gap:8px">
+<select style="flex:1;font:600 14px 'Space Grotesk';padding:12px;border-radius:11px;border:1px solid rgba(242,238,248,.16);background:#0b0910;color:#f2eef8"><option>Standard</option><option>House rules</option></select>
+<button onClick="{{ startGame }}" style="font:900 15px 'Archivo';letter-spacing:.04em;padding:0 20px;border:none;border-radius:11px;cursor:pointer;background:#b48ef7;color:#191624">START</button>
+</div>
+<a href="#" style="font:500 12px 'Space Grotesk';color:#8d87a0">Edit rule presets →</a>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ showOver }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;flex-direction:column;gap:14px">
+<div style="display:flex;flex-direction:column;gap:2px">
+<span style="font:600 11px 'Space Grotesk';letter-spacing:.12em;color:#8d87a0">DECK EMPTY · NIGHT LOGGED</span>
+<h2 style="margin:0;font:900 34px/1 'Archivo';letter-spacing:-.03em">Game over</h2>
+</div>
+<div style="background:#17141f;border:1px solid rgba(180,142,247,.35);border-radius:18px;padding:18px;display:flex;align-items:center;gap:16px">
+<span style="width:52px;height:52px;border-radius:50%;display:grid;place-items:center;font:900 20px 'Archivo';background:#b48ef7;color:#191624">{{ winnerInitial }}</span>
+<div style="display:flex;flex-direction:column;gap:2px"><span style="font:600 11px 'Space Grotesk';letter-spacing:.1em;color:#8d87a0">HARDEST HIT</span><span style="font:900 24px/1 'Archivo'">{{ winnerName }}</span><span style="font:500 13px 'Space Grotesk';color:#cdc6dd">{{ winnerLine }}</span></div>
+</div>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+<sc-for list="{{ superlatives }}" as="s" hint-placeholder-count="4">
+<div style="background:#17141f;border:1px solid rgba(242,238,248,.09);border-radius:14px;padding:13px;display:flex;flex-direction:column;gap:3px">
+<span style="font:600 10px 'Space Grotesk';letter-spacing:.1em;color:#8d87a0">{{ s.label }}</span>
+<span style="font:900 19px/1.05 'Archivo'">{{ s.name }}</span>
+<span style="font:500 12px 'Space Grotesk';color:#cdc6dd">{{ s.value }}</span>
+</div>
+</sc-for>
+</div>
+<div style="display:flex;flex-direction:column;gap:8px">
+<span style="font:600 11px 'Space Grotesk';letter-spacing:.1em;color:#8d87a0">RULES THAT SURVIVED THE NIGHT</span>
+<sc-for list="{{ houseRules }}" as="r" hint-placeholder-count="2">
+<div style="display:flex;gap:9px;background:#17141f;border:1px solid rgba(242,238,248,.09);border-radius:11px;padding:11px 13px"><span style="font:800 12px 'Archivo';color:#b48ef7">J</span><span style="font:500 13px/1.4 'Space Grotesk'">{{ r.text }}</span></div>
+</sc-for>
+</div>
+<button onClick="{{ backToIdle }}" style="font:900 15px 'Archivo';letter-spacing:.04em;padding:15px 0;border:none;border-radius:13px;cursor:pointer;background:#b48ef7;color:#191624">DEAL A NEW DECK</button>
+</div>
+</sc-if>
+
+<sc-if value="{{ showStandings }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;flex-direction:column;gap:9px">
+<sc-for list="{{ standings }}" as="p" hint-placeholder-count="8">
+<div style="display:flex;align-items:center;gap:12px;background:{{ p.bg }};border:1px solid {{ p.border }};border-radius:13px;padding:12px 13px">
+<span style="width:22px;font:900 15px 'Archivo';color:{{ p.rankColor }};font-variant-numeric:tabular-nums">{{ p.rank }}</span>
+<div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:5px">
+<span style="font:800 16px/1 'Archivo'">{{ p.name }}</span>
+<div style="height:4px;border-radius:2px;background:#221d2e;overflow:hidden"><div style="height:100%;border-radius:2px;background:#b48ef7;transition:width .4s ease;width:{{ p.barPct }}"></div></div>
+</div>
+<div style="display:flex;align-items:baseline;gap:3px"><span style="font:900 22px/1 'Archivo';color:#b48ef7;font-variant-numeric:tabular-nums">{{ p.drinks }}</span><span style="font:600 11px 'Space Grotesk';color:#8d87a0">D</span></div>
+<div style="display:flex;align-items:baseline;gap:3px"><span style="font:900 22px/1 'Archivo';color:#ffb570;font-variant-numeric:tabular-nums">{{ p.shots }}</span><span style="font:600 11px 'Space Grotesk';color:#8d87a0">S</span></div>
+</div>
+</sc-for>
+</div>
+</sc-if>
+
+<sc-if value="{{ showRoom }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;flex-direction:column;gap:16px">
+<div style="background:#17141f;border:1px solid rgba(242,238,248,.09);border-radius:18px;padding:18px;display:flex;flex-direction:column;gap:10px">
+<span style="font:600 11px 'Space Grotesk';letter-spacing:.1em;color:#8d87a0">ROOM CODE</span>
+<span style="font:900 46px/1 'Archivo';letter-spacing:.16em">QK4M</span>
+<div style="display:flex;gap:8px">
+<button style="flex:1;font:800 13px 'Archivo';letter-spacing:.04em;padding:12px 0;border:none;border-radius:11px;cursor:pointer;background:#262232;color:#f2eef8">SHARE LINK</button>
+<button style="flex:1;font:800 13px 'Archivo';letter-spacing:.04em;padding:12px 0;border:none;border-radius:11px;cursor:pointer;background:#262232;color:#f2eef8">OPEN BIG SCREEN</button>
+</div>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:9px">
+<span style="font:600 11px 'Space Grotesk';letter-spacing:.1em;color:#8d87a0">WHO'S HERE · {{ playerCount }}</span>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+<sc-for list="{{ standings }}" as="p" hint-placeholder-count="8">
+<div style="display:flex;align-items:center;gap:9px;background:#17141f;border:1px solid rgba(242,238,248,.09);border-radius:11px;padding:9px 11px">
+<span style="width:26px;height:26px;border-radius:50%;display:grid;place-items:center;font:700 11px 'Archivo';background:#262232;color:#cdc6dd">{{ p.initial }}</span>
+<span style="font:600 13px 'Space Grotesk';overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ p.name }}</span>
+<span style="margin-left:auto;width:6px;height:6px;border-radius:50%;background:#7fe0b0"></span>
+</div>
+</sc-for>
+</div>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:9px">
+<div style="display:flex;align-items:baseline;justify-content:space-between"><span style="font:600 11px 'Space Grotesk';letter-spacing:.1em;color:#8d87a0">HOUSE RULES</span><span style="font:500 11px 'Space Grotesk';color:#8d87a0">from Jacks</span></div>
+<sc-for list="{{ houseRules }}" as="r" hint-placeholder-count="2">
+<div style="display:flex;gap:10px;align-items:flex-start;background:#17141f;border:1px solid rgba(242,238,248,.09);border-radius:11px;padding:11px 13px"><span style="font:800 12px 'Archivo';color:#b48ef7">J</span><div style="display:flex;flex-direction:column;gap:2px"><span style="font:500 13px/1.4 'Space Grotesk'">{{ r.text }}</span><span style="font:500 11px 'Space Grotesk';color:#8d87a0">{{ r.byLabel }}</span></div></div>
+</sc-for>
+</div>
+
+<div style="background:#17141f;border:1px solid rgba(242,238,248,.09);border-radius:14px;padding:14px;display:flex;align-items:center;gap:14px">
+<div style="width:44px;height:56px;border-radius:0 0 22px 22px;border:2px solid rgba(242,238,248,.22);border-top:none;position:relative;overflow:hidden;display:flex;align-items:flex-end"><div style="width:100%;background:#b48ef7;transition:height .4s ease;height:{{ kingPct }}"></div></div>
+<div style="display:flex;flex-direction:column;gap:2px"><span style="font:800 15px 'Archivo'">King's Cup</span><span style="font:500 12px 'Space Grotesk';color:#8d87a0">{{ kingLabel }}</span></div>
+</div>
+
+<button style="font:600 13px 'Space Grotesk';padding:13px 0;border-radius:11px;cursor:pointer;background:transparent;border:1px solid rgba(247,118,142,.45);color:#f7768e">End the night for everyone</button>
+</div>
+</sc-if>
+
+</div>
+
+<div style="display:grid;grid-template-columns:1fr 1fr 52px;gap:8px;padding:10px 16px 32px;border-top:1px solid rgba(242,238,248,.09);background:#0e0c14">
+<button onClick="{{ drink }}" style="display:flex;flex-direction:column;align-items:center;gap:1px;padding:13px 0;border:none;border-radius:14px;cursor:pointer;background:#b48ef7;color:#191624" style-active="transform:scale(.97)">
+<span style="font:900 17px/1 'Archivo';letter-spacing:.03em">+1 DRINK</span>
+<span style="font:600 11px 'Space Grotesk';color:rgba(25,22,36,.6);font-variant-numeric:tabular-nums">{{ myDrinksLabel }}</span>
+</button>
+<button onClick="{{ shot }}" style="display:flex;flex-direction:column;align-items:center;gap:1px;padding:13px 0;border:none;border-radius:14px;cursor:pointer;background:#ffb570;color:#241a10" style-active="transform:scale(.97)">
+<span style="font:900 17px/1 'Archivo';letter-spacing:.03em">+1 SHOT</span>
+<span style="font:600 11px 'Space Grotesk';color:rgba(36,26,16,.6);font-variant-numeric:tabular-nums">{{ myShotsLabel }}</span>
+</button>
+<button onClick="{{ undo }}" style="display:grid;place-items:center;border:1px solid rgba(242,238,248,.18);border-radius:14px;cursor:pointer;background:transparent;color:#8d87a0;font:600 11px 'Space Grotesk'">UNDO</button>
+</div>
+
+</div>
+</x-import>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:12px">
+<span style="font:500 11px 'Space Grotesk';letter-spacing:.08em;color:#8d87a0">BIG SCREEN — /drinks/room/QK4M/screen · 1280×720</span>
+<div style="width:1280px;height:720px;border-radius:14px;overflow:hidden;background:#0b0910;color:#f2eef8;display:grid;grid-template-columns:1fr 1fr;grid-template-rows:minmax(0,100%);font-family:'Space Grotesk',system-ui,sans-serif">
+
+<div style="box-sizing:border-box;height:100%;min-height:0;overflow:hidden;padding:40px;display:flex;flex-direction:column;gap:24px;border-right:1px solid rgba(242,238,248,.09);min-width:0">
+<sc-if value="{{ screenActive }}" hint-placeholder-val="{{ true }}">
+<div style="display:flex;flex-direction:column;gap:24px;min-width:0">
+<div style="display:flex;align-items:center;gap:12px">
+<span style="width:10px;height:10px;border-radius:50%;background:#f7768e;animation:livePulse 2.2s infinite"></span>
+<span style="font:600 15px 'Space Grotesk';letter-spacing:.18em;color:#8d87a0">ON THE TABLE</span>
+<span style="margin-left:auto;font:600 15px 'Space Grotesk';color:#8d87a0">{{ remaining }} of 52 left</span>
+</div>
+<div style="display:flex;gap:32px;align-items:flex-start;min-width:0">
+<div style="perspective:1400px;flex:none">
+<div style="animation:{{ flipAnim }} .5s cubic-bezier(.2,.8,.2,1);width:224px;height:320px;border-radius:20px;background:#f7f3ea;box-shadow:0 22px 60px rgba(0,0,0,.6);position:relative;display:grid;place-items:center;color:{{ cardColor }}">
+<span style="position:absolute;top:16px;left:20px;font:800 44px/1 'Archivo'">{{ cardRank }}</span>
+<span style="position:absolute;top:62px;left:22px;font:400 30px/1 'Archivo'">{{ cardGlyph }}</span>
+<span style="font:400 124px/1 'Archivo'">{{ cardGlyph }}</span>
+<span style="position:absolute;bottom:16px;right:20px;font:800 44px/1 'Archivo';transform:rotate(180deg)">{{ cardRank }}</span>
+</div>
+</div>
+<div style="display:flex;flex-direction:column;gap:14px;min-width:0">
+<span style="font:600 20px 'Space Grotesk';color:#b48ef7">{{ drawerLabel }}</span>
+<h2 style="margin:0;font:900 62px/.92 'Archivo';letter-spacing:-.035em;text-wrap:balance">{{ cardTitle }}</h2>
+<p style="margin:0;font:400 26px/1.35 'Space Grotesk';color:#cdc6dd;text-wrap:pretty">{{ cardText }}</p>
+</div>
+</div>
+<sc-if value="{{ hasHeld }}" hint-placeholder-val="{{ true }}">
+<div style="display:flex;flex-direction:column;gap:12px;margin-top:auto">
+<span style="font:600 15px 'Space Grotesk';letter-spacing:.18em;color:#8d87a0">HELD RIGHT NOW</span>
+<div style="display:flex;gap:16px">
+<sc-for list="{{ held }}" as="h" hint-placeholder-count="2">
+<div style="flex:none;display:flex;align-items:center;gap:14px;background:#17141f;border:1px solid rgba(180,142,247,.4);border-radius:14px;padding:14px 18px">
+<div style="width:52px;height:74px;border-radius:8px;background:#f7f3ea;display:grid;place-items:center;color:{{ h.color }};font:800 26px 'Archivo'">{{ h.face }}</div>
+<div style="display:flex;flex-direction:column;gap:4px"><span style="font:900 26px/1 'Archivo'">{{ h.holder }}</span><span style="font:600 17px 'Space Grotesk';color:#b48ef7">{{ h.title }}</span></div>
+</div>
+</sc-for>
+</div>
+</div>
+</sc-if>
+</div>
+</sc-if>
+
+<sc-if value="{{ screenIdle }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;flex-direction:column;gap:20px;justify-content:center;height:100%">
+<span style="font:600 15px 'Space Grotesk';letter-spacing:.18em;color:#8d87a0">NO GAME RUNNING</span>
+<h2 style="margin:0;font:900 76px/.92 'Archivo';letter-spacing:-.04em">Just<br>drinking.</h2>
+<p style="margin:0;font:400 26px/1.35 'Space Grotesk';color:#cdc6dd;max-width:460px">Somebody start Ring of Fire on their phone and this screen becomes the table.</p>
+</div>
+</sc-if>
+
+<sc-if value="{{ screenOver }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;flex-direction:column;gap:22px;justify-content:center;height:100%">
+<span style="font:600 15px 'Space Grotesk';letter-spacing:.18em;color:#8d87a0">DECK EMPTY</span>
+<h2 style="margin:0;font:900 76px/.92 'Archivo';letter-spacing:-.04em">{{ winnerName }}<br>lost.</h2>
+<p style="margin:0;font:400 26px/1.35 'Space Grotesk';color:#cdc6dd">{{ winnerLine }}</p>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;max-width:520px">
+<sc-for list="{{ superlatives }}" as="s" hint-placeholder-count="4">
+<div style="background:#17141f;border:1px solid rgba(242,238,248,.09);border-radius:14px;padding:16px;display:flex;flex-direction:column;gap:4px"><span style="font:600 13px 'Space Grotesk';letter-spacing:.1em;color:#8d87a0">{{ s.label }}</span><span style="font:900 26px/1 'Archivo'">{{ s.name }}</span><span style="font:500 17px 'Space Grotesk';color:#cdc6dd">{{ s.value }}</span></div>
+</sc-for>
+</div>
+</div>
+</sc-if>
+</div>
+
+<div style="position:relative;box-sizing:border-box;height:100%;min-height:0;overflow:hidden;padding:36px 40px;display:flex;flex-direction:column;gap:16px;background:#0e0c14;min-width:0">
+<div style="position:absolute;left:40px;right:40px;bottom:120px;height:0;z-index:40;pointer-events:none">
+<sc-for list="{{ pops }}" as="p" hint-placeholder-count="0">
+<span style="position:absolute;bottom:0;font-size:54px;line-height:1;animation:floatUpBig 1.1s cubic-bezier(.25,.9,.35,1) forwards;left:{{ p.left }}">{{ p.glyph }}</span>
+</sc-for>
+</div>
+<div style="display:flex;align-items:flex-start;gap:20px;flex:none">
+<div style="display:flex;flex-direction:column;gap:4px">
+<span style="font:600 14px 'Space Grotesk';letter-spacing:.18em;color:#8d87a0">JOIN THE ROOM</span>
+<span style="font:900 56px/1 'Archivo';letter-spacing:.1em;color:#b48ef7">QK4M</span>
+<span style="font:500 16px 'Space Grotesk';color:#8d87a0">hampus.dev/drinks</span>
+</div>
+<div style="margin-left:auto;width:104px;height:104px;border-radius:12px;border:1px dashed rgba(242,238,248,.28);display:grid;place-items:center;text-align:center;padding:8px">
+<span style="font:600 12px/1.35 'Space Grotesk';color:#8d87a0">QR<br>placeholder<br>/join/QK4M</span>
+</div>
+</div>
+
+<div style="display:flex;align-items:center;gap:12px;flex:none">
+<span style="font:600 14px 'Space Grotesk';letter-spacing:.18em;color:#8d87a0">STANDINGS</span>
+<div style="flex:1;height:1px;background:rgba(242,238,248,.09)"></div>
+<span style="font:600 14px 'Space Grotesk';color:#8d87a0">{{ playerCount }} playing</span>
+</div>
+
+<div style="flex:1;min-height:0;display:flex;flex-direction:column;gap:6px">
+<sc-for list="{{ standings }}" as="p" hint-placeholder-count="8">
+<div style="flex:1;min-height:0;display:flex;align-items:center;gap:16px;background:{{ p.bg }};border:1px solid {{ p.border }};border-radius:11px;padding:0 16px">
+<span style="width:24px;font:900 22px 'Archivo';color:{{ p.rankColor }};font-variant-numeric:tabular-nums">{{ p.rank }}</span>
+<span style="flex:1;min-width:0;font:800 25px/1 'Archivo';overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ p.name }}</span>
+<div style="display:flex;align-items:baseline;gap:4px"><span style="font:900 28px/1 'Archivo';color:#b48ef7;font-variant-numeric:tabular-nums">{{ p.drinks }}</span><span style="font:600 14px 'Space Grotesk';color:#8d87a0">D</span></div>
+<div style="display:flex;align-items:baseline;gap:4px;width:62px;justify-content:flex-end"><span style="font:900 28px/1 'Archivo';color:#ffb570;font-variant-numeric:tabular-nums">{{ p.shots }}</span><span style="font:600 14px 'Space Grotesk';color:#8d87a0">S</span></div>
+</div>
+</sc-for>
+</div>
+
+<div style="flex:none;display:flex;gap:16px;align-items:center;border-top:1px solid rgba(242,238,248,.09);padding-top:14px">
+<div style="display:flex;align-items:center;gap:12px;flex:none">
+<div style="width:34px;height:44px;border-radius:0 0 17px 17px;border:2px solid rgba(242,238,248,.22);border-top:none;overflow:hidden;display:flex;align-items:flex-end"><div style="width:100%;background:#b48ef7;transition:height .4s ease;height:{{ kingPct }}"></div></div>
+<div style="display:flex;flex-direction:column"><span style="font:800 17px 'Archivo'">King's Cup</span><span style="font:500 15px 'Space Grotesk';color:#8d87a0">{{ kingLabel }}</span></div>
+</div>
+<div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:4px">
+<span style="font:600 13px 'Space Grotesk';letter-spacing:.14em;color:#8d87a0">HOUSE RULES IN FORCE</span>
+<span style="font:600 19px/1.3 'Space Grotesk';color:#cdc6dd;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ houseRulesLine }}</span>
+</div>
+</div>
+</div>
+
+</div>
+</div>
+
+</div>
+
+<div style="display:flex;flex-wrap:wrap;gap:32px;align-items:flex-start;border-top:1px solid rgba(242,238,248,.09);padding-top:40px">
+<div style="display:flex;flex-direction:column;gap:12px">
+<span style="font:500 11px 'Space Grotesk';letter-spacing:.08em;color:#8d87a0">PHONE — LOGIN</span>
+<div style="width:393px;height:600px;border-radius:32px;background:#0b0910;border:1px solid rgba(242,238,248,.1);padding:28px 22px;display:flex;flex-direction:column;gap:20px;color:#f2eef8">
+<div style="display:flex;flex-direction:column;gap:6px;margin-top:28px">
+<h1 style="margin:0;font:900 54px/.9 'Archivo';letter-spacing:-.04em">Drinks</h1>
+<p style="margin:0;font:400 15px/1.5 'Space Grotesk';color:#8d87a0">Name and a PIN. No email, no app, no accounts to forget by round three.</p>
+</div>
+<div style="display:flex;flex-direction:column;gap:10px;margin-top:12px">
+<input placeholder="Your name" style="font:600 18px 'Space Grotesk';padding:16px;border-radius:13px;border:1px solid rgba(242,238,248,.16);background:#17141f;color:#f2eef8">
+<input placeholder="4-digit PIN" style="font:600 18px 'Space Grotesk';letter-spacing:.3em;padding:16px;border-radius:13px;border:1px solid rgba(242,238,248,.16);background:#17141f;color:#f2eef8">
+<button style="font:900 19px 'Archivo';letter-spacing:.04em;padding:18px 0;border:none;border-radius:14px;cursor:pointer;background:#b48ef7;color:#191624">LET'S GO</button>
+<p style="margin:0;font:400 13px/1.5 'Space Grotesk';color:#8d87a0">New name registers it. Known name, right PIN, and you're back — from any phone.</p>
+</div>
+</div>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:12px">
+<span style="font:500 11px 'Space Grotesk';letter-spacing:.08em;color:#8d87a0">PHONE — START OR JOIN</span>
+<div style="width:393px;height:600px;border-radius:32px;background:#0b0910;border:1px solid rgba(242,238,248,.1);padding:28px 22px;display:flex;flex-direction:column;gap:16px;color:#f2eef8">
+<div style="display:flex;flex-direction:column;gap:4px;margin-top:20px">
+<span style="font:600 11px 'Space Grotesk';letter-spacing:.1em;color:#8d87a0">EVENING, HAMPUS</span>
+<h1 style="margin:0;font:900 40px/.95 'Archivo';letter-spacing:-.03em">214 drinks<br>all time</h1>
+<p style="margin:0;font:400 14px 'Space Grotesk';color:#8d87a0">38 shots · 19 nights · 4 King's Cups</p>
+</div>
+<button style="margin-top:12px;font:900 20px 'Archivo';letter-spacing:.03em;padding:22px 0;border:none;border-radius:16px;cursor:pointer;background:#b48ef7;color:#191624">START A NIGHT</button>
+<div style="background:#17141f;border:1px solid rgba(242,238,248,.09);border-radius:16px;padding:16px;display:flex;flex-direction:column;gap:10px">
+<span style="font:600 11px 'Space Grotesk';letter-spacing:.1em;color:#8d87a0">OR JOIN ONE</span>
+<div style="display:flex;gap:8px">
+<input placeholder="CODE" maxlength="4" style="flex:1;min-width:0;font:900 26px 'Archivo';letter-spacing:.2em;text-align:center;padding:14px;border-radius:12px;border:1px solid rgba(242,238,248,.16);background:#0b0910;color:#f2eef8">
+<button style="font:900 15px 'Archivo';letter-spacing:.04em;padding:0 22px;border:none;border-radius:12px;cursor:pointer;background:#262232;color:#f2eef8">JOIN</button>
+</div>
+<span style="font:400 12px 'Space Grotesk';color:#8d87a0">Or scan the QR on the big screen.</span>
+</div>
+</div>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:10px;max-width:420px">
+<span style="font:500 11px 'Space Grotesk';letter-spacing:.08em;color:#8d87a0">WHAT CHANGED</span>
+<ul style="margin:0;padding-left:18px;font:400 13px/1.7 'Space Grotesk';color:#8d87a0">
+<li>Card + rule is now the hero on both surfaces; drink logging moved to a permanent thumb-zone bar so it never competes with the game.</li>
+<li>Three tabs (Game / Standings / Room) replace one long scroll — nothing important is below the fold at 8 players.</li>
+<li>Big screen is a real 50/50: card and rule at 62px on the left, live standings at 26px on the right, plus QR, King's Cup fill and house rules.</li>
+<li>Held cards show the holder's name big on the screen; the USE button still only appears on the holder's phone.</li>
+<li>Jacks now capture the rule they create, so "Make a Rule" persists into a list instead of being forgotten.</li>
+<li>Logging a drink floats a beer or shot emote up from the button on both surfaces and fires a sound; the ♪ button in the room's top bar mutes it. Files go in <code>sounds/</code> — see the README in there.</li>
+</ul>
+</div>
+</div>
+
+</div>
+</x-dc>
+</body>
+</html>
