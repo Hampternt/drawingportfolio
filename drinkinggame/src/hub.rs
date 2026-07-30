@@ -10,6 +10,8 @@ use tokio::sync::broadcast;
 pub enum RoomMessage {
     /// Rendered <li> rows for the leaderboard.
     Leaderboard(String),
+    /// Rendered Ring of Fire panel HTML for the #game-panel container.
+    Game(String),
     /// The room was ended; clients should leave.
     Ended,
 }

@@ -2,14 +2,18 @@
 //! portfolio server or served standalone via the bin target.
 
 pub mod auth;
+pub mod cards;
 pub mod db;
 pub mod error;
+pub mod game;
 pub mod hub;
 pub mod mechanics;
 pub mod models;
+pub mod presets;
 pub mod render;
 pub mod rooms;
 pub mod routes;
+pub mod rules;
 
 use std::sync::Arc;
 

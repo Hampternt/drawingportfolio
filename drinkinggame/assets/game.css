@@ -47,3 +47,47 @@ button:active { transform: scale(0.97); }
 .error { color: var(--danger); }
 .lifetime { color: var(--muted); font-size: 0.9rem; }
 a { color: var(--accent); }
+
+/* --- Ring of Fire --- */
+#game-panel { width: 100%; max-width: 420px; }
+#game-error { width: 100%; max-width: 420px; }
+.game-idle form { display: flex; gap: 0.5rem; }
+.game-idle select { flex: 1; }
+.presets-link { font-size: 0.9rem; color: var(--muted); }
+.card-face {
+  display: inline-flex; flex-direction: column; align-items: center;
+  justify-content: center; width: 4.2rem; height: 6rem; flex-shrink: 0;
+  border: 2px solid #222; border-radius: 0.5rem;
+  background: #fff; color: #111; font-weight: 800;
+}
+.card-rank { font-size: 1.5rem; line-height: 1; }
+.card-suit { font-size: 1.3rem; line-height: 1.2; }
+.card-red { color: #c0392b; }
+.game-current { display: flex; gap: 0.9rem; align-items: center; margin: 0.75rem 0; }
+.rule-drawer { color: var(--muted); font-size: 0.85rem; margin: 0; }
+.rule-title { margin: 0.1rem 0; }
+.rule-text { margin: 0; font-size: 0.95rem; }
+.game-announcement { font-weight: 700; }
+.btn-draw { width: 100%; min-height: 4.5rem; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+.deck-count { color: var(--muted); font-size: 0.85rem; font-weight: 400; }
+.held-strip { display: flex; gap: 0.75rem; list-style: none; padding: 0; overflow-x: auto; }
+.held-card { display: flex; flex-direction: column; align-items: center; gap: 0.25rem; }
+.held-card .card-face { width: 3rem; height: 4.3rem; }
+.held-card .card-rank { font-size: 1.1rem; }
+.held-card .card-suit { font-size: 0.95rem; }
+.held-holder { font-size: 0.8rem; color: var(--muted); white-space: nowrap; }
+.draw-counts { list-style: none; padding: 0; }
+.draw-counts li { display: flex; justify-content: space-between; }
+.btn-game-end { color: var(--danger); border-color: var(--danger); font-size: 0.9rem; }
+/* Spectator: current card large, no interactive controls. */
+.screen .card-face { width: 8rem; height: 11.5rem; }
+.screen .card-rank { font-size: 3rem; }
+.screen .card-suit { font-size: 2.6rem; }
+.screen .btn-draw, .screen .btn-game-end, .screen .use-btn,
+.screen .game-idle, .screen .presets-link { display: none; }
+.preset-list { list-style: none; padding: 0; width: 100%; max-width: 420px; }
+.preset-list li { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; }
+.preset-create, .preset-edit { display: flex; flex-direction: column; gap: 0.5rem; width: 100%; max-width: 420px; }
+.rank-row { border: 1px solid var(--muted); border-radius: 0.5rem; display: flex; flex-direction: column; gap: 0.4rem; }
+.hold-label { font-size: 0.9rem; color: var(--muted); }
+.btn-delete { color: var(--danger); border-color: var(--danger); font-size: 0.85rem; }
