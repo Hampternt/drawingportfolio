@@ -217,6 +217,7 @@ mod tests {
     #[test]
     fn test_leaderboard_items_escapes_names() {
         let rows = vec![LeaderboardRow {
+            id: 1,
             name: "<script>".into(),
             drinks: 2,
             shots: 1,

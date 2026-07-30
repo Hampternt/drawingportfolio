@@ -14,7 +14,7 @@ pub enum GameError {
     WrongPin,
     #[error("room not found or already ended")]
     RoomNotFound,
-    #[error("no Ring of Fire game is running")]
+    #[error("no game is running")]
     NoActiveGame,
     #[error("a game is already running in this room")]
     GameAlreadyActive,

@@ -497,8 +497,10 @@ async fn start_rigged_game(pool: &sqlx::SqlitePool, code: &str) -> i64 {
     drinkinggame::db::start_game(
         pool,
         room.id,
+        "ring_of_fire",
         &drinkinggame::rules::standard_rules_json(),
         &drinkinggame::cards::deck_to_string(&deck),
+        None,
     )
     .await
     .unwrap()

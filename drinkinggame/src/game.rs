@@ -141,7 +141,16 @@ pub async fn start_game_handler(
         return GameError::PresetNotFound.into_response();
     };
     let deck = cards::deck_to_string(&cards::shuffled_deck());
-    if let Err(e) = db::start_game(&state.pool, room.id, &preset.rules_json, &deck).await {
+    if let Err(e) = db::start_game(
+        &state.pool,
+        room.id,
+        "ring_of_fire",
+        &preset.rules_json,
+        &deck,
+        None,
+    )
+    .await
+    {
         return e.into_response();
     }
     db::touch_room(&state.pool, room.id).await;
@@ -161,7 +170,11 @@ pub async fn draw_handler(
     let Some(game) = db::get_active_game(&state.pool, room.id).await else {
         return GameError::NoActiveGame.into_response();
     };
-    let index = match db::insert_draw(&state.pool, game.id, player.id).await {
+    let ranks: Vec<u8> = cards::parse_deck(&game.deck_order)
+        .iter()
+        .map(|c| c.rank)
+        .collect();
+    let index = match db::insert_draw(&state.pool, game.id, player.id, &ranks).await {
         Ok(i) => i,
         Err(e) => return e.into_response(),
     };
