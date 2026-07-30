@@ -354,6 +354,56 @@ async fn htmx_js() -> impl IntoResponse {
     )
 }
 
+/// Self-hosted webfonts — no third-party font requests from served pages.
+/// Embedded via include_bytes! so the binary is self-contained; unknown
+/// names (including any path-traversal attempt that reaches the handler)
+/// 404 rather than touching the filesystem.
+async fn font_asset(Path(name): Path<String>) -> axum::response::Response {
+    let bytes: &'static [u8] = match name.as_str() {
+        "archivo-500.woff2" => include_bytes!("../assets/fonts/archivo-500.woff2"),
+        "archivo-600.woff2" => include_bytes!("../assets/fonts/archivo-600.woff2"),
+        "archivo-700.woff2" => include_bytes!("../assets/fonts/archivo-700.woff2"),
+        "archivo-800.woff2" => include_bytes!("../assets/fonts/archivo-800.woff2"),
+        "archivo-900.woff2" => include_bytes!("../assets/fonts/archivo-900.woff2"),
+        "space-grotesk-400.woff2" => include_bytes!("../assets/fonts/space-grotesk-400.woff2"),
+        "space-grotesk-500.woff2" => include_bytes!("../assets/fonts/space-grotesk-500.woff2"),
+        "space-grotesk-600.woff2" => include_bytes!("../assets/fonts/space-grotesk-600.woff2"),
+        "space-grotesk-700.woff2" => include_bytes!("../assets/fonts/space-grotesk-700.woff2"),
+        _ => return StatusCode::NOT_FOUND.into_response(),
+    };
+    (
+        [
+            (header::CONTENT_TYPE, "font/woff2"),
+            (header::CACHE_CONTROL, "public, max-age=31536000, immutable"),
+        ],
+        bytes,
+    )
+        .into_response()
+}
+
+/// Sound-effect drop-in: files are never committed (no mp3s in the repo),
+/// so the game ships silent until an admin drops allowlisted mp3s into
+/// DRINKS_SOUNDS_DIR. Non-allowlisted names 404 without touching disk.
+const SOUND_FILES: [&str; 6] = [
+    "drink.mp3",
+    "shot.mp3",
+    "card-draw.mp3",
+    "card-use.mp3",
+    "dice-roll.mp3",
+    "dice-give.mp3",
+];
+
+async fn sound_asset(Path(name): Path<String>) -> axum::response::Response {
+    if !SOUND_FILES.contains(&name.as_str()) {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    let dir = std::env::var("DRINKS_SOUNDS_DIR").unwrap_or_else(|_| "drinks-sounds".into());
+    match tokio::fs::read(std::path::Path::new(&dir).join(&name)).await {
+        Ok(bytes) => ([(header::CONTENT_TYPE, "audio/mpeg")], bytes).into_response(),
+        Err(_) => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
 pub fn router() -> Router<GameState> {
     Router::new()
         .route("/", get(landing))
@@ -375,6 +425,8 @@ pub fn router() -> Router<GameState> {
         .route("/room/{code}/screen", get(screen_page))
         .route("/assets/game.css", get(game_css))
         .route("/assets/htmx.min.js", get(htmx_js))
+        .route("/assets/fonts/{name}", get(font_asset))
+        .route("/assets/sounds/{name}", get(sound_asset))
         .route(
             "/presets",
             get(crate::presets::presets_page).post(crate::presets::create_preset),

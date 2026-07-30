@@ -195,6 +195,30 @@ pub fn game_active_panel(view: &GameView) -> String {
     )
 }
 
+/// A scannable SVG QR code pointing at a room URL, styled to match the app's
+/// text color so it drops straight into the screen page without a white box.
+///
+/// qrcode's svg renderer always prefixes its output with an
+/// `<?xml version="1.0" ...?>` declaration, which is invalid to inline
+/// directly into an HTML document (and unnecessary — we're embedding this
+/// `<svg>` as a fragment, not serving it as a standalone .svg file). Strip
+/// it so the returned string is a bare `<svg>...</svg>` fragment.
+pub fn qr_svg(url: &str) -> String {
+    use qrcode::render::svg;
+    let raw = qrcode::QrCode::new(url.as_bytes())
+        .expect("qr encode")
+        .render::<svg::Color>()
+        .quiet_zone(false)
+        .min_dimensions(160, 160)
+        .dark_color(svg::Color("#f2eef8"))
+        .light_color(svg::Color("transparent"))
+        .build();
+    match raw.find("<svg") {
+        Some(idx) => raw[idx..].to_string(),
+        None => raw,
+    }
+}
+
 /// Post-game summary. The idle panel (rendered separately) restores Start.
 pub fn game_summary_panel(counts: &[DrawCount]) -> String {
     format!(
@@ -355,6 +379,13 @@ mod tests {
         assert!(html.contains("<legend>K</legend>"));
         // Holdables (5, 7) come back pre-checked.
         assert_eq!(html.matches("checked").count(), 2);
+    }
+
+    #[test]
+    fn test_qr_svg_renders() {
+        let svg = qr_svg("https://example.com/drinks/room/QK4M");
+        assert!(svg.starts_with("<svg"));
+        assert!(svg.contains("f2eef8")); // dark modules in text color
     }
 
     #[test]

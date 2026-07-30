@@ -27,6 +27,15 @@ async fn body_string(res: axum::response::Response) -> String {
     String::from_utf8(bytes.to_vec()).unwrap()
 }
 
+/// GET helper for tests that only need the response (status/headers), not a
+/// pre-built app-with-session flow.
+async fn get(app: &Router, path: &str) -> axum::response::Response {
+    app.clone()
+        .oneshot(Request::get(path).body(Body::empty()).unwrap())
+        .await
+        .unwrap()
+}
+
 #[tokio::test]
 async fn test_landing_serves_login_form() {
     let app = test_app().await;
@@ -55,6 +64,30 @@ async fn test_assets_are_served() {
         assert_eq!(res.status(), StatusCode::OK, "{path}");
         assert_eq!(res.headers()[header::CONTENT_TYPE], ct, "{path}");
     }
+}
+
+#[tokio::test]
+async fn test_font_and_sound_routes() {
+    let app = test_app().await;
+    // Fonts embedded — always 200 with the right type.
+    let res = get(&app, "/assets/fonts/archivo-800.woff2").await;
+    assert_eq!(res.status(), StatusCode::OK);
+    assert_eq!(res.headers()["content-type"], "font/woff2");
+    // Unknown font name → 404, no traversal.
+    assert_eq!(
+        get(&app, "/assets/fonts/../../etc/passwd").await.status(),
+        StatusCode::NOT_FOUND
+    );
+    // Sounds: allowlisted name but no file on disk → 404 (drop-in dir ships empty).
+    assert_eq!(
+        get(&app, "/assets/sounds/drink.mp3").await.status(),
+        StatusCode::NOT_FOUND
+    );
+    // Non-allowlisted name → 404 even if a file existed.
+    assert_eq!(
+        get(&app, "/assets/sounds/evil.sh").await.status(),
+        StatusCode::NOT_FOUND
+    );
 }
 
 /// Logs in (registering on first use) and returns the "dg_session=..." pair.
