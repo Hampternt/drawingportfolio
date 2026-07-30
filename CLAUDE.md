@@ -61,7 +61,7 @@ Single Rust/Axum binary with server-side rendering via Askama templates + HTMX f
 
 **Storage (`src/storage.rs`):** `ObjectStorage` wraps aws-sdk-s3 with `force_path_style(true)` (required for non-AWS endpoints). Upload returns a public URL constructed from `STORAGE_PUBLIC_URL`.
 
-`/drinks` is the `drinkinggame` crate (own DB, own name+PIN sessions, SSE leaderboards) nested via `nest_service` in `main.rs`; its templates do NOT extend `base.html` (recorded exception).
+`/drinks` is the `drinkinggame` crate (own DB, own name+PIN sessions, SSE leaderboards, Ring of Fire card game with server-side rule presets at `/drinks/presets`) nested via `nest_service` in `main.rs`; its templates do NOT extend `base.html` (recorded exception).
 
 ## Key implementation details
 
