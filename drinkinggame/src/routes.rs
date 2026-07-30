@@ -246,6 +246,7 @@ async fn end_room_handler(
     db::end_room(&state.pool, room.id).await;
     state.hub.publish(room.id, crate::hub::RoomMessage::Ended);
     state.hub.remove(room.id);
+    state.locks.remove(room.id);
     Redirect::to(&format!("{}/", state.base_path)).into_response()
 }
 
@@ -288,6 +289,9 @@ async fn sse_stream(
                 Some(Ok(Event::default().event("leaderboard").data(html)))
             }
             Ok(RoomMessage::Game(html)) => Some(Ok(Event::default().event("game").data(html))),
+            Ok(RoomMessage::Screen(html)) => Some(Ok(Event::default().event("screen").data(html))),
+            Ok(RoomMessage::Room(html)) => Some(Ok(Event::default().event("room").data(html))),
+            Ok(RoomMessage::Emote(glyph)) => Some(Ok(Event::default().event("emote").data(glyph))),
             Ok(RoomMessage::Ended) => Some(Ok(Event::default().event("ended").data(""))),
             // Lagged receiver: skip — the next update carries full state anyway.
             Err(_) => None,
