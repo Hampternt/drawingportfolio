@@ -966,6 +966,28 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_set_game_state_roundtrips_through_get_active_game() {
+        let pool = test_pool().await;
+        let (room, game, _a, _b) = seed_game(&pool).await;
+        assert!(get_active_game(&pool, room)
+            .await
+            .unwrap()
+            .state_json
+            .is_none());
+        set_game_state(&pool, game, r#"{"turn":1}"#).await;
+        assert_eq!(
+            get_active_game(&pool, room).await.unwrap().state_json,
+            Some(r#"{"turn":1}"#.to_string())
+        );
+        // Overwriting replaces, doesn't merge.
+        set_game_state(&pool, game, r#"{"turn":2}"#).await;
+        assert_eq!(
+            get_active_game(&pool, room).await.unwrap().state_json,
+            Some(r#"{"turn":2}"#.to_string())
+        );
+    }
+
+    #[tokio::test]
     async fn test_migration_003_adds_columns_and_is_idempotent() {
         let pool = test_pool().await;
         run_migrations(&pool).await; // second run must not error
