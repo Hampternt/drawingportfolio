@@ -14,6 +14,7 @@ pub mod render;
 pub mod rooms;
 pub mod routes;
 pub mod rules;
+pub mod three_man;
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
