@@ -122,7 +122,7 @@ async fn test_migration_003_adds_columns_and_is_idempotent() {
 async fn test_rank_backfill_is_idempotent_and_correct() {
     let pool = test_pool().await;
     let (_room, game, alice, _bob) = seed_game(&pool).await;
-    let deck = crate::cards::parse_deck(&get_active_game_deck(&pool, game).await);
+    let deck = crate::cards::parse_deck(&get_active_game(&pool, room).await.unwrap().deck_order);
     let ranks: Vec<u8> = deck.iter().map(|c| c.rank).collect();
     insert_draw(&pool, game, alice, &ranks).await.unwrap();
     // Simulate a pre-003 row: null out the rank, then re-run migrations.
@@ -243,7 +243,7 @@ impl RoomLocks {
 
 - [ ] **Step 1: Failing tests** — in `hub.rs`: extend `test_subscribe_publish_remove` to round-trip `Screen`/`Room`/`Emote` variants; new `test_channel_capacity_is_128` (send 100 messages with a live receiver, assert none lost: `for _ in 0..100 { rx.try_recv().unwrap? }` — actually assert the 100th arrives). In `lib.rs`: `test_room_locks_serialize_access` — two tasks each `lock().await`, increment a shared counter with a `tokio::time::sleep(10ms)` inside the critical section, assert no interleaving (final ordering vector is `[start,end,start,end]`).
 - [ ] **Step 2: Run to verify failure** — `cargo test -p drinkinggame hub` → compile error (missing variants). Expected.
-- [ ] **Step 3: Implement** — add the three variants; `broadcast::channel(128)`; add `RoomLocks` (std Mutex map guarding `Arc<tokio::sync::Mutex<()>>` entries, `or_default().clone()` inside, never `.await` while holding the std lock) in `lib.rs`; add `locks: RoomLocks::default()` to `GameState` construction; call `state.locks.remove(room.id)` wherever `state.hub.remove(room.id)` is called (end handler, cleanup sweep).
+- [ ] **Step 3: Implement** — add the three variants; `broadcast::channel(128)`; add `RoomLocks` (std Mutex map guarding `Arc<tokio::sync::Mutex<()>>` entries, `or_default().clone()` inside, never `.await` while holding the std lock) in `lib.rs`; add `locks: RoomLocks::default()` to `GameState` construction; call `state.locks.remove(room.id)` wherever `state.hub.remove(room.id)` is called — three sites: end handler, cleanup sweep, AND the `sse_stream` ended-room re-check (routes.rs:267). **Compile-order note:** adding variants breaks the exhaustive match in `sse_stream` (routes.rs:285–295); in THIS task add a temporary `Ok(_) => None` arm so the crate compiles green — Task 5 replaces it with the real `screen`/`room`/`emote` event mapping.
 - [ ] **Step 4: Run** — tests green, clippy, fmt.
 - [ ] **Step 5: Commit** — `feat(drinks): hub screen/room/emote kinds, capacity 128, per-room lock map`
 
@@ -270,7 +270,16 @@ ls  # expect exactly: archivo-{500,600,700,800,900}.woff2 space-grotesk-{400,500
 
 - [ ] **Step 2: Failing tests**
 
-`tests/http.rs`:
+`tests/http.rs` — first add the missing GET helper next to the existing `post_form`:
+```rust
+async fn get(app: &axum::Router, path: &str) -> axum::response::Response {
+    app.clone()
+        .oneshot(Request::builder().uri(path).body(Body::empty()).unwrap())
+        .await
+        .unwrap()
+}
+```
+then:
 ```rust
 #[tokio::test]
 async fn test_font_and_sound_routes() {
@@ -409,7 +418,17 @@ pub fn qr_svg(url: &str) -> String                                 // from Task 
     assert!(html.contains("TAP TO DRAW"));
 }
 #[test] fn test_active_panel_non_jack_has_no_rule_input() { /* pending_rule=false → no rule form */ }
-#[test] fn test_over_panel_superlatives() { /* hardest hit name, MOST DRAWS cell, King's Cup name, surviving house rules */ }
+#[test] fn test_over_panel_superlatives() {
+    // Build a GameOverView with counts: alice 7 draws/2 kings, bob 3 draws/5 shots,
+    // room totals 21 drinks / 7 shots, house rules ["No first names"].
+    let html = game_over_panel(&over_view_fixture());
+    assert!(html.contains("GAME OVER"));
+    assert!(html.contains("HARDEST HIT"));
+    assert!(html.contains("MOST DRAWS") && html.contains("alice"));
+    assert!(html.contains("MOST SHOTS") && html.contains("bob"));
+    assert!(html.contains("ROOM TOTAL") && html.contains("21"));
+    assert!(html.contains("KING") && html.contains("No first names"));
+}
 #[test] fn test_room_panel_topbar_and_mode() {
     let html = room_panel(&view);
     assert!(html.starts_with("<template data-topbar>"));
@@ -488,7 +507,7 @@ GameError::RuleTooLong     // #[error("rule must be 1–200 characters")] → 42
 - [ ] **Step 2: Run to verify failure.**
 - [ ] **Step 3: Implement**
   - Add the five `GameError` variants with the statuses above.
-  - `broadcast_game` renders phone + screen variants, publishes `RoomMessage::Game` + `RoomMessage::Screen`. Replace every `broadcast_panel` call. `broadcast_game_over` publishes `game_over_panel + idle` on `game` and `screen_panel_over` on `screen`, then `broadcast_room` (king fill reset next game).
+  - `broadcast_game` renders phone + screen variants, publishes `RoomMessage::Game` + `RoomMessage::Screen`. Replace every `broadcast_panel` call. `broadcast_game_over` publishes `game_over_panel + idle` on `game` and `screen_panel_over` on `screen`, then `broadcast_room` (king fill reset next game). `start_game_handler` also calls `broadcast_room` after starting (`data-mode` flips idle → ring_of_fire; without it connected clients keep the idle top bar until the next unrelated room event). This task also replaces Task 2's temporary `Ok(_) => None` arm in `sse_stream` with the real mapping: `Screen(html)` → event `screen`, `Room(html)` → event `room`, `Emote(json)` → event `emote`.
   - Kind guard: in `draw_handler`, `spend_handler`, `end_game_handler`, `rule_handler` after `get_active_game`: `if game.kind != "ring_of_fire" { return GameError::WrongGameKind.into_response(); }`.
   - `rule_handler`: member_room → active game + kind guard → `let Some(last) = draws.last()` with `last.rank == 11` else `WrongGameKind`→ no: return `OutOfTurn` (latest draw isn't an unruled Jack); `last.player_id == player.id` else `NotYourCall`; trimmed text 1..=200 else `RuleTooLong`; `insert_house_rule` (UNIQUE err → `OutOfTurn`); `touch_room`; `broadcast_room` + `broadcast_game(…, Some(format!("{} made a rule", player.name)))`.
   - `log_event`: after the leaderboard broadcast, `state.hub.publish(room.id, RoomMessage::Emote(if kind=="drink" {"🍺"} else {"🥃"}.into()))`.
@@ -939,7 +958,7 @@ pub fn roll(&mut self, d1: u8, d2: u8) -> Result<(), TmError> {
     Ok(())
 }
 ```
-`give_three_man`: HandOff-only; target in `order`, `target != self.three_man`; sets `handoff_from = Some(self.three_man)`, `three_man = target`, phase → `Assign` if `pending_double` else `Rolled`. `set_mode`: Assign-only, Split needs `order.len() >= 3`; sets slots `vec![None]`/`vec![None, None]`, clears gifts. `pick_target`: Assign, mode set, slot in range, player in order, `player != double.owner`, player not in another slot. `send`: all slots `Some` → gifts (`dice_count` 2 for Both, 1 for Split), phase `Gifts`. `gift_roll`: Gifts, slot valid, not yet rolled, `values.len() == dice_count`; `seq += 1`; on completion, `payback = all_values.contains(&value).then(|| all_values.sum())`. `pass`: from `Rolled` or (`Gifts` && `gifts_complete()`); `last_roller`, advance `roller_idx` `(i+1)%len`, `stale = true`, `seq += 1`, phase `Ready` (dice/calls/double kept for the stale render). `move_seat`: find index, `j = (i + delta).rem_euclid(len)`, remember roller id, swap, re-find `roller_idx`. `set_three_man`: target in order; if `phase == HandOff`, resolve it exactly like `give_three_man` (prevents a dead-lock if the picker's phone dies).
+`give_three_man`: HandOff-only; target in `order`, `target != self.three_man`; sets `handoff_from = Some(self.three_man)`, `three_man = target`, phase → `Assign` if `pending_double` else `Rolled`. `set_mode`: Assign-only, Split needs `order.len() >= 3`; sets slots `vec![None]`/`vec![None, None]`, clears gifts. `pick_target`: Assign, mode set, slot in range, player in order, `player != double.owner`, player not in another slot. `send`: all slots `Some` → gifts (`dice_count` 2 for Both, 1 for Split), phase `Gifts`. `gift_roll`: Gifts, slot valid, not yet rolled, `values.len() == dice_count`; `seq += 1`; on completion, `payback = all_values.contains(&value).then(|| all_values.sum())`. `pass`: from `Rolled` or (`Gifts` && `gifts_complete()`); `last_roller`, advance `roller_idx` `(i+1)%len`, `stale = true`, `seq += 1`, phase `Ready` (dice/calls/double kept for the stale render). `move_seat`: find index, `j = (i + delta).rem_euclid(len)`, remember roller id, swap, re-find `roller_idx` (NOTE: wraps seat 0 ↔ last — deliberate circular-table deviation from the prototype's clamp, recorded in self-review). `set_three_man`: target in order; if `phase == HandOff`, resolve it exactly like `give_three_man` (engine-level tolerance so TABLE-tab reassign can't corrupt phase; NOT a dead-phone escape hatch — the route gate still restricts HandOff resolution to the roller).
 - [ ] **Step 4: Run** — all engine tests green, clippy, fmt.
 - [ ] **Step 5: Commit** — `feat(drinks): 3 man engine — pure state machine with serde snapshot`
 
@@ -962,7 +981,8 @@ pub fn dice_html(d1: u8, d2: u8) -> String                  // two .die pip grid
 pub fn tm_phone_panel(v: &TmView) -> String                 // GAME tab, root data-anim-key="{seq}"
 pub fn tm_screen_panel(v: &TmView) -> String                // big-screen left pane + bottom seat strip
 pub fn tm_seating_html(v: &TmView) -> String                // TABLE-tab seating list + rules reference (room_panel embeds it)
-// room_panel: RoomView gains pub seating: Option<String> (pre-rendered by tm_seating_html) and renders the 3 MAN chip + "N at the table" in the topbar template when mode == "three_man"
+// room_panel: RoomView gains pub seating: Option<String> (pre-rendered by tm_seating_html) and renders the 3 MAN chip + "N at the table" in the topbar template when mode == "three_man".
+// Placement (spec's deliberate TABLE-tab deviation): room-code card → WHO'S HERE grid → seating (Some) → HOUSE RULES → King's Cup → End the night. The seating block replaces nothing; it slots between WHO'S HERE and HOUSE RULES.
 // leaderboard_items gains: pub fn leaderboard_items_tm(rows, three_man: Option<i64>) — adds a "3 MAN" badge span to the holder's row (plain leaderboard_items delegates with None)
 ```
 
@@ -1071,12 +1091,19 @@ pub async fn tm_start_handler / tm_end_handler
 #[tokio::test] async fn test_tm_start_needs_two_players() { /* solo room → 409 */ }
 #[tokio::test] async fn test_tm_start_conflicts_with_active_rof() { /* RoF running → 409 GameAlreadyActive */ }
 #[tokio::test] async fn test_tm_routes_reject_rof_games() { /* RoF active, POST /tm/roll → 409 WrongGameKind */ }
-#[tokio::test] async fn test_tm_end_broadcasts_summary_and_idle() { /* end → games.ended_at set, page shows both start cards */ }
+#[tokio::test] async fn test_tm_end_broadcasts_summary_and_idle() {
+    // seed events (alice 3 drinks 1 shot, bob 1 drink 2 shots), end the game →
+    // games.ended_at set; SSE `game` frame contains "GAME OVER", "HARDEST HIT",
+    // "alice", "MOST SHOTS" + "bob", "ROOM TOTAL" + "4"; page reload shows both start cards
+}
 #[tokio::test] async fn test_idle_panel_offers_both_games() { /* idle page: RoF start card + amber 3 MAN start card */ }
 ```
 
 - [ ] **Step 2: Run to verify failure.**
-- [ ] **Step 3: Implement.** `tm_start_handler`: member_room → `room_members` (`>= 2` else `TooFewPlayers`) → `ThreeManState::new(member_ids_by_joined_at, player.id)` → `db::start_game(pool, room.id, "three_man", "", "", Some(&st.to_json()))` (GameAlreadyActive races handled by the unique index) → touch, broadcast all. `tm_end_handler`: `load_tm` → `end_game` → broadcast `game_over_panel`-style 3 Man summary (reuse `GameSummary` minus kings: hardest = leaderboard-derived? — keep the RoF summary shape but hide the draws/kings cells when `deck_order` is empty) + idle panels + room. `current_panel`/`current_screen_panel`/`current_room_panel` dispatch on `game.kind` (three_man → TmView with `names` from `room_members`; RoomView.mode `three_man` + `seating`). Standings broadcast helper passes `three_man: Some(st.three_man)` while a 3 Man game is active. Idle panel: add the amber start card (`hx-post=…/tm/start`, one-line explainer "Two dice. 3s hit the 3 Man. Doubles hand out dice."). Register `/room/{code}/tm/start` + `/tm/end` in `routes.rs`.
+- [ ] **Step 3: Implement.** Both handlers hold `state.locks.for_room(room.id).lock().await` across their whole body (same skeleton as Task 13 — resolve room, lock, then re-load under the lock): `tm_start` because a concurrent join hook mutates `order`; `tm_end` because it can race a `gift_roll` persisting state onto an ended game. `tm_start_handler`: member_room → `room_members` (`>= 2` else `TooFewPlayers`) → `ThreeManState::new(member_ids_by_joined_at, player.id)` → `db::start_game(pool, room.id, "three_man", "", "", Some(&st.to_json()))` (GameAlreadyActive races handled by the unique index) → touch, broadcast all.
+  **3 Man end summary (concrete):** `tm_end_handler`: `load_tm` → `end_game` → build `TmOverView` from `db::leaderboard(pool, room.id)` only (no draws/kings — those are RoF concepts): hardest = row 0 → HARDEST HIT card (name + "`{drinks}` drinks and `{shots}` shots, self-inflicted"); superlatives grid exactly three cells: MOST DRINKS (row 0 name + count), MOST SHOTS (max-shots row name + count), ROOM TOTAL (summed drinks + shots). New builders `render::tm_over_panel(&TmOverView)` (phone: "GAME OVER" header + cards, then caller appends idle panel) and `render::tm_screen_over(&TmOverView)` (screen: "`{hardest}` lost." + same grid). Broadcast on `game` + `screen`, then `broadcast_room`.
+  **Standings badge plumbing:** `broadcast_leaderboard` (routes.rs:182) gains no parameters — it looks up the active game itself: `get_active_game` → if `kind == "three_man"`, parse `state_json`, pass `Some(three_man_id)` to `render::leaderboard_items(&rows, three_man)`; the SSE snapshot path (routes.rs:277) uses the same helper so reconnects carry the badge too. All existing call sites (`log_event`, `undo_event`) get the badge for free.
+  `current_panel`/`current_screen_panel`/`current_room_panel` dispatch on `game.kind` (three_man → TmView with `names` from `room_members`; RoomView.mode `three_man` + `seating`). Idle panel: add the amber start card (`hx-post=…/tm/start`, one-line explainer "Two dice. 3s hit the 3 Man. Doubles hand out dice."). Register `/room/{code}/tm/start` + `/tm/end` in `routes.rs`.
 - [ ] **Step 4: Run** — suite, clippy, fmt.
 - [ ] **Step 5: Commit** — `feat(drinks): 3 man start/end, kind-dispatched panels, dual start cards`
 
@@ -1190,5 +1217,5 @@ Close the spec's Testing checklist gaps left after Tasks 12–13:
 ## Self-review notes (folded in)
 
 - Spec coverage: decided-rules table → Task 10 (engine semantics) + Task 13 (gating); actor-gating table → Task 13; personalization contract → Task 4 contract + Task 7 `personalize()`; SSE protocol → Tasks 2/5; concurrency → Tasks 2/13; data model → Task 1; lifetime stats → Tasks 1/8; Phase-1 UI → Tasks 4–8; QR round-trip → Task 6; sounds → Tasks 3/7; 3 Man UI → Task 11; out-of-scope list untouched.
-- Deviations from spec (all documented inline): `handoff_note`/`payback` typed as `Option<i64>`/`Option<u8>` (engine stays name-free); `/tm/send` route added (spec's route list omitted it but its flow requires it); `seq` field added to the state for animation keying; screen footer rides inside the `screen` fragment.
+- Deviations from spec (all documented inline): `handoff_note`/`payback` typed as `Option<i64>`/`Option<u8>` (engine stays name-free); `/tm/send` route added (spec's route list omitted it but its flow requires it); `seq` field added to the state for animation keying; screen footer rides inside the `screen` fragment; exposure-line copy differs slightly from the prototype (adds "An 11 is yours." for the roller, drops the "Nothing lands on you unless they double." fallback); `move_seat` wraps seat 0 ↔ last (circular table) where the prototype clamps; Jack-rule wrong-poster returns 403 `NotYourCall` (spec's "409 fragment" line read as covering phase errors only — its testing section allows "wrong-actor 409/403").
 - Known-accepted caveats restated: UNDO tombstones latest event regardless of origin; mute key is global across rooms; presence dot = membership, not liveness.
