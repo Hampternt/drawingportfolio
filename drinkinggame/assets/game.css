@@ -205,6 +205,7 @@ body[data-player-id] { padding-bottom: 90px; }
   background: var(--surface); border: 1px solid var(--violet-border);
   border-radius: 14px; padding: 12px;
 }
+.rule-input-row[hidden] { display: none; }
 .rule-input-row input[type="text"] {
   flex: 1; min-width: 0; font: 500 14px var(--font-ui);
   padding: 11px 12px; border-radius: 10px; border: 1px solid var(--violet-border);
