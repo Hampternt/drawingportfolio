@@ -574,6 +574,7 @@ async fn start_rigged_game_with_rank(pool: &sqlx::SqlitePool, code: &str, rank: 
 
 #[tokio::test]
 async fn test_jack_rule_flow() {
+    use futures::StreamExt;
     let (app, pool) = test_app_with_pool().await;
     let alice = login(&app, "alice", "1234").await;
     let bob = login(&app, "bob", "5678").await;
@@ -584,6 +585,24 @@ async fn test_jack_rule_flow() {
     // Alice draws the rigged Jack.
     post_form(&app, &alice, &format!("/room/{code}/game/draw"), "").await;
 
+    // Subscribe so the rule POST's broadcasts can be observed directly —
+    // room.html doesn't render the ROOM/TABLE panel yet (that shell lands in
+    // a later task), so the SSE `room` event is the only reachable surface
+    // for "the rule reaches viewers" today.
+    let sse_res = app
+        .clone()
+        .oneshot(
+            Request::get(format!("/room/{code}/sse"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let mut sse_body = sse_res.into_body().into_data_stream();
+    for _ in 0..4 {
+        sse_body.next().await.unwrap().unwrap(); // drain the 4-frame snapshot
+    }
+
     let res = post_form(
         &app,
         &alice,
@@ -592,11 +611,17 @@ async fn test_jack_rule_flow() {
     )
     .await;
     assert_eq!(res.status(), StatusCode::NO_CONTENT);
-    // The rule is persisted — verified against the DB. (room.html doesn't
-    // render the ROOM/TABLE panel yet; that shell lands in a later task.)
+    // The rule is persisted...
     let rules = drinkinggame::db::house_rules(&pool, game).await;
     assert_eq!(rules.len(), 1);
     assert_eq!(rules[0].text, "No names");
+    // ...and broadcast: rule_handler publishes Room then Game.
+    let room_frame = String::from_utf8(sse_body.next().await.unwrap().unwrap().to_vec()).unwrap();
+    assert!(room_frame.contains("event: room"));
+    assert!(room_frame.contains("No names"));
+    let game_frame = String::from_utf8(sse_body.next().await.unwrap().unwrap().to_vec()).unwrap();
+    assert!(game_frame.contains("event: game"));
+    assert!(game_frame.contains("made a rule"));
 
     // Second POST for the same draw: the rule is already set.
     let res = post_form(
@@ -793,6 +818,82 @@ async fn test_end_night_ends_game_and_room() {
             .await
             .unwrap();
     assert!(ended_game.0.is_some());
+}
+
+/// start_game_handler calls broadcast_room after broadcast_game so the
+/// ROOM/TABLE tab's data-mode flips idle -> ring_of_fire immediately,
+/// instead of waiting for the next unrelated room event.
+#[tokio::test]
+async fn test_start_game_broadcasts_room_mode_flip() {
+    use futures::StreamExt;
+    let app = test_app().await;
+    let cookie = login(&app, "alice", "1234").await;
+    let code = create_room(&app, &cookie).await;
+
+    let res = app
+        .clone()
+        .oneshot(
+            Request::get(format!("/room/{code}/sse"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let mut body = res.into_body().into_data_stream();
+    for _ in 0..4 {
+        body.next().await.unwrap().unwrap(); // drain the idle-mode snapshot
+    }
+
+    post_form(
+        &app,
+        &cookie,
+        &format!("/room/{code}/game/start"),
+        "preset_id=1",
+    )
+    .await;
+    // broadcast_game publishes Game then Screen; broadcast_room follows.
+    let game_frame = String::from_utf8(body.next().await.unwrap().unwrap().to_vec()).unwrap();
+    assert!(game_frame.contains("event: game"));
+    let screen_frame = String::from_utf8(body.next().await.unwrap().unwrap().to_vec()).unwrap();
+    assert!(screen_frame.contains("event: screen"));
+    let room_frame = String::from_utf8(body.next().await.unwrap().unwrap().to_vec()).unwrap();
+    assert!(room_frame.contains("event: room"));
+    assert!(room_frame.contains(r#"data-mode="ring_of_fire""#));
+}
+
+/// draw_handler refreshes the ROOM/TABLE tab whenever the drawn card is a
+/// King, since that's the only draw outcome that changes the King's Cup fill.
+#[tokio::test]
+async fn test_king_draw_broadcasts_room() {
+    use futures::StreamExt;
+    let (app, pool) = test_app_with_pool().await;
+    let cookie = login(&app, "alice", "1234").await;
+    let code = create_room(&app, &cookie).await;
+    start_rigged_game_with_rank(&pool, &code, 13).await;
+
+    let res = app
+        .clone()
+        .oneshot(
+            Request::get(format!("/room/{code}/sse"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let mut body = res.into_body().into_data_stream();
+    for _ in 0..4 {
+        body.next().await.unwrap().unwrap(); // drain the snapshot
+    }
+
+    post_form(&app, &cookie, &format!("/room/{code}/game/draw"), "").await;
+    // broadcast_game publishes Game then Screen; the King-fill broadcast_room follows.
+    let game_frame = String::from_utf8(body.next().await.unwrap().unwrap().to_vec()).unwrap();
+    assert!(game_frame.contains("event: game"));
+    let screen_frame = String::from_utf8(body.next().await.unwrap().unwrap().to_vec()).unwrap();
+    assert!(screen_frame.contains("event: screen"));
+    let room_frame = String::from_utf8(body.next().await.unwrap().unwrap().to_vec()).unwrap();
+    assert!(room_frame.contains("event: room"));
+    assert!(room_frame.contains("1 / 4"));
 }
 
 #[tokio::test]
