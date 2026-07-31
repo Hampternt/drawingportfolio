@@ -274,12 +274,12 @@ async fn test_log_undo_and_leaderboard_counts() {
     post_form(&app, &cookie, &format!("/room/{code}/event"), "kind=shot").await;
     assert!(room_page_html(&app, &cookie, &code)
         .await
-        .contains("1 drinks &middot; 1 shots"));
+        .contains("1 D &middot; 1 S"));
 
     post_form(&app, &cookie, &format!("/room/{code}/undo"), "").await;
     assert!(room_page_html(&app, &cookie, &code)
         .await
-        .contains("1 drinks &middot; 0 shots"));
+        .contains("1 D &middot; 0 S"));
 
     // Junk kind is rejected.
     let res = post_form(&app, &cookie, &format!("/room/{code}/event"), "kind=beer").await;
@@ -391,7 +391,7 @@ async fn test_sse_endpoint_streams_event_stream() {
     let second = body.next().await.unwrap().unwrap();
     let text = String::from_utf8(second.to_vec()).unwrap();
     assert!(text.contains("event: leaderboard"));
-    assert!(text.contains("1 drinks"));
+    assert!(text.contains("1 D &middot;"));
 
     // Ending the room pushes the terminal "ended" event.
     let res = post_form(&app, &cookie, &format!("/room/{code}/end"), "").await;
@@ -435,7 +435,7 @@ async fn test_room_page_shows_idle_game_panel() {
     let cookie = login(&app, "alice", "1234").await;
     let code = create_room(&app, &cookie).await;
     let html = room_page_html(&app, &cookie, &code).await;
-    assert!(html.contains("Start Ring of Fire"));
+    assert!(html.contains(">START<"));
     assert!(html.contains("Standard")); // seeded preset in the picker
     assert!(html.contains(r#"id="game-panel""#));
 }
@@ -455,15 +455,15 @@ async fn test_start_and_draw_flow() {
     .await;
     assert_eq!(res.status(), StatusCode::NO_CONTENT);
     let html = room_page_html(&app, &cookie, &code).await;
-    assert!(html.contains("52 cards left"));
-    assert!(html.contains("Tap to draw"));
+    assert!(html.contains("52 LEFT"));
+    assert!(html.contains("TAP TO DRAW"));
 
     let res = post_form(&app, &cookie, &format!("/room/{code}/game/draw"), "").await;
     assert_eq!(res.status(), StatusCode::NO_CONTENT);
     let html = room_page_html(&app, &cookie, &code).await;
-    assert!(html.contains("51 cards left"));
-    assert!(html.contains("alice drew"));
-    assert!(html.contains("card-face")); // a card is showing
+    assert!(html.contains("51 LEFT"));
+    assert!(html.contains("alice DREW"));
+    assert!(html.contains("card-big")); // a card is showing
 }
 
 #[tokio::test]
@@ -609,7 +609,7 @@ async fn test_52nd_draw_auto_ends_game() {
     assert_eq!(res.status(), StatusCode::NOT_FOUND);
     assert!(room_page_html(&app, &cookie, &code)
         .await
-        .contains("Start Ring of Fire"));
+        .contains(">START<"));
 }
 
 /// Regression test: the 52nd draw must broadcast the final card BEFORE the
@@ -652,15 +652,15 @@ async fn test_52nd_draw_broadcasts_final_card_before_game_over() {
     // First pushed frame: the active panel showing the 52nd card, not idle.
     let first = String::from_utf8(body.next().await.unwrap().unwrap().to_vec()).unwrap();
     assert!(first.contains("event: game"));
-    assert!(first.contains("0 cards left"));
-    assert!(first.contains("card-face"));
-    assert!(!first.contains("Start Ring of Fire"));
+    assert!(first.contains("0 LEFT"));
+    assert!(first.contains("card-big"));
+    assert!(!first.contains(">START<"));
 
     // Second pushed frame: the game-over summary followed by the idle panel.
     let second = String::from_utf8(body.next().await.unwrap().unwrap().to_vec()).unwrap();
     assert!(second.contains("event: game"));
-    assert!(second.contains("Game over"));
-    assert!(second.contains("Start Ring of Fire"));
+    assert!(second.contains("GAME OVER"));
+    assert!(second.contains(">START<"));
 }
 
 #[tokio::test]
@@ -680,7 +680,7 @@ async fn test_end_game_early() {
     assert_eq!(res.status(), StatusCode::NO_CONTENT);
     assert!(room_page_html(&app, &cookie, &code)
         .await
-        .contains("Start Ring of Fire"));
+        .contains(">START<"));
 }
 
 #[tokio::test]
@@ -707,7 +707,7 @@ async fn test_screen_and_sse_carry_game_panel() {
         )
         .await
         .unwrap();
-    assert!(body_string(res).await.contains("52 cards left"));
+    assert!(body_string(res).await.contains("52 LEFT"));
 
     // SSE: initial game snapshot, then a draw pushes a fresh panel.
     let res = app
@@ -724,12 +724,12 @@ async fn test_screen_and_sse_carry_game_panel() {
     assert!(first.contains("event: leaderboard"));
     let second = String::from_utf8(body.next().await.unwrap().unwrap().to_vec()).unwrap();
     assert!(second.contains("event: game"));
-    assert!(second.contains("52 cards left"));
+    assert!(second.contains("52 LEFT"));
 
     post_form(&app, &cookie, &format!("/room/{code}/game/draw"), "").await;
     let third = String::from_utf8(body.next().await.unwrap().unwrap().to_vec()).unwrap();
     assert!(third.contains("event: game"));
-    assert!(third.contains("51 cards left"));
+    assert!(third.contains("51 LEFT"));
 }
 
 #[tokio::test]

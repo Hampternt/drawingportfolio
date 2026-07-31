@@ -46,15 +46,25 @@ async fn active_panel(
     let rules = rules::parse_rules(&game.rules_json);
     let draws = db::get_draws(&state.pool, game.id).await;
     let counts = db::draw_counts(&state.pool, game.id).await;
+    let house_rules = db::house_rules(&state.pool, game.id).await;
+
+    let spends = draws.iter().filter(|d| d.spent_at.is_some()).count();
+    let anim_key = format!("{}-{}", draws.len(), spends);
 
     let current = draws.last().map(|d| {
         let card = deck[d.card_index as usize];
         let rule = rules::rule_for_rank(&rules, card.rank);
+        // Jack (rank 11) with no house_rules row for this draw yet: the
+        // drawer still owes the room a rule.
+        let pending_rule = card.rank == 11 && !house_rules.iter().any(|hr| hr.draw_id == d.id);
         render::CurrentCard {
             card,
             title: rule.title.clone(),
             text: rule.text.clone(),
             drawer: d.player_name.clone(),
+            drawer_id: d.player_id,
+            draw_id: d.id,
+            pending_rule,
         }
     });
     let held = draws
@@ -81,8 +91,60 @@ async fn active_panel(
         held,
         counts: &counts,
         announcement,
+        anim_key,
     };
     render::game_active_panel(&view)
+}
+
+/// Room-wide ROOM/TABLE tab panel: members, house rules, King's Cup fill,
+/// and a `mode` derived from whatever game (if any) is active. Task 5 wires
+/// this into broadcasts; Task 7 wires it into the room shell.
+pub async fn current_room_panel(state: &GameState, room_id: i64, code: &str) -> String {
+    let members = db::room_members(&state.pool, room_id).await;
+    let (house_rules, kings, mode) = match db::get_active_game(&state.pool, room_id).await {
+        Some(game) => (
+            db::house_rules(&state.pool, game.id).await,
+            db::king_count(&state.pool, game.id).await,
+            game.kind,
+        ),
+        None => (Vec::new(), 0, "idle".to_string()),
+    };
+    let view = render::RoomView {
+        base_path: &state.base_path,
+        code,
+        members: &members,
+        house_rules: &house_rules,
+        kings,
+        mode: &mode,
+    };
+    render::room_panel(&view)
+}
+
+/// Assembles post-game superlatives from three independent sources: draw
+/// counts (hardest hit / most draws), the room leaderboard (most shots /
+/// room total), and the King's Cup drawer. `room_total` is drinks+shots
+/// logged room-wide this session — not cards drawn, which `counts` already
+/// covers per-player.
+async fn game_summary(state: &GameState, room_id: i64, game_id: i64) -> render::GameSummary {
+    let counts = db::draw_counts(&state.pool, game_id).await;
+    let hardest = counts.first().map(|c| (c.name.clone(), c.draws));
+    let leaderboard = db::leaderboard(&state.pool, room_id).await;
+    let most_shots = leaderboard
+        .iter()
+        .filter(|r| r.shots > 0)
+        .max_by_key(|r| r.shots)
+        .map(|r| (r.name.clone(), r.shots));
+    let room_total: i64 = leaderboard.iter().map(|r| r.drinks + r.shots).sum();
+    let kings_cup = db::last_king_drawer(&state.pool, game_id).await;
+    let house_rules = db::house_rules(&state.pool, game_id).await;
+    render::GameSummary {
+        hardest,
+        most_shots,
+        room_total,
+        kings_cup,
+        counts,
+        house_rules,
+    }
 }
 
 async fn broadcast_panel(
@@ -98,10 +160,10 @@ async fn broadcast_panel(
 /// End-of-game broadcast: summary on top, idle panel (Start button) below.
 /// Page reloads render just the idle panel — the summary is transient.
 async fn broadcast_game_over(state: &GameState, room_id: i64, code: &str, game_id: i64) {
-    let counts = db::draw_counts(&state.pool, game_id).await;
+    let summary = game_summary(state, room_id, game_id).await;
     let html = format!(
         "{}{}",
-        render::game_summary_panel(&counts),
+        render::game_over_panel(&summary),
         idle_panel(state, code).await
     );
     state.hub.publish(room_id, RoomMessage::Game(html));
