@@ -7,6 +7,7 @@ use argon2::password_hash::{
 use argon2::Argon2;
 use axum::extract::FromRequestParts;
 use axum::http::request::Parts;
+use axum::http::Method;
 use axum::response::{IntoResponse, Redirect};
 use rand::RngCore;
 
@@ -132,7 +133,15 @@ impl FromRequestParts<GameState> for PlayerSession {
                 return Ok(PlayerSession(player));
             }
         }
-        Err(Redirect::to(&format!("{}/", state.base_path)).into_response())
+        let base = &state.base_path;
+        // QR-scan flow: an unauthenticated GET on a room link carries its
+        // destination through login via `next` instead of stranding the
+        // visitor on the plain landing page after they log in.
+        if parts.method == Method::GET && parts.uri.path().starts_with("/room/") {
+            Err(Redirect::to(&format!("{base}/?next={base}{}", parts.uri.path())).into_response())
+        } else {
+            Err(Redirect::to(&format!("{base}/")).into_response())
+        }
     }
 }
 

@@ -1,8 +1,10 @@
 use askama::Template;
 use axum::extract::Form;
 use axum::extract::Path;
+use axum::extract::RawQuery;
 use axum::extract::State;
 use axum::http::header;
+use axum::http::HeaderMap;
 use axum::http::StatusCode;
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{Html, IntoResponse, Redirect};
@@ -29,6 +31,62 @@ struct LandingTemplate {
     player_name: String,
     lifetime_drinks: i64,
     lifetime_shots: i64,
+    next: String,
+}
+
+/// Only `{base}/room/<4 letters>` is accepted as a post-login destination —
+/// this is the sole gate keeping the `next` query/form param from becoming
+/// an open redirect (arbitrary scheme/host, path traversal, etc.).
+fn valid_next(base_path: &str, next: &str) -> bool {
+    let prefix = format!("{base_path}/room/");
+    match next.strip_prefix(prefix.as_str()) {
+        Some(rest) => rest.len() == 4 && rest.bytes().all(|b| rooms::CODE_ALPHABET.contains(&b)),
+        None => false,
+    }
+}
+
+/// Pulls a validated `next` value out of a raw query string. Room codes are
+/// uppercase letters only, so the value is never percent-encoded and a plain
+/// `split('&')`/`strip_prefix` is enough — no decoding, no serde, and no way
+/// for a malformed query string to fail the extraction.
+fn next_from_query(query: Option<&str>, base_path: &str) -> String {
+    let Some(query) = query else {
+        return String::new();
+    };
+    query
+        .split('&')
+        .find_map(|pair| pair.strip_prefix("next="))
+        .filter(|n| valid_next(base_path, n))
+        .unwrap_or_default()
+        .to_string()
+}
+
+/// Derives an absolute `scheme://host` origin for building shareable URLs
+/// (the room QR code needs an absolute URL, not a path). `X-Forwarded-Proto`
+/// (set by nginx — see deploy/nginx.conf) wins when present; otherwise guess
+/// `http` for local dev hosts and `https` everywhere else.
+pub fn request_origin(headers: &HeaderMap) -> String {
+    let host = headers
+        .get(header::HOST)
+        .and_then(|h| h.to_str().ok())
+        .unwrap_or("localhost");
+    let scheme = headers
+        .get("x-forwarded-proto")
+        .and_then(|h| h.to_str().ok())
+        // A chain of proxies sends a comma-separated list ("https, http") —
+        // only the first hop's value describes what the client actually used.
+        .and_then(|v| v.split(',').next())
+        .map(str::trim)
+        .filter(|s| *s == "http" || *s == "https")
+        .map(str::to_string)
+        .unwrap_or_else(|| {
+            if host.starts_with("localhost") || host.starts_with("127.") {
+                "http".to_string()
+            } else {
+                "https".to_string()
+            }
+        });
+    format!("{scheme}://{host}")
 }
 
 #[derive(Template)]
@@ -124,7 +182,12 @@ async fn room_page(
 async fn landing(
     State(state): State<GameState>,
     OptionalPlayer(player): OptionalPlayer,
+    // RawQuery, not Query<HashMap<..>>: this is the app's front door, so a
+    // malformed query string must never fail extraction — an unrecognized
+    // shape just means no `next`, handled by `next_from_query` returning "".
+    RawQuery(query): RawQuery,
 ) -> impl IntoResponse {
+    let next = next_from_query(query.as_deref(), &state.base_path);
     let tpl = match player {
         Some(p) => {
             let (drinks, shots) = db::lifetime_counts(&state.pool, p.id).await;
@@ -134,6 +197,7 @@ async fn landing(
                 player_name: p.name,
                 lifetime_drinks: drinks,
                 lifetime_shots: shots,
+                next,
             }
         }
         None => LandingTemplate {
@@ -142,6 +206,7 @@ async fn landing(
             player_name: String::new(),
             lifetime_drinks: 0,
             lifetime_shots: 0,
+            next,
         },
     };
     Html(tpl.render().unwrap())
@@ -151,6 +216,7 @@ async fn landing(
 struct LoginForm {
     name: String,
     pin: String,
+    next: Option<String>,
 }
 
 async fn login(
@@ -161,9 +227,13 @@ async fn login(
         Ok(player) => {
             let sid = auth::new_session_id();
             db::create_session(&state.pool, &sid, player.id, "+90 days").await;
+            let dest = match &form.next {
+                Some(n) if valid_next(&state.base_path, n) => n.clone(),
+                _ => format!("{}/", state.base_path),
+            };
             (
                 [(header::SET_COOKIE, auth::session_cookie(&sid))],
-                Redirect::to(&format!("{}/", state.base_path)),
+                Redirect::to(&dest),
             )
                 .into_response()
         }
@@ -451,4 +521,64 @@ pub fn router() -> Router<GameState> {
             "/presets/{id}/delete",
             post(crate::presets::delete_preset_handler),
         )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_valid_next() {
+        assert!(valid_next("/drinks", "/drinks/room/QKAM"));
+        assert!(!valid_next("/drinks", "/drinks/room/qkam"));
+        assert!(!valid_next("/drinks", "https://evil.example/x"));
+        assert!(!valid_next("/drinks", "/drinks/room/QKAM/../admin"));
+        assert!(!valid_next("", "/room/QKAM/extra"));
+    }
+
+    #[test]
+    fn test_next_from_query() {
+        assert_eq!(
+            next_from_query(Some("next=/drinks/room/QKAM"), "/drinks"),
+            "/drinks/room/QKAM"
+        );
+        assert_eq!(next_from_query(None, "/drinks"), "");
+        assert_eq!(
+            next_from_query(Some("next=https://evil.example/x"), "/drinks"),
+            ""
+        );
+        assert_eq!(
+            next_from_query(Some("foo=bar&next=/drinks/room/QKAM"), "/drinks"),
+            "/drinks/room/QKAM"
+        );
+    }
+
+    #[test]
+    fn test_request_origin() {
+        let headers = |pairs: &[(&str, &str)]| {
+            let mut h = HeaderMap::new();
+            for (k, v) in pairs {
+                h.insert(
+                    axum::http::HeaderName::from_bytes(k.as_bytes()).unwrap(),
+                    v.parse().unwrap(),
+                );
+            }
+            h
+        };
+        assert_eq!(
+            request_origin(&headers(&[("host", "example.com")])),
+            "https://example.com"
+        );
+        assert_eq!(
+            request_origin(&headers(&[("host", "localhost:3001")])),
+            "http://localhost:3001"
+        );
+        assert_eq!(
+            request_origin(&headers(&[
+                ("x-forwarded-proto", "https"),
+                ("host", "localhost"),
+            ])),
+            "https://localhost"
+        );
+    }
 }

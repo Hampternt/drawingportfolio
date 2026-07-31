@@ -24,6 +24,9 @@
     <input name="name" placeholder="Your name" maxlength="20" required>
     <input name="pin" placeholder="4-digit PIN" inputmode="numeric" pattern="[0-9]{4}"
            maxlength="4" required>
+    {% if next != "" %}
+    <input type="hidden" name="next" value="{{ next }}">
+    {% endif %}
     <button type="submit">Let's go</button>
     <p class="lifetime">New name? This registers it. Known name? PIN logs you in from any phone.</p>
   </form>

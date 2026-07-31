@@ -22,6 +22,19 @@ async fn test_app() -> Router {
     test_app_with_pool().await.0
 }
 
+/// Same as `test_app`, but mounted under a non-empty base path — used to
+/// exercise `next`/redirect string composition against a realistic prefix
+/// (production mounts the crate at "/drinks", not "").
+async fn test_app_with_base(base_path: &str) -> Router {
+    let pool = SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect("sqlite::memory:")
+        .await
+        .unwrap();
+    drinkinggame::db::run_migrations(&pool).await;
+    drinkinggame::router_with_pool(pool, base_path)
+}
+
 async fn body_string(res: axum::response::Response) -> String {
     let bytes = res.into_body().collect().await.unwrap().to_bytes();
     String::from_utf8(bytes.to_vec()).unwrap()
@@ -234,6 +247,102 @@ async fn test_room_requires_session_and_dead_codes_are_friendly() {
         .unwrap();
     assert_eq!(res.status(), StatusCode::NOT_FOUND);
     assert!(body_string(res).await.contains("Back home"));
+}
+
+/// QR-scan flow: a visitor who opens a room link cold (no session cookie)
+/// gets bounced to login carrying `next`, not just dumped on a bare landing
+/// page that forgets which room they were headed to.
+#[tokio::test]
+async fn test_unauthenticated_room_visit_redirects_with_next() {
+    let app = test_app().await;
+    let res = app
+        .oneshot(Request::get("/room/QKAM").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+    assert_eq!(res.headers()[header::LOCATION], "/?next=/room/QKAM");
+}
+
+/// Same redirect, mounted at a non-empty base path — production runs the
+/// crate nested under "/drinks", not standalone at "".
+#[tokio::test]
+async fn test_unauthenticated_room_visit_redirect_honors_base_path() {
+    let app = test_app_with_base("/drinks").await;
+    let res = app
+        .oneshot(Request::get("/room/QKAM").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+    assert_eq!(
+        res.headers()[header::LOCATION],
+        "/drinks/?next=/drinks/room/QKAM"
+    );
+}
+
+#[tokio::test]
+async fn test_login_honors_valid_next_and_ignores_bad_next() {
+    let app = test_app().await;
+    let cookie = login(&app, "alice", "1234").await;
+    let code = create_room(&app, &cookie).await;
+
+    // A valid `next` (the room just created) takes the freshly logged-in
+    // player straight into the room instead of the landing page.
+    let res = app
+        .clone()
+        .oneshot(
+            Request::post("/login")
+                .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                .body(Body::from(format!("name=bob&pin=5678&next=/room/{code}")))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+    assert_eq!(res.headers()[header::LOCATION], format!("/room/{code}"));
+
+    // An invalid `next` (open-redirect attempt) is ignored — falls back home.
+    let res = app
+        .oneshot(
+            Request::post("/login")
+                .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                .body(Body::from(
+                    "name=mallory&pin=1111&next=https://evil.example/x",
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+    assert_eq!(res.headers()[header::LOCATION], "/");
+}
+
+/// The landing page only echoes `next` back into the hidden login field when
+/// it's a validated room destination — never an open-redirect payload.
+#[tokio::test]
+async fn test_landing_echoes_valid_next_and_drops_bad_next() {
+    let app = test_app().await;
+    let res = app
+        .clone()
+        .oneshot(
+            Request::get("/?next=/room/QKAM")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert!(body_string(res)
+        .await
+        .contains(r#"<input type="hidden" name="next" value="/room/QKAM">"#));
+
+    let res = app
+        .oneshot(
+            Request::get("/?next=https://evil.example/x")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert!(!body_string(res).await.contains("evil.example"));
 }
 
 async fn post_form(app: &Router, cookie: &str, path: &str, body: &str) -> axum::response::Response {
