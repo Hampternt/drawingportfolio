@@ -539,10 +539,19 @@ pub fn room_panel(view: &RoomView) -> String {
 /// directly into an HTML document (and unnecessary — we're embedding this
 /// `<svg>` as a fragment, not serving it as a standalone .svg file). Strip
 /// it so the returned string is a bare `<svg>...</svg>` fragment.
+///
+/// `url` embeds the request's `Host` header (see `request_origin` in
+/// routes.rs) — attacker-controlled, unbounded length. `QrCode::new` errors
+/// once the payload exceeds byte-mode capacity (~2.3KB at the default
+/// EcLevel::M), so this degrades to an empty string instead of unwrapping:
+/// a request task panicking on an oversized Host header would drop the
+/// connection instead of just rendering a screen page with no QR code.
 pub fn qr_svg(url: &str) -> String {
     use qrcode::render::svg;
-    let raw = qrcode::QrCode::new(url.as_bytes())
-        .expect("qr encode")
+    let Ok(code) = qrcode::QrCode::new(url.as_bytes()) else {
+        return String::new();
+    };
+    let raw = code
         .render::<svg::Color>()
         .quiet_zone(false)
         .min_dimensions(160, 160)
@@ -870,5 +879,15 @@ mod tests {
         let svg = qr_svg("https://example.com/drinks/room/QK4M");
         assert!(svg.starts_with("<svg"));
         assert!(svg.contains("f2eef8")); // dark modules in text color
+    }
+
+    /// `url` embeds an attacker-controlled `Host` header (via
+    /// `request_origin` in routes.rs, unbounded length) — a payload past QR
+    /// byte-mode capacity must degrade to an empty string, not panic and
+    /// take the request task down with it.
+    #[test]
+    fn test_qr_svg_degrades_on_oversized_input() {
+        let svg = qr_svg(&"x".repeat(5000));
+        assert_eq!(svg, "");
     }
 }
