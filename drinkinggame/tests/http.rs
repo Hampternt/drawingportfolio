@@ -380,18 +380,32 @@ async fn test_sse_endpoint_streams_event_stream() {
     assert!(text.contains("event: leaderboard"));
     assert!(text.contains("alice"));
 
-    // The initial snapshot also carries the idle game panel as a second frame.
+    // The initial snapshot also carries the idle game panel as a second
+    // frame, then the screen and room panels as a third and fourth.
     let game_snapshot = body.next().await.unwrap().unwrap();
     let text = String::from_utf8(game_snapshot.to_vec()).unwrap();
     assert!(text.contains("event: game"));
+    let screen_snapshot = body.next().await.unwrap().unwrap();
+    assert!(String::from_utf8(screen_snapshot.to_vec())
+        .unwrap()
+        .contains("event: screen"));
+    let room_snapshot = body.next().await.unwrap().unwrap();
+    assert!(String::from_utf8(room_snapshot.to_vec())
+        .unwrap()
+        .contains("event: room"));
 
-    // A mutation while the stream is open pushes a fresh leaderboard frame.
+    // A mutation while the stream is open pushes a fresh leaderboard frame,
+    // followed by an emote (self-logged drinks always fire one).
     let res = post_form(&app, &cookie, &format!("/room/{code}/event"), "kind=drink").await;
     assert_eq!(res.status(), StatusCode::NO_CONTENT);
     let second = body.next().await.unwrap().unwrap();
     let text = String::from_utf8(second.to_vec()).unwrap();
     assert!(text.contains("event: leaderboard"));
     assert!(text.contains("1 D &middot;"));
+    let emote = body.next().await.unwrap().unwrap();
+    assert!(String::from_utf8(emote.to_vec())
+        .unwrap()
+        .contains("event: emote"));
 
     // Ending the room pushes the terminal "ended" event.
     let res = post_form(&app, &cookie, &format!("/room/{code}/end"), "").await;
@@ -514,6 +528,7 @@ async fn test_non_members_cannot_touch_the_game() {
         (format!("/room/{code}/game/draw"), ""),
         (format!("/room/{code}/game/spend"), "draw_id=1"),
         (format!("/room/{code}/game/end"), ""),
+        (format!("/room/{code}/game/rule"), "text=x"),
     ] {
         let res = post_form(&app, &mallory, &path, body).await;
         assert_eq!(res.status(), StatusCode::FORBIDDEN, "{path}");
@@ -537,6 +552,247 @@ async fn start_rigged_game(pool: &sqlx::SqlitePool, code: &str) -> i64 {
     )
     .await
     .unwrap()
+}
+
+/// Same as `start_rigged_game` but the rigged top card is any rank.
+async fn start_rigged_game_with_rank(pool: &sqlx::SqlitePool, code: &str, rank: u8) -> i64 {
+    let room = drinkinggame::db::get_open_room(pool, code).await.unwrap();
+    let mut deck = drinkinggame::cards::shuffled_deck();
+    let pos = deck.iter().position(|c| c.rank == rank).unwrap();
+    deck.swap(0, pos);
+    drinkinggame::db::start_game(
+        pool,
+        room.id,
+        "ring_of_fire",
+        &drinkinggame::rules::standard_rules_json(),
+        &drinkinggame::cards::deck_to_string(&deck),
+        None,
+    )
+    .await
+    .unwrap()
+}
+
+#[tokio::test]
+async fn test_jack_rule_flow() {
+    let (app, pool) = test_app_with_pool().await;
+    let alice = login(&app, "alice", "1234").await;
+    let bob = login(&app, "bob", "5678").await;
+    let code = create_room(&app, &alice).await;
+    room_page_html(&app, &bob, &code).await; // bob joins
+    let game = start_rigged_game_with_rank(&pool, &code, 11).await;
+
+    // Alice draws the rigged Jack.
+    post_form(&app, &alice, &format!("/room/{code}/game/draw"), "").await;
+
+    let res = post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/game/rule"),
+        "text=No names",
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+    // The rule is persisted — verified against the DB. (room.html doesn't
+    // render the ROOM/TABLE panel yet; that shell lands in a later task.)
+    let rules = drinkinggame::db::house_rules(&pool, game).await;
+    assert_eq!(rules.len(), 1);
+    assert_eq!(rules[0].text, "No names");
+
+    // Second POST for the same draw: the rule is already set.
+    let res = post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/game/rule"),
+        "text=Another+rule",
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::CONFLICT);
+
+    // Bob is not the drawer.
+    let res = post_form(
+        &app,
+        &bob,
+        &format!("/room/{code}/game/rule"),
+        "text=Bob%27s+rule",
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::FORBIDDEN);
+
+    // 201-char text is rejected.
+    let long_text = "a".repeat(201);
+    let res = post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/game/rule"),
+        &format!("text={long_text}"),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::UNPROCESSABLE_ENTITY);
+}
+
+#[tokio::test]
+async fn test_rule_rejected_when_latest_draw_not_jack() {
+    let (app, pool) = test_app_with_pool().await;
+    let cookie = login(&app, "alice", "1234").await;
+    let code = create_room(&app, &cookie).await;
+    start_rigged_game_with_rank(&pool, &code, 5).await; // Thumb Master, not a Jack
+    post_form(&app, &cookie, &format!("/room/{code}/game/draw"), "").await;
+    let res = post_form(
+        &app,
+        &cookie,
+        &format!("/room/{code}/game/rule"),
+        "text=Nope",
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::CONFLICT);
+}
+
+#[tokio::test]
+async fn test_rof_routes_reject_three_man_games() {
+    let (app, pool) = test_app_with_pool().await;
+    let cookie = login(&app, "alice", "1234").await;
+    let code = create_room(&app, &cookie).await;
+    let room = drinkinggame::db::get_open_room(&pool, &code).await.unwrap();
+    sqlx::query(
+        "INSERT INTO games (room_id, kind, rules_json, deck_order, state_json)
+         VALUES (?1, 'three_man', '[]', '', NULL)",
+    )
+    .bind(room.id)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    for (path, body) in [
+        (format!("/room/{code}/game/draw"), ""),
+        (format!("/room/{code}/game/spend"), "draw_id=1"),
+        (format!("/room/{code}/game/rule"), "text=x"),
+        (format!("/room/{code}/game/end"), ""),
+    ] {
+        let res = post_form(&app, &cookie, &path, body).await;
+        assert_eq!(res.status(), StatusCode::CONFLICT, "{path}");
+    }
+}
+
+#[tokio::test]
+async fn test_sse_snapshot_has_all_stateful_kinds() {
+    use futures::StreamExt;
+    let app = test_app().await;
+    let cookie = login(&app, "alice", "1234").await;
+    let code = create_room(&app, &cookie).await;
+
+    let res = app
+        .clone()
+        .oneshot(
+            Request::get(format!("/room/{code}/sse"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let mut body = res.into_body().into_data_stream();
+    let mut seen = std::collections::HashSet::new();
+    for _ in 0..4 {
+        let frame = String::from_utf8(body.next().await.unwrap().unwrap().to_vec()).unwrap();
+        for name in ["leaderboard", "game", "screen", "room"] {
+            if frame.contains(&format!("event: {name}")) {
+                seen.insert(name);
+            }
+        }
+    }
+    assert_eq!(
+        seen.len(),
+        4,
+        "expected all 4 snapshot events, got {seen:?}"
+    );
+}
+
+#[tokio::test]
+async fn test_event_broadcasts_emote_and_room_join_broadcasts_room() {
+    use futures::StreamExt;
+    let app = test_app().await;
+    let alice = login(&app, "alice", "1234").await;
+    let bob = login(&app, "bob", "5678").await;
+    let code = create_room(&app, &alice).await;
+
+    let res = app
+        .clone()
+        .oneshot(
+            Request::get(format!("/room/{code}/sse"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let mut body = res.into_body().into_data_stream();
+    // Drain the 4-frame snapshot.
+    for _ in 0..4 {
+        body.next().await.unwrap().unwrap();
+    }
+
+    // Logging a drink broadcasts both a leaderboard refresh and an emote.
+    let res = post_form(&app, &alice, &format!("/room/{code}/event"), "kind=drink").await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+    let mut got_emote = false;
+    let mut got_leaderboard = false;
+    for _ in 0..2 {
+        let frame = String::from_utf8(body.next().await.unwrap().unwrap().to_vec()).unwrap();
+        if frame.contains("event: emote") {
+            got_emote = true;
+            assert!(frame.contains("🍺"));
+        }
+        if frame.contains("event: leaderboard") {
+            got_leaderboard = true;
+        }
+    }
+    assert!(got_emote, "expected an emote event");
+    assert!(got_leaderboard, "expected a leaderboard event");
+
+    // Undo broadcasts a leaderboard refresh but never an emote.
+    let res = post_form(&app, &alice, &format!("/room/{code}/undo"), "").await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+    let frame = String::from_utf8(body.next().await.unwrap().unwrap().to_vec()).unwrap();
+    assert!(frame.contains("event: leaderboard"));
+
+    // A second player joining broadcasts a Room message.
+    room_page_html(&app, &bob, &code).await;
+    let frame = String::from_utf8(body.next().await.unwrap().unwrap().to_vec()).unwrap();
+    assert!(frame.contains("event: room"));
+    assert!(frame.contains("bob"));
+}
+
+#[tokio::test]
+async fn test_end_night_ends_game_and_room() {
+    let (app, pool) = test_app_with_pool().await;
+    let cookie = login(&app, "alice", "1234").await;
+    let code = create_room(&app, &cookie).await;
+    post_form(
+        &app,
+        &cookie,
+        &format!("/room/{code}/game/start"),
+        "preset_id=1",
+    )
+    .await;
+    post_form(&app, &cookie, &format!("/room/{code}/game/draw"), "").await;
+
+    let room = drinkinggame::db::get_open_room(&pool, &code).await.unwrap();
+    let game = drinkinggame::db::get_active_game(&pool, room.id)
+        .await
+        .unwrap();
+
+    let res = post_form(&app, &cookie, &format!("/room/{code}/end"), "").await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+
+    // Both the room and its active game are now ended.
+    assert!(drinkinggame::db::get_open_room(&pool, &code)
+        .await
+        .is_none());
+    let ended_game =
+        sqlx::query_as::<_, (Option<String>,)>("SELECT ended_at FROM games WHERE id = ?1")
+            .bind(game.id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert!(ended_game.0.is_some());
 }
 
 #[tokio::test]
@@ -642,25 +898,39 @@ async fn test_52nd_draw_broadcasts_final_card_before_game_over() {
         .await
         .unwrap();
     let mut body = res.into_body().into_data_stream();
-    // Drain the initial two-frame snapshot (leaderboard, then game).
-    body.next().await.unwrap().unwrap();
-    body.next().await.unwrap().unwrap();
+    // Drain the initial four-frame snapshot (leaderboard, game, screen, room).
+    for _ in 0..4 {
+        body.next().await.unwrap().unwrap();
+    }
 
     let res = post_form(&app, &cookie, &format!("/room/{code}/game/draw"), "").await;
     assert_eq!(res.status(), StatusCode::NO_CONTENT);
 
-    // First pushed frame: the active panel showing the 52nd card, not idle.
+    // First pushed frame: the phone active panel showing the 52nd card, not idle.
     let first = String::from_utf8(body.next().await.unwrap().unwrap().to_vec()).unwrap();
     assert!(first.contains("event: game"));
     assert!(first.contains("0 LEFT"));
     assert!(first.contains("card-big"));
     assert!(!first.contains(">START<"));
 
-    // Second pushed frame: the game-over summary followed by the idle panel.
-    let second = String::from_utf8(body.next().await.unwrap().unwrap().to_vec()).unwrap();
-    assert!(second.contains("event: game"));
-    assert!(second.contains("GAME OVER"));
-    assert!(second.contains(">START<"));
+    // Second pushed frame: the screen active panel, same card.
+    let screen_active = String::from_utf8(body.next().await.unwrap().unwrap().to_vec()).unwrap();
+    assert!(screen_active.contains("event: screen"));
+    assert!(screen_active.contains("0 of 52 left"));
+
+    // Third pushed frame: the phone game-over summary followed by the idle panel.
+    let third = String::from_utf8(body.next().await.unwrap().unwrap().to_vec()).unwrap();
+    assert!(third.contains("event: game"));
+    assert!(third.contains("GAME OVER"));
+    assert!(third.contains(">START<"));
+
+    // Fourth pushed frame: the screen's game-over panel.
+    let screen_over = String::from_utf8(body.next().await.unwrap().unwrap().to_vec()).unwrap();
+    assert!(screen_over.contains("event: screen"));
+
+    // Fifth pushed frame: the room panel refresh (king-fill reset).
+    let room_frame = String::from_utf8(body.next().await.unwrap().unwrap().to_vec()).unwrap();
+    assert!(room_frame.contains("event: room"));
 }
 
 #[tokio::test]
@@ -725,11 +995,16 @@ async fn test_screen_and_sse_carry_game_panel() {
     let second = String::from_utf8(body.next().await.unwrap().unwrap().to_vec()).unwrap();
     assert!(second.contains("event: game"));
     assert!(second.contains("52 LEFT"));
+    // Snapshot also carries the screen and room panels as a third and fourth frame.
+    let screen_snapshot = String::from_utf8(body.next().await.unwrap().unwrap().to_vec()).unwrap();
+    assert!(screen_snapshot.contains("event: screen"));
+    let room_snapshot = String::from_utf8(body.next().await.unwrap().unwrap().to_vec()).unwrap();
+    assert!(room_snapshot.contains("event: room"));
 
     post_form(&app, &cookie, &format!("/room/{code}/game/draw"), "").await;
-    let third = String::from_utf8(body.next().await.unwrap().unwrap().to_vec()).unwrap();
-    assert!(third.contains("event: game"));
-    assert!(third.contains("51 LEFT"));
+    let fifth = String::from_utf8(body.next().await.unwrap().unwrap().to_vec()).unwrap();
+    assert!(fifth.contains("event: game"));
+    assert!(fifth.contains("51 LEFT"));
 }
 
 #[tokio::test]

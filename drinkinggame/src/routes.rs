@@ -105,6 +105,9 @@ async fn room_page(
     };
     // Visiting a room joins it: room URLs double as invite links.
     db::join_room(&state.pool, room.id, player.id).await;
+    // New members appear on everyone's ROOM tab without waiting for the
+    // next unrelated event.
+    crate::game::broadcast_room(&state, room.id, &code).await;
     let rows = db::leaderboard(&state.pool, room.id).await;
     let game_panel = crate::game::current_panel(&state, room.id, &code, None).await;
     let tpl = RoomTemplate {
@@ -211,6 +214,10 @@ async fn log_event(
     db::touch_room(&state.pool, room.id).await;
     crate::mechanics::on_event(room.id, player.id, &form.kind);
     broadcast_leaderboard(&state, room.id).await;
+    // Auto-logged verdict drinks (mechanics) never reach here — only a
+    // player's own drink/shot tap does, so this always fires an emote.
+    let glyph = if form.kind == "drink" { "🍺" } else { "🥃" };
+    state.hub.publish(room.id, RoomMessage::Emote(glyph.into()));
     StatusCode::NO_CONTENT.into_response()
 }
 
@@ -279,10 +286,14 @@ async fn sse_stream(
     let rows = db::leaderboard(&state.pool, room.id).await;
     let initial = render::leaderboard_items(&rows);
     let initial_game = crate::game::current_panel(&state, room.id, &room.code, None).await;
+    let initial_screen = crate::game::current_screen_panel(&state, room.id, &room.code).await;
+    let initial_room = crate::game::current_room_panel(&state, room.id, &room.code).await;
 
     let stream = futures::stream::iter([
         Ok::<_, Infallible>(Event::default().event("leaderboard").data(initial)),
         Ok::<_, Infallible>(Event::default().event("game").data(initial_game)),
+        Ok::<_, Infallible>(Event::default().event("screen").data(initial_screen)),
+        Ok::<_, Infallible>(Event::default().event("room").data(initial_room)),
     ])
     .chain(BroadcastStream::new(rx).filter_map(|msg| async move {
         match msg {
@@ -421,6 +432,7 @@ pub fn router() -> Router<GameState> {
         .route("/room/{code}/game/draw", post(crate::game::draw_handler))
         .route("/room/{code}/game/spend", post(crate::game::spend_handler))
         .route("/room/{code}/game/end", post(crate::game::end_game_handler))
+        .route("/room/{code}/game/rule", post(crate::game::rule_handler))
         .route("/room/{code}/sse", get(sse_stream))
         .route("/room/{code}/screen", get(screen_page))
         .route("/assets/game.css", get(game_css))
