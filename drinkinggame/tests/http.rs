@@ -345,6 +345,52 @@ async fn test_landing_echoes_valid_next_and_drops_bad_next() {
     assert!(!body_string(res).await.contains("evil.example"));
 }
 
+/// Full seam, end to end, under a non-empty base path: the exact `Location`
+/// the rejection redirect produces is fed straight back into the landing
+/// GET, and the hidden field it renders is the exact value `login` will
+/// later accept. Each half is covered separately elsewhere; this is the one
+/// test that proves the value flowing out of one half is the value the
+/// other half consumes, rather than two halves that merely look compatible.
+#[tokio::test]
+async fn test_qr_round_trip_composes_end_to_end_under_base_path() {
+    let app = test_app_with_base("/drinks").await;
+
+    // Cold visit to a room link with no session.
+    let res = app
+        .clone()
+        .oneshot(Request::get("/room/QKAM").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+    let location = res.headers()[header::LOCATION].to_str().unwrap();
+    assert_eq!(location, "/drinks/?next=/drinks/room/QKAM");
+
+    // Follow it exactly as a browser would — strip the mount prefix the way
+    // nest_service does, since this router isn't actually nested here.
+    let landing_path = location.strip_prefix("/drinks").unwrap();
+    let res = app
+        .clone()
+        .oneshot(Request::get(landing_path).body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let html = body_string(res).await;
+    assert!(html.contains(r#"<input type="hidden" name="next" value="/drinks/room/QKAM">"#));
+
+    // Logging in with that exact hidden-field value lands back in the room.
+    let res = app
+        .oneshot(
+            Request::post("/login")
+                .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                .body(Body::from("name=carol&pin=2468&next=/drinks/room/QKAM"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+    assert_eq!(res.headers()[header::LOCATION], "/drinks/room/QKAM");
+}
+
 async fn post_form(app: &Router, cookie: &str, path: &str, body: &str) -> axum::response::Response {
     app.clone()
         .oneshot(
