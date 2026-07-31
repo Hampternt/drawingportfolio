@@ -115,9 +115,9 @@ struct RoomTemplate {
     base_path: String,
     code: String,
     player_id: i64,
-    player_name: String,
     leaderboard_items: String,
     game_panel: String,
+    room_panel: String,
 }
 
 async fn create_room(
@@ -168,13 +168,14 @@ async fn room_page(
     crate::game::broadcast_room(&state, room.id, &code).await;
     let rows = db::leaderboard(&state.pool, room.id).await;
     let game_panel = crate::game::current_panel(&state, room.id, &code, None).await;
+    let room_panel = crate::game::current_room_panel(&state, room.id, &code).await;
     let tpl = RoomTemplate {
         base_path: state.base_path.to_string(),
         code,
         player_id: player.id,
-        player_name: player.name,
         leaderboard_items: render::leaderboard_items(&rows),
         game_panel,
+        room_panel,
     };
     Html(tpl.render().unwrap()).into_response()
 }

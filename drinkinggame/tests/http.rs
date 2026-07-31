@@ -197,7 +197,7 @@ async fn test_create_room_and_view_it() {
         .unwrap();
     assert_eq!(res.status(), StatusCode::OK);
     let html = body_string(res).await;
-    assert!(html.contains("+1 Drink"));
+    assert!(html.contains("+1 DRINK"));
     assert!(html.contains("alice")); // creator is on the leaderboard
 }
 
