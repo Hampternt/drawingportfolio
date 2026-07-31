@@ -601,6 +601,16 @@ async fn test_sse_endpoint_streams_event_stream() {
     let third = body.next().await.unwrap().unwrap();
     let text = String::from_utf8(third.to_vec()).unwrap();
     assert!(text.contains("event: ended"));
+    // A named SSE event with no `data:` field is silently dropped by the
+    // browser's EventSource parser (WHATWG SSE spec: if the data buffer is
+    // empty when a blank line is reached, no event fires at all) — so
+    // `event: ended` alone isn't enough; the frame must carry a data line
+    // or the client-side `es.addEventListener("ended", ...)` handler in
+    // room.html/screen.html never runs and the tab never redirects.
+    assert!(
+        text.contains("data:"),
+        "ended frame has no data: field, EventSource will drop it silently: {text:?}"
+    );
 }
 
 #[tokio::test]

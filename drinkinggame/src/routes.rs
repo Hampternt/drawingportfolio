@@ -354,7 +354,12 @@ async fn sse_stream(
         state.hub.remove(room.id);
         state.locks.remove(room.id);
         let stream = futures::stream::once(async move {
-            Ok::<_, Infallible>(Event::default().event("ended").data(""))
+            // A named SSE event with an empty data buffer is silently
+            // dropped by the browser's EventSource parser (WHATWG SSE spec:
+            // no event fires if the data buffer is empty at dispatch time)
+            // — the payload's content doesn't matter, only that a `data:`
+            // field is present at all.
+            Ok::<_, Infallible>(Event::default().event("ended").data("gone"))
         });
         return (
             [(header::HeaderName::from_static("x-accel-buffering"), "no")],
@@ -383,7 +388,10 @@ async fn sse_stream(
             Ok(RoomMessage::Screen(html)) => Some(Ok(Event::default().event("screen").data(html))),
             Ok(RoomMessage::Room(html)) => Some(Ok(Event::default().event("room").data(html))),
             Ok(RoomMessage::Emote(glyph)) => Some(Ok(Event::default().event("emote").data(glyph))),
-            Ok(RoomMessage::Ended) => Some(Ok(Event::default().event("ended").data(""))),
+            // Same empty-data-buffer pitfall as the zombie-reconnect branch
+            // above: a `data:` field must be present or EventSource drops
+            // the event silently and clients never learn the room ended.
+            Ok(RoomMessage::Ended) => Some(Ok(Event::default().event("ended").data("gone"))),
             // Lagged receiver: skip — the next update carries full state anyway.
             Err(_) => None,
         }
