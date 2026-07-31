@@ -425,7 +425,14 @@ body[data-player-id] { padding-bottom: 90px; }
 .screen-remaining { margin-left: auto; font: 600 15px var(--font-ui); color: var(--text-faint); }
 
 .screen-active { display: flex; flex-direction: column; gap: 24px; min-width: 0; }
-.screen-hero { display: flex; gap: 32px; align-items: flex-start; min-width: 0; perspective: 1400px; }
+/* screen_panel_active wraps card+info in .screen-hero as a row; screen_panel_idle
+   wraps a bare kicker/title/sub text stack in the SAME class (no card, no
+   .screen-hero-info) — default to that column layout and only switch to a
+   row inside the active panel where a card face is actually present. */
+.screen-hero { display: flex; flex-direction: column; gap: 20px; }
+.screen-active .screen-hero {
+  flex-direction: row; gap: 32px; align-items: flex-start; min-width: 0; perspective: 1400px;
+}
 .screen-hero .card-big {
   width: 224px; height: 320px; border-radius: 20px;
   box-shadow: 0 22px 60px rgba(0, 0, 0, .6);
