@@ -117,6 +117,7 @@ impl ThreeManState {
         self.double = None;
         self.pending_double = false;
         self.handoff_from = None;
+        self.last_roller = Some(roller);
         self.stale = false;
         self.seq += 1;
 
@@ -433,6 +434,17 @@ mod tests {
         assert_eq!(s.phase, Phase::Rolled);
         assert!(s.calls.is_empty());
         assert_eq!(s.seq, 1);
+    }
+
+    #[test]
+    fn test_roll_sets_last_roller_immediately_on_first_turn() {
+        // last_roller must reflect the current roller as soon as roll()
+        // returns — not just after a subsequent pass() — so a downstream
+        // "X ROLLED" caption is correct even before the first pass.
+        let mut s = st3();
+        assert_eq!(s.last_roller, None);
+        s.roll(2, 4).unwrap();
+        assert_eq!(s.last_roller, Some(1));
     }
 
     #[test]
