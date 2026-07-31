@@ -7,19 +7,27 @@
   <link rel="stylesheet" href="{{ base_path }}/assets/game.css">
 </head>
 <body>
-  <h1>Drinks</h1>
   {% if logged_in %}
-  <p>Hey, <strong>{{ player_name }}</strong>.
-     <span class="lifetime">Lifetime: {{ lifetime_drinks }} drinks &middot; {{ lifetime_shots }} shots</span></p>
+  <div class="evening-header">
+    <span class="evening-kicker">Evening, {{ player_name }}</span>
+    <h1>{{ lifetime_drinks }} drinks<br>all time</h1>
+    <p class="lifetime">{{ lifetime_shots }} shots &middot; {{ lifetime_nights }} nights &middot; {{ lifetime_kings }} King's Cups</p>
+  </div>
   <form method="post" action="{{ base_path }}/rooms">
-    <button type="submit">Start a night</button>
+    <button type="submit">START A NIGHT</button>
   </form>
-  <form method="post" action="{{ base_path }}/join">
-    <input name="code" placeholder="ROOM CODE" maxlength="4" autocapitalize="characters"
-           autocomplete="off" required>
-    <button type="submit">Join</button>
+  <form method="post" action="{{ base_path }}/join" class="join-panel">
+    <span class="join-panel-kicker">OR JOIN ONE</span>
+    <div class="join-panel-row">
+      <input name="code" placeholder="CODE" maxlength="4" autocapitalize="characters"
+             autocomplete="off" required>
+      <button type="submit">JOIN</button>
+    </div>
+    <span class="lifetime">Or scan the QR on the big screen.</span>
   </form>
   {% else %}
+  <h1>Drinks</h1>
+  <p class="landing-sub">Name and a PIN. No email, no app, no accounts to forget by round three.</p>
   <form method="post" action="{{ base_path }}/login">
     <input name="name" placeholder="Your name" maxlength="20" required>
     <input name="pin" placeholder="4-digit PIN" inputmode="numeric" pattern="[0-9]{4}"
@@ -27,8 +35,8 @@
     {% if next != "" %}
     <input type="hidden" name="next" value="{{ next }}">
     {% endif %}
-    <button type="submit">Let's go</button>
-    <p class="lifetime">New name? This registers it. Known name? PIN logs you in from any phone.</p>
+    <button type="submit">LET'S GO</button>
+    <p class="lifetime">New name registers it. Known name, right PIN, and you're back — from any phone.</p>
   </form>
   {% endif %}
 </body>

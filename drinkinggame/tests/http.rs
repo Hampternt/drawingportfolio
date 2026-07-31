@@ -60,6 +60,7 @@ async fn test_landing_serves_login_form() {
     let html = body_string(res).await;
     assert!(html.contains(r#"action="/login""#));
     assert!(html.contains("4-digit PIN"));
+    assert!(html.contains("LET'S GO"));
 }
 
 #[tokio::test]
@@ -142,7 +143,35 @@ async fn test_login_sets_cookie_and_landing_recognizes_it() {
         .unwrap();
     let html = body_string(res).await;
     assert!(html.contains("hampter"));
-    assert!(html.contains("Lifetime: 0 drinks"));
+    assert!(html.contains("0 drinks"));
+    assert!(html.contains("0 shots"));
+    assert!(html.contains("0 nights"));
+    assert!(html.contains("0 King's Cups"));
+}
+
+/// Lifetime nights (distinct rooms joined) and Kings (rank-13 draws) both
+/// come from Task 1's db queries — this proves the landing page actually
+/// wires them in rather than always showing zero.
+#[tokio::test]
+async fn test_landing_shows_lifetime_nights_and_kings() {
+    let (app, pool) = test_app_with_pool().await;
+    let cookie = login(&app, "alice", "1234").await;
+    let code = create_room(&app, &cookie).await; // 1 night
+    start_rigged_game_with_rank(&pool, &code, 13).await;
+    post_form(&app, &cookie, &format!("/room/{code}/game/draw"), "").await; // 1 King
+
+    let res = app
+        .oneshot(
+            Request::get("/")
+                .header(header::COOKIE, &cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let html = body_string(res).await;
+    assert!(html.contains("1 nights"));
+    assert!(html.contains("1 King's Cups"));
 }
 
 #[tokio::test]
@@ -504,6 +533,10 @@ async fn test_screen_is_public() {
     let html = body_string(res).await;
     assert!(html.contains(&code));
     assert!(html.contains("alice"));
+    assert!(html.contains("qr-box"));
+    // Spectator surface — no navigable link back into the phone-only preset
+    // editor (regression coverage for the leak an earlier review caught).
+    assert!(!html.contains("presets-link"));
 }
 
 #[tokio::test]
@@ -1223,7 +1256,8 @@ async fn test_screen_and_sse_carry_game_panel() {
     )
     .await;
 
-    // Spectator page renders the panel server-side.
+    // Spectator page renders the screen-scale panel server-side — not the
+    // phone's "52 LEFT" deck-row, which belongs to the GAME tab only.
     let res = app
         .clone()
         .oneshot(
@@ -1233,7 +1267,7 @@ async fn test_screen_and_sse_carry_game_panel() {
         )
         .await
         .unwrap();
-    assert!(body_string(res).await.contains("52 LEFT"));
+    assert!(body_string(res).await.contains("52 of 52 left"));
 
     // SSE: initial game snapshot, then a draw pushes a fresh panel.
     let res = app

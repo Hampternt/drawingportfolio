@@ -31,6 +31,8 @@ struct LandingTemplate {
     player_name: String,
     lifetime_drinks: i64,
     lifetime_shots: i64,
+    lifetime_nights: i64,
+    lifetime_kings: i64,
     next: String,
 }
 
@@ -192,12 +194,16 @@ async fn landing(
     let tpl = match player {
         Some(p) => {
             let (drinks, shots) = db::lifetime_counts(&state.pool, p.id).await;
+            let nights = db::lifetime_nights(&state.pool, p.id).await;
+            let kings = db::lifetime_kings(&state.pool, p.id).await;
             LandingTemplate {
                 base_path: state.base_path.to_string(),
                 logged_in: true,
                 player_name: p.name,
                 lifetime_drinks: drinks,
                 lifetime_shots: shots,
+                lifetime_nights: nights,
+                lifetime_kings: kings,
                 next,
             }
         }
@@ -207,6 +213,8 @@ async fn landing(
             player_name: String::new(),
             lifetime_drinks: 0,
             lifetime_shots: 0,
+            lifetime_nights: 0,
+            lifetime_kings: 0,
             next,
         },
     };
@@ -396,11 +404,13 @@ struct ScreenTemplate {
     code: String,
     leaderboard_items: String,
     game_panel: String,
+    qr_svg: String,
 }
 
 async fn screen_page(
     State(state): State<GameState>,
     Path(code): Path<String>,
+    headers: HeaderMap,
 ) -> axum::response::Response {
     let code = code.to_uppercase();
     let Some(room) = db::get_open_room(&state.pool, &code).await else {
@@ -411,12 +421,21 @@ async fn screen_page(
         );
     };
     let rows = db::leaderboard(&state.pool, room.id).await;
-    let game_panel = crate::game::current_panel(&state, room.id, &code, None).await;
+    // The screen-scale panel builder, not the phone one — the phone idle
+    // panel carries a navigable "Edit rule presets" link that has no
+    // business being reachable from an unauthenticated spectator surface.
+    let game_panel = crate::game::current_screen_panel(&state, room.id, &code).await;
+    let join_url = format!(
+        "{}{}/room/{code}",
+        request_origin(&headers),
+        state.base_path
+    );
     let tpl = ScreenTemplate {
         base_path: state.base_path.to_string(),
         code,
         leaderboard_items: render::leaderboard_items(&rows),
         game_panel,
+        qr_svg: render::qr_svg(&join_url),
     };
     Html(tpl.render().unwrap()).into_response()
 }
