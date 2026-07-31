@@ -225,7 +225,12 @@ pub fn game_active_panel(view: &GameView) -> String {
     let announce = view
         .announcement
         .as_deref()
-        .map(|a| format!(r#"<div class="announce">{}</div>"#, html_escape(a)))
+        .map(|a| {
+            format!(
+                r#"<div class="announce" data-anim="pop">{}</div>"#,
+                html_escape(a)
+            )
+        })
         .unwrap_or_default();
 
     let deck_pct = if view.remaining <= 0 {
@@ -603,6 +608,13 @@ mod tests {
     }
 
     #[test]
+    fn test_leaderboard_empty_branch() {
+        let html = leaderboard_items(&[]);
+        assert!(html.contains("Nobody here yet"));
+        assert!(html.contains("lb-empty"));
+    }
+
+    #[test]
     fn test_idle_panel_has_stat_card_and_start() {
         let html = game_idle_panel("/drinks", "QK4M", &[preset(1, "Standard")]);
         assert!(html.contains("data-my-drinks"));
@@ -610,6 +622,13 @@ mod tests {
         assert!(html.contains("<select"));
         assert!(html.contains(">START<"));
         assert!(html.contains("/drinks/presets"));
+    }
+
+    #[test]
+    fn test_idle_panel_escapes_preset_names() {
+        let html = game_idle_panel("/drinks", "QK4M", &[preset(1, "<Wild>")]);
+        assert!(html.contains("&lt;Wild&gt;"));
+        assert!(!html.contains("<Wild>"));
     }
 
     /// Jack drawn, pending rule, one held Thumb Master. holder_id (2)
@@ -698,6 +717,28 @@ mod tests {
         let html = game_active_panel(&view);
         assert!(!html.contains("/drinks/room/QK4M/game/rule"));
         assert!(!html.contains("rule-input-row"));
+    }
+
+    /// Game just started, nobody has drawn yet: no hero card, no rule form,
+    /// but the deck bar and TAP TO DRAW button still render.
+    #[test]
+    fn test_active_panel_pre_first_draw_has_no_hero() {
+        let counts: Vec<DrawCount> = vec![];
+        let view = GameView {
+            base_path: "/drinks",
+            code: "QK4M",
+            current: None,
+            remaining: 52,
+            held: vec![],
+            counts: &counts,
+            announcement: None,
+            anim_key: "0-0".into(),
+        };
+        let html = game_active_panel(&view);
+        assert!(!html.contains("hero-card"));
+        assert!(!html.contains(r#"data-anim="flip""#));
+        assert!(html.contains("52 LEFT"));
+        assert!(html.contains("TAP TO DRAW"));
     }
 
     #[test]
