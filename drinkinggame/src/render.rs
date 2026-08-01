@@ -1386,6 +1386,7 @@ mod tests {
         let html = room_panel(&view);
         assert!(html.starts_with("<template data-topbar>"));
         assert!(html.contains(r#"data-mode="idle""#));
+        assert!(!html.contains("tm-chip")); // no 3 MAN badge outside three_man mode
         assert!(html.contains("WHO"));
         assert!(html.contains("OPEN BIG SCREEN"));
         assert!(html.contains("kings-fill"));
@@ -1553,9 +1554,14 @@ mod tests {
         assert!(html.contains(r#"data-show-player="1" hidden"#));
         assert!(html.contains(r#"data-hide-player="1""#));
         assert!(html.contains("/drinks/room/QK4M/tm/three-man"));
-        // Picker excludes the outgoing 3 Man (alice) but offers bob/cara.
-        assert!(html.contains("bob"));
-        assert!(html.contains("cara"));
+        // Picker offers exactly bob(2) and cara(3) — the seat strip also
+        // renders every name, so assert on the actual pick targets rather
+        // than substring-matching "bob"/"cara" (which the strip alone
+        // would already satisfy).
+        assert_eq!(html.matches(r#"hx-vals='{"target":"#).count(), 2);
+        assert!(html.contains(r#"hx-vals='{"target":2}'"#));
+        assert!(html.contains(r#"hx-vals='{"target":3}'"#));
+        assert!(!html.contains(r#"hx-vals='{"target":1}'"#)); // outgoing 3 Man excluded
     }
 
     #[test]
@@ -1651,7 +1657,9 @@ mod tests {
         };
         let html = tm_screen_panel(&v);
         assert!(html.contains("WAITING ON"));
-        assert!(html.contains("alice"));
+        // Scoped to the waiting headline — the seat strip also renders
+        // "alice", so an unscoped `contains("alice")` would pass regardless.
+        assert!(html.contains(r#"<h2 class="screen-hero-title">alice</h2>"#));
 
         let mut st2 = st;
         st2.roll(2, 4).unwrap();
@@ -1710,8 +1718,13 @@ mod tests {
             seating: Some(seating),
         };
         let html = room_panel(&room_view);
-        assert!(html.contains("3 MAN"));
-        assert!(html.contains("at the table"));
+        // Scoped to the <template data-topbar> half of the fragment — the
+        // seating block's per-row 3 MAN assign buttons also contain the
+        // literal text "3 MAN", so an unscoped `html.contains` would pass
+        // even if the topbar chip itself were never rendered.
+        let topbar = html.split("</template>").next().unwrap();
+        assert!(topbar.contains(r#"<span class="tm-chip">3 MAN</span>"#));
+        assert!(topbar.contains("at the table"));
     }
 
     #[test]
