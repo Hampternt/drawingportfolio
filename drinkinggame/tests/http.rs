@@ -2524,3 +2524,302 @@ async fn test_ending_room_with_tm_game_no_orphan() {
         "ending the room mid-3-Man must leave no dangling active game rows"
     );
 }
+
+// --- account: rename, PIN change, logout -----------------------------------
+
+#[tokio::test]
+async fn test_account_page_requires_session() {
+    let app = test_app().await;
+    let res = get(&app, "/account").await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+    assert_eq!(res.headers()[header::LOCATION], "/");
+}
+
+#[tokio::test]
+async fn test_account_page_shows_name_and_forms() {
+    let app = test_app().await;
+    let cookie = login(&app, "hampter", "1234").await;
+    let res = app
+        .oneshot(
+            Request::get("/account")
+                .header(header::COOKIE, &cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let html = body_string(res).await;
+    assert!(html.contains("hampter"));
+    assert!(html.contains(r#"action="/account/name""#));
+    assert!(html.contains(r#"action="/account/pin""#));
+    assert!(html.contains(r#"action="/logout""#));
+}
+
+/// Logout must kill the session row, not just the cookie — otherwise the id
+/// stays valid for its full 90 days on anything that kept a copy.
+#[tokio::test]
+async fn test_logout_clears_cookie_and_deletes_session() {
+    let (app, pool) = test_app_with_pool().await;
+    let cookie = login(&app, "hampter", "1234").await;
+
+    let res = post_form(&app, &cookie, "/logout", "").await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+    let set = res.headers()[header::SET_COOKIE].to_str().unwrap();
+    assert!(set.contains("Max-Age=0"), "{set}");
+    // Path must match session_cookie's or the browser ignores the clear.
+    assert!(set.contains("Path=/"), "{set}");
+
+    let sessions: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM sessions")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(sessions.0, 0);
+
+    // The old cookie value is now worthless server-side.
+    let res = app
+        .oneshot(
+            Request::get("/account")
+                .header(header::COOKIE, &cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+    assert_eq!(res.headers()[header::LOCATION], "/");
+}
+
+#[tokio::test]
+async fn test_rename_keeps_history_and_frees_the_old_name() {
+    let app = test_app().await;
+    let cookie = login(&app, "hampter", "1234").await;
+    let code = create_room(&app, &cookie).await; // one night on the record
+
+    let res = post_form(&app, &cookie, "/account/name", "name=hampternt").await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+    assert_eq!(res.headers()[header::LOCATION], "/account");
+
+    // Same player, same session, new name everywhere it is rendered.
+    let html = room_page_html(&app, &cookie, &code).await;
+    assert!(html.contains("hampternt"));
+    assert!(!html.contains(">hampter<"));
+
+    // The vacated name is registerable again, and lands on a *fresh* player:
+    // no nights, while the renamed original still owns the one it played.
+    let other = login(&app, "hampter", "9999").await;
+    let res = app
+        .clone()
+        .oneshot(
+            Request::get("/")
+                .header(header::COOKIE, &other)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert!(body_string(res).await.contains("0 nights"));
+    let res = app
+        .oneshot(
+            Request::get("/")
+                .header(header::COOKIE, &cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert!(body_string(res).await.contains("1 nights"));
+}
+
+#[tokio::test]
+async fn test_rename_to_someone_elses_name_conflicts() {
+    let app = test_app().await;
+    login(&app, "alice", "1111").await;
+    let cookie = login(&app, "bob", "2222").await;
+
+    let res = post_form(&app, &cookie, "/account/name", "name=alice").await;
+    assert_eq!(res.status(), StatusCode::CONFLICT);
+    // NOCASE unique index: a different case is still the same name.
+    let res = post_form(&app, &cookie, "/account/name", "name=ALICE").await;
+    assert_eq!(res.status(), StatusCode::CONFLICT);
+
+    // Bob keeps his name; his login still works.
+    let again = login(&app, "bob", "2222").await;
+    assert!(!again.is_empty());
+}
+
+/// Recasing your own name hits the same UNIQUE index but on your own row,
+/// so it must succeed rather than read as a collision.
+#[tokio::test]
+async fn test_rename_own_name_case_only() {
+    let app = test_app().await;
+    let cookie = login(&app, "bob", "2222").await;
+    let res = post_form(&app, &cookie, "/account/name", "name=Bob").await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+}
+
+#[tokio::test]
+async fn test_rename_rejects_blank_name() {
+    let app = test_app().await;
+    let cookie = login(&app, "bob", "2222").await;
+    let res = post_form(&app, &cookie, "/account/name", "name=%20%20").await;
+    assert_eq!(res.status(), StatusCode::UNPROCESSABLE_ENTITY);
+}
+
+#[tokio::test]
+async fn test_pin_change_requires_the_current_pin() {
+    let app = test_app().await;
+    let cookie = login(&app, "hampter", "1234").await;
+
+    let res = post_form(
+        &app,
+        &cookie,
+        "/account/pin",
+        "current_pin=9999&new_pin=4321",
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+
+    // Old PIN still works — nothing was written.
+    login(&app, "hampter", "1234").await;
+}
+
+#[tokio::test]
+async fn test_pin_change_then_login_with_new_pin() {
+    let app = test_app().await;
+    let cookie = login(&app, "hampter", "1234").await;
+
+    let res = post_form(
+        &app,
+        &cookie,
+        "/account/pin",
+        "current_pin=1234&new_pin=4321",
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+
+    login(&app, "hampter", "4321").await;
+
+    // The old PIN is dead.
+    let res = post_form(&app, "", "/login", "name=hampter&pin=1234").await;
+    assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn test_pin_change_rejects_malformed_new_pin() {
+    let app = test_app().await;
+    let cookie = login(&app, "hampter", "1234").await;
+    let res = post_form(&app, &cookie, "/account/pin", "current_pin=1234&new_pin=12").await;
+    assert_eq!(res.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    login(&app, "hampter", "1234").await;
+}
+
+/// Both entry points into the account page must exist, or the feature is
+/// only reachable by hand-editing the URL.
+#[tokio::test]
+async fn test_account_link_on_landing_and_in_room_panel() {
+    let app = test_app_with_base("/drinks").await;
+    let cookie = login(&app, "hampter", "1234").await;
+    let res = app
+        .clone()
+        .oneshot(
+            Request::get("/")
+                .header(header::COOKIE, &cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert!(body_string(res).await.contains(r#"href="/drinks/account""#));
+
+    let code = create_room(&app, &cookie).await;
+    let html = room_page_html(&app, &cookie, &code).await;
+    assert!(html.contains(r#"href="/drinks/account""#));
+}
+
+/// Reads body chunks until `marker` has been seen, then returns everything
+/// read. Body chunks are NOT one-per-SSE-event — a big panel splits across
+/// several — so any test that cares about which events arrived has to read
+/// by content, never by counting `next()` calls.
+/// Timed out, not open-ended: `KeepAlive` emits a comment chunk every 15s
+/// forever, so a regression that drops an expected broadcast would otherwise
+/// hang the suite instead of failing it.
+async fn read_sse_until(body: &mut axum::body::BodyDataStream, marker: &str) -> String {
+    use futures::StreamExt;
+    let read = async {
+        let mut seen = String::new();
+        while !seen.contains(marker) {
+            seen.push_str(std::str::from_utf8(&body.next().await.unwrap().unwrap()).unwrap());
+        }
+        seen
+    };
+    tokio::time::timeout(std::time::Duration::from_secs(5), read)
+        .await
+        .unwrap_or_else(|_| panic!("no `{marker}` frame arrived"))
+}
+
+/// The rename rebroadcast is the novel behaviour here: names live inside
+/// already-swapped SSE fragments, so a rename mid-game has to repush the
+/// GAME panel too or the draw log keeps the old name.
+#[tokio::test]
+async fn test_rename_rebroadcasts_the_game_panel() {
+    let (app, pool) = test_app_with_pool().await;
+    let alice = login(&app, "alice", "1234").await;
+    let code = create_room(&app, &alice).await;
+    start_rigged_game_with_rank(&pool, &code, 5).await;
+    post_form(&app, &alice, &format!("/room/{code}/game/draw"), "").await;
+
+    let sse_res = get(&app, &format!("/room/{code}/sse")).await;
+    let mut sse_body = sse_res.into_body().into_data_stream();
+    // `room` is the last of the snapshot's four events.
+    read_sse_until(&mut sse_body, "event: room").await;
+
+    post_form(&app, &alice, "/account/name", "name=alicia").await;
+
+    // `screen` is the last of the rename's four.
+    let seen = read_sse_until(&mut sse_body, "event: screen").await;
+    assert!(seen.contains("event: game"), "{seen}");
+    assert!(seen.contains("alicia"), "{seen}");
+    assert!(!seen.contains(">alice<"), "{seen}");
+}
+
+/// ...but with no game running, `broadcast_game` would publish the *idle*
+/// panel — which holds no names at all and would wipe a game-over summary
+/// still up on every phone and on the big screen.
+#[tokio::test]
+async fn test_rename_after_game_over_does_not_clobber_the_summary() {
+    let (app, pool) = test_app_with_pool().await;
+    let alice = login(&app, "alice", "1234").await;
+    let bob = login(&app, "bob", "5678").await;
+    let code = create_room(&app, &alice).await;
+    room_page_html(&app, &bob, &code).await;
+    post_form(&app, &alice, &format!("/room/{code}/tm/start"), "").await;
+    post_form(&app, &alice, &format!("/room/{code}/event"), "kind=drink").await;
+    post_form(&app, &alice, &format!("/room/{code}/tm/end"), "").await;
+
+    let room = drinkinggame::db::get_open_room(&pool, &code).await.unwrap();
+    assert!(drinkinggame::db::get_active_game(&pool, room.id)
+        .await
+        .is_none());
+
+    // Subscribe only once the night's game is over, so the wire is quiet and
+    // everything after the snapshot is attributable to the rename.
+    let sse_res = get(&app, &format!("/room/{code}/sse")).await;
+    let mut sse_body = sse_res.into_body().into_data_stream();
+    read_sse_until(&mut sse_body, "event: room").await;
+
+    post_form(&app, &alice, "/account/name", "name=alicia").await;
+    // Marker: a drink always ends with an `emote` frame, so reading up to it
+    // captures exactly what the rename published — and it terminates whether
+    // or not the gate is in place.
+    post_form(&app, &alice, &format!("/room/{code}/event"), "kind=drink").await;
+
+    let seen = read_sse_until(&mut sse_body, "event: emote").await;
+    // Standings and the ROOM tab refresh...
+    assert!(seen.contains("event: leaderboard"), "{seen}");
+    assert!(seen.contains("event: room"), "{seen}");
+    assert!(seen.contains("alicia"), "{seen}");
+    // ...but nothing repaints GAME or SCREEN, so the summary survives.
+    assert!(!seen.contains("event: game"), "{seen}");
+    assert!(!seen.contains("event: screen"), "{seen}");
+}

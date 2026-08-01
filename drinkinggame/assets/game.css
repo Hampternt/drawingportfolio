@@ -802,6 +802,21 @@ button {
 .join-panel-row input { flex: 1; min-width: 0; text-align: center; letter-spacing: .2em; font: 900 1.4rem var(--font-display); }
 .join-panel-row button { padding: 0 22px; background: var(--chip); color: var(--text); }
 
+/* account */
+/* Used on the landing page, the account page and inside the ROOM tab panel,
+   so it styles as a quiet full-width row rather than a button. */
+.account-link {
+  color: var(--text-faint); font: 600 13px var(--font-ui); text-decoration: underline;
+  text-underline-offset: 3px; text-align: center;
+  width: 100%; max-width: 420px; padding: .5rem; min-height: 44px;
+  display: flex; align-items: center; justify-content: center;
+}
+/* The room panel sets its own width; the 420px cap is only for the plain
+   centered-column pages. */
+.room-panel .account-link { max-width: none; }
+.account-back { color: var(--text-faint); font: 600 13px var(--font-ui); padding: .5rem; }
+.account-logout { border: 1px solid var(--hairline-strong); }
+
 /* presets */
 .preset-list { width: 100%; max-width: 420px; display: flex; flex-direction: column; gap: .5rem; }
 .preset-list li { display: flex; justify-content: space-between; align-items: center; gap: .5rem; background: var(--surface); border-radius: 10px; padding: .6rem .9rem; }

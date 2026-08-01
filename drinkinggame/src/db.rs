@@ -115,6 +115,42 @@ pub async fn insert_player(pool: &DbPool, name: &str, pin_hash: &str) -> Result<
     Ok(res.last_insert_rowid())
 }
 
+/// Returns Err on UNIQUE violation (another player already holds that name).
+pub async fn update_player_name(
+    pool: &DbPool,
+    player_id: i64,
+    name: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query("UPDATE players SET name = ?1 WHERE id = ?2")
+        .bind(name)
+        .bind(player_id)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+pub async fn update_player_pin_hash(pool: &DbPool, player_id: i64, pin_hash: &str) {
+    sqlx::query("UPDATE players SET pin_hash = ?1 WHERE id = ?2")
+        .bind(pin_hash)
+        .bind(player_id)
+        .execute(pool)
+        .await
+        .expect("update_player_pin_hash failed");
+}
+
+/// Open rooms the player belongs to — the surfaces a rename has to refresh.
+pub async fn open_rooms_for_player(pool: &DbPool, player_id: i64) -> Vec<Room> {
+    sqlx::query_as::<_, Room>(
+        "SELECT r.id, r.code, r.created_at, r.last_activity_at, r.ended_at
+         FROM room_players rp JOIN rooms r ON r.id = rp.room_id
+         WHERE rp.player_id = ?1 AND r.ended_at IS NULL",
+    )
+    .bind(player_id)
+    .fetch_all(pool)
+    .await
+    .expect("open_rooms_for_player failed")
+}
+
 /// ttl is a SQLite datetime modifier, e.g. "+90 days". Tests pass "-1 days"
 /// to create an already-expired session.
 pub async fn create_session(pool: &DbPool, id: &str, player_id: i64, ttl: &str) {
@@ -139,6 +175,16 @@ pub async fn get_session_player(pool: &DbPool, session_id: &str) -> Option<Playe
     .fetch_optional(pool)
     .await
     .expect("get_session_player failed")
+}
+
+/// Logout: drops just this one session, so the player's other phones stay
+/// signed in.
+pub async fn delete_session(pool: &DbPool, session_id: &str) {
+    sqlx::query("DELETE FROM sessions WHERE id = ?1")
+        .bind(session_id)
+        .execute(pool)
+        .await
+        .expect("delete_session failed");
 }
 
 pub async fn cleanup_expired_sessions(pool: &DbPool) {

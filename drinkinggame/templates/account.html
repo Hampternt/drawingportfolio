@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Your player</title>
+  <link rel="stylesheet" href="{{ base_path }}/assets/game.css">
+</head>
+<body>
+  <div class="evening-header">
+    <span class="evening-kicker">Your player</span>
+    <h1>{{ player_name }}</h1>
+    <p class="lifetime">{{ lifetime_nights }} nights &middot; {{ lifetime_drinks }} drinks &middot; {{ lifetime_shots }} shots</p>
+  </div>
+
+  <form method="post" action="{{ base_path }}/account/name">
+    <span class="join-panel-kicker">CHANGE NAME</span>
+    <input name="name" value="{{ player_name }}" maxlength="20" required>
+    <button type="submit">SAVE NAME</button>
+    <p class="lifetime">Your history follows the name change — nights, drinks and standings all stay yours.</p>
+  </form>
+
+  <form method="post" action="{{ base_path }}/account/pin">
+    <span class="join-panel-kicker">CHANGE PIN</span>
+    <input name="current_pin" placeholder="Current PIN" inputmode="numeric" pattern="[0-9]{4}"
+           maxlength="4" autocomplete="off" required>
+    <input name="new_pin" placeholder="New 4-digit PIN" inputmode="numeric" pattern="[0-9]{4}"
+           maxlength="4" autocomplete="off" required>
+    <button type="submit">SAVE PIN</button>
+  </form>
+
+  <form method="post" action="{{ base_path }}/logout" class="account-logout">
+    <button type="submit" class="btn-danger">LOG OUT</button>
+    <p class="lifetime">Signs this phone out. Your name and PIN get you back in.</p>
+  </form>
+
+  <a class="account-back" href="{{ base_path }}/">&larr; Back</a>
+</body>
+</html>

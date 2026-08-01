@@ -291,6 +291,109 @@ async fn login(
     }
 }
 
+#[derive(Template)]
+#[template(path = "account.html")]
+struct AccountTemplate {
+    base_path: String,
+    player_name: String,
+    lifetime_drinks: i64,
+    lifetime_shots: i64,
+    lifetime_nights: i64,
+}
+
+async fn account_page(
+    State(state): State<GameState>,
+    PlayerSession(player): PlayerSession,
+) -> impl IntoResponse {
+    let (drinks, shots) = db::lifetime_counts(&state.pool, player.id).await;
+    let nights = db::lifetime_nights(&state.pool, player.id).await;
+    let tpl = AccountTemplate {
+        base_path: state.base_path.to_string(),
+        player_name: player.name,
+        lifetime_drinks: drinks,
+        lifetime_shots: shots,
+        lifetime_nights: nights,
+    };
+    Html(tpl.render().unwrap())
+}
+
+#[derive(Deserialize)]
+struct NameForm {
+    name: String,
+}
+
+async fn change_name(
+    State(state): State<GameState>,
+    PlayerSession(player): PlayerSession,
+    Form(form): Form<NameForm>,
+) -> axum::response::Response {
+    match auth::rename_player(&state.pool, player.id, &form.name).await {
+        Ok(_) => {
+            // Names are baked into already-rendered HTML on every connected
+            // phone and big screen (standings, WHO'S HERE, draw log, house
+            // rules), so a mid-night rename has to push all three surfaces
+            // for each open room or the old name lingers until the next
+            // unrelated event. No room lock: nothing here mutates game state.
+            for room in db::open_rooms_for_player(&state.pool, player.id).await {
+                broadcast_leaderboard(&state, room.id).await;
+                crate::game::broadcast_room(&state, room.id, &room.code).await;
+                // Only while a game is actually running. With none active,
+                // `broadcast_game` publishes the idle panel — which carries no
+                // player names to refresh, and would overwrite a game-over
+                // summary still on everyone's phone and on the big screen.
+                if db::get_active_game(&state.pool, room.id).await.is_some() {
+                    crate::game::broadcast_game(&state, room.id, &room.code, None).await;
+                }
+            }
+            Redirect::to(&format!("{}/account", state.base_path)).into_response()
+        }
+        Err(e @ GameError::NameTaken) => error_page(&state, StatusCode::CONFLICT, &e.to_string()),
+        Err(e @ GameError::InvalidName) => {
+            error_page(&state, StatusCode::UNPROCESSABLE_ENTITY, &e.to_string())
+        }
+        Err(e) => e.into_response(),
+    }
+}
+
+#[derive(Deserialize)]
+struct PinForm {
+    current_pin: String,
+    new_pin: String,
+}
+
+async fn change_pin(
+    State(state): State<GameState>,
+    PlayerSession(player): PlayerSession,
+    Form(form): Form<PinForm>,
+) -> axum::response::Response {
+    match auth::change_pin(&state.pool, player, &form.current_pin, &form.new_pin).await {
+        Ok(()) => Redirect::to(&format!("{}/account", state.base_path)).into_response(),
+        Err(GameError::WrongPin) => error_page(
+            &state,
+            StatusCode::UNAUTHORIZED,
+            "That's not your current PIN",
+        ),
+        Err(e @ GameError::InvalidPin) => {
+            error_page(&state, StatusCode::UNPROCESSABLE_ENTITY, &e.to_string())
+        }
+        Err(e) => e.into_response(),
+    }
+}
+
+/// Signs this phone out — the player's other devices keep their sessions.
+/// Deletes the row as well as clearing the cookie: a cookie-only logout
+/// would leave a 90-day-valid session id behind.
+async fn logout(State(state): State<GameState>, headers: HeaderMap) -> axum::response::Response {
+    if let Some(sid) = auth::extract_session_cookie(&headers) {
+        db::delete_session(&state.pool, &sid).await;
+    }
+    (
+        [(header::SET_COOKIE, auth::clear_session_cookie())],
+        Redirect::to(&format!("{}/", state.base_path)),
+    )
+        .into_response()
+}
+
 /// Renders the standings, tagging the current 3 Man's row with the badge
 /// when a 3 Man game is active. Shared by `broadcast_leaderboard` and the
 /// SSE reconnect snapshot so a fresh connection carries the badge too.
@@ -563,6 +666,10 @@ pub fn router() -> Router<GameState> {
     Router::new()
         .route("/", get(landing))
         .route("/login", post(login))
+        .route("/logout", post(logout))
+        .route("/account", get(account_page))
+        .route("/account/name", post(change_name))
+        .route("/account/pin", post(change_pin))
         .route("/rooms", post(create_room))
         .route("/join", post(join_room_handler))
         .route("/room/{code}", get(room_page))

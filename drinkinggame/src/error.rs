@@ -12,6 +12,8 @@ pub enum GameError {
     InvalidPin,
     #[error("wrong PIN for that name")]
     WrongPin,
+    #[error("someone else already goes by that name")]
+    NameTaken,
     #[error("room not found or already ended")]
     RoomNotFound,
     #[error("no game is running")]
@@ -48,7 +50,8 @@ impl IntoResponse for GameError {
             | GameError::DeckExhausted
             | GameError::WrongGameKind
             | GameError::OutOfTurn
-            | GameError::TooFewPlayers => StatusCode::CONFLICT,
+            | GameError::TooFewPlayers
+            | GameError::NameTaken => StatusCode::CONFLICT,
             GameError::CardNotHeld | GameError::NotYourCall => StatusCode::FORBIDDEN,
             GameError::RuleTooLong => StatusCode::UNPROCESSABLE_ENTITY,
             GameError::RoomNotFound => StatusCode::NOT_FOUND,

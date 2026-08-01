@@ -554,6 +554,12 @@ pub fn room_panel(view: &RoomView) -> String {
         r#"<form class="end-night-form" method="post" action="{base_path}/room/{code}/end" onsubmit="return confirm('End the night for everyone?')"><button type="submit" class="btn-danger">End the night for everyone</button></form>"#
     );
 
+    // The room shell has no other way home, so a player who mistyped their
+    // name at the door can't reach the account page without editing the URL.
+    let account_link = format!(
+        r#"<a class="account-link" href="{base_path}/account">Rename, change PIN or log out</a>"#
+    );
+
     // Deliberate TABLE-tab deviation from the prototype: seating slots
     // between WHO'S HERE and HOUSE RULES rather than replacing either, so
     // the room-code card and share/big-screen actions stay reachable
@@ -561,7 +567,7 @@ pub fn room_panel(view: &RoomView) -> String {
     let seating_block = view.seating.as_deref().unwrap_or_default();
 
     format!(
-        r#"{topbar}<div class="room-panel" data-mode="{}">{room_code_card}{member_section}{seating_block}{rules_section}{kings_section}{end_form}</div>"#,
+        r#"{topbar}<div class="room-panel" data-mode="{}">{room_code_card}{member_section}{seating_block}{rules_section}{kings_section}{end_form}{account_link}</div>"#,
         html_escape(view.mode),
     )
 }

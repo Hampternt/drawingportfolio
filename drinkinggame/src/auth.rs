@@ -81,7 +81,7 @@ pub async fn login_or_register(pool: &DbPool, name: &str, pin: &str) -> Result<P
     }
 }
 
-async fn check_pin(player: Player, pin: &str) -> Result<Player, GameError> {
+pub async fn check_pin(player: Player, pin: &str) -> Result<Player, GameError> {
     let pin = pin.to_string();
     let hash = player.pin_hash.clone();
     let ok = tokio::task::spawn_blocking(move || verify_pin(&pin, &hash))
@@ -92,6 +92,39 @@ async fn check_pin(player: Player, pin: &str) -> Result<Player, GameError> {
     } else {
         Err(GameError::WrongPin)
     }
+}
+
+/// Renames a player. The session is the credential here, so no PIN is asked
+/// for. `players.name` is UNIQUE COLLATE NOCASE, so a case-only edit of one's
+/// own name succeeds (same row) while someone else's name is a NameTaken.
+pub async fn rename_player(
+    pool: &DbPool,
+    player_id: i64,
+    new_name: &str,
+) -> Result<String, GameError> {
+    let name = validate_name(new_name)?;
+    match db::update_player_name(pool, player_id, &name).await {
+        Ok(()) => Ok(name),
+        Err(_) => Err(GameError::NameTaken),
+    }
+}
+
+/// Changing the PIN *does* require the current one — it's the only credential
+/// a re-login from another phone has, and phones get passed around at parties.
+pub async fn change_pin(
+    pool: &DbPool,
+    player: Player,
+    current_pin: &str,
+    new_pin: &str,
+) -> Result<(), GameError> {
+    validate_pin(new_pin)?;
+    let player = check_pin(player, current_pin).await?;
+    let new_pin = new_pin.to_string();
+    let hash = tokio::task::spawn_blocking(move || hash_pin(&new_pin))
+        .await
+        .expect("hash task panicked");
+    db::update_player_pin_hash(pool, player.id, &hash).await;
+    Ok(())
 }
 
 /// 32 random bytes as 64 hex chars — same entropy class as the portfolio's
@@ -108,8 +141,15 @@ pub fn session_cookie(id: &str) -> String {
     format!("{COOKIE_NAME}={id}; HttpOnly; SameSite=Lax; Max-Age=7776000; Path=/")
 }
 
-fn extract_session_cookie(parts: &Parts) -> Option<String> {
-    let cookies = parts.headers.get("cookie")?.to_str().ok()?;
+/// Logout counterpart. Every attribute except Max-Age must match
+/// `session_cookie` — a clearing cookie whose Path differs is silently
+/// ignored by the browser and the session would appear to survive.
+pub fn clear_session_cookie() -> String {
+    format!("{COOKIE_NAME}=; HttpOnly; SameSite=Lax; Max-Age=0; Path=/")
+}
+
+pub fn extract_session_cookie(headers: &axum::http::HeaderMap) -> Option<String> {
+    let cookies = headers.get("cookie")?.to_str().ok()?;
     for cookie in cookies.split(';') {
         if let Some(val) = cookie.trim().strip_prefix(&format!("{COOKIE_NAME}=")) {
             return Some(val.to_string());
@@ -128,7 +168,7 @@ impl FromRequestParts<GameState> for PlayerSession {
         parts: &mut Parts,
         state: &GameState,
     ) -> Result<Self, Self::Rejection> {
-        if let Some(id) = extract_session_cookie(parts) {
+        if let Some(id) = extract_session_cookie(&parts.headers) {
             if let Some(player) = db::get_session_player(&state.pool, &id).await {
                 return Ok(PlayerSession(player));
             }
@@ -155,7 +195,7 @@ impl FromRequestParts<GameState> for OptionalPlayer {
         parts: &mut Parts,
         state: &GameState,
     ) -> Result<Self, Self::Rejection> {
-        let player = match extract_session_cookie(parts) {
+        let player = match extract_session_cookie(&parts.headers) {
             Some(id) => db::get_session_player(&state.pool, &id).await,
             None => None,
         };
