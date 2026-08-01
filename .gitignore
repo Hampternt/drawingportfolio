@@ -7,3 +7,6 @@ portfolio.db-wal
 drinkinggame.db*
 .worktrees
 .superpowers/
+
+# Claude Code worktrees are local scratch, never content
+.claude/worktrees/
