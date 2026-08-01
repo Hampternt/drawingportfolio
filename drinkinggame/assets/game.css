@@ -268,7 +268,7 @@ body[data-player-id] { padding-bottom: 90px; }
 
 /* Playing-card face: rank top-left, suit glyph under it, big center pip,
    rotated rank bottom-right. Shared by the phone hero card; screen scale
-   is set below in the /* screen */ section. */
+   is set below in the "screen" section. */
 .card-big {
   width: 104px; height: 148px; flex-shrink: 0;
   border-radius: 12px; background: var(--card-face);

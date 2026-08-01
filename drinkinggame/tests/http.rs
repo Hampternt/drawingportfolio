@@ -80,6 +80,53 @@ async fn test_assets_are_served() {
     }
 }
 
+/// CSS comments don't nest: a `/*` inside a comment is inert, so the comment
+/// closes at the first `*/` and the leftover text invalidates the NEXT rule,
+/// which the browser silently drops (this broke `.card-big` once — the card
+/// face lost its size/background/position and the corner ranks escaped to
+/// the page corners).
+#[tokio::test]
+async fn test_game_css_has_no_nested_comment_markers() {
+    let app = test_app().await;
+    let res = app
+        .oneshot(
+            Request::get("/assets/game.css")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let css = body_string(res).await;
+
+    let mut in_comment = false;
+    let mut line = 1usize;
+    let bytes = css.as_bytes();
+    let mut i = 0;
+    while i + 1 < bytes.len() {
+        match (&bytes[i..i + 2], in_comment) {
+            (b"/*", false) => {
+                in_comment = true;
+                i += 2;
+                continue;
+            }
+            (b"/*", true) => {
+                panic!("nested /* inside a CSS comment at line {line} — the comment closes early and the following rule gets dropped by the browser")
+            }
+            (b"*/", true) => {
+                in_comment = false;
+                i += 2;
+                continue;
+            }
+            _ => {}
+        }
+        if bytes[i] == b'\n' {
+            line += 1;
+        }
+        i += 1;
+    }
+    assert!(!in_comment, "unterminated CSS comment");
+}
+
 #[tokio::test]
 async fn test_font_and_sound_routes() {
     let app = test_app().await;
