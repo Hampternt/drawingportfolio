@@ -443,7 +443,7 @@ body.fitness-dark .food-delete-btn:hover { color: var(--noc-accent-400); backgro
 body.fitness-dark .food-edit-btn {
   background: none; border: 1px solid var(--noc-divider); border-radius: var(--noc-radius-md);
   cursor: pointer; color: var(--noc-muted); font-size: 12px; font-family: inherit;
-  min-height: 34px; padding: 4px 10px;
+  min-height: 44px; padding: 4px 10px;
 }
 body.fitness-dark .food-edit-btn:hover { background: color-mix(in srgb, var(--noc-text) 7%, transparent); }
 
@@ -483,6 +483,7 @@ body.fitness-dark .food-brand { color: var(--noc-muted); font-size: 12px; font-w
 body.fitness-dark .food-macros { font-size: 11.5px; color: var(--noc-muted); }
 body.fitness-dark .food-pkg { margin-left: 6px; color: var(--noc-faint); font-size: 11px; }
 body.fitness-dark .food-admin-btns { display: flex; gap: 4px; align-items: center; flex: none; }
+body.fitness-dark .food-item-card.editing { display: block; padding: 0; background: none; box-shadow: none; }
 
 /* add/edit food form */
 body.fitness-dark .nutrient-form {
@@ -519,6 +520,14 @@ body.fitness-dark .btn-secondary {
   min-height: 44px; padding: 8px 14px;
 }
 body.fitness-dark .btn-secondary:hover { background: color-mix(in srgb, var(--noc-text) 7%, transparent); }
+
+/* manual barcode fallback */
+body.fitness-dark #manual-barcode { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 10px 0; }
+body.fitness-dark #manual-barcode input {
+  flex: 1; min-width: 160px; min-height: 44px; padding: 6px 12px; font: inherit; font-size: 14px;
+  color: var(--noc-text); background: var(--noc-surface);
+  border: 1px solid var(--noc-divider); border-radius: var(--noc-radius-md);
+}
 
 /* barcode scanner */
 body.fitness-dark #barcode-scanner video { width: 100%; border-radius: var(--noc-radius-lg); box-shadow: var(--noc-shadow-card); }
