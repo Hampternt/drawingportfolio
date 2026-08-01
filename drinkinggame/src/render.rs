@@ -702,7 +702,7 @@ fn tm_turn_banner(v: &TmView) -> String {
     let roller = v.st.roller();
     let name = tm_name(v, roller);
     format!(
-        r#"<div class="turn-banner"><span class="turn-banner-dot"></span><span class="turn-banner-text" data-me-text="YOUR TURN" data-player-id="{roller}">{name} IS UP</span></div>"#
+        r#"<div class="turn-banner" data-anim="pop"><span class="turn-banner-dot"></span><span class="turn-banner-text" data-me-text="YOUR TURN" data-player-id="{roller}">{name} IS UP</span></div>"#
     )
 }
 
@@ -754,7 +754,7 @@ fn tm_verdict_card(v: &TmView) -> Option<String> {
     };
     let dice = dice_html(d1, d2);
     Some(format!(
-        r#"<div class="verdict-card{stale_cls}"><div class="dice-row">{dice}<div class="dice-sum"><span class="dice-sum-value">{sum}</span><span class="dice-sum-caption">{caption}</span></div></div><div class="call-list">{calls_html}</div></div>"#
+        r#"<div class="verdict-card{stale_cls}" data-anim="pop"><div class="dice-row">{dice}<div class="dice-sum"><span class="dice-sum-value">{sum}</span><span class="dice-sum-caption">{caption}</span></div></div><div class="call-list">{calls_html}</div></div>"#
     ))
 }
 
@@ -844,7 +844,7 @@ fn tm_assign_block(v: &TmView) -> String {
                         let initial = tm_initial(v, id);
                         let name = tm_name(v, id);
                         format!(
-                            r#"<button class="target-btn" hx-post="{base}/room/{code}/tm/target" hx-vals='{{"slot":{slot},"player":{id}}}' hx-swap="none"><span class="target-btn-initial">{initial}</span><span class="target-btn-name">{name}</span></button>"#
+                            r#"<button class="target-btn" hx-post="{base}/room/{code}/tm/target" hx-vals='{{"slot":{slot},"target":{id}}}' hx-swap="none"><span class="target-btn-initial">{initial}</span><span class="target-btn-name">{name}</span></button>"#
                         )
                     })
                     .collect::<String>(),
@@ -1109,7 +1109,7 @@ pub fn tm_seating_html(v: &TmView) -> String {
             let initial = tm_initial(v, id);
             let name = tm_name(v, id);
             format!(
-                r#"<div class="seat-move"><span class="seat-pos">{pos}</span><span class="seat-avatar">{initial}</span><div class="seat-info"><span class="seat-name-line">{name}</span><span class="seat-tag-line">{tag}</span></div><div class="seat-actions"><button class="seat-btn" hx-post="{base}/room/{code}/tm/seat" hx-vals='{{"player":{id},"delta":-1}}' hx-swap="none">&uarr;</button><button class="seat-btn" hx-post="{base}/room/{code}/tm/seat" hx-vals='{{"player":{id},"delta":1}}' hx-swap="none">&darr;</button><button class="seat-btn seat-btn-three" hx-post="{base}/room/{code}/tm/three-man" hx-vals='{{"target":{id}}}' hx-swap="none">3 MAN</button></div></div>"#
+                r#"<div class="seat-move"><span class="seat-pos">{pos}</span><span class="seat-avatar">{initial}</span><div class="seat-info"><span class="seat-name-line">{name}</span><span class="seat-tag-line">{tag}</span></div><div class="seat-actions"><button class="seat-btn" hx-post="{base}/room/{code}/tm/seat" hx-vals='{{"target":{id},"dir":-1}}' hx-swap="none">&uarr;</button><button class="seat-btn" hx-post="{base}/room/{code}/tm/seat" hx-vals='{{"target":{id},"dir":1}}' hx-swap="none">&darr;</button><button class="seat-btn seat-btn-three" hx-post="{base}/room/{code}/tm/three-man" hx-vals='{{"target":{id}}}' hx-swap="none">3 MAN</button></div></div>"#
             )
         })
         .collect();
@@ -1501,6 +1501,7 @@ mod tests {
         assert!(html.contains("/drinks/room/QK4M/tm/roll"));
         assert!(!html.contains("/tm/pass"));
         assert!(html.contains(r#"id="exposure-line""#));
+        assert!(html.contains(r#"<div class="turn-banner" data-anim="pop">"#));
     }
 
     #[test]
@@ -1521,6 +1522,7 @@ mod tests {
         assert!(html.contains(r#"data-me-text="You drink 1" data-player-id="2""#));
         assert!(html.contains("PASS TO bob"));
         assert!(html.contains("/drinks/room/QK4M/tm/pass"));
+        assert!(html.contains(r#"<div class="verdict-card" data-anim="pop">"#));
     }
 
     #[test]
@@ -1599,6 +1601,20 @@ mod tests {
         let (mut st, names) = tm_view_fixture();
         st.roll(4, 4).unwrap();
         st.set_mode(crate::three_man::GiveMode::Both).unwrap();
+        {
+            // Target grid, pre-pick: /tm/target posts {"slot":N,"target":ID}
+            // per the plan's Task 13 route table (not "player").
+            let v = TmView {
+                base_path: "/drinks",
+                code: "QK4M",
+                st: &st,
+                names: &names,
+            };
+            let html = tm_phone_panel(&v);
+            assert!(html.contains("/drinks/room/QK4M/tm/target"));
+            assert!(html.contains(r#"hx-vals='{"slot":0,"target":3}'"#)); // cara offered
+            assert!(!html.contains(r#""player":"#));
+        }
         st.pick_target(0, 3).unwrap(); // cara
         st.send().unwrap();
         assert_eq!(st.phase, crate::three_man::Phase::Gifts);
@@ -1687,6 +1703,12 @@ mod tests {
         };
         let seating = tm_seating_html(&v);
         assert!(seating.contains("/drinks/room/QK4M/tm/seat"));
+        // /tm/seat posts {"target":ID,"dir":±1} per the plan's Task 13
+        // route table (not "player"/"delta").
+        assert!(seating.contains(r#"hx-vals='{"target":1,"dir":-1}'"#));
+        assert!(seating.contains(r#"hx-vals='{"target":1,"dir":1}'"#));
+        assert!(!seating.contains(r#""player":"#));
+        assert!(!seating.contains(r#""delta":"#));
         assert!(seating.contains("/drinks/room/QK4M/tm/three-man"));
         assert!(seating.contains("rules-ref"));
 
