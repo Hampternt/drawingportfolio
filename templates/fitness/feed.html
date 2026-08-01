@@ -64,6 +64,14 @@
       </div>
     </form>
 
+    <div class="lib-chips">
+      <button class="noc-tag noc-tag-accent" data-filter="all" onclick="libFilter(this)">All</button>
+      <button class="noc-tag noc-tag-outline" data-filter="fav" onclick="libFilter(this)">Favourites</button>
+      <button class="noc-tag noc-tag-outline" data-filter="recent" onclick="libFilter(this)">Recent</button>
+      <button class="noc-tag noc-tag-outline" data-filter="protein" onclick="libFilter(this)">High protein</button>
+      <button class="noc-tag noc-tag-outline" data-filter="nomacros" onclick="libFilter(this)">No macros yet</button>
+    </div>
+
     <div id="food-library">
       {{ library_html|safe }}
     </div>
@@ -92,6 +100,7 @@
     <div class="sheet-tabs">
       <button class="noc-tag noc-tag-accent" data-tab="scan" onclick="sheetTab('scan')">Scan</button>
       <button class="noc-tag noc-tag-outline" data-tab="recent" onclick="sheetTab('recent')">Recent</button>
+      <button class="noc-tag noc-tag-outline" data-tab="favs" onclick="sheetTab('favs')">Favourites</button>
       <button class="noc-tag noc-tag-outline" data-tab="search" onclick="sheetTab('search')">Search</button>
     </div>
     <div id="sheet-scan" class="sheet-pane">
@@ -107,6 +116,11 @@
     <div id="sheet-recent" class="sheet-pane" hidden
          hx-get="/fitness/htmx/recent" hx-trigger="sheet-open from:body" hx-target="find .chips" hx-swap="innerHTML">
       <div class="noc-kicker">Log again</div>
+      <div class="chips"></div>
+    </div>
+    <div id="sheet-favs" class="sheet-pane" hidden
+         hx-get="/fitness/htmx/favourites" hx-trigger="sheet-open from:body" hx-target="find .chips" hx-swap="innerHTML">
+      <div class="noc-kicker">Favourites</div>
       <div class="chips"></div>
     </div>
     <div id="sheet-search" class="sheet-pane" hidden>
@@ -137,6 +151,27 @@ function markSelectedDay(date) {
     const sel = col.dataset.date === date;
     col.querySelector('.day-letter').classList.toggle('selected', sel);
     col.querySelector('.day-cell').classList.toggle('selected', sel);
+  });
+}
+
+function libFilter(btn) {
+  document.querySelectorAll('.lib-chips [data-filter]').forEach(b => {
+    b.classList.toggle('noc-tag-accent', b === btn);
+    b.classList.toggle('noc-tag-outline', b !== btn);
+  });
+  const mode = btn.dataset.filter;
+  document.querySelectorAll('#food-library .food-item-card').forEach(card => {
+    const show =
+      mode === 'all' ? true :
+      mode === 'fav' ? card.dataset.fav === '1' :
+      mode === 'recent' ? card.dataset.recent === '1' :
+      mode === 'protein' ? parseFloat(card.dataset.protein) >= 15 :
+      parseFloat(card.dataset.cal) === 0;
+    card.style.display = show ? '' : 'none';
+  });
+  document.querySelectorAll('#food-library .lib-group').forEach(g => {
+    const any = [...g.querySelectorAll('.food-item-card')].some(c => c.style.display !== 'none');
+    g.style.display = any ? '' : 'none';
   });
 }
 
@@ -222,7 +257,7 @@ function closeAddSheet() {
 }
 
 function sheetTab(tab) {
-  ['scan', 'recent', 'search'].forEach(t => {
+  ['scan', 'recent', 'favs', 'search'].forEach(t => {
     document.getElementById('sheet-' + t).hidden = t !== tab;
     const btn = document.querySelector('#add-sheet [data-tab="' + t + '"]');
     btn.classList.toggle('noc-tag-accent', t === tab);

@@ -27,9 +27,13 @@ fn fmt_nutrient(v: f64) -> String {
     }
 }
 
-pub fn food_item_card_html(item: &crate::models::FoodItem, is_admin: bool) -> String {
+pub fn food_item_card_html(
+    item: &crate::models::FoodItem,
+    is_recent: bool,
+    is_admin: bool,
+) -> String {
     let img_html = if item.image_url.is_empty() {
-        String::new()
+        r#"<div class="food-thumb food-thumb-empty"></div>"#.to_string()
     } else {
         format!(
             "<img src=\"{}\" alt=\"{}\" class=\"food-thumb\" loading=\"lazy\">",
@@ -45,43 +49,54 @@ pub fn food_item_card_html(item: &crate::models::FoodItem, is_admin: bool) -> St
             html_escape(&item.brand)
         )
     };
-    let pkg_html = if let Some(pkg) = item.package_size {
-        format!("<span class=\"food-pkg\">{}g pkg</span>", fmt_nutrient(pkg))
+    let pkg_badge = if let Some(pkg) = item.package_size {
+        format!(
+            "<span class=\"noc-tag noc-tag-neutral food-pkg-badge\">{} g</span>",
+            fmt_nutrient(pkg)
+        )
     } else {
         String::new()
     };
     let admin_btns = if is_admin {
         format!(
             "<div class=\"food-admin-btns\">\
-             <button class=\"food-edit-btn\" hx-get=\"/api/nutrition/food-items/{}/edit\" \
-             hx-target=\"#food-item-{}\" hx-swap=\"outerHTML\">Edit</button>\
-             <button class=\"food-delete-btn\" hx-delete=\"/api/nutrition/food-items/{}\" \
+             <button class=\"fav-btn{fav_cls}\" hx-post=\"/api/nutrition/food-items/{id}/favourite\" \
+             hx-target=\"#food-library\" hx-swap=\"innerHTML\" aria-label=\"Toggle favourite\">★</button>\
+             <button class=\"food-edit-btn\" hx-get=\"/api/nutrition/food-items/{id}/edit\" \
+             hx-target=\"#food-item-{id}\" hx-swap=\"outerHTML\">Edit</button>\
+             <button class=\"food-delete-btn\" hx-delete=\"/api/nutrition/food-items/{id}\" \
              hx-target=\"#food-library\" hx-swap=\"innerHTML\" \
              hx-confirm=\"Delete this food item?\">×</button></div>",
-            item.id, item.id, item.id
+            fav_cls = if item.is_favourite != 0 { " is-fav" } else { "" },
+            id = item.id
         )
     } else {
         String::new()
     };
     format!(
-        r#"<li class="food-item-card" id="food-item-{}">
-  {}
+        r##"<li class="food-item-card" id="food-item-{id}" data-fav="{fav}" data-recent="{rec}" data-protein="{prot}" data-cal="{cal_raw}">
+  {img}
   <div class="food-info">
-    <strong>{}</strong> {}
-    <span class="food-macros">{} cal · P {}g · C {}g · F {}g{}</span>
+    <strong>{name} {brand}</strong>
+    <span class="food-macros">{cal} cal · P {p}g · C {c}g · F {f}g</span>
   </div>
-  {}
-</li>"#,
-        item.id,
-        img_html,
-        html_escape(&item.name),
-        brand_html,
-        fmt_nutrient(item.calories),
-        fmt_nutrient(item.protein),
-        fmt_nutrient(item.carbs),
-        fmt_nutrient(item.fat),
-        pkg_html,
-        admin_btns
+  {pkg}
+  {admin}
+</li>"##,
+        id = item.id,
+        fav = if item.is_favourite != 0 { 1 } else { 0 },
+        rec = if is_recent { 1 } else { 0 },
+        prot = item.protein,
+        cal_raw = item.calories,
+        img = img_html,
+        name = html_escape(&item.name),
+        brand = brand_html,
+        cal = fmt_nutrient(item.calories),
+        p = fmt_nutrient(item.protein),
+        c = fmt_nutrient(item.carbs),
+        f = fmt_nutrient(item.fat),
+        pkg = pkg_badge,
+        admin = admin_btns
     )
 }
 
@@ -403,16 +418,60 @@ pub fn day_section_html(
     )
 }
 
-pub fn library_list_html(items: &[crate::models::FoodItem], is_admin: bool) -> String {
-    let cards: String = items
+pub fn library_list_html(
+    items: &[crate::models::FoodItem],
+    recent_ids: &std::collections::HashSet<i64>,
+    is_admin: bool,
+) -> String {
+    use std::collections::BTreeMap;
+    let mut groups: BTreeMap<String, Vec<&crate::models::FoodItem>> = BTreeMap::new();
+    for item in items {
+        // "zzz_" prefix sorts Uncategorised last; stripped before display
+        let key = if item.category.is_empty() {
+            "zzz_Uncategorised".to_string()
+        } else {
+            item.category.clone()
+        };
+        groups.entry(key).or_default().push(item);
+    }
+    groups
         .iter()
-        .map(|i| food_item_card_html(i, is_admin))
+        .map(|(key, group)| {
+            let label = key.strip_prefix("zzz_").unwrap_or(key);
+            let cards: String = group
+                .iter()
+                .map(|i| food_item_card_html(i, recent_ids.contains(&i.id), is_admin))
+                .collect::<Vec<_>>()
+                .join("\n");
+            format!(
+                "<div class=\"lib-group\"><div class=\"noc-kicker lib-group-head\">{}</div>\n<ul class=\"food-library-list\">\n{}\n</ul></div>",
+                html_escape(label),
+                cards
+            )
+        })
         .collect::<Vec<_>>()
-        .join("\n");
-    format!("<ul class=\"food-library-list\">\n{}\n</ul>", cards)
+        .join("\n")
 }
 
-fn edit_food_form_html(item: &crate::models::FoodItem) -> String {
+fn history_bars_html(days: &[(String, f64)]) -> String {
+    let max = days.iter().map(|(_, g)| *g).fold(0.0f64, f64::max).max(1.0);
+    let bars: String = days
+        .iter()
+        .map(|(_, g)| {
+            let pct = (g / max * 100.0).round();
+            format!(
+                "<div class=\"hist-bar\" style=\"height:{}%\"></div>",
+                pct.max(if *g > 0.0 { 6.0 } else { 0.0 })
+            )
+        })
+        .collect();
+    format!(
+        "<div class=\"item-history\"><div class=\"noc-kicker\">Last 14 days</div><div class=\"hist-strip\">{}</div></div>",
+        bars
+    )
+}
+
+fn edit_food_form_html(item: &crate::models::FoodItem, history_html: &str) -> String {
     let barcode_val = item.barcode.as_deref().unwrap_or("");
     let pkg_val = item
         .package_size
@@ -440,8 +499,12 @@ fn edit_food_form_html(item: &crate::models::FoodItem) -> String {
   </div>
   <label class="package-size-label">Package / total size (g)<input type="number" name="package_size" step="0.1" min="0" value="{pkg}" placeholder="e.g. 565"></label>
   <label class="package-size-label">Custom portions (g, comma-separated)<input type="text" name="custom_portions" value="{custom_portions}" placeholder="e.g. 125, 250, 375"></label>
+  <label class="package-size-label">Category<input type="text" name="category" value="{category}" placeholder="e.g. Dairy &amp; eggs"></label>
+  <label class="package-size-label">Default portion (g)<input type="number" name="default_portion_g" step="0.1" min="0" value="{default_portion}" placeholder="usual amount"></label>
+  <label class="fav-label"><input type="checkbox" name="is_favourite" value="1"{fav_checked}> Favourite</label>
   <label class="file-label">Image <input type="file" name="image" accept="image/jpeg,image/png,image/webp"></label>
   <input type="hidden" name="image_url" value="{image_url}">
+  {history_html}
   <div class="form-actions">
     <button type="submit" class="btn-primary">Save</button>
     <button type="button" class="btn-secondary"
@@ -466,6 +529,14 @@ fn edit_food_form_html(item: &crate::models::FoodItem) -> String {
         pkg = pkg_val,
         custom_portions = html_escape(&item.custom_portions),
         image_url = html_escape(&item.image_url),
+        category = html_escape(&item.category),
+        default_portion = item.default_portion_g.map(fmt_nutrient).unwrap_or_default(),
+        fav_checked = if item.is_favourite != 0 {
+            " checked"
+        } else {
+            ""
+        },
+        history_html = history_html,
     )
 }
 
@@ -502,7 +573,12 @@ async fn fitness_page(
     let week = week_for(&state.pool, &date).await;
     let strip = week_strip_html(&week, &date, &today, targets.calories);
     let day_html = day_section_html(&entries, &date, &food_items, &targets, true);
-    let lib_html = library_list_html(&food_items, true);
+    let recent_ids: std::collections::HashSet<i64> = crate::db::get_recent_foods(&state.pool, 20)
+        .await
+        .into_iter()
+        .map(|r| r.food_item_id)
+        .collect();
+    let lib_html = library_list_html(&food_items, &recent_ids, true);
     Html(
         FitnessTemplate {
             is_admin: true,
@@ -721,7 +797,15 @@ async fn add_food_item(
     .await;
 
     let all_items = crate::db::get_food_items(&state.pool).await;
-    Html(library_list_html(&all_items, true)).into_response()
+    {
+        let recent_ids: std::collections::HashSet<i64> =
+            crate::db::get_recent_foods(&state.pool, 20)
+                .await
+                .into_iter()
+                .map(|r| r.food_item_id)
+                .collect();
+        Html(library_list_html(&all_items, &recent_ids, true)).into_response()
+    }
 }
 
 async fn delete_food_item_handler(
@@ -735,7 +819,15 @@ async fn delete_food_item_handler(
         }
     }
     let items = crate::db::get_food_items(&state.pool).await;
-    Html(library_list_html(&items, true))
+    {
+        let recent_ids: std::collections::HashSet<i64> =
+            crate::db::get_recent_foods(&state.pool, 20)
+                .await
+                .into_iter()
+                .map(|r| r.food_item_id)
+                .collect();
+        Html(library_list_html(&items, &recent_ids, true))
+    }
 }
 
 async fn add_meal_entry(
@@ -822,7 +914,27 @@ async fn edit_food_form(
     Path(id): Path<i64>,
 ) -> impl IntoResponse {
     match crate::db::get_food_item(&state.pool, id).await {
-        Some(item) => Html(edit_food_form_html(&item)).into_response(),
+        Some(item) => {
+            use chrono::Duration;
+            let today = chrono::Utc::now().date_naive();
+            let start = (today - Duration::days(13)).format("%Y-%m-%d").to_string();
+            let end = today.format("%Y-%m-%d").to_string();
+            let logged = crate::db::get_item_log_history(&state.pool, id, &start, &end).await;
+            let days: Vec<(String, f64)> = (0..14)
+                .map(|i| {
+                    let d = (today - Duration::days(13 - i))
+                        .format("%Y-%m-%d")
+                        .to_string();
+                    let g = logged
+                        .iter()
+                        .find(|(ld, _)| *ld == d)
+                        .map(|(_, g)| *g)
+                        .unwrap_or(0.0);
+                    (d, g)
+                })
+                .collect();
+            Html(edit_food_form_html(&item, &history_bars_html(&days))).into_response()
+        }
         None => (
             StatusCode::NOT_FOUND,
             Html("<p>Food item not found</p>".to_string()),
@@ -837,7 +949,7 @@ async fn food_item_card(
     Path(id): Path<i64>,
 ) -> impl IntoResponse {
     match crate::db::get_food_item(&state.pool, id).await {
-        Some(item) => Html(food_item_card_html(&item, true)).into_response(),
+        Some(item) => Html(food_item_card_html(&item, false, true)).into_response(),
         None => (
             StatusCode::NOT_FOUND,
             Html("<p>Food item not found</p>".to_string()),
@@ -852,6 +964,9 @@ async fn update_food_item_handler(
     Path(id): Path<i64>,
     mut multipart: Multipart,
 ) -> impl IntoResponse {
+    let mut category = String::new();
+    let mut is_favourite = false;
+    let mut default_portion_g: Option<f64> = None;
     let mut name = String::new();
     let mut brand = String::new();
     let mut barcode: Option<String> = None;
@@ -966,6 +1081,24 @@ async fn update_food_item_handler(
             Some("custom_portions") => {
                 custom_portions = field.text().await.unwrap_or_default().trim().to_string()
             }
+            Some("category") => {
+                category = field.text().await.unwrap_or_default().trim().to_string()
+            }
+            Some("is_favourite") => {
+                is_favourite = field.text().await.unwrap_or_default().trim() == "1"
+            }
+            Some("default_portion_g") => {
+                let v: f64 = field
+                    .text()
+                    .await
+                    .unwrap_or_default()
+                    .trim()
+                    .parse()
+                    .unwrap_or(0.0);
+                if v > 0.0 {
+                    default_portion_g = Some(v);
+                }
+            }
             Some("image_url") => {
                 image_url = field.text().await.unwrap_or_default().trim().to_string()
             }
@@ -1036,11 +1169,22 @@ async fn update_food_item_handler(
         package_size,
         &custom_portions,
         &image_url,
+        &category,
+        is_favourite,
+        default_portion_g,
     )
     .await;
 
     let all_items = crate::db::get_food_items(&state.pool).await;
-    Html(library_list_html(&all_items, true)).into_response()
+    {
+        let recent_ids: std::collections::HashSet<i64> =
+            crate::db::get_recent_foods(&state.pool, 20)
+                .await
+                .into_iter()
+                .map(|r| r.food_item_id)
+                .collect();
+        Html(library_list_html(&all_items, &recent_ids, true)).into_response()
+    }
 }
 
 fn entry_edit_row_html(entry: &crate::models::MealEntry, food_name: &str, date: &str) -> String {
@@ -1140,6 +1284,11 @@ async fn update_meal_entry_handler(
 /// Portion buttons: package fractions and each custom portion; grams input as fallback.
 fn match_card_html(item: &crate::models::FoodItem, kicker: &str) -> String {
     let mut portions: Vec<(String, f64)> = Vec::new();
+    if let Some(usual) = item.default_portion_g {
+        if usual > 0.0 {
+            portions.push((format!("Usual {} g", fmt_nutrient(usual)), usual));
+        }
+    }
     if let Some(pkg) = item.package_size {
         portions.push((format!("{} g", fmt_nutrient(pkg)), pkg));
         portions.push((format!("Half {} g", fmt_nutrient(pkg * 0.5)), pkg * 0.5));
@@ -1286,6 +1435,45 @@ async fn barcode_match(
     }
 }
 
+async fn toggle_favourite_handler(
+    AuthSession(_): AuthSession,
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<i64>,
+) -> impl IntoResponse {
+    crate::db::toggle_food_favourite(&state.pool, id).await;
+    let items = crate::db::get_food_items(&state.pool).await;
+    let recent_ids: std::collections::HashSet<i64> = crate::db::get_recent_foods(&state.pool, 20)
+        .await
+        .into_iter()
+        .map(|r| r.food_item_id)
+        .collect();
+    Html(library_list_html(&items, &recent_ids, true))
+}
+
+async fn favourite_chips(
+    AuthSession(_): AuthSession,
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    let items = crate::db::get_food_items(&state.pool).await;
+    let chips: String = items
+        .iter()
+        .filter(|i| i.is_favourite != 0)
+        .map(|i| {
+            format!(
+                r##"<button type="button" class="noc-btn noc-btn-secondary recent-chip"
+             hx-get="/fitness/htmx/match-card/{id}" hx-target="#sheet-result" hx-swap="innerHTML">{name}</button>"##,
+                id = i.id,
+                name = html_escape(&i.name)
+            )
+        })
+        .collect();
+    Html(if chips.is_empty() {
+        "<p class=\"sheet-hint\">No favourites yet — star items in the library.</p>".to_string()
+    } else {
+        chips
+    })
+}
+
 async fn copy_day_handler(
     AuthSession(_): AuthSession,
     State(state): State<Arc<AppState>>,
@@ -1415,6 +1603,11 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/fitness/htmx/entries/{id}/edit", get(entry_edit_form))
         .route("/fitness/copy-day", post(copy_day_handler))
         .route("/fitness/htmx/recent", get(recent_chips))
+        .route("/fitness/htmx/favourites", get(favourite_chips))
+        .route(
+            "/api/nutrition/food-items/{id}/favourite",
+            post(toggle_favourite_handler),
+        )
         .route("/fitness/htmx/food-search", get(food_search))
         .route("/fitness/htmx/match-card/{id}", get(match_card))
         .route("/fitness/htmx/barcode-match/{code}", get(barcode_match))

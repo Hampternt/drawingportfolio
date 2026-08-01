@@ -67,6 +67,11 @@ pub async fn run_migrations(pool: &DbPool) {
     let _ = sqlx::query(include_str!("../migrations/009_targets.sql"))
         .execute(pool)
         .await;
+
+    // Migration 010: food metadata — category, favourite flag, default portion
+    let _ = sqlx::query(include_str!("../migrations/010_food_meta.sql"))
+        .execute(pool)
+        .await;
 }
 
 pub async fn get_posts(pool: &DbPool, page: i64) -> Vec<Post> {
@@ -259,7 +264,7 @@ pub async fn take_challenge(pool: &DbPool, id: &str) -> Option<AuthChallengeStat
 
 pub async fn get_food_items(pool: &DbPool) -> Vec<FoodItem> {
     sqlx::query_as!(FoodItem,
-        "SELECT id, name, brand, barcode, calories, protein, carbs, fat, fiber, sugar, sodium, saturated_fat, package_size, custom_portions, image_url, created_at FROM food_items ORDER BY name ASC"
+        "SELECT id, name, brand, barcode, calories, protein, carbs, fat, fiber, sugar, sodium, saturated_fat, package_size, custom_portions, image_url, category, is_favourite, default_portion_g, created_at FROM food_items ORDER BY name ASC"
     )
     .fetch_all(pool)
     .await
@@ -269,7 +274,7 @@ pub async fn get_food_items(pool: &DbPool) -> Vec<FoodItem> {
 pub async fn search_food_items(pool: &DbPool, q: &str) -> Vec<FoodItem> {
     let pattern = format!("%{}%", q);
     sqlx::query_as!(FoodItem,
-        "SELECT id, name, brand, barcode, calories, protein, carbs, fat, fiber, sugar, sodium, saturated_fat, package_size, custom_portions, image_url, created_at FROM food_items WHERE name LIKE ? OR brand LIKE ? ORDER BY name ASC LIMIT 20",
+        "SELECT id, name, brand, barcode, calories, protein, carbs, fat, fiber, sugar, sodium, saturated_fat, package_size, custom_portions, image_url, category, is_favourite, default_portion_g, created_at FROM food_items WHERE name LIKE ? OR brand LIKE ? ORDER BY name ASC LIMIT 20",
         pattern, pattern
     )
     .fetch_all(pool)
@@ -304,7 +309,7 @@ pub async fn insert_food_item(
     .id;
 
     sqlx::query_as!(FoodItem,
-        "SELECT id, name, brand, barcode, calories, protein, carbs, fat, fiber, sugar, sodium, saturated_fat, package_size, custom_portions, image_url, created_at FROM food_items WHERE id = ?", id
+        "SELECT id, name, brand, barcode, calories, protein, carbs, fat, fiber, sugar, sodium, saturated_fat, package_size, custom_portions, image_url, category, is_favourite, default_portion_g, created_at FROM food_items WHERE id = ?", id
     )
     .fetch_one(pool)
     .await
@@ -335,7 +340,7 @@ pub async fn delete_food_item(pool: &DbPool, id: i64) -> Option<String> {
 
 pub async fn get_food_item(pool: &DbPool, id: i64) -> Option<FoodItem> {
     sqlx::query_as!(FoodItem,
-        "SELECT id, name, brand, barcode, calories, protein, carbs, fat, fiber, sugar, sodium, saturated_fat, package_size, custom_portions, image_url, created_at FROM food_items WHERE id = ?", id
+        "SELECT id, name, brand, barcode, calories, protein, carbs, fat, fiber, sugar, sodium, saturated_fat, package_size, custom_portions, image_url, category, is_favourite, default_portion_g, created_at FROM food_items WHERE id = ?", id
     )
     .fetch_optional(pool)
     .await
@@ -343,6 +348,7 @@ pub async fn get_food_item(pool: &DbPool, id: i64) -> Option<FoodItem> {
     .flatten()
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn update_food_item(
     pool: &DbPool,
     id: i64,
@@ -360,14 +366,50 @@ pub async fn update_food_item(
     package_size: Option<f64>,
     custom_portions: &str,
     image_url: &str,
+    category: &str,
+    is_favourite: bool,
+    default_portion_g: Option<f64>,
 ) {
+    let fav = if is_favourite { 1i64 } else { 0i64 };
     sqlx::query!(
-        "UPDATE food_items SET name = ?, brand = ?, barcode = ?, calories = ?, protein = ?, carbs = ?, fat = ?, fiber = ?, sugar = ?, sodium = ?, saturated_fat = ?, package_size = ?, custom_portions = ?, image_url = ? WHERE id = ?",
-        name, brand, barcode, calories, protein, carbs, fat, fiber, sugar, sodium, saturated_fat, package_size, custom_portions, image_url, id
+        "UPDATE food_items SET name = ?, brand = ?, barcode = ?, calories = ?, protein = ?, carbs = ?, fat = ?, fiber = ?, sugar = ?, sodium = ?, saturated_fat = ?, package_size = ?, custom_portions = ?, image_url = ?, category = ?, is_favourite = ?, default_portion_g = ? WHERE id = ?",
+        name, brand, barcode, calories, protein, carbs, fat, fiber, sugar, sodium, saturated_fat, package_size, custom_portions, image_url, category, fav, default_portion_g, id
     )
     .execute(pool)
     .await
     .ok();
+}
+
+pub async fn toggle_food_favourite(pool: &DbPool, id: i64) {
+    sqlx::query!(
+        "UPDATE food_items SET is_favourite = 1 - is_favourite WHERE id = ?",
+        id
+    )
+    .execute(pool)
+    .await
+    .ok();
+}
+
+pub async fn get_item_log_history(
+    pool: &DbPool,
+    id: i64,
+    start: &str,
+    end: &str,
+) -> Vec<(String, f64)> {
+    sqlx::query!(
+        r#"SELECT date as "date!", SUM(grams) as "grams!: f64" FROM meal_entries
+        WHERE food_item_id = ? AND date >= ? AND date <= ?
+        GROUP BY date ORDER BY date ASC"#,
+        id,
+        start,
+        end
+    )
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default()
+    .into_iter()
+    .map(|r| (r.date, r.grams))
+    .collect()
 }
 
 pub async fn get_meal_entries_for_date(pool: &DbPool, date: &str) -> Vec<MealEntryWithFood> {
@@ -467,7 +509,7 @@ pub async fn get_recent_foods(pool: &DbPool, limit: i64) -> Vec<crate::models::R
 
 pub async fn get_food_item_by_barcode(pool: &DbPool, barcode: &str) -> Option<FoodItem> {
     sqlx::query_as!(FoodItem,
-        "SELECT id, name, brand, barcode, calories, protein, carbs, fat, fiber, sugar, sodium, saturated_fat, package_size, custom_portions, image_url, created_at FROM food_items WHERE barcode = ?",
+        "SELECT id, name, brand, barcode, calories, protein, carbs, fat, fiber, sugar, sodium, saturated_fat, package_size, custom_portions, image_url, category, is_favourite, default_portion_g, created_at FROM food_items WHERE barcode = ?",
         barcode
     )
     .fetch_optional(pool)
@@ -1184,6 +1226,82 @@ mod tests {
         let t = get_targets(&pool).await;
         assert_eq!(t.calories, 2200.0);
         assert_eq!(t.fat, 70.0);
+    }
+
+    #[tokio::test]
+    async fn test_favourite_and_category_roundtrip() {
+        let pool = test_pool().await;
+        let item = insert_food_item(
+            &pool,
+            "Skyr",
+            "Arla",
+            None,
+            63.0,
+            11.0,
+            4.0,
+            0.2,
+            0.0,
+            4.0,
+            45.0,
+            0.1,
+            Some(450.0),
+            "",
+            "",
+        )
+        .await;
+        assert_eq!(item.category, "");
+        assert_eq!(item.is_favourite, 0);
+        toggle_food_favourite(&pool, item.id).await;
+        assert_eq!(get_food_item(&pool, item.id).await.unwrap().is_favourite, 1);
+        update_food_item(
+            &pool,
+            item.id,
+            "Skyr",
+            "Arla",
+            None,
+            63.0,
+            11.0,
+            4.0,
+            0.2,
+            0.0,
+            4.0,
+            45.0,
+            0.1,
+            Some(450.0),
+            "",
+            "",
+            "Dairy & eggs",
+            true,
+            Some(170.0),
+        )
+        .await;
+        let item = get_food_item(&pool, item.id).await.unwrap();
+        assert_eq!(item.category, "Dairy & eggs");
+        assert_eq!(item.is_favourite, 1);
+        assert_eq!(item.default_portion_g, Some(170.0));
+        toggle_food_favourite(&pool, item.id).await;
+        assert_eq!(get_food_item(&pool, item.id).await.unwrap().is_favourite, 0);
+    }
+
+    #[tokio::test]
+    async fn test_item_log_history() {
+        let pool = test_pool().await;
+        let item = insert_food_item(
+            &pool, "Oats", "", None, 379.0, 13.0, 60.0, 6.5, 0.0, 0.0, 0.0, 0.0, None, "", "",
+        )
+        .await;
+        insert_meal_entry(&pool, item.id, "2026-07-30", 80.0, "breakfast")
+            .await
+            .unwrap();
+        insert_meal_entry(&pool, item.id, "2026-07-30", 40.0, "snack")
+            .await
+            .unwrap();
+        insert_meal_entry(&pool, item.id, "2026-07-31", 80.0, "breakfast")
+            .await
+            .unwrap();
+        let hist = get_item_log_history(&pool, item.id, "2026-07-18", "2026-07-31").await;
+        assert_eq!(hist.len(), 2);
+        assert_eq!(hist[0], ("2026-07-30".to_string(), 120.0));
     }
 
     #[tokio::test]

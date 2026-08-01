@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT date as \"date!\", SUM(grams) as \"grams!: f64\" FROM meal_entries\n        WHERE food_item_id = ? AND date >= ? AND date <= ?\n        GROUP BY date ORDER BY date ASC",
+  "describe": {
+    "columns": [
+      {
+        "name": "date!",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "grams!: f64",
+        "ordinal": 1,
+        "type_info": "Float"
+      }
+    ],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "732b131a04e1aa26fc960d93ebdca2c2bcf7b6f0f70da0ce62bdf076454dee2b"
+}

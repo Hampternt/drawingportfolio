@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE food_items SET is_favourite = 1 - is_favourite WHERE id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "a279a87f0d5489ab2fc62047ddbf9226280c7233f3547fef7edd71637d21c6da"
+}

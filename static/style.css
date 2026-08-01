@@ -617,6 +617,23 @@ body.fitness-dark .portion-row .portion-btn { flex: 1; }
 body.fitness-dark .portion-grams { width: 96px; flex: none; }
 body.fitness-dark .match-log-btn { width: 100%; min-height: 50px; font-size: 15px; margin-top: 14px; }
 
+/* library grouping + detail (Task 8) */
+body.fitness-dark .lib-chips { display: flex; gap: 7px; flex-wrap: wrap; margin-bottom: 14px; }
+body.fitness-dark .lib-group { margin-bottom: 16px; }
+body.fitness-dark .lib-group-head { margin-bottom: 8px; }
+body.fitness-dark .food-thumb-empty { background: var(--noc-accent-900); }
+body.fitness-dark .food-pkg-badge { flex: none; font-size: 10px; padding: 4px 8px; }
+body.fitness-dark .fav-btn {
+  background: none; border: none; cursor: pointer; color: var(--noc-faint);
+  font-size: 16px; min-width: 40px; min-height: 44px;
+}
+body.fitness-dark .fav-btn.is-fav { color: var(--noc-accent-400); }
+body.fitness-dark .fav-label { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--noc-muted); flex-direction: row; }
+body.fitness-dark .item-history { margin-top: 4px; }
+body.fitness-dark .hist-strip { display: flex; align-items: flex-end; gap: 5px; height: 52px; margin-top: 8px; }
+body.fitness-dark .hist-bar { flex: 1; background: var(--noc-n800); border-radius: 2px; }
+body.fitness-dark .hist-strip .hist-bar:last-child { background: var(--noc-accent); }
+
 /* ── Drawing Tasks ───────────────────────────────────── */
 .tasks-page { max-width: 640px; margin: 0 auto; padding: 1rem; }
 

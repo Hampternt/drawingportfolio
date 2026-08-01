@@ -67,6 +67,9 @@ pub struct FoodItem {
     pub package_size: Option<f64>,
     pub custom_portions: String,
     pub image_url: String,
+    pub category: String,
+    pub is_favourite: i64,
+    pub default_portion_g: Option<f64>,
     pub created_at: String,
 }
 
