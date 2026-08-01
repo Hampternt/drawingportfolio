@@ -1,7 +1,4 @@
-use crate::{
-    middleware::{AuthSession, OptionalAuth},
-    AppState,
-};
+use crate::{middleware::AuthSession, AppState};
 use askama::Template;
 use axum::{
     extract::{Multipart, Path, Query, State},
@@ -287,17 +284,17 @@ struct FitnessTemplate {
 // ── Route handlers ────────────────────────────────────────────────────────────
 
 async fn fitness_page(
-    OptionalAuth(is_admin): OptionalAuth,
+    AuthSession(_): AuthSession,
     State(state): State<Arc<AppState>>,
 ) -> impl IntoResponse {
     let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
     let entries = crate::db::get_meal_entries_for_date(&state.pool, &today).await;
     let food_items = crate::db::get_food_items(&state.pool).await;
-    let day_html = day_section_html(&entries, &today, &food_items, is_admin);
-    let lib_html = library_list_html(&food_items, is_admin);
+    let day_html = day_section_html(&entries, &today, &food_items, true);
+    let lib_html = library_list_html(&food_items, true);
     Html(
         FitnessTemplate {
-            is_admin,
+            is_admin: true,
             today,
             day_section_html: day_html,
             library_html: lib_html,
@@ -308,7 +305,7 @@ async fn fitness_page(
 }
 
 async fn htmx_day(
-    OptionalAuth(is_admin): OptionalAuth,
+    AuthSession(_): AuthSession,
     State(state): State<Arc<AppState>>,
     Query(params): Query<HashMap<String, String>>,
 ) -> impl IntoResponse {
@@ -318,11 +315,11 @@ async fn htmx_day(
         .unwrap_or_else(|| chrono::Utc::now().format("%Y-%m-%d").to_string());
     let entries = crate::db::get_meal_entries_for_date(&state.pool, &date).await;
     let food_items = crate::db::get_food_items(&state.pool).await;
-    Html(day_section_html(&entries, &date, &food_items, is_admin))
+    Html(day_section_html(&entries, &date, &food_items, true))
 }
 
 async fn add_food_item(
-    OptionalAuth(is_admin): OptionalAuth,
+    AuthSession(_): AuthSession,
     State(state): State<Arc<AppState>>,
     mut multipart: Multipart,
 ) -> impl IntoResponse {
@@ -461,17 +458,15 @@ async fn add_food_item(
             .into_response();
     }
 
-    // Upload image to S3 if provided and user is admin
+    // Upload image to S3 if provided
     let mut uploaded_to_s3 = false;
-    if is_admin {
-        if let Some(bytes) = image_bytes {
-            if let Some(ext) = crate::routes::admin::validate_magic_bytes(&bytes) {
-                let ct = format!("image/{ext}");
-                let key = format!("food/{}.{}", uuid::Uuid::new_v4(), ext);
-                if let Ok(url) = state.storage.upload(&key, bytes, &ct).await {
-                    image_url = url;
-                    uploaded_to_s3 = true;
-                }
+    if let Some(bytes) = image_bytes {
+        if let Some(ext) = crate::routes::admin::validate_magic_bytes(&bytes) {
+            let ct = format!("image/{ext}");
+            let key = format!("food/{}.{}", uuid::Uuid::new_v4(), ext);
+            if let Ok(url) = state.storage.upload(&key, bytes, &ct).await {
+                image_url = url;
+                uploaded_to_s3 = true;
             }
         }
     }
@@ -506,7 +501,7 @@ async fn add_food_item(
     .await;
 
     let all_items = crate::db::get_food_items(&state.pool).await;
-    Html(library_list_html(&all_items, is_admin)).into_response()
+    Html(library_list_html(&all_items, true)).into_response()
 }
 
 async fn delete_food_item_handler(
@@ -524,7 +519,7 @@ async fn delete_food_item_handler(
 }
 
 async fn add_meal_entry(
-    OptionalAuth(is_admin): OptionalAuth,
+    AuthSession(_): AuthSession,
     State(state): State<Arc<AppState>>,
     axum::Form(form): axum::Form<HashMap<String, String>>,
 ) -> impl IntoResponse {
@@ -544,13 +539,13 @@ async fn add_meal_entry(
     if food_item_id == 0 || grams <= 0.0 {
         let entries = crate::db::get_meal_entries_for_date(&state.pool, &date).await;
         let food_items = crate::db::get_food_items(&state.pool).await;
-        return Html(day_section_html(&entries, &date, &food_items, is_admin)).into_response();
+        return Html(day_section_html(&entries, &date, &food_items, true)).into_response();
     }
 
     let _ = crate::db::insert_meal_entry(&state.pool, food_item_id, &date, grams).await;
     let entries = crate::db::get_meal_entries_for_date(&state.pool, &date).await;
     let food_items = crate::db::get_food_items(&state.pool).await;
-    Html(day_section_html(&entries, &date, &food_items, is_admin)).into_response()
+    Html(day_section_html(&entries, &date, &food_items, true)).into_response()
 }
 
 async fn delete_meal_entry_handler(

@@ -49,9 +49,7 @@
       </div>
       <label class="package-size-label">Package / total size (g)<input type="number" name="package_size" id="package-size-field" step="0.1" min="0" placeholder="e.g. 565"></label>
       <label class="package-size-label">Custom portions (g, comma-separated)<input type="text" name="custom_portions" placeholder="e.g. 125, 250, 375"></label>
-      {% if is_admin %}
       <label class="file-label">Image <input type="file" name="image" accept="image/jpeg,image/png,image/webp"></label>
-      {% endif %}
       <input type="hidden" name="image_url" id="image-url-field" value="">
       <div class="form-actions">
         <button type="submit" class="btn-primary">Save food</button>
