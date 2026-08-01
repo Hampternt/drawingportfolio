@@ -8,60 +8,145 @@
   <script src="{{ base_path }}/assets/htmx.min.js" defer></script>
 </head>
 <body data-player-id="{{ player_id }}">
-  <p class="room-code">{{ code }}</p>
-  <p>Drinking as <strong>{{ player_name }}</strong></p>
+  <header class="topbar">
+    <div class="code-pill">
+      <span class="live-dot"></span>
+      <span class="code-pill-value">{{ code }}</span>
+    </div>
+    <div class="topbar-right" id="topbar-strip"></div>
+    <button type="button" id="mute-btn" class="mute-btn" title="Sound effects"></button>
+  </header>
 
-  <div class="btn-row">
-    <button class="btn-big" hx-post="{{ base_path }}/room/{{ code }}/event"
-            hx-vals='{"kind":"drink"}' hx-swap="none">+1 Drink</button>
-    <button class="btn-big" hx-post="{{ base_path }}/room/{{ code }}/event"
-            hx-vals='{"kind":"shot"}' hx-swap="none">+1 Shot</button>
+  <nav class="tab-row">
+    <button type="button" class="tab-btn tab-active" data-tab="game">GAME</button>
+    <button type="button" class="tab-btn" data-tab="standings">STANDINGS</button>
+    <button type="button" class="tab-btn" data-tab="room">ROOM</button>
+  </nav>
+
+  <main class="tab-content">
+    <section class="tab-pane" data-pane="game" id="game-panel">{{ game_panel|safe }}</section>
+    <section class="tab-pane" data-pane="standings" hidden>
+      <ol id="standings-list" class="standings-list">{{ leaderboard_items|safe }}</ol>
+    </section>
+    <section class="tab-pane" data-pane="room" id="room-panel" hidden>{{ room_panel|safe }}</section>
+  </main>
+
+  <div class="thumb-bar">
+    <button type="button" class="thumb-btn thumb-drink" hx-post="{{ base_path }}/room/{{ code }}/event"
+            hx-vals='{"kind":"drink"}' hx-swap="none" data-sound="drink">
+      <span class="thumb-label">+1 DRINK</span>
+      <span class="thumb-count"><span data-my-drinks>0</span> tonight</span>
+    </button>
+    <button type="button" class="thumb-btn thumb-shot" hx-post="{{ base_path }}/room/{{ code }}/event"
+            hx-vals='{"kind":"shot"}' hx-swap="none" data-sound="shot">
+      <span class="thumb-label">+1 SHOT</span>
+      <span class="thumb-count"><span data-my-shots>0</span> tonight</span>
+    </button>
+    <button type="button" class="thumb-btn thumb-undo" hx-post="{{ base_path }}/room/{{ code }}/undo" hx-swap="none">UNDO</button>
   </div>
-  <div class="btn-row">
-    <button class="btn-undo" hx-post="{{ base_path }}/room/{{ code }}/undo"
-            hx-swap="none">Undo</button>
-    <form method="post" action="{{ base_path }}/room/{{ code }}/end"
-          onsubmit="return confirm('End the night for everyone?')">
-      <button type="submit" class="btn-end">End night</button>
-    </form>
-  </div>
 
-  <div id="game-error"></div>
-  <div id="game-panel">{{ game_panel|safe }}</div>
-
-  <ol id="leaderboard">{{ leaderboard_items|safe }}</ol>
+  <div id="emote-layer" aria-hidden="true"></div>
+  <div id="game-error" role="alert"></div>
 
   <script>
-    const es = new EventSource("{{ base_path }}/room/{{ code }}/sse");
-    es.addEventListener("leaderboard", (e) => {
-      document.getElementById("leaderboard").innerHTML = e.data;
-    });
-    es.addEventListener("game", (e) => {
-      const panel = document.getElementById("game-panel");
-      panel.innerHTML = e.data;
-      htmx.process(panel); // SSE-injected HTML bypasses htmx's own scan
-      revealUseButtons();
-    });
-    es.addEventListener("ended", () => {
-      es.close();
-      window.location = "{{ base_path }}/";
-    });
-    // Use buttons arrive hidden in the broadcast HTML (same fragment for
-    // every screen); reveal only the ones this player holds.
-    function revealUseButtons() {
-      const me = document.body.dataset.playerId;
-      document.querySelectorAll("#game-panel .use-btn").forEach((b) => {
-        if (b.dataset.holderId === me) b.hidden = false;
-      });
+const BP = "{{ base_path }}", CODE = "{{ code }}";
+const lastKeys = {}; let animFlip = false;
+// 3 Man (Task 11): derives the viewer's exposure line ("You're on their
+// left — a 7 is yours.") from the seat strip's data-order/-roller/
+// -three-man attrs. No game logic beyond neighbour lookup lives here.
+function exposureLine(root) {
+  const strip = (root || document).querySelector("[data-order]");
+  const out = document.getElementById("exposure-line");
+  if (!strip || !out) return;
+  const me = document.body.dataset.playerId;
+  const order = strip.dataset.order.split(",");
+  const i = order.indexOf(strip.dataset.roller), mine = order.indexOf(me);
+  if (i < 0 || mine < 0) { out.textContent = ""; return; }
+  const n = order.length;
+  const parts = [];
+  if (mine === (i + 1) % n) parts.push("You're on their left — a 7 is yours.");
+  if (mine === (i + n - 1) % n) parts.push("You're on their right — a 9 is yours.");
+  if (me === strip.dataset.threeMan) parts.push("Any 3 is yours.");
+  if (mine === i) parts.push("An 11 is yours.");
+  out.textContent = parts.join(" ");
+}
+function personalize(root) {
+  root = root || document;
+  const me = document.body.dataset.playerId;
+  root.querySelectorAll("[data-show-player]").forEach(el => { el.hidden = el.dataset.showPlayer !== me; });
+  root.querySelectorAll("[data-hide-player]").forEach(el => { el.hidden = el.dataset.hidePlayer === me; });
+  root.querySelectorAll("[data-me-text]").forEach(el => { if (el.dataset.playerId === me) el.textContent = el.dataset.meText; });
+  const mine = document.querySelector('#standings-list [data-player-id="' + me + '"]');
+  if (mine) {
+    mine.classList.add("lb-me");
+    document.querySelectorAll("[data-my-drinks]").forEach(el => el.textContent = mine.dataset.drinks);
+    document.querySelectorAll("[data-my-shots]").forEach(el => el.textContent = mine.dataset.shots);
+  }
+  if (typeof exposureLine === "function") exposureLine(root); // Task 11
+}
+function swapPanel(id, evName, html) {
+  const el = document.getElementById(id);
+  el.innerHTML = html;
+  htmx.process(el);
+  const keyed = el.querySelector("[data-anim-key]");
+  if (keyed) {
+    const key = keyed.dataset.animKey;
+    if (evName in lastKeys && lastKeys[evName] !== key) {
+      animFlip = !animFlip;
+      el.querySelectorAll("[data-anim]").forEach(a => a.classList.add(animFlip ? "anim-a" : "anim-b"));
     }
-    document.addEventListener("DOMContentLoaded", revealUseButtons);
-    // Surface 4xx game errors (already-friendly HTML fragments) briefly.
-    document.body.addEventListener("htmx:responseError", (e) => {
-      const el = document.getElementById("game-error");
-      if (!el) return;
-      el.innerHTML = e.detail.xhr.responseText;
-      setTimeout(() => { el.innerHTML = ""; }, 4000);
-    });
+    lastKeys[evName] = key;
+  }
+  personalize(el);
+}
+const es = new EventSource(BP + "/room/" + CODE + "/sse");
+es.addEventListener("leaderboard", e => { document.getElementById("standings-list").innerHTML = e.data; personalize(); });
+es.addEventListener("game", e => swapPanel("game-panel", "game", e.data));
+es.addEventListener("room", e => {
+  const tpl = document.createElement("div");
+  tpl.innerHTML = e.data;
+  const strip = tpl.querySelector("template[data-topbar]");
+  if (strip) document.getElementById("topbar-strip").innerHTML = strip.innerHTML;
+  swapPanel("room-panel", "room", e.data);
+  const mode = tpl.querySelector("[data-mode]")?.dataset.mode || "idle";
+  document.querySelector('[data-tab="room"]').textContent = mode === "three_man" ? "TABLE" : "ROOM";
+});
+es.addEventListener("emote", e => {
+  const s = document.createElement("span");
+  s.className = "emote-float";
+  s.textContent = e.data;
+  s.style.left = (12 + Math.random() * 70) + "%";
+  document.getElementById("emote-layer").appendChild(s);
+  setTimeout(() => s.remove(), 1000);
+});
+es.addEventListener("ended", () => { es.close(); window.location = BP + "/"; });
+// Sounds: tapping phone only, muted via one global localStorage key.
+function muted() { return localStorage.getItem("drinks_muted") === "1"; }
+document.addEventListener("click", ev => {
+  const t = ev.target.closest("[data-sound]");
+  if (t && !muted()) new Audio(BP + "/assets/sounds/" + t.dataset.sound + ".mp3").play().catch(() => {});
+});
+// Mute toggle + tab switching + share button:
+document.getElementById("mute-btn").addEventListener("click", () => {
+  localStorage.setItem("drinks_muted", muted() ? "0" : "1"); syncMute();
+});
+function syncMute() { document.getElementById("mute-btn").textContent = muted() ? "🔇" : "🔊"; }
+document.querySelectorAll("[data-tab]").forEach(b => b.addEventListener("click", () => {
+  document.querySelectorAll("[data-tab]").forEach(x => x.classList.toggle("tab-active", x === b));
+  document.querySelectorAll(".tab-pane").forEach(p => p.hidden = p.dataset.pane !== b.dataset.tab);
+}));
+document.addEventListener("click", ev => {
+  if (!ev.target.closest("[data-share]")) return;
+  const url = location.origin + BP + "/room/" + CODE;
+  if (navigator.share) navigator.share({ url }).catch(() => {});
+  else navigator.clipboard.writeText(url);
+});
+document.body.addEventListener("htmx:responseError", e => {
+  const el = document.getElementById("game-error");
+  el.innerHTML = e.detail.xhr.responseText;
+  setTimeout(() => { el.innerHTML = ""; }, 4000);
+});
+personalize(); syncMute();
   </script>
 </body>
 </html>

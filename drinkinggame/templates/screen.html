@@ -7,23 +7,67 @@
   <link rel="stylesheet" href="{{ base_path }}/assets/game.css">
 </head>
 <body class="screen">
-  <p>Join at <strong>{{ base_path }}/</strong> with code</p>
-  <p class="room-code">{{ code }}</p>
-  <div id="game-panel">{{ game_panel|safe }}</div>
-  <ol id="leaderboard">{{ leaderboard_items|safe }}</ol>
+  <div class="screen-grid">
+    <div id="screen-panel" class="screen-left">{{ game_panel|safe }}</div>
+    <div class="screen-right">
+      <div id="emote-layer-big" class="screen-emote-layer" aria-hidden="true"></div>
+      <div class="join-header">
+        <div class="join-info">
+          <span class="join-kicker">JOIN THE ROOM</span>
+          <span class="join-code">{{ code }}</span>
+        </div>
+        <div class="qr-box">{{ qr_svg|safe }}</div>
+      </div>
+      <div class="standings-header">
+        <span class="standings-kicker">STANDINGS</span>
+        <div class="standings-rule"></div>
+      </div>
+      <ol id="standings-list" class="standings-list">{{ leaderboard_items|safe }}</ol>
+    </div>
+    <div id="screen-strip" class="screen-strip"></div>
+  </div>
   <script>
-    const es = new EventSource("{{ base_path }}/room/{{ code }}/sse");
-    es.addEventListener("leaderboard", (e) => {
-      document.getElementById("leaderboard").innerHTML = e.data;
-    });
-    es.addEventListener("game", (e) => {
-      document.getElementById("game-panel").innerHTML = e.data;
-    });
-    es.addEventListener("ended", () => {
-      es.close();
-      document.getElementById("leaderboard").innerHTML =
-        '<li class="lb-empty">Night over</li>';
-    });
+const BP = "{{ base_path }}", CODE = "{{ code }}";
+const lastKeys = {}; let animFlip = false;
+// Same anim-key strategy as room.html's swapPanel, trimmed: no htmx.process
+// (this page never posts anything) and no personalize (a spectator has no
+// player id to key off of).
+//
+// 3 Man (Task 12): tm_screen_panel() returns TWO sibling roots — the main
+// .screen-panel.screen-tm content plus a full-width .seat-strip-screen
+// meant to span the whole screen below both panes, not sit narrow inside
+// #screen-panel's left-column box. Every other panel kind (idle/RoF) has
+// only one root, so the strip lookup below is a no-op for them and
+// #screen-strip just stays empty (and collapsed, see game.css).
+function swapPanel(id, evName, html) {
+  const el = document.getElementById(id);
+  el.innerHTML = html;
+  const strip = document.getElementById("screen-strip");
+  const seatStrip = el.querySelector(".seat-strip-screen");
+  strip.innerHTML = "";
+  if (seatStrip) strip.appendChild(seatStrip);
+  const keyed = el.querySelector("[data-anim-key]");
+  if (keyed) {
+    const key = keyed.dataset.animKey;
+    if (evName in lastKeys && lastKeys[evName] !== key) {
+      animFlip = !animFlip;
+      el.querySelectorAll("[data-anim]").forEach(a => a.classList.add(animFlip ? "anim-a" : "anim-b"));
+    }
+    lastKeys[evName] = key;
+  }
+}
+const es = new EventSource(BP + "/room/" + CODE + "/sse");
+es.addEventListener("screen", e => swapPanel("screen-panel", "screen", e.data));
+es.addEventListener("leaderboard", e => { document.getElementById("standings-list").innerHTML = e.data; });
+es.addEventListener("emote", e => {
+  const s = document.createElement("span");
+  s.className = "emote-float emote-float-big";
+  s.textContent = e.data;
+  s.style.left = (12 + Math.random() * 70) + "%";
+  document.getElementById("emote-layer-big").appendChild(s);
+  setTimeout(() => s.remove(), 1200);
+});
+es.addEventListener("ended", () => { es.close(); window.location = BP + "/"; });
   </script>
 </body>
 </html>

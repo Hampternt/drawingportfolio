@@ -1,5 +1,7 @@
 use crate::error::GameError;
-use crate::models::{DrawCount, DrawRow, Game, LeaderboardRow, Player, Room, RulePreset};
+use crate::models::{
+    DrawCount, DrawRow, Game, HouseRule, LeaderboardRow, Player, Room, RoomMember, RulePreset,
+};
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use std::str::FromStr;
 
@@ -25,6 +27,10 @@ pub async fn run_migrations(pool: &DbPool) {
         .execute(pool)
         .await
         .expect("drinks migration 002 failed");
+    sqlx::query(include_str!("../migrations/003_shell_and_three_man.sql"))
+        .execute(pool)
+        .await
+        .expect("drinks migration 003 failed");
     // Seed guard: recreate the Standard preset only if missing, so deleting
     // it is permitted but it returns on next deploy (accepted v1 quirk).
     sqlx::query("INSERT OR IGNORE INTO rule_presets (name, rules_json) VALUES ('Standard', ?1)")
@@ -32,6 +38,61 @@ pub async fn run_migrations(pool: &DbPool) {
         .execute(pool)
         .await
         .expect("standard preset seed failed");
+
+    // 003 ALTERs — not idempotent in SQLite, so guard each with pragma_table_info.
+    if !column_exists(pool, "games", "kind").await {
+        sqlx::query("ALTER TABLE games ADD COLUMN kind TEXT NOT NULL DEFAULT 'ring_of_fire'")
+            .execute(pool)
+            .await
+            .expect("003 kind");
+    }
+    if !column_exists(pool, "games", "state_json").await {
+        sqlx::query("ALTER TABLE games ADD COLUMN state_json TEXT")
+            .execute(pool)
+            .await
+            .expect("003 state_json");
+    }
+    if !column_exists(pool, "game_draws", "rank").await {
+        sqlx::query("ALTER TABLE game_draws ADD COLUMN rank INTEGER")
+            .execute(pool)
+            .await
+            .expect("003 rank");
+    }
+    // Rank backfill — WHERE rank IS NULL makes it idempotent.
+    let games: Vec<(i64, String)> = sqlx::query_as(
+        "SELECT id, deck_order FROM games WHERE deck_order != '' AND id IN
+         (SELECT DISTINCT game_id FROM game_draws WHERE rank IS NULL)",
+    )
+    .fetch_all(pool)
+    .await
+    .expect("backfill scan");
+    for (gid, deck_order) in games {
+        let deck = crate::cards::parse_deck(&deck_order);
+        let draws: Vec<(i64, i64)> = sqlx::query_as(
+            "SELECT id, card_index FROM game_draws WHERE game_id = ?1 AND rank IS NULL",
+        )
+        .bind(gid)
+        .fetch_all(pool)
+        .await
+        .expect("backfill read");
+        for (id, idx) in draws {
+            sqlx::query("UPDATE game_draws SET rank = ?1 WHERE id = ?2")
+                .bind(deck[idx as usize].rank as i64)
+                .bind(id)
+                .execute(pool)
+                .await
+                .expect("backfill write");
+        }
+    }
+}
+
+async fn column_exists(pool: &DbPool, table: &str, column: &str) -> bool {
+    let cols: Vec<(String,)> =
+        sqlx::query_as(&format!("SELECT name FROM pragma_table_info('{table}')"))
+            .fetch_all(pool)
+            .await
+            .expect("pragma_table_info failed");
+    cols.iter().any(|(c,)| c == column)
 }
 
 pub async fn get_player_by_name(pool: &DbPool, name: &str) -> Option<Player> {
@@ -153,6 +214,13 @@ pub async fn end_room(pool: &DbPool, room_id: i64) {
         .execute(pool)
         .await
         .expect("end_room failed");
+    sqlx::query(
+        "UPDATE games SET ended_at = datetime('now') WHERE room_id = ?1 AND ended_at IS NULL",
+    )
+    .bind(room_id)
+    .execute(pool)
+    .await
+    .expect("end_room: end active game failed");
 }
 
 /// Ends rooms idle longer than max_idle_hours; returns their ids so the
@@ -168,7 +236,17 @@ pub async fn end_inactive_rooms(pool: &DbPool, max_idle_hours: i64) -> Vec<i64> 
     .fetch_all(pool)
     .await
     .expect("end_inactive_rooms failed");
-    ids.into_iter().map(|(id,)| id).collect()
+    let ids: Vec<i64> = ids.into_iter().map(|(id,)| id).collect();
+    for room_id in &ids {
+        sqlx::query(
+            "UPDATE games SET ended_at = datetime('now') WHERE room_id = ?1 AND ended_at IS NULL",
+        )
+        .bind(room_id)
+        .execute(pool)
+        .await
+        .expect("end_inactive_rooms: end active game failed");
+    }
+    ids
 }
 
 pub async fn insert_event(pool: &DbPool, room_id: i64, player_id: i64, kind: &str) {
@@ -204,7 +282,7 @@ pub async fn undo_last_event(pool: &DbPool, room_id: i64, player_id: i64) -> boo
 /// Sorted by total descending, then name for a stable order.
 pub async fn leaderboard(pool: &DbPool, room_id: i64) -> Vec<LeaderboardRow> {
     sqlx::query_as::<_, LeaderboardRow>(
-        "SELECT p.name,
+        "SELECT p.id AS id, p.name,
                 COALESCE(SUM(CASE WHEN e.kind = 'drink' THEN 1 ELSE 0 END), 0) AS drinks,
                 COALESCE(SUM(CASE WHEN e.kind = 'shot'  THEN 1 ELSE 0 END), 0) AS shots
          FROM room_players rp
@@ -221,6 +299,29 @@ pub async fn leaderboard(pool: &DbPool, room_id: i64) -> Vec<LeaderboardRow> {
     .fetch_all(pool)
     .await
     .expect("leaderboard failed")
+}
+
+/// Members of a room in join order — used by games that need seat order
+/// (Shell direction, 3 Man turn rotation).
+pub async fn room_members(pool: &DbPool, room_id: i64) -> Vec<RoomMember> {
+    sqlx::query_as::<_, RoomMember>(
+        "SELECT p.id AS id, p.name, rp.joined_at
+         FROM room_players rp JOIN players p ON p.id = rp.player_id
+         WHERE rp.room_id = ?1
+         ORDER BY rp.joined_at, p.id",
+    )
+    .bind(room_id)
+    .fetch_all(pool)
+    .await
+    .expect("room_members failed")
+}
+
+/// Bulk-inserts n identical events at once — used by games that hand out
+/// several drinks/shots in one action (e.g. a 3 Man penalty).
+pub async fn insert_events_bulk(pool: &DbPool, room_id: i64, player_id: i64, kind: &str, n: u32) {
+    for _ in 0..n {
+        insert_event(pool, room_id, player_id, kind).await;
+    }
 }
 
 pub async fn list_presets(pool: &DbPool) -> Vec<RulePreset> {
@@ -283,20 +384,28 @@ pub async fn delete_preset(pool: &DbPool, id: i64) -> bool {
 }
 
 /// GameAlreadyActive when the partial unique index (one active game per
-/// room) rejects the insert.
+/// room) rejects the insert. `kind` distinguishes which game is running
+/// ("ring_of_fire", "shell", "three_man"); `state_json` is the initial
+/// per-game state blob for games that need one (None for Ring of Fire).
 pub async fn start_game(
     pool: &DbPool,
     room_id: i64,
+    kind: &str,
     rules_json: &str,
     deck_order: &str,
+    state_json: Option<&str>,
 ) -> Result<i64, GameError> {
-    let res =
-        sqlx::query("INSERT INTO games (room_id, rules_json, deck_order) VALUES (?1, ?2, ?3)")
-            .bind(room_id)
-            .bind(rules_json)
-            .bind(deck_order)
-            .execute(pool)
-            .await;
+    let res = sqlx::query(
+        "INSERT INTO games (room_id, kind, rules_json, deck_order, state_json)
+         VALUES (?1, ?2, ?3, ?4, ?5)",
+    )
+    .bind(room_id)
+    .bind(kind)
+    .bind(rules_json)
+    .bind(deck_order)
+    .bind(state_json)
+    .execute(pool)
+    .await;
     match res {
         Ok(r) => Ok(r.last_insert_rowid()),
         Err(e)
@@ -311,7 +420,7 @@ pub async fn start_game(
 
 pub async fn get_active_game(pool: &DbPool, room_id: i64) -> Option<Game> {
     sqlx::query_as::<_, Game>(
-        "SELECT id, room_id, rules_json, deck_order, created_at, ended_at
+        "SELECT id, room_id, rules_json, deck_order, created_at, ended_at, kind, state_json
          FROM games WHERE room_id = ?1 AND ended_at IS NULL",
     )
     .bind(room_id)
@@ -320,11 +429,30 @@ pub async fn get_active_game(pool: &DbPool, room_id: i64) -> Option<Game> {
     .expect("get_active_game failed")
 }
 
+/// Overwrites a game's freeform state blob — used by games (Shell, 3 Man)
+/// that track progress beyond the shared draw/rules tables.
+pub async fn set_game_state(pool: &DbPool, game_id: i64, state_json: &str) {
+    sqlx::query("UPDATE games SET state_json = ?1 WHERE id = ?2")
+        .bind(state_json)
+        .bind(game_id)
+        .execute(pool)
+        .await
+        .expect("set_game_state failed");
+}
+
 /// Claims the next undrawn card index for player_id and returns it.
 /// A double-tap race loses on UNIQUE(game_id, card_index) and retries with
 /// the next index. Terminates unconditionally when any unique-violation
 /// insert reaches 52 (no more indices to claim).
-pub async fn insert_draw(pool: &DbPool, game_id: i64, player_id: i64) -> Result<i64, GameError> {
+/// `deck_ranks[next_index]` is written as the draw's rank at insert time —
+/// callers pass the game's deck order pre-mapped to ranks so this stays a
+/// pure index lookup, no card parsing in the hot loop.
+pub async fn insert_draw(
+    pool: &DbPool,
+    game_id: i64,
+    player_id: i64,
+    deck_ranks: &[u8],
+) -> Result<i64, GameError> {
     loop {
         let (next_index,): (i64,) = sqlx::query_as(
             "SELECT COALESCE(MAX(card_index) + 1, 0) FROM game_draws WHERE game_id = ?1",
@@ -336,12 +464,14 @@ pub async fn insert_draw(pool: &DbPool, game_id: i64, player_id: i64) -> Result<
         if next_index >= 52 {
             return Err(GameError::DeckExhausted);
         }
+        let rank = deck_ranks[next_index as usize] as i64;
         let res = sqlx::query(
-            "INSERT INTO game_draws (game_id, player_id, card_index) VALUES (?1, ?2, ?3)",
+            "INSERT INTO game_draws (game_id, player_id, card_index, rank) VALUES (?1, ?2, ?3, ?4)",
         )
         .bind(game_id)
         .bind(player_id)
         .bind(next_index)
+        .bind(rank)
         .execute(pool)
         .await;
         match res {
@@ -359,7 +489,7 @@ pub async fn insert_draw(pool: &DbPool, game_id: i64, player_id: i64) -> Result<
 
 pub async fn get_draws(pool: &DbPool, game_id: i64) -> Vec<DrawRow> {
     sqlx::query_as::<_, DrawRow>(
-        "SELECT gd.id, gd.player_id, p.name AS player_name, gd.card_index, gd.spent_at
+        "SELECT gd.id, gd.player_id, p.name AS player_name, gd.card_index, gd.spent_at, gd.rank
          FROM game_draws gd JOIN players p ON p.id = gd.player_id
          WHERE gd.game_id = ?1 ORDER BY gd.card_index",
     )
@@ -419,6 +549,87 @@ pub async fn lifetime_counts(pool: &DbPool, player_id: i64) -> (i64, i64) {
     .await
     .expect("lifetime_counts failed");
     row
+}
+
+/// Inserts a house rule for the given draw. Err on the draw already having
+/// one (UNIQUE(draw_id) violation) — callers map it to a friendly error.
+pub async fn insert_house_rule(
+    pool: &DbPool,
+    game_id: i64,
+    draw_id: i64,
+    player_id: i64,
+    text: &str,
+) -> Result<i64, sqlx::Error> {
+    let res = sqlx::query(
+        "INSERT INTO game_house_rules (game_id, draw_id, player_id, text) VALUES (?1, ?2, ?3, ?4)",
+    )
+    .bind(game_id)
+    .bind(draw_id)
+    .bind(player_id)
+    .bind(text)
+    .execute(pool)
+    .await?;
+    Ok(res.last_insert_rowid())
+}
+
+pub async fn house_rules(pool: &DbPool, game_id: i64) -> Vec<HouseRule> {
+    sqlx::query_as::<_, HouseRule>(
+        "SELECT hr.id, hr.draw_id, hr.player_id, p.name AS player_name, hr.text
+         FROM game_house_rules hr JOIN players p ON p.id = hr.player_id
+         WHERE hr.game_id = ?1 ORDER BY hr.id",
+    )
+    .bind(game_id)
+    .fetch_all(pool)
+    .await
+    .expect("house_rules failed")
+}
+
+/// Number of Kings (rank 13) drawn so far in this game.
+pub async fn king_count(pool: &DbPool, game_id: i64) -> i64 {
+    let row: (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM game_draws WHERE game_id = ?1 AND rank = 13")
+            .bind(game_id)
+            .fetch_one(pool)
+            .await
+            .expect("king_count failed");
+    row.0
+}
+
+/// Name of whoever drew the most recent King, or None if no King has been
+/// drawn yet.
+pub async fn last_king_drawer(pool: &DbPool, game_id: i64) -> Option<String> {
+    let row: Option<(String,)> = sqlx::query_as(
+        "SELECT p.name FROM game_draws gd JOIN players p ON p.id = gd.player_id
+         WHERE gd.game_id = ?1 AND gd.rank = 13
+         ORDER BY gd.card_index DESC LIMIT 1",
+    )
+    .bind(game_id)
+    .fetch_optional(pool)
+    .await
+    .expect("last_king_drawer failed");
+    row.map(|(name,)| name)
+}
+
+/// Lifetime count of distinct rooms (nights) a player has joined.
+pub async fn lifetime_nights(pool: &DbPool, player_id: i64) -> i64 {
+    let row: (i64,) =
+        sqlx::query_as("SELECT COUNT(DISTINCT room_id) FROM room_players WHERE player_id = ?1")
+            .bind(player_id)
+            .fetch_one(pool)
+            .await
+            .expect("lifetime_nights failed");
+    row.0
+}
+
+/// Lifetime count of Kings drawn by a player, across all games.
+pub async fn lifetime_kings(pool: &DbPool, player_id: i64) -> i64 {
+    let row: (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM game_draws WHERE player_id = ?1 AND rank = 13")
+            .bind(player_id)
+            .fetch_one(pool)
+            .await
+            .expect("lifetime_kings failed");
+    row.0
 }
 
 #[cfg(test)]
@@ -607,10 +818,35 @@ mod tests {
     async fn seed_game(pool: &DbPool) -> (i64, i64, i64, i64) {
         let (room, alice, bob) = seed_room_with_players(pool).await;
         let deck = crate::cards::deck_to_string(&crate::cards::shuffled_deck());
-        let game = start_game(pool, room, &crate::rules::standard_rules_json(), &deck)
-            .await
-            .unwrap();
+        let game = start_game(
+            pool,
+            room,
+            "ring_of_fire",
+            &crate::rules::standard_rules_json(),
+            &deck,
+            None,
+        )
+        .await
+        .unwrap();
         (room, game, alice, bob)
+    }
+
+    /// Test-only lookup: a game's deck_order by id, regardless of whether
+    /// the game is still active.
+    async fn get_active_game_deck(pool: &DbPool, game_id: i64) -> String {
+        sqlx::query_as::<_, (String,)>("SELECT deck_order FROM games WHERE id = ?1")
+            .bind(game_id)
+            .fetch_one(pool)
+            .await
+            .unwrap()
+            .0
+    }
+
+    async fn deck_ranks(pool: &DbPool, game_id: i64) -> Vec<u8> {
+        crate::cards::parse_deck(&get_active_game_deck(pool, game_id).await)
+            .iter()
+            .map(|c| c.rank)
+            .collect()
     }
 
     #[tokio::test]
@@ -618,22 +854,27 @@ mod tests {
         let pool = test_pool().await;
         let (room, _game, _a, _b) = seed_game(&pool).await;
         let deck = crate::cards::deck_to_string(&crate::cards::shuffled_deck());
-        let err = start_game(&pool, room, "[]", &deck).await.unwrap_err();
+        let err = start_game(&pool, room, "ring_of_fire", "[]", &deck, None)
+            .await
+            .unwrap_err();
         assert!(matches!(err, crate::error::GameError::GameAlreadyActive));
         // Ending frees the room for a new game.
         let game = get_active_game(&pool, room).await.unwrap();
         end_game(&pool, game.id).await;
         assert!(get_active_game(&pool, room).await.is_none());
-        assert!(start_game(&pool, room, "[]", &deck).await.is_ok());
+        assert!(start_game(&pool, room, "ring_of_fire", "[]", &deck, None)
+            .await
+            .is_ok());
     }
 
     #[tokio::test]
     async fn test_draws_come_back_in_deck_order() {
         let pool = test_pool().await;
         let (_room, game, alice, bob) = seed_game(&pool).await;
-        assert_eq!(insert_draw(&pool, game, alice).await.unwrap(), 0);
-        assert_eq!(insert_draw(&pool, game, bob).await.unwrap(), 1);
-        assert_eq!(insert_draw(&pool, game, alice).await.unwrap(), 2);
+        let ranks = deck_ranks(&pool, game).await;
+        assert_eq!(insert_draw(&pool, game, alice, &ranks).await.unwrap(), 0);
+        assert_eq!(insert_draw(&pool, game, bob, &ranks).await.unwrap(), 1);
+        assert_eq!(insert_draw(&pool, game, alice, &ranks).await.unwrap(), 2);
         let draws = get_draws(&pool, game).await;
         assert_eq!(
             draws.iter().map(|d| d.card_index).collect::<Vec<_>>(),
@@ -655,17 +896,19 @@ mod tests {
             .await
             .unwrap();
         // Bob's insert_draw must skip to index 1, not fail or duplicate.
-        assert_eq!(insert_draw(&pool, game, bob).await.unwrap(), 1);
+        let ranks = deck_ranks(&pool, game).await;
+        assert_eq!(insert_draw(&pool, game, bob, &ranks).await.unwrap(), 1);
     }
 
     #[tokio::test]
     async fn test_deck_exhaustion() {
         let pool = test_pool().await;
         let (_room, game, alice, _bob) = seed_game(&pool).await;
+        let ranks = deck_ranks(&pool, game).await;
         for i in 0..52 {
-            assert_eq!(insert_draw(&pool, game, alice).await.unwrap(), i);
+            assert_eq!(insert_draw(&pool, game, alice, &ranks).await.unwrap(), i);
         }
-        let err = insert_draw(&pool, game, alice).await.unwrap_err();
+        let err = insert_draw(&pool, game, alice, &ranks).await.unwrap_err();
         assert!(matches!(err, crate::error::GameError::DeckExhausted));
     }
 
@@ -673,15 +916,23 @@ mod tests {
     async fn test_spend_only_holder_only_once() {
         let pool = test_pool().await;
         let (_room, game, alice, bob) = seed_game(&pool).await;
-        insert_draw(&pool, game, alice).await.unwrap();
+        let ranks = deck_ranks(&pool, game).await;
+        insert_draw(&pool, game, alice, &ranks).await.unwrap();
         let draw_id = get_draws(&pool, game).await[0].id;
 
         // Create a second game in a different room to test game_id guard
         let room2 = crate::rooms::create_room_with_unique_code(&pool).await;
         let deck = crate::cards::deck_to_string(&crate::cards::shuffled_deck());
-        let game2 = start_game(&pool, room2.id, &crate::rules::standard_rules_json(), &deck)
-            .await
-            .unwrap();
+        let game2 = start_game(
+            &pool,
+            room2.id,
+            "ring_of_fire",
+            &crate::rules::standard_rules_json(),
+            &deck,
+            None,
+        )
+        .await
+        .unwrap();
 
         assert!(!spend_draw(&pool, game, draw_id, bob).await); // not the holder
         assert!(!spend_draw(&pool, game2, draw_id, alice).await); // wrong game
@@ -695,9 +946,10 @@ mod tests {
     async fn test_draw_counts_order_and_totals() {
         let pool = test_pool().await;
         let (_room, game, alice, bob) = seed_game(&pool).await;
-        insert_draw(&pool, game, bob).await.unwrap();
-        insert_draw(&pool, game, alice).await.unwrap();
-        insert_draw(&pool, game, bob).await.unwrap();
+        let ranks = deck_ranks(&pool, game).await;
+        insert_draw(&pool, game, bob, &ranks).await.unwrap();
+        insert_draw(&pool, game, alice, &ranks).await.unwrap();
+        insert_draw(&pool, game, bob, &ranks).await.unwrap();
         assert_eq!(
             draw_counts(&pool, game).await,
             vec![
@@ -710,6 +962,165 @@ mod tests {
                     draws: 1
                 },
             ]
+        );
+    }
+
+    #[tokio::test]
+    async fn test_set_game_state_roundtrips_through_get_active_game() {
+        let pool = test_pool().await;
+        let (room, game, _a, _b) = seed_game(&pool).await;
+        assert!(get_active_game(&pool, room)
+            .await
+            .unwrap()
+            .state_json
+            .is_none());
+        set_game_state(&pool, game, r#"{"turn":1}"#).await;
+        assert_eq!(
+            get_active_game(&pool, room).await.unwrap().state_json,
+            Some(r#"{"turn":1}"#.to_string())
+        );
+        // Overwriting replaces, doesn't merge.
+        set_game_state(&pool, game, r#"{"turn":2}"#).await;
+        assert_eq!(
+            get_active_game(&pool, room).await.unwrap().state_json,
+            Some(r#"{"turn":2}"#.to_string())
+        );
+    }
+
+    #[tokio::test]
+    async fn test_migration_003_adds_columns_and_is_idempotent() {
+        let pool = test_pool().await;
+        run_migrations(&pool).await; // second run must not error
+                                     // Columns exist with defaults.
+        let g = seed_game(&pool).await;
+        let game = get_active_game(&pool, g.0).await.unwrap();
+        assert_eq!(game.kind, "ring_of_fire");
+        assert!(game.state_json.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_rank_backfill_is_idempotent_and_correct() {
+        let pool = test_pool().await;
+        let (_room, game, alice, _bob) = seed_game(&pool).await;
+        let deck = crate::cards::parse_deck(&get_active_game_deck(&pool, game).await);
+        let ranks: Vec<u8> = deck.iter().map(|c| c.rank).collect();
+        insert_draw(&pool, game, alice, &ranks).await.unwrap();
+        // Simulate a pre-003 row: null out the rank, then re-run migrations.
+        sqlx::query("UPDATE game_draws SET rank = NULL")
+            .execute(&pool)
+            .await
+            .unwrap();
+        run_migrations(&pool).await;
+        run_migrations(&pool).await; // idempotent
+        let draws = get_draws(&pool, game).await;
+        assert_eq!(draws[0].rank, deck[0].rank as i64);
+    }
+
+    #[tokio::test]
+    async fn test_house_rule_one_per_draw() {
+        let pool = test_pool().await;
+        let (room, game, alice, _bob) = seed_game(&pool).await;
+        let deck =
+            crate::cards::parse_deck(&get_active_game(&pool, room).await.unwrap().deck_order);
+        let ranks: Vec<u8> = deck.iter().map(|c| c.rank).collect();
+        insert_draw(&pool, game, alice, &ranks).await.unwrap();
+        let draw_id = get_draws(&pool, game).await[0].id;
+        assert!(insert_house_rule(&pool, game, draw_id, alice, "no names")
+            .await
+            .is_ok());
+        assert!(insert_house_rule(&pool, game, draw_id, alice, "again")
+            .await
+            .is_err());
+        let rules = house_rules(&pool, game).await;
+        assert_eq!(rules.len(), 1);
+        assert_eq!(rules[0].player_name, "alice");
+    }
+
+    #[tokio::test]
+    async fn test_lifetime_nights_and_kings() {
+        let pool = test_pool().await;
+        let alice = insert_player(&pool, "alice", "h").await.unwrap();
+        let r1 = crate::rooms::create_room_with_unique_code(&pool).await;
+        let r2 = crate::rooms::create_room_with_unique_code(&pool).await;
+        join_room(&pool, r1.id, alice).await;
+        join_room(&pool, r2.id, alice).await;
+        assert_eq!(lifetime_nights(&pool, alice).await, 2);
+
+        // Rig a deck whose first card is a King, draw it.
+        let mut deck = crate::cards::shuffled_deck();
+        let king_pos = deck.iter().position(|c| c.rank == 13).unwrap();
+        deck.swap(0, king_pos);
+        let deck_str = crate::cards::deck_to_string(&deck);
+        let game = start_game(
+            &pool,
+            r1.id,
+            "ring_of_fire",
+            &crate::rules::standard_rules_json(),
+            &deck_str,
+            None,
+        )
+        .await
+        .unwrap();
+        let ranks: Vec<u8> = deck.iter().map(|c| c.rank).collect();
+        insert_draw(&pool, game, alice, &ranks).await.unwrap();
+
+        assert_eq!(king_count(&pool, game).await, 1);
+        assert_eq!(last_king_drawer(&pool, game).await, Some("alice".into()));
+        assert_eq!(lifetime_kings(&pool, alice).await, 1);
+    }
+
+    #[tokio::test]
+    async fn test_insert_events_bulk_counts_rows() {
+        let pool = test_pool().await;
+        let (room, alice, _bob) = seed_room_with_players(&pool).await;
+        insert_events_bulk(&pool, room, alice, "drink", 4).await;
+        let lb = leaderboard(&pool, room).await;
+        assert_eq!(lb.iter().find(|r| r.name == "alice").unwrap().drinks, 4);
+    }
+
+    #[tokio::test]
+    async fn test_end_room_ends_active_game() {
+        let pool = test_pool().await;
+        let (room, game, _a, _b) = seed_game(&pool).await;
+        end_room(&pool, room).await;
+        let row: (Option<String>,) = sqlx::query_as("SELECT ended_at FROM games WHERE id = ?1")
+            .bind(game)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert!(row.0.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_end_inactive_rooms_ends_their_games() {
+        let pool = test_pool().await;
+        let (room, game, _a, _b) = seed_game(&pool).await;
+        // Backdate the room 13 hours, mirroring rooms::test_end_inactive_rooms.
+        sqlx::query(
+            "UPDATE rooms SET last_activity_at = datetime('now', '-13 hours') WHERE id = ?1",
+        )
+        .bind(room)
+        .execute(&pool)
+        .await
+        .unwrap();
+        let ended = end_inactive_rooms(&pool, 12).await;
+        assert_eq!(ended, vec![room]);
+        let row: (Option<String>,) = sqlx::query_as("SELECT ended_at FROM games WHERE id = ?1")
+            .bind(game)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert!(row.0.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_room_members_ordered_by_join() {
+        let pool = test_pool().await;
+        let (room, alice, bob) = seed_room_with_players(&pool).await;
+        let members = room_members(&pool, room).await;
+        assert_eq!(
+            members.iter().map(|m| m.id).collect::<Vec<_>>(),
+            vec![alice, bob]
         );
     }
 }

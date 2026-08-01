@@ -14,7 +14,7 @@ pub enum GameError {
     WrongPin,
     #[error("room not found or already ended")]
     RoomNotFound,
-    #[error("no Ring of Fire game is running")]
+    #[error("no game is running")]
     NoActiveGame,
     #[error("a game is already running in this room")]
     GameAlreadyActive,
@@ -24,6 +24,16 @@ pub enum GameError {
     CardNotHeld,
     #[error("no preset with that id")]
     PresetNotFound,
+    #[error("that action belongs to the other game")]
+    WrongGameKind,
+    #[error("that move isn't yours to make")]
+    NotYourCall,
+    #[error("someone beat you to it")]
+    OutOfTurn,
+    #[error("that game needs at least 2 players")]
+    TooFewPlayers,
+    #[error("rule must be 1–200 characters")]
+    RuleTooLong,
     #[error("something went wrong, try again")]
     Db(#[from] sqlx::Error),
 }
@@ -34,8 +44,13 @@ impl IntoResponse for GameError {
             GameError::InvalidName | GameError::InvalidPin => StatusCode::UNPROCESSABLE_ENTITY,
             GameError::WrongPin => StatusCode::UNAUTHORIZED,
             GameError::NoActiveGame | GameError::PresetNotFound => StatusCode::NOT_FOUND,
-            GameError::GameAlreadyActive | GameError::DeckExhausted => StatusCode::CONFLICT,
-            GameError::CardNotHeld => StatusCode::FORBIDDEN,
+            GameError::GameAlreadyActive
+            | GameError::DeckExhausted
+            | GameError::WrongGameKind
+            | GameError::OutOfTurn
+            | GameError::TooFewPlayers => StatusCode::CONFLICT,
+            GameError::CardNotHeld | GameError::NotYourCall => StatusCode::FORBIDDEN,
+            GameError::RuleTooLong => StatusCode::UNPROCESSABLE_ENTITY,
             GameError::RoomNotFound => StatusCode::NOT_FOUND,
             GameError::Db(e) => {
                 tracing::error!("db error: {e}");

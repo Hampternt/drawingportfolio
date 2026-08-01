@@ -1,8 +1,10 @@
 use askama::Template;
 use axum::extract::Form;
 use axum::extract::Path;
+use axum::extract::RawQuery;
 use axum::extract::State;
 use axum::http::header;
+use axum::http::HeaderMap;
 use axum::http::StatusCode;
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{Html, IntoResponse, Redirect};
@@ -29,6 +31,64 @@ struct LandingTemplate {
     player_name: String,
     lifetime_drinks: i64,
     lifetime_shots: i64,
+    lifetime_nights: i64,
+    lifetime_kings: i64,
+    next: String,
+}
+
+/// Only `{base}/room/<4 letters>` is accepted as a post-login destination —
+/// this is the sole gate keeping the `next` query/form param from becoming
+/// an open redirect (arbitrary scheme/host, path traversal, etc.).
+fn valid_next(base_path: &str, next: &str) -> bool {
+    let prefix = format!("{base_path}/room/");
+    match next.strip_prefix(prefix.as_str()) {
+        Some(rest) => rest.len() == 4 && rest.bytes().all(|b| rooms::CODE_ALPHABET.contains(&b)),
+        None => false,
+    }
+}
+
+/// Pulls a validated `next` value out of a raw query string. Room codes are
+/// uppercase letters only, so the value is never percent-encoded and a plain
+/// `split('&')`/`strip_prefix` is enough — no decoding, no serde, and no way
+/// for a malformed query string to fail the extraction.
+fn next_from_query(query: Option<&str>, base_path: &str) -> String {
+    let Some(query) = query else {
+        return String::new();
+    };
+    query
+        .split('&')
+        .find_map(|pair| pair.strip_prefix("next="))
+        .filter(|n| valid_next(base_path, n))
+        .unwrap_or_default()
+        .to_string()
+}
+
+/// Derives an absolute `scheme://host` origin for building shareable URLs
+/// (the room QR code needs an absolute URL, not a path). `X-Forwarded-Proto`
+/// (set by nginx — see deploy/nginx.conf) wins when present; otherwise guess
+/// `http` for local dev hosts and `https` everywhere else.
+pub fn request_origin(headers: &HeaderMap) -> String {
+    let host = headers
+        .get(header::HOST)
+        .and_then(|h| h.to_str().ok())
+        .unwrap_or("localhost");
+    let scheme = headers
+        .get("x-forwarded-proto")
+        .and_then(|h| h.to_str().ok())
+        // A chain of proxies sends a comma-separated list ("https, http") —
+        // only the first hop's value describes what the client actually used.
+        .and_then(|v| v.split(',').next())
+        .map(str::trim)
+        .filter(|s| *s == "http" || *s == "https")
+        .map(str::to_string)
+        .unwrap_or_else(|| {
+            if host.starts_with("localhost") || host.starts_with("127.") {
+                "http".to_string()
+            } else {
+                "https".to_string()
+            }
+        });
+    format!("{scheme}://{host}")
 }
 
 #[derive(Template)]
@@ -57,9 +117,9 @@ struct RoomTemplate {
     base_path: String,
     code: String,
     player_id: i64,
-    player_name: String,
     leaderboard_items: String,
     game_panel: String,
+    room_panel: String,
 }
 
 async fn create_room(
@@ -105,15 +165,50 @@ async fn room_page(
     };
     // Visiting a room joins it: room URLs double as invite links.
     db::join_room(&state.pool, room.id, player.id).await;
-    let rows = db::leaderboard(&state.pool, room.id).await;
+
+    // Mid-game join: a running 3 Man round tracks seating in its own
+    // `order` field (not just room_players), so a newcomer needs appending
+    // there too or they'd never get a turn. Locked across load -> mutate ->
+    // persist -> broadcast, the same discipline every `/tm/*` action
+    // handler uses — releasing the lock before broadcasting would let a
+    // concurrent action handler's broadcast land first, leaving this
+    // request's now-stale render as the last word on every client's screen.
+    {
+        let lock = state.locks.for_room(room.id);
+        let _guard = lock.lock().await;
+        let mut tm_joined = false;
+        if let Some(game) = db::get_active_game(&state.pool, room.id).await {
+            if game.kind == "three_man" {
+                let mut st = crate::three_man::ThreeManState::from_json(
+                    game.state_json.as_deref().unwrap_or_default(),
+                );
+                // Already seated (a revisit, not a fresh join): skip the
+                // rewrite and the extra broadcast — an unchanged order needs
+                // neither.
+                if !st.order.contains(&player.id) {
+                    st.add_player(player.id);
+                    db::set_game_state(&state.pool, game.id, &st.to_json()).await;
+                    tm_joined = true;
+                }
+            }
+        }
+        // New members appear on everyone's ROOM tab without waiting for the
+        // next unrelated event.
+        crate::game::broadcast_room(&state, room.id, &code).await;
+        if tm_joined {
+            crate::game::broadcast_game(&state, room.id, &code, None).await;
+        }
+    }
+    let leaderboard_items = render_leaderboard(&state, room.id).await;
     let game_panel = crate::game::current_panel(&state, room.id, &code, None).await;
+    let room_panel = crate::game::current_room_panel(&state, room.id, &code).await;
     let tpl = RoomTemplate {
         base_path: state.base_path.to_string(),
         code,
         player_id: player.id,
-        player_name: player.name,
-        leaderboard_items: render::leaderboard_items(&rows),
+        leaderboard_items,
         game_panel,
+        room_panel,
     };
     Html(tpl.render().unwrap()).into_response()
 }
@@ -121,16 +216,26 @@ async fn room_page(
 async fn landing(
     State(state): State<GameState>,
     OptionalPlayer(player): OptionalPlayer,
+    // RawQuery, not Query<HashMap<..>>: this is the app's front door, so a
+    // malformed query string must never fail extraction — an unrecognized
+    // shape just means no `next`, handled by `next_from_query` returning "".
+    RawQuery(query): RawQuery,
 ) -> impl IntoResponse {
+    let next = next_from_query(query.as_deref(), &state.base_path);
     let tpl = match player {
         Some(p) => {
             let (drinks, shots) = db::lifetime_counts(&state.pool, p.id).await;
+            let nights = db::lifetime_nights(&state.pool, p.id).await;
+            let kings = db::lifetime_kings(&state.pool, p.id).await;
             LandingTemplate {
                 base_path: state.base_path.to_string(),
                 logged_in: true,
                 player_name: p.name,
                 lifetime_drinks: drinks,
                 lifetime_shots: shots,
+                lifetime_nights: nights,
+                lifetime_kings: kings,
+                next,
             }
         }
         None => LandingTemplate {
@@ -139,6 +244,9 @@ async fn landing(
             player_name: String::new(),
             lifetime_drinks: 0,
             lifetime_shots: 0,
+            lifetime_nights: 0,
+            lifetime_kings: 0,
+            next,
         },
     };
     Html(tpl.render().unwrap())
@@ -148,6 +256,7 @@ async fn landing(
 struct LoginForm {
     name: String,
     pin: String,
+    next: Option<String>,
 }
 
 async fn login(
@@ -158,9 +267,13 @@ async fn login(
         Ok(player) => {
             let sid = auth::new_session_id();
             db::create_session(&state.pool, &sid, player.id, "+90 days").await;
+            let dest = match &form.next {
+                Some(n) if valid_next(&state.base_path, n) => n.clone(),
+                _ => format!("{}/", state.base_path),
+            };
             (
                 [(header::SET_COOKIE, auth::session_cookie(&sid))],
-                Redirect::to(&format!("{}/", state.base_path)),
+                Redirect::to(&dest),
             )
                 .into_response()
         }
@@ -178,13 +291,29 @@ async fn login(
     }
 }
 
+/// Renders the standings, tagging the current 3 Man's row with the badge
+/// when a 3 Man game is active. Shared by `broadcast_leaderboard` and the
+/// SSE reconnect snapshot so a fresh connection carries the badge too.
+async fn render_leaderboard(state: &GameState, room_id: i64) -> String {
+    let rows = db::leaderboard(&state.pool, room_id).await;
+    let three_man = match db::get_active_game(&state.pool, room_id).await {
+        Some(game) if game.kind == "three_man" => {
+            let st = crate::three_man::ThreeManState::from_json(
+                game.state_json.as_deref().unwrap_or_default(),
+            );
+            Some(st.three_man)
+        }
+        _ => None,
+    };
+    render::leaderboard_items_tm(&rows, three_man)
+}
+
 /// Re-render the standings and push to every subscribed screen in the room.
 pub(crate) async fn broadcast_leaderboard(state: &GameState, room_id: i64) {
-    let rows = db::leaderboard(&state.pool, room_id).await;
-    state.hub.publish(
-        room_id,
-        crate::hub::RoomMessage::Leaderboard(render::leaderboard_items(&rows)),
-    );
+    let html = render_leaderboard(state, room_id).await;
+    state
+        .hub
+        .publish(room_id, crate::hub::RoomMessage::Leaderboard(html));
 }
 
 #[derive(Deserialize)]
@@ -211,6 +340,10 @@ async fn log_event(
     db::touch_room(&state.pool, room.id).await;
     crate::mechanics::on_event(room.id, player.id, &form.kind);
     broadcast_leaderboard(&state, room.id).await;
+    // Auto-logged verdict drinks (mechanics) never reach here — only a
+    // player's own drink/shot tap does, so this always fires an emote.
+    let glyph = if form.kind == "drink" { "🍺" } else { "🥃" };
+    state.hub.publish(room.id, RoomMessage::Emote(glyph.into()));
     StatusCode::NO_CONTENT.into_response()
 }
 
@@ -246,6 +379,7 @@ async fn end_room_handler(
     db::end_room(&state.pool, room.id).await;
     state.hub.publish(room.id, crate::hub::RoomMessage::Ended);
     state.hub.remove(room.id);
+    state.locks.remove(room.id);
     Redirect::to(&format!("{}/", state.base_path)).into_response()
 }
 
@@ -265,8 +399,14 @@ async fn sse_stream(
     // client the night is over instead of leaking a zombie hub entry.
     if db::get_open_room(&state.pool, &room.code).await.is_none() {
         state.hub.remove(room.id);
+        state.locks.remove(room.id);
         let stream = futures::stream::once(async move {
-            Ok::<_, Infallible>(Event::default().event("ended").data(""))
+            // A named SSE event with an empty data buffer is silently
+            // dropped by the browser's EventSource parser (WHATWG SSE spec:
+            // no event fires if the data buffer is empty at dispatch time)
+            // — the payload's content doesn't matter, only that a `data:`
+            // field is present at all.
+            Ok::<_, Infallible>(Event::default().event("ended").data("gone"))
         });
         return (
             [(header::HeaderName::from_static("x-accel-buffering"), "no")],
@@ -274,13 +414,16 @@ async fn sse_stream(
         )
             .into_response();
     }
-    let rows = db::leaderboard(&state.pool, room.id).await;
-    let initial = render::leaderboard_items(&rows);
+    let initial = render_leaderboard(&state, room.id).await;
     let initial_game = crate::game::current_panel(&state, room.id, &room.code, None).await;
+    let initial_screen = crate::game::current_screen_panel(&state, room.id, &room.code).await;
+    let initial_room = crate::game::current_room_panel(&state, room.id, &room.code).await;
 
     let stream = futures::stream::iter([
         Ok::<_, Infallible>(Event::default().event("leaderboard").data(initial)),
         Ok::<_, Infallible>(Event::default().event("game").data(initial_game)),
+        Ok::<_, Infallible>(Event::default().event("screen").data(initial_screen)),
+        Ok::<_, Infallible>(Event::default().event("room").data(initial_room)),
     ])
     .chain(BroadcastStream::new(rx).filter_map(|msg| async move {
         match msg {
@@ -288,7 +431,13 @@ async fn sse_stream(
                 Some(Ok(Event::default().event("leaderboard").data(html)))
             }
             Ok(RoomMessage::Game(html)) => Some(Ok(Event::default().event("game").data(html))),
-            Ok(RoomMessage::Ended) => Some(Ok(Event::default().event("ended").data(""))),
+            Ok(RoomMessage::Screen(html)) => Some(Ok(Event::default().event("screen").data(html))),
+            Ok(RoomMessage::Room(html)) => Some(Ok(Event::default().event("room").data(html))),
+            Ok(RoomMessage::Emote(glyph)) => Some(Ok(Event::default().event("emote").data(glyph))),
+            // Same empty-data-buffer pitfall as the zombie-reconnect branch
+            // above: a `data:` field must be present or EventSource drops
+            // the event silently and clients never learn the room ended.
+            Ok(RoomMessage::Ended) => Some(Ok(Event::default().event("ended").data("gone"))),
             // Lagged receiver: skip — the next update carries full state anyway.
             Err(_) => None,
         }
@@ -309,11 +458,13 @@ struct ScreenTemplate {
     code: String,
     leaderboard_items: String,
     game_panel: String,
+    qr_svg: String,
 }
 
 async fn screen_page(
     State(state): State<GameState>,
     Path(code): Path<String>,
+    headers: HeaderMap,
 ) -> axum::response::Response {
     let code = code.to_uppercase();
     let Some(room) = db::get_open_room(&state.pool, &code).await else {
@@ -323,13 +474,22 @@ async fn screen_page(
             "Room not found or already ended",
         );
     };
-    let rows = db::leaderboard(&state.pool, room.id).await;
-    let game_panel = crate::game::current_panel(&state, room.id, &code, None).await;
+    let leaderboard_items = render_leaderboard(&state, room.id).await;
+    // The screen-scale panel builder, not the phone one — the phone idle
+    // panel carries a navigable "Edit rule presets" link that has no
+    // business being reachable from an unauthenticated spectator surface.
+    let game_panel = crate::game::current_screen_panel(&state, room.id, &code).await;
+    let join_url = format!(
+        "{}{}/room/{code}",
+        request_origin(&headers),
+        state.base_path
+    );
     let tpl = ScreenTemplate {
         base_path: state.base_path.to_string(),
         code,
-        leaderboard_items: render::leaderboard_items(&rows),
+        leaderboard_items,
         game_panel,
+        qr_svg: render::qr_svg(&join_url),
     };
     Html(tpl.render().unwrap()).into_response()
 }
@@ -349,6 +509,56 @@ async fn htmx_js() -> impl IntoResponse {
     )
 }
 
+/// Self-hosted webfonts — no third-party font requests from served pages.
+/// Embedded via include_bytes! so the binary is self-contained; unknown
+/// names (including any path-traversal attempt that reaches the handler)
+/// 404 rather than touching the filesystem.
+async fn font_asset(Path(name): Path<String>) -> axum::response::Response {
+    let bytes: &'static [u8] = match name.as_str() {
+        "archivo-500.woff2" => include_bytes!("../assets/fonts/archivo-500.woff2"),
+        "archivo-600.woff2" => include_bytes!("../assets/fonts/archivo-600.woff2"),
+        "archivo-700.woff2" => include_bytes!("../assets/fonts/archivo-700.woff2"),
+        "archivo-800.woff2" => include_bytes!("../assets/fonts/archivo-800.woff2"),
+        "archivo-900.woff2" => include_bytes!("../assets/fonts/archivo-900.woff2"),
+        "space-grotesk-400.woff2" => include_bytes!("../assets/fonts/space-grotesk-400.woff2"),
+        "space-grotesk-500.woff2" => include_bytes!("../assets/fonts/space-grotesk-500.woff2"),
+        "space-grotesk-600.woff2" => include_bytes!("../assets/fonts/space-grotesk-600.woff2"),
+        "space-grotesk-700.woff2" => include_bytes!("../assets/fonts/space-grotesk-700.woff2"),
+        _ => return StatusCode::NOT_FOUND.into_response(),
+    };
+    (
+        [
+            (header::CONTENT_TYPE, "font/woff2"),
+            (header::CACHE_CONTROL, "public, max-age=31536000, immutable"),
+        ],
+        bytes,
+    )
+        .into_response()
+}
+
+/// Sound-effect drop-in: files are never committed (no mp3s in the repo),
+/// so the game ships silent until an admin drops allowlisted mp3s into
+/// DRINKS_SOUNDS_DIR. Non-allowlisted names 404 without touching disk.
+const SOUND_FILES: [&str; 6] = [
+    "drink.mp3",
+    "shot.mp3",
+    "card-draw.mp3",
+    "card-use.mp3",
+    "dice-roll.mp3",
+    "dice-give.mp3",
+];
+
+async fn sound_asset(Path(name): Path<String>) -> axum::response::Response {
+    if !SOUND_FILES.contains(&name.as_str()) {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    let dir = std::env::var("DRINKS_SOUNDS_DIR").unwrap_or_else(|_| "drinks-sounds".into());
+    match tokio::fs::read(std::path::Path::new(&dir).join(&name)).await {
+        Ok(bytes) => ([(header::CONTENT_TYPE, "audio/mpeg")], bytes).into_response(),
+        Err(_) => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
 pub fn router() -> Router<GameState> {
     Router::new()
         .route("/", get(landing))
@@ -366,10 +576,57 @@ pub fn router() -> Router<GameState> {
         .route("/room/{code}/game/draw", post(crate::game::draw_handler))
         .route("/room/{code}/game/spend", post(crate::game::spend_handler))
         .route("/room/{code}/game/end", post(crate::game::end_game_handler))
+        .route("/room/{code}/game/rule", post(crate::game::rule_handler))
+        .route(
+            "/room/{code}/tm/start",
+            post(crate::tm_routes::tm_start_handler),
+        )
+        .route(
+            "/room/{code}/tm/end",
+            post(crate::tm_routes::tm_end_handler),
+        )
+        .route(
+            "/room/{code}/tm/roll",
+            post(crate::tm_routes::tm_roll_handler),
+        )
+        .route(
+            "/room/{code}/tm/three-man",
+            post(crate::tm_routes::tm_three_man_handler),
+        )
+        .route(
+            "/room/{code}/tm/mode",
+            post(crate::tm_routes::tm_mode_handler),
+        )
+        .route(
+            "/room/{code}/tm/target",
+            post(crate::tm_routes::tm_target_handler),
+        )
+        .route(
+            "/room/{code}/tm/clear-slot",
+            post(crate::tm_routes::tm_clear_slot_handler),
+        )
+        .route(
+            "/room/{code}/tm/send",
+            post(crate::tm_routes::tm_send_handler),
+        )
+        .route(
+            "/room/{code}/tm/gift-roll",
+            post(crate::tm_routes::tm_gift_roll_handler),
+        )
+        .route(
+            "/room/{code}/tm/pass",
+            post(crate::tm_routes::tm_pass_handler),
+        )
+        .route(
+            "/room/{code}/tm/seat",
+            post(crate::tm_routes::tm_seat_handler),
+        )
         .route("/room/{code}/sse", get(sse_stream))
         .route("/room/{code}/screen", get(screen_page))
         .route("/assets/game.css", get(game_css))
         .route("/assets/htmx.min.js", get(htmx_js))
+        .route("/assets/fonts/{name}", get(font_asset))
+        .route("/assets/sounds/{name}", get(sound_asset))
         .route(
             "/presets",
             get(crate::presets::presets_page).post(crate::presets::create_preset),
@@ -382,4 +639,64 @@ pub fn router() -> Router<GameState> {
             "/presets/{id}/delete",
             post(crate::presets::delete_preset_handler),
         )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_valid_next() {
+        assert!(valid_next("/drinks", "/drinks/room/QKAM"));
+        assert!(!valid_next("/drinks", "/drinks/room/qkam"));
+        assert!(!valid_next("/drinks", "https://evil.example/x"));
+        assert!(!valid_next("/drinks", "/drinks/room/QKAM/../admin"));
+        assert!(!valid_next("", "/room/QKAM/extra"));
+    }
+
+    #[test]
+    fn test_next_from_query() {
+        assert_eq!(
+            next_from_query(Some("next=/drinks/room/QKAM"), "/drinks"),
+            "/drinks/room/QKAM"
+        );
+        assert_eq!(next_from_query(None, "/drinks"), "");
+        assert_eq!(
+            next_from_query(Some("next=https://evil.example/x"), "/drinks"),
+            ""
+        );
+        assert_eq!(
+            next_from_query(Some("foo=bar&next=/drinks/room/QKAM"), "/drinks"),
+            "/drinks/room/QKAM"
+        );
+    }
+
+    #[test]
+    fn test_request_origin() {
+        let headers = |pairs: &[(&str, &str)]| {
+            let mut h = HeaderMap::new();
+            for (k, v) in pairs {
+                h.insert(
+                    axum::http::HeaderName::from_bytes(k.as_bytes()).unwrap(),
+                    v.parse().unwrap(),
+                );
+            }
+            h
+        };
+        assert_eq!(
+            request_origin(&headers(&[("host", "example.com")])),
+            "https://example.com"
+        );
+        assert_eq!(
+            request_origin(&headers(&[("host", "localhost:3001")])),
+            "http://localhost:3001"
+        );
+        assert_eq!(
+            request_origin(&headers(&[
+                ("x-forwarded-proto", "https"),
+                ("host", "localhost"),
+            ])),
+            "https://localhost"
+        );
+    }
 }

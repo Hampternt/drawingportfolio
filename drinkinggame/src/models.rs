@@ -20,6 +20,7 @@ pub struct Room {
 
 #[derive(sqlx::FromRow, Clone, Debug, PartialEq)]
 pub struct LeaderboardRow {
+    pub id: i64,
     pub name: String,
     pub drinks: i64,
     pub shots: i64,
@@ -41,6 +42,8 @@ pub struct Game {
     pub deck_order: String,
     pub created_at: String,
     pub ended_at: Option<String>,
+    pub kind: String,
+    pub state_json: Option<String>,
 }
 
 /// A draw joined with the drawer's name, for rendering.
@@ -51,10 +54,29 @@ pub struct DrawRow {
     pub player_name: String,
     pub card_index: i64,
     pub spent_at: Option<String>,
+    pub rank: i64,
 }
 
 #[derive(sqlx::FromRow, Clone, Debug, PartialEq)]
 pub struct DrawCount {
     pub name: String,
     pub draws: i64,
+}
+
+/// A house rule typed in after drawing a Jack. draw_id is UNIQUE at the DB
+/// level — one rule per Jack, server-verifiable.
+#[derive(sqlx::FromRow, Clone, Debug, PartialEq)]
+pub struct HouseRule {
+    pub id: i64,
+    pub draw_id: i64,
+    pub player_id: i64,
+    pub player_name: String,
+    pub text: String,
+}
+
+#[derive(sqlx::FromRow, Clone, Debug, PartialEq)]
+pub struct RoomMember {
+    pub id: i64,
+    pub name: String,
+    pub joined_at: String,
 }
