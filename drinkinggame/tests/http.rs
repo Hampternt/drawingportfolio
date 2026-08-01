@@ -2131,3 +2131,242 @@ async fn test_non_member_tm_403() {
     let res = post_form(&app, &carol, &format!("/room/{code}/tm/roll"), "").await;
     assert_eq!(res.status(), StatusCode::FORBIDDEN);
 }
+
+// -------------------------------------------------------------
+// Task 14: Phase-2 integration polish — cross-kind + snapshot + login
+// round-trip coverage closing the spec's Testing checklist gaps left after
+// Tasks 12-13.
+// -------------------------------------------------------------
+
+/// SSE connect during a running 3 Man game: the `game` snapshot is the
+/// kind-dispatched seat-strip panel (carries `data-order` for the client's
+/// seat rendering), and the `room` snapshot carries the 3 MAN topbar chip
+/// (`room_panel`'s `data-mode == "three_man"` branch) — not the Ring of
+/// Fire idle/active panels the shared snapshot code defaults to.
+#[tokio::test]
+async fn test_tm_sse_snapshot_includes_tm_panels() {
+    use futures::StreamExt;
+    let (app, pool) = test_app_with_pool().await;
+    let alice = login(&app, "alice", "1234").await;
+    let bob = login(&app, "bob", "5678").await;
+    let code = create_room(&app, &alice).await;
+    room_page_html(&app, &bob, &code).await; // bob joins
+    post_form(&app, &alice, &format!("/room/{code}/tm/start"), "").await;
+    let alice_id = drinkinggame::db::get_player_by_name(&pool, "alice")
+        .await
+        .unwrap()
+        .id;
+    let bob_id = drinkinggame::db::get_player_by_name(&pool, "bob")
+        .await
+        .unwrap()
+        .id;
+
+    let res = app
+        .clone()
+        .oneshot(
+            Request::get(format!("/room/{code}/sse"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let mut body = res.into_body().into_data_stream();
+
+    let leaderboard_frame =
+        String::from_utf8(body.next().await.unwrap().unwrap().to_vec()).unwrap();
+    assert!(leaderboard_frame.contains("event: leaderboard"));
+
+    let game_frame = String::from_utf8(body.next().await.unwrap().unwrap().to_vec()).unwrap();
+    assert!(game_frame.contains("event: game"));
+    assert!(
+        game_frame.contains(&format!(r#"data-order="{alice_id},{bob_id}""#)),
+        "3 Man game snapshot should carry the seat strip's data-order for the seeded rotation \
+         (alice created the room -> she's seat 0): {game_frame:?}"
+    );
+
+    let screen_frame = String::from_utf8(body.next().await.unwrap().unwrap().to_vec()).unwrap();
+    assert!(screen_frame.contains("event: screen"));
+
+    let room_frame = String::from_utf8(body.next().await.unwrap().unwrap().to_vec()).unwrap();
+    assert!(room_frame.contains("event: room"));
+    assert!(
+        room_frame.contains(r#"<span class="tm-chip">3 MAN</span>"#),
+        "3 Man room snapshot should carry the 3 MAN chip: {room_frame:?}"
+    );
+}
+
+/// Regression coverage for the redesign that added kind-dispatch to
+/// `current_panel`/`current_screen_panel` (three_man vs ring_of_fire): the
+/// 52nd draw must still broadcast the final card BEFORE the game-over
+/// summary, exactly as Task 11 established, now that the shared dispatch
+/// point routes through a kind match before falling into the RoF path.
+/// Genuinely cross-kind (not just a rename of Task 11's test): a full 3 Man
+/// game is played to completion in the same room FIRST, so the room's
+/// `games` table already holds an ended `three_man` row — and
+/// `get_active_game`'s `ended_at IS NULL` filter, which every dispatch point
+/// relies on to pick the right kind, is exercised against real history
+/// rather than an empty table.
+#[tokio::test]
+async fn test_rof_full_deck_still_ends_after_redesign() {
+    use futures::StreamExt;
+    let app = test_app().await;
+    let cookie = login(&app, "alice", "1234").await;
+    let bob = login(&app, "bob", "5678").await;
+    let code = create_room(&app, &cookie).await;
+    room_page_html(&app, &bob, &code).await; // bob joins — 3 Man needs 2+
+
+    // Play a 3 Man game to completion first, leaving an ended `three_man`
+    // row behind in this room's `games` table.
+    post_form(&app, &cookie, &format!("/room/{code}/tm/start"), "").await;
+    let res = post_form(&app, &cookie, &format!("/room/{code}/tm/end"), "").await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+
+    post_form(
+        &app,
+        &cookie,
+        &format!("/room/{code}/game/start"),
+        "preset_id=1",
+    )
+    .await;
+    for _ in 0..51 {
+        post_form(&app, &cookie, &format!("/room/{code}/game/draw"), "").await;
+    }
+
+    let res = app
+        .clone()
+        .oneshot(
+            Request::get(format!("/room/{code}/sse"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let mut body = res.into_body().into_data_stream();
+    for _ in 0..4 {
+        body.next().await.unwrap().unwrap(); // drain the initial snapshot
+    }
+
+    let res = post_form(&app, &cookie, &format!("/room/{code}/game/draw"), "").await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+
+    // Final (52nd) card broadcasts first — still an active panel, not the
+    // game-over summary.
+    let first = String::from_utf8(body.next().await.unwrap().unwrap().to_vec()).unwrap();
+    assert!(first.contains("event: game"));
+    assert!(first.contains("0 LEFT"));
+    assert!(!first.contains("GAME OVER"));
+
+    // Screen mirrors the same final card.
+    let screen_active = String::from_utf8(body.next().await.unwrap().unwrap().to_vec()).unwrap();
+    assert!(screen_active.contains("event: screen"));
+    assert!(screen_active.contains("0 of 52 left"));
+
+    // Only THEN does the game-over summary follow.
+    let summary = String::from_utf8(body.next().await.unwrap().unwrap().to_vec()).unwrap();
+    assert!(summary.contains("event: game"));
+    assert!(summary.contains("GAME OVER"));
+
+    // Room settles back to idle.
+    assert!(room_page_html(&app, &cookie, &code)
+        .await
+        .contains(">START<"));
+}
+
+/// Documents the accepted caveat: gift auto-log calls `insert_events_bulk`
+/// (one `events` row per drink), while `/undo` only tombstones the caller's
+/// single most-recent row — so a gift of 3 followed by exactly one undo
+/// nets 2, not 0. Drives a real Both-mode gift through the actual
+/// `/tm/gift-roll` route (real dice roll, real auto-log) each attempt,
+/// retrying only the setup until the roll happens to total 3 — no unbounded
+/// loop, bounded at 500 attempts with a probability of ~2/36 per attempt
+/// (P(never hits) < 1e-12), and the assertion itself always runs exactly
+/// once against a real roll.
+#[tokio::test]
+async fn test_undo_after_gift_is_per_row() {
+    let (app, pool) = test_app_with_pool().await;
+    let alice = login(&app, "alice", "1234").await;
+    let bob = login(&app, "bob", "5678").await;
+    let code = create_room(&app, &alice).await;
+    room_page_html(&app, &bob, &code).await;
+    post_form(&app, &alice, &format!("/room/{code}/tm/start"), "").await;
+    let alice_id = drinkinggame::db::get_player_by_name(&pool, "alice")
+        .await
+        .unwrap()
+        .id;
+    let bob_id = drinkinggame::db::get_player_by_name(&pool, "bob")
+        .await
+        .unwrap()
+        .id;
+    let game_id = tm_game_id(&pool, &code).await;
+
+    let mut hit = false;
+    for _ in 0..500 {
+        // Fresh Gifts phase each attempt: alice owns a double(4) sent Both
+        // to bob (dice_count 2 -> total 2..=12, exactly 3 only via {1,2}).
+        let mut st = ThreeManState::new(vec![alice_id, bob_id], alice_id);
+        st.roll(4, 4).unwrap();
+        st.set_mode(GiveMode::Both).unwrap();
+        st.pick_target(0, bob_id).unwrap();
+        st.send().unwrap();
+        drinkinggame::db::set_game_state(&pool, game_id, &st.to_json()).await;
+
+        let before = tm_drinks(&pool, &code, "bob").await;
+        let res = post_form(&app, &bob, &format!("/room/{code}/tm/gift-roll"), "slot=0").await;
+        assert_eq!(res.status(), StatusCode::NO_CONTENT);
+        let after_gift = tm_drinks(&pool, &code, "bob").await;
+        if after_gift != before + 3 {
+            continue;
+        }
+
+        let res = post_form(&app, &bob, &format!("/room/{code}/undo"), "").await;
+        assert_eq!(res.status(), StatusCode::NO_CONTENT);
+        let after_undo = tm_drinks(&pool, &code, "bob").await;
+        assert_eq!(
+            after_undo,
+            before + 2,
+            "one undo should tombstone exactly one of the gift's 3 rows, not all of them"
+        );
+        hit = true;
+        break;
+    }
+    assert!(
+        hit,
+        "expected a Both-mode gift to total exactly 3 within 500 attempts"
+    );
+}
+
+/// Ending the night mid-3-Man must leave no `games` row with
+/// `ended_at IS NULL` — matching the guarantee `test_end_night_ends_game_and_room`
+/// already established for Ring of Fire.
+#[tokio::test]
+async fn test_ending_room_with_tm_game_no_orphan() {
+    let (app, pool) = test_app_with_pool().await;
+    let alice = login(&app, "alice", "1234").await;
+    let bob = login(&app, "bob", "5678").await;
+    let code = create_room(&app, &alice).await;
+    room_page_html(&app, &bob, &code).await;
+    post_form(&app, &alice, &format!("/room/{code}/tm/start"), "").await;
+    let game_id = tm_game_id(&pool, &code).await;
+
+    let res = post_form(&app, &alice, &format!("/room/{code}/end"), "").await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+
+    let ended: (Option<String>,) = sqlx::query_as("SELECT ended_at FROM games WHERE id = ?1")
+        .bind(game_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert!(
+        ended.0.is_some(),
+        "3 Man game row must be ended when the room is ended"
+    );
+
+    let orphans: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM games WHERE ended_at IS NULL")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        orphans.0, 0,
+        "ending the room mid-3-Man must leave no dangling active game rows"
+    );
+}
