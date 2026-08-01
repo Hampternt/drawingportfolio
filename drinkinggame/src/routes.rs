@@ -165,9 +165,33 @@ async fn room_page(
     };
     // Visiting a room joins it: room URLs double as invite links.
     db::join_room(&state.pool, room.id, player.id).await;
+
+    // Mid-game join: a running 3 Man round tracks seating in its own
+    // `order` field (not just room_players), so a newcomer needs appending
+    // there too or they'd never get a turn. Locked so this reload can't
+    // race an action handler's own load -> mutate -> persist.
+    let mut tm_joined = false;
+    {
+        let lock = state.locks.for_room(room.id);
+        let _guard = lock.lock().await;
+        if let Some(game) = db::get_active_game(&state.pool, room.id).await {
+            if game.kind == "three_man" {
+                let mut st = crate::three_man::ThreeManState::from_json(
+                    game.state_json.as_deref().unwrap_or_default(),
+                );
+                st.add_player(player.id);
+                db::set_game_state(&state.pool, game.id, &st.to_json()).await;
+                tm_joined = true;
+            }
+        }
+    }
+
     // New members appear on everyone's ROOM tab without waiting for the
     // next unrelated event.
     crate::game::broadcast_room(&state, room.id, &code).await;
+    if tm_joined {
+        crate::game::broadcast_game(&state, room.id, &code, None).await;
+    }
     let rows = db::leaderboard(&state.pool, room.id).await;
     let game_panel = crate::game::current_panel(&state, room.id, &code, None).await;
     let room_panel = crate::game::current_room_panel(&state, room.id, &code).await;
@@ -553,6 +577,42 @@ pub fn router() -> Router<GameState> {
         .route(
             "/room/{code}/tm/end",
             post(crate::tm_routes::tm_end_handler),
+        )
+        .route(
+            "/room/{code}/tm/roll",
+            post(crate::tm_routes::tm_roll_handler),
+        )
+        .route(
+            "/room/{code}/tm/three-man",
+            post(crate::tm_routes::tm_three_man_handler),
+        )
+        .route(
+            "/room/{code}/tm/mode",
+            post(crate::tm_routes::tm_mode_handler),
+        )
+        .route(
+            "/room/{code}/tm/target",
+            post(crate::tm_routes::tm_target_handler),
+        )
+        .route(
+            "/room/{code}/tm/clear-slot",
+            post(crate::tm_routes::tm_clear_slot_handler),
+        )
+        .route(
+            "/room/{code}/tm/send",
+            post(crate::tm_routes::tm_send_handler),
+        )
+        .route(
+            "/room/{code}/tm/gift-roll",
+            post(crate::tm_routes::tm_gift_roll_handler),
+        )
+        .route(
+            "/room/{code}/tm/pass",
+            post(crate::tm_routes::tm_pass_handler),
+        )
+        .route(
+            "/room/{code}/tm/seat",
+            post(crate::tm_routes::tm_seat_handler),
         )
         .route("/room/{code}/sse", get(sse_stream))
         .route("/room/{code}/screen", get(screen_page))

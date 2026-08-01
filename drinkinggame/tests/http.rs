@@ -1621,3 +1621,507 @@ async fn test_idle_panel_offers_both_games() {
     assert!(html.contains("3 Man"));
     assert!(html.contains(&format!("/room/{code}/tm/start")));
 }
+
+// -------------------------------------------------------------
+// 3 Man action routes (Task 13): roll/pass/three-man/mode/target/
+// clear-slot/send/gift-roll/seat — per-room lock, actor gating, auto-log.
+// -------------------------------------------------------------
+
+use drinkinggame::three_man::{GiveMode, Phase, ThreeManState};
+
+async fn tm_game_id(pool: &sqlx::SqlitePool, code: &str) -> i64 {
+    let room = drinkinggame::db::get_open_room(pool, code).await.unwrap();
+    drinkinggame::db::get_active_game(pool, room.id)
+        .await
+        .unwrap()
+        .id
+}
+
+async fn tm_state(pool: &sqlx::SqlitePool, code: &str) -> ThreeManState {
+    let room = drinkinggame::db::get_open_room(pool, code).await.unwrap();
+    let game = drinkinggame::db::get_active_game(pool, room.id)
+        .await
+        .unwrap();
+    ThreeManState::from_json(game.state_json.as_deref().unwrap_or_default())
+}
+
+async fn tm_drinks(pool: &sqlx::SqlitePool, code: &str, name: &str) -> i64 {
+    let room = drinkinggame::db::get_open_room(pool, code).await.unwrap();
+    let player = drinkinggame::db::get_player_by_name(pool, name)
+        .await
+        .unwrap();
+    drinkinggame::db::leaderboard(pool, room.id)
+        .await
+        .into_iter()
+        .find(|r| r.id == player.id)
+        .unwrap()
+        .drinks
+}
+
+/// Drives the state machine back to `Ready` without producing any drink
+/// calls (calls only ever originate inside `roll()`), so the roll-until-a-
+/// call-fires loop in `test_tm_roll_any_member_and_autologs` can safely
+/// resolve a boring roll and try again.
+async fn tm_resolve_to_ready(
+    app: &Router,
+    pool: &sqlx::SqlitePool,
+    code: &str,
+    alice: &str,
+    bob: &str,
+    alice_id: i64,
+    bob_id: i64,
+) {
+    loop {
+        let st = tm_state(pool, code).await;
+        match st.phase {
+            Phase::Ready => return,
+            Phase::Rolled => {
+                post_form(app, alice, &format!("/room/{code}/tm/pass"), "").await;
+            }
+            Phase::HandOff => {
+                let roller_cookie = if st.roller() == alice_id { alice } else { bob };
+                let target = if st.three_man == alice_id {
+                    bob_id
+                } else {
+                    alice_id
+                };
+                post_form(
+                    app,
+                    roller_cookie,
+                    &format!("/room/{code}/tm/three-man"),
+                    &format!("target={target}"),
+                )
+                .await;
+            }
+            Phase::Assign => {
+                let double = st.double.as_ref().unwrap();
+                let owner_cookie = if double.owner == alice_id { alice } else { bob };
+                let other = if double.owner == alice_id {
+                    bob_id
+                } else {
+                    alice_id
+                };
+                post_form(
+                    app,
+                    owner_cookie,
+                    &format!("/room/{code}/tm/mode"),
+                    "mode=both",
+                )
+                .await;
+                post_form(
+                    app,
+                    owner_cookie,
+                    &format!("/room/{code}/tm/target"),
+                    &format!("slot=0&target={other}"),
+                )
+                .await;
+                post_form(app, owner_cookie, &format!("/room/{code}/tm/send"), "").await;
+            }
+            Phase::Gifts => {
+                if st.gifts_complete() {
+                    post_form(app, alice, &format!("/room/{code}/tm/pass"), "").await;
+                } else {
+                    post_form(app, alice, &format!("/room/{code}/tm/gift-roll"), "slot=0").await;
+                }
+            }
+        }
+    }
+}
+
+#[tokio::test]
+async fn test_tm_roll_any_member_and_autologs() {
+    let (app, pool) = test_app_with_pool().await;
+    let alice = login(&app, "alice", "1234").await;
+    let bob = login(&app, "bob", "5678").await;
+    let code = create_room(&app, &alice).await;
+    room_page_html(&app, &bob, &code).await;
+    post_form(&app, &alice, &format!("/room/{code}/tm/start"), "").await;
+    let alice_id = drinkinggame::db::get_player_by_name(&pool, "alice")
+        .await
+        .unwrap()
+        .id;
+    let bob_id = drinkinggame::db::get_player_by_name(&pool, "bob")
+        .await
+        .unwrap()
+        .id;
+
+    let mut call_total: i64 = 0;
+    for _ in 0..500 {
+        // Measured immediately around the roll under test — resolving a
+        // stray double back to Ready (below) can itself auto-log gift-roll
+        // drinks, which would otherwise pollute a single before/after taken
+        // at the top of the test.
+        let before_total =
+            tm_drinks(&pool, &code, "alice").await + tm_drinks(&pool, &code, "bob").await;
+        // bob taps ROLL even though alice (the room creator) is the current
+        // 3 Man/roller — proves the gate is "any member", not "the roller".
+        let res = post_form(&app, &bob, &format!("/room/{code}/tm/roll"), "").await;
+        assert_eq!(res.status(), StatusCode::NO_CONTENT);
+        let st = tm_state(&pool, &code).await;
+        if !st.calls.is_empty() {
+            call_total = st.calls.iter().map(|c| c.amount as i64).sum();
+            let after_total =
+                tm_drinks(&pool, &code, "alice").await + tm_drinks(&pool, &code, "bob").await;
+            assert_eq!(after_total, before_total + call_total);
+            break;
+        }
+        tm_resolve_to_ready(&app, &pool, &code, &alice, &bob, alice_id, bob_id).await;
+    }
+    assert!(call_total > 0, "expected a call to fire within 500 rolls");
+}
+
+#[tokio::test]
+async fn test_tm_roll_wrong_phase_409() {
+    let app = test_app().await;
+    let alice = login(&app, "alice", "1234").await;
+    let bob = login(&app, "bob", "5678").await;
+    let code = create_room(&app, &alice).await;
+    room_page_html(&app, &bob, &code).await;
+    post_form(&app, &alice, &format!("/room/{code}/tm/start"), "").await;
+
+    let res1 = post_form(&app, &alice, &format!("/room/{code}/tm/roll"), "").await;
+    assert_eq!(res1.status(), StatusCode::NO_CONTENT);
+    // Ready never returns on its own without a pass, so a second roll is
+    // always WrongPhase regardless of what dice came up.
+    let res2 = post_form(&app, &alice, &format!("/room/{code}/tm/roll"), "").await;
+    assert_eq!(res2.status(), StatusCode::CONFLICT);
+}
+
+#[tokio::test]
+async fn test_tm_handoff_gating() {
+    let (app, pool) = test_app_with_pool().await;
+    let alice = login(&app, "alice", "1234").await;
+    let bob = login(&app, "bob", "5678").await;
+    let code = create_room(&app, &alice).await;
+    room_page_html(&app, &bob, &code).await;
+    post_form(&app, &alice, &format!("/room/{code}/tm/start"), "").await;
+    let alice_id = drinkinggame::db::get_player_by_name(&pool, "alice")
+        .await
+        .unwrap()
+        .id;
+    let bob_id = drinkinggame::db::get_player_by_name(&pool, "bob")
+        .await
+        .unwrap()
+        .id;
+    let game_id = tm_game_id(&pool, &code).await;
+
+    // Rig: alice is roller and 3 Man; a lone 3 hands off with no calls.
+    let mut st = ThreeManState::new(vec![alice_id, bob_id], alice_id);
+    st.roll(3, 5).unwrap();
+    assert_eq!(st.phase, Phase::HandOff);
+    drinkinggame::db::set_game_state(&pool, game_id, &st.to_json()).await;
+
+    // bob is not the roller -> 403.
+    let res = post_form(
+        &app,
+        &bob,
+        &format!("/room/{code}/tm/three-man"),
+        &format!("target={bob_id}"),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::FORBIDDEN);
+
+    // alice (the roller) -> 204, and the crown actually moves.
+    let res2 = post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/tm/three-man"),
+        &format!("target={bob_id}"),
+    )
+    .await;
+    assert_eq!(res2.status(), StatusCode::NO_CONTENT);
+    let after = tm_state(&pool, &code).await;
+    assert_eq!(after.three_man, bob_id);
+}
+
+#[tokio::test]
+async fn test_tm_double_owner_gating() {
+    let (app, pool) = test_app_with_pool().await;
+    let alice = login(&app, "alice", "1234").await;
+    let bob = login(&app, "bob", "5678").await;
+    let code = create_room(&app, &alice).await;
+    room_page_html(&app, &bob, &code).await;
+    post_form(&app, &alice, &format!("/room/{code}/tm/start"), "").await;
+    let alice_id = drinkinggame::db::get_player_by_name(&pool, "alice")
+        .await
+        .unwrap()
+        .id;
+    let bob_id = drinkinggame::db::get_player_by_name(&pool, "bob")
+        .await
+        .unwrap()
+        .id;
+    let game_id = tm_game_id(&pool, &code).await;
+
+    // Rig: alice rolls a double -> she owns the Assign phase.
+    let mut st = ThreeManState::new(vec![alice_id, bob_id], alice_id);
+    st.roll(4, 4).unwrap();
+    assert_eq!(st.phase, Phase::Assign);
+    drinkinggame::db::set_game_state(&pool, game_id, &st.to_json()).await;
+
+    // bob isn't the double's owner -> 403.
+    let res = post_form(&app, &bob, &format!("/room/{code}/tm/mode"), "mode=both").await;
+    assert_eq!(res.status(), StatusCode::FORBIDDEN);
+
+    // bob isn't the owner on /tm/target or /tm/clear-slot either — same
+    // gate, same owner check, both action routes covered too.
+    let res_target = post_form(
+        &app,
+        &bob,
+        &format!("/room/{code}/tm/target"),
+        &format!("slot=0&target={bob_id}"),
+    )
+    .await;
+    assert_eq!(res_target.status(), StatusCode::FORBIDDEN);
+    let res_clear = post_form(&app, &bob, &format!("/room/{code}/tm/clear-slot"), "slot=0").await;
+    assert_eq!(res_clear.status(), StatusCode::FORBIDDEN);
+
+    // alice is the owner -> 204.
+    let res2 = post_form(&app, &alice, &format!("/room/{code}/tm/mode"), "mode=both").await;
+    assert_eq!(res2.status(), StatusCode::NO_CONTENT);
+
+    // 2 players: split needs a 3rd -> TooFewPlayers (409), exercising the
+    // one map_tm arm the rest of this test's 403/204 pairs don't reach.
+    let res_split = post_form(&app, &alice, &format!("/room/{code}/tm/mode"), "mode=split").await;
+    assert_eq!(res_split.status(), StatusCode::CONFLICT);
+    assert!(body_string(res_split).await.contains("at least 2 players"));
+}
+
+/// `double` is only cleared at the start of the next `roll()` — not by
+/// `pass()` — so a finished double sits around as `Some(stale_owner)` for
+/// the entire window between the gift round ending and the next roll. A
+/// stranger to that dead double posting to an owner-gated route during that
+/// window must get 409 OutOfTurn ("no double running"), not 403
+/// NotYourCall (which would wrongly imply a double IS running and they're
+/// just not it).
+#[tokio::test]
+async fn test_tm_stale_double_after_pass_is_out_of_turn() {
+    let (app, pool) = test_app_with_pool().await;
+    let alice = login(&app, "alice", "1234").await;
+    let bob = login(&app, "bob", "5678").await;
+    let code = create_room(&app, &alice).await;
+    room_page_html(&app, &bob, &code).await;
+    post_form(&app, &alice, &format!("/room/{code}/tm/start"), "").await;
+    let alice_id = drinkinggame::db::get_player_by_name(&pool, "alice")
+        .await
+        .unwrap()
+        .id;
+    let bob_id = drinkinggame::db::get_player_by_name(&pool, "bob")
+        .await
+        .unwrap()
+        .id;
+    let game_id = tm_game_id(&pool, &code).await;
+
+    // Rig: alice's double resolves fully, then she passes -> phase is Ready
+    // again but the stale `double` (owner alice) hasn't been cleared yet —
+    // that only happens inside the next roll().
+    let mut st = ThreeManState::new(vec![alice_id, bob_id], alice_id);
+    st.roll(4, 4).unwrap();
+    st.set_mode(GiveMode::Both).unwrap();
+    st.pick_target(0, bob_id).unwrap();
+    st.send().unwrap();
+    st.gift_roll(0, vec![1, 2]).unwrap();
+    st.pass().unwrap();
+    assert_eq!(st.phase, Phase::Ready);
+    assert!(st.double.is_some(), "double should still be the stale one");
+    drinkinggame::db::set_game_state(&pool, game_id, &st.to_json()).await;
+
+    let res = post_form(&app, &bob, &format!("/room/{code}/tm/send"), "").await;
+    assert_eq!(res.status(), StatusCode::CONFLICT); // 409, not 403
+}
+
+#[tokio::test]
+async fn test_tm_gift_roll_autolog_and_payback() {
+    let (app, pool) = test_app_with_pool().await;
+    let alice = login(&app, "alice", "1234").await;
+    let bob = login(&app, "bob", "5678").await;
+    let code = create_room(&app, &alice).await;
+    room_page_html(&app, &bob, &code).await;
+    post_form(&app, &alice, &format!("/room/{code}/tm/start"), "").await;
+    let alice_id = drinkinggame::db::get_player_by_name(&pool, "alice")
+        .await
+        .unwrap()
+        .id;
+    let bob_id = drinkinggame::db::get_player_by_name(&pool, "bob")
+        .await
+        .unwrap()
+        .id;
+    let game_id = tm_game_id(&pool, &code).await;
+
+    let mut payback_fired = false;
+    for _ in 0..300 {
+        // Fresh Gifts phase each attempt: alice owns a double(4), bob is the
+        // sole "both dice" victim.
+        let mut st = ThreeManState::new(vec![alice_id, bob_id], alice_id);
+        st.roll(4, 4).unwrap();
+        st.set_mode(GiveMode::Both).unwrap();
+        st.pick_target(0, bob_id).unwrap();
+        st.send().unwrap();
+        assert_eq!(st.phase, Phase::Gifts);
+        drinkinggame::db::set_game_state(&pool, game_id, &st.to_json()).await;
+
+        let before_bob = tm_drinks(&pool, &code, "bob").await;
+        let before_alice = tm_drinks(&pool, &code, "alice").await;
+
+        // Any member — not just the owner or victim — may roll the gift dice.
+        let res = post_form(&app, &bob, &format!("/room/{code}/tm/gift-roll"), "slot=0").await;
+        assert_eq!(res.status(), StatusCode::NO_CONTENT);
+
+        let after_st = tm_state(&pool, &code).await;
+        let gift = &after_st.double.as_ref().unwrap().gifts[0];
+        let total: i64 = gift
+            .values
+            .as_ref()
+            .unwrap()
+            .iter()
+            .map(|&v| v as i64)
+            .sum();
+
+        let after_bob = tm_drinks(&pool, &code, "bob").await;
+        assert_eq!(after_bob, before_bob + total, "victim auto-log mismatch");
+
+        if let Some(payback) = after_st.double.as_ref().unwrap().payback {
+            let after_alice = tm_drinks(&pool, &code, "alice").await;
+            assert_eq!(
+                after_alice,
+                before_alice + payback as i64,
+                "owner payback auto-log mismatch"
+            );
+            payback_fired = true;
+            break;
+        }
+    }
+    assert!(
+        payback_fired,
+        "expected payback to fire within 300 attempts"
+    );
+}
+
+#[tokio::test]
+async fn test_tm_seat_and_table_reassign_any_member() {
+    let (app, pool) = test_app_with_pool().await;
+    let alice = login(&app, "alice", "1234").await;
+    let bob = login(&app, "bob", "5678").await;
+    let code = create_room(&app, &alice).await;
+    room_page_html(&app, &bob, &code).await;
+    post_form(&app, &alice, &format!("/room/{code}/tm/start"), "").await;
+    let alice_id = drinkinggame::db::get_player_by_name(&pool, "alice")
+        .await
+        .unwrap()
+        .id;
+    let bob_id = drinkinggame::db::get_player_by_name(&pool, "bob")
+        .await
+        .unwrap()
+        .id;
+
+    // Fresh game: Ready phase, alice is roller/3 Man, bob is neither — yet
+    // bob (any member) can move seats and reassign the 3 Man outside HandOff.
+    let res = post_form(
+        &app,
+        &bob,
+        &format!("/room/{code}/tm/seat"),
+        &format!("target={alice_id}&dir=1"),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+
+    let res2 = post_form(
+        &app,
+        &bob,
+        &format!("/room/{code}/tm/three-man"),
+        &format!("target={bob_id}"),
+    )
+    .await;
+    assert_eq!(res2.status(), StatusCode::NO_CONTENT);
+
+    let st = tm_state(&pool, &code).await;
+    assert_eq!(st.three_man, bob_id);
+}
+
+#[tokio::test]
+async fn test_tm_pass_after_rolled() {
+    let (app, pool) = test_app_with_pool().await;
+    let alice = login(&app, "alice", "1234").await;
+    let bob = login(&app, "bob", "5678").await;
+    let code = create_room(&app, &alice).await;
+    room_page_html(&app, &bob, &code).await;
+    post_form(&app, &alice, &format!("/room/{code}/tm/start"), "").await;
+    let alice_id = drinkinggame::db::get_player_by_name(&pool, "alice")
+        .await
+        .unwrap()
+        .id;
+    let bob_id = drinkinggame::db::get_player_by_name(&pool, "bob")
+        .await
+        .unwrap()
+        .id;
+    let game_id = tm_game_id(&pool, &code).await;
+
+    // Rig a plain non-double roll -> deterministic Rolled phase.
+    let mut st = ThreeManState::new(vec![alice_id, bob_id], alice_id);
+    st.roll(2, 5).unwrap();
+    assert_eq!(st.phase, Phase::Rolled);
+    drinkinggame::db::set_game_state(&pool, game_id, &st.to_json()).await;
+
+    // bob (any member, not the roller) passes.
+    let res = post_form(&app, &bob, &format!("/room/{code}/tm/pass"), "").await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+
+    let after = tm_state(&pool, &code).await;
+    assert_eq!(after.roller(), bob_id);
+    assert!(after.stale);
+}
+
+#[tokio::test]
+async fn test_midgame_join_appends_to_order() {
+    use futures::StreamExt;
+    let (app, pool) = test_app_with_pool().await;
+    let alice = login(&app, "alice", "1234").await;
+    let bob = login(&app, "bob", "5678").await;
+    let carol = login(&app, "carol", "9999").await;
+    let code = create_room(&app, &alice).await;
+    room_page_html(&app, &bob, &code).await;
+    post_form(&app, &alice, &format!("/room/{code}/tm/start"), "").await;
+
+    let sse_res = app
+        .clone()
+        .oneshot(
+            Request::get(format!("/room/{code}/sse"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let mut sse_body = sse_res.into_body().into_data_stream();
+    for _ in 0..4 {
+        sse_body.next().await.unwrap().unwrap(); // drain the 4-frame snapshot
+    }
+
+    room_page_html(&app, &carol, &code).await; // carol joins mid-game
+
+    let st = tm_state(&pool, &code).await;
+    assert_eq!(st.order.len(), 3);
+    let carol_id = drinkinggame::db::get_player_by_name(&pool, "carol")
+        .await
+        .unwrap()
+        .id;
+    assert!(st.order.contains(&carol_id));
+
+    // The join broadcasts a room refresh (as always) — observe it on the SSE
+    // stream to prove the mid-game join hook actually ran, not just the DB.
+    let frame = String::from_utf8(sse_body.next().await.unwrap().unwrap().to_vec()).unwrap();
+    assert!(frame.contains("event: room"));
+}
+
+#[tokio::test]
+async fn test_non_member_tm_403() {
+    let app = test_app().await;
+    let alice = login(&app, "alice", "1234").await;
+    let bob = login(&app, "bob", "5678").await;
+    let code = create_room(&app, &alice).await;
+    room_page_html(&app, &bob, &code).await;
+    post_form(&app, &alice, &format!("/room/{code}/tm/start"), "").await;
+
+    // carol is logged in (has a valid session) but never joined the room.
+    let carol = login(&app, "carol", "9999").await;
+    let res = post_form(&app, &carol, &format!("/room/{code}/tm/roll"), "").await;
+    assert_eq!(res.status(), StatusCode::FORBIDDEN);
+}
