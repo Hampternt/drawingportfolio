@@ -85,6 +85,14 @@ pub fn food_item_card_html(item: &crate::models::FoodItem, is_admin: bool) -> St
     )
 }
 
+const SLOTS: [(&str, &str); 5] = [
+    ("breakfast", "Breakfast"),
+    ("lunch", "Lunch"),
+    ("dinner", "Dinner"),
+    ("snack", "Snack"),
+    ("other", "Other"),
+];
+
 pub fn meal_entry_row_html(
     entry: &crate::models::MealEntryWithFood,
     date: &str,
@@ -101,17 +109,20 @@ pub fn meal_entry_row_html(
         String::new()
     };
     format!(
-        r#"<li class="meal-entry" id="entry-{}">
-  <span class="entry-name">{}</span>
-  <span class="entry-grams">{}g</span>
-  <span class="entry-cal">{} cal</span>
-  {}
-</li>"#,
-        entry.entry_id,
-        html_escape(&entry.food_name),
-        fmt_nutrient(entry.grams),
-        fmt_nutrient(entry.calories),
-        delete_btn
+        r##"<li class="meal-entry" id="entry-{id}">
+  <button type="button" class="entry-main" hx-get="/fitness/htmx/entries/{id}/edit?date={date}" hx-target="#entry-{id}" hx-swap="outerHTML">
+    <span class="entry-name">{name}</span>
+    <span class="entry-grams">{grams}g</span>
+    <span class="entry-cal">{cal}</span>
+  </button>
+  {delete_btn}
+</li>"##,
+        id = entry.entry_id,
+        date = html_escape(date),
+        name = html_escape(&entry.food_name),
+        grams = fmt_nutrient(entry.grams),
+        cal = fmt_nutrient(entry.calories),
+        delete_btn = delete_btn
     )
 }
 
@@ -183,9 +194,44 @@ pub fn day_section_html(
     let total_carbs: f64 = entries.iter().map(|e| e.carbs).sum();
     let total_fat: f64 = entries.iter().map(|e| e.fat).sum();
 
-    let entries_html: String = entries
+    let slots_html: String = SLOTS
         .iter()
-        .map(|e| meal_entry_row_html(e, date, is_admin))
+        .map(|(key, label)| {
+            let slot_entries: Vec<_> = entries.iter().filter(|e| e.slot == *key).collect();
+            if slot_entries.is_empty() && *key == "other" {
+                return String::new(); // "other" group hidden when empty
+            }
+            let slot_cal: f64 = slot_entries.iter().map(|e| e.calories).sum();
+            let head_right = if slot_entries.is_empty() {
+                r#"<span class="slot-cal slot-empty">empty</span>"#.to_string()
+            } else {
+                format!(r#"<span class="slot-cal">{} cal</span>"#, fmt_nutrient(slot_cal))
+            };
+            let body = if slot_entries.is_empty() {
+                format!(
+                    r##"<button type="button" class="noc-btn noc-btn-secondary slot-add-btn" onclick="addToSlot('{key}')">+ Add to {label_lc}</button>"##,
+                    key = key,
+                    label_lc = label.to_lowercase()
+                )
+            } else {
+                let rows: String = slot_entries
+                    .iter()
+                    .map(|e| meal_entry_row_html(e, date, is_admin))
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                format!("<ul class=\"meal-list\">\n{}\n</ul>", rows)
+            };
+            format!(
+                r##"<div class="slot-group" id="slot-{key}">
+  <div class="slot-head"><span class="noc-kicker">{label}</span>{head_right}</div>
+  {body}
+</div>"##,
+                key = key,
+                label = label,
+                head_right = head_right,
+                body = body
+            )
+        })
         .collect::<Vec<_>>()
         .join("\n");
 
@@ -250,8 +296,7 @@ pub fn day_section_html(
 
     format!(
         r##"{}
-<ul class="meal-list">
-{}</ul>
+{}
 <form class="log-entry-form"
       hx-post="/api/nutrition/entries"
       hx-target="#day-section"
@@ -271,10 +316,17 @@ pub fn day_section_html(
   </select>
   <input type="number" name="grams" value="100" min="1" max="5000" step="0.1" required>
   <span class="grams-label">g</span>
+  <input type="hidden" name="slot" value="other">
+  <div class="slot-chips" data-role="slot-chips">
+    <button type="button" class="noc-tag noc-tag-outline" data-slot="breakfast" onclick="setSlot(this)">Breakfast</button>
+    <button type="button" class="noc-tag noc-tag-outline" data-slot="lunch" onclick="setSlot(this)">Lunch</button>
+    <button type="button" class="noc-tag noc-tag-outline" data-slot="dinner" onclick="setSlot(this)">Dinner</button>
+    <button type="button" class="noc-tag noc-tag-outline" data-slot="snack" onclick="setSlot(this)">Snack</button>
+  </div>
   <button type="submit" class="btn-primary">Log</button>
 </form>"##,
         summary,
-        entries_html,
+        slots_html,
         html_escape(date),
         options_html
     )
@@ -619,6 +671,15 @@ async fn add_meal_entry(
         .get("grams")
         .and_then(|v| v.parse().ok())
         .unwrap_or(100.0);
+    let slot = form
+        .get("slot")
+        .cloned()
+        .unwrap_or_else(|| "other".to_string());
+    let slot = if SLOTS.iter().any(|(k, _)| *k == slot) {
+        slot
+    } else {
+        "other".to_string()
+    };
 
     if food_item_id == 0 || grams <= 0.0 {
         let entries = crate::db::get_meal_entries_for_date(&state.pool, &date).await;
@@ -634,7 +695,7 @@ async fn add_meal_entry(
         .into_response();
     }
 
-    let _ = crate::db::insert_meal_entry(&state.pool, food_item_id, &date, grams).await;
+    let _ = crate::db::insert_meal_entry(&state.pool, food_item_id, &date, grams, &slot).await;
     let entries = crate::db::get_meal_entries_for_date(&state.pool, &date).await;
     let food_items = crate::db::get_food_items(&state.pool).await;
     let targets = crate::db::get_targets(&state.pool).await;
@@ -898,6 +959,99 @@ async fn update_food_item_handler(
     Html(library_list_html(&all_items, true)).into_response()
 }
 
+fn entry_edit_row_html(entry: &crate::models::MealEntry, food_name: &str, date: &str) -> String {
+    let slot_opts: String = SLOTS
+        .iter()
+        .filter(|(k, _)| *k != "other" || entry.slot == "other")
+        .map(|(k, l)| {
+            format!(
+                "<option value=\"{k}\"{sel}>{l}</option>",
+                k = k,
+                l = l,
+                sel = if entry.slot == *k { " selected" } else { "" }
+            )
+        })
+        .collect();
+    format!(
+        r##"<li class="meal-entry meal-entry-edit" id="entry-{id}">
+<form hx-put="/api/nutrition/entries/{id}" hx-target="#day-section" hx-swap="innerHTML">
+  <input type="hidden" name="date" value="{date}">
+  <span class="entry-name">{name}</span>
+  <input class="noc-input" type="number" name="grams" value="{grams}" min="1" max="5000" step="0.1" required>
+  <select class="noc-input" name="slot">{slot_opts}</select>
+  <button type="submit" class="noc-btn noc-btn-primary">Save</button>
+  <button type="button" class="noc-btn noc-btn-ghost" hx-get="/fitness/htmx/day?date={date}" hx-target="#day-section" hx-swap="innerHTML">Cancel</button>
+</form>
+</li>"##,
+        id = entry.id,
+        date = html_escape(date),
+        name = html_escape(food_name),
+        grams = fmt_nutrient(entry.grams),
+        slot_opts = slot_opts
+    )
+}
+
+async fn entry_edit_form(
+    AuthSession(_): AuthSession,
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<i64>,
+    Query(params): Query<HashMap<String, String>>,
+) -> impl IntoResponse {
+    let date = params.get("date").cloned().unwrap_or_default();
+    match crate::db::get_meal_entry(&state.pool, id).await {
+        Some(entry) => {
+            let name = crate::db::get_food_item(&state.pool, entry.food_item_id)
+                .await
+                .map(|f| f.name)
+                .unwrap_or_default();
+            Html(entry_edit_row_html(&entry, &name, &date)).into_response()
+        }
+        None => (
+            StatusCode::NOT_FOUND,
+            Html("<p>Entry not found</p>".to_string()),
+        )
+            .into_response(),
+    }
+}
+
+async fn update_meal_entry_handler(
+    AuthSession(_): AuthSession,
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<i64>,
+    axum::Form(form): axum::Form<HashMap<String, String>>,
+) -> impl IntoResponse {
+    let grams: f64 = form
+        .get("grams")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0.0);
+    let slot = form
+        .get("slot")
+        .cloned()
+        .unwrap_or_else(|| "other".to_string());
+    let slot = if SLOTS.iter().any(|(k, _)| *k == slot) {
+        slot
+    } else {
+        "other".to_string()
+    };
+    if grams > 0.0 {
+        crate::db::update_meal_entry(&state.pool, id, grams, &slot).await;
+    }
+    let date = form
+        .get("date")
+        .cloned()
+        .unwrap_or_else(|| chrono::Utc::now().format("%Y-%m-%d").to_string());
+    let targets = crate::db::get_targets(&state.pool).await;
+    let entries = crate::db::get_meal_entries_for_date(&state.pool, &date).await;
+    let food_items = crate::db::get_food_items(&state.pool).await;
+    Html(day_section_html(
+        &entries,
+        &date,
+        &food_items,
+        &targets,
+        true,
+    ))
+}
+
 async fn targets_form(
     AuthSession(_): AuthSession,
     State(state): State<Arc<AppState>>,
@@ -991,6 +1145,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/api/nutrition/entries", post(add_meal_entry))
         .route(
             "/api/nutrition/entries/{id}",
-            delete(delete_meal_entry_handler),
+            delete(delete_meal_entry_handler).put(update_meal_entry_handler),
         )
+        .route("/fitness/htmx/entries/{id}/edit", get(entry_edit_form))
 }

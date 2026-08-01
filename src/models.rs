@@ -103,6 +103,7 @@ pub struct MealEntry {
     pub food_item_id: i64,
     pub date: String,
     pub grams: f64,
+    pub slot: String,
     pub created_at: String,
 }
 
@@ -117,7 +118,9 @@ pub struct Targets {
 #[derive(Debug, Clone)]
 pub struct MealEntryWithFood {
     pub entry_id: i64,
+    pub food_item_id: i64,
     pub food_name: String,
+    pub slot: String,
     pub grams: f64,
     pub calories: f64,
     pub protein: f64,

@@ -122,6 +122,47 @@ document.getElementById('date-picker').onchange = (e) => {
   loadDay(e.target.value);
 };
 
+// Meal slots (Task 4): clock-inferred default + chip behavior
+function defaultSlot() {
+  const h = new Date().getHours();
+  if (h < 11) return 'breakfast';
+  if (h < 15) return 'lunch';
+  if (h < 17) return 'snack';
+  if (h < 22) return 'dinner';
+  return 'snack';
+}
+
+function paintSlotChips(form) {
+  const val = form.querySelector('[name="slot"]').value;
+  form.querySelectorAll('[data-slot]').forEach(b => {
+    b.classList.toggle('noc-tag-accent', b.dataset.slot === val);
+    b.classList.toggle('noc-tag-outline', b.dataset.slot !== val);
+  });
+}
+
+function setSlot(btn) {
+  const form = btn.closest('form');
+  form.querySelector('[name="slot"]').value = btn.dataset.slot;
+  paintSlotChips(form);
+}
+
+function addToSlot(slot) {
+  const form = document.querySelector('.log-entry-form');
+  form.querySelector('[name="slot"]').value = slot;
+  paintSlotChips(form);
+  form.querySelector('[name="food_item_id"]').focus();
+}
+
+function initSlotDefault() {
+  document.querySelectorAll('.log-entry-form').forEach(form => {
+    const input = form.querySelector('[name="slot"]');
+    if (input && input.value === 'other') { input.value = defaultSlot(); }
+    paintSlotChips(form);
+  });
+}
+document.addEventListener('DOMContentLoaded', initSlotDefault);
+document.body.addEventListener('htmx:afterSwap', initSlotDefault);
+
 // Add food form toggle
 function toggleAddForm() {
   const form = document.getElementById('add-food-form');

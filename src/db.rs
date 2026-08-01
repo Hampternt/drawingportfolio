@@ -58,6 +58,11 @@ pub async fn run_migrations(pool: &DbPool) {
         .await
         .expect("failed to run drawing tasks migration");
 
+    // Migration 008: meal slot per entry (breakfast/lunch/dinner/snack/other)
+    let _ = sqlx::query(include_str!("../migrations/008_meal_slots.sql"))
+        .execute(pool)
+        .await;
+
     // Migration 009: daily nutrition targets (single row, single user)
     let _ = sqlx::query(include_str!("../migrations/009_targets.sql"))
         .execute(pool)
@@ -369,8 +374,10 @@ pub async fn get_meal_entries_for_date(pool: &DbPool, date: &str) -> Vec<MealEnt
     let rows = sqlx::query!(
         r#"SELECT
             me.id as entry_id,
+            me.food_item_id,
             fi.name as food_name,
             me.grams,
+            me.slot as "slot!",
             fi.calories as base_calories,
             fi.protein as base_protein,
             fi.carbs as base_carbs,
@@ -394,7 +401,9 @@ pub async fn get_meal_entries_for_date(pool: &DbPool, date: &str) -> Vec<MealEnt
             let factor = r.grams / 100.0;
             MealEntryWithFood {
                 entry_id: r.entry_id,
+                food_item_id: r.food_item_id,
                 food_name: r.food_name,
+                slot: r.slot,
                 grams: r.grams,
                 calories: r.base_calories * factor,
                 protein: r.base_protein * factor,
@@ -414,17 +423,43 @@ pub async fn insert_meal_entry(
     food_item_id: i64,
     date: &str,
     grams: f64,
+    slot: &str,
 ) -> Result<i64, sqlx::Error> {
     let id = sqlx::query!(
-        "INSERT INTO meal_entries (food_item_id, date, grams) VALUES (?, ?, ?) RETURNING id",
+        "INSERT INTO meal_entries (food_item_id, date, grams, slot) VALUES (?, ?, ?, ?) RETURNING id",
         food_item_id,
         date,
-        grams
+        grams,
+        slot
     )
     .fetch_one(pool)
     .await?
     .id;
     Ok(id.ok_or_else(|| sqlx::Error::RowNotFound)?)
+}
+
+pub async fn update_meal_entry(pool: &DbPool, id: i64, grams: f64, slot: &str) {
+    sqlx::query!(
+        "UPDATE meal_entries SET grams = ?, slot = ? WHERE id = ?",
+        grams,
+        slot,
+        id
+    )
+    .execute(pool)
+    .await
+    .ok();
+}
+
+pub async fn get_meal_entry(pool: &DbPool, id: i64) -> Option<crate::models::MealEntry> {
+    sqlx::query_as!(
+        crate::models::MealEntry,
+        r#"SELECT id, food_item_id, date, grams, slot as "slot!", created_at FROM meal_entries WHERE id = ?"#,
+        id
+    )
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten()
 }
 
 pub async fn delete_meal_entry(pool: &DbPool, id: i64) {
@@ -866,7 +901,7 @@ mod tests {
             "",
         )
         .await;
-        insert_meal_entry(&pool, item.id, "2026-04-09", 200.0)
+        insert_meal_entry(&pool, item.id, "2026-04-09", 200.0, "other")
             .await
             .unwrap();
         let entries = get_meal_entries_for_date(&pool, "2026-04-09").await;
@@ -883,7 +918,7 @@ mod tests {
             &pool, "Apple", "", None, 52.0, 0.3, 14.0, 0.2, 2.4, 10.0, 1.0, 0.0, None, "", "",
         )
         .await;
-        let entry_id = insert_meal_entry(&pool, item.id, "2026-04-09", 150.0)
+        let entry_id = insert_meal_entry(&pool, item.id, "2026-04-09", 150.0, "other")
             .await
             .unwrap();
         delete_meal_entry(&pool, entry_id).await;
@@ -1078,13 +1113,34 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_meal_entry_slot_roundtrip() {
+        let pool = test_pool().await;
+        let item = insert_food_item(
+            &pool, "Skyr", "", None, 63.0, 11.0, 4.0, 0.2, 0.0, 4.0, 45.0, 0.1, None, "", "",
+        )
+        .await;
+        let id = insert_meal_entry(&pool, item.id, "2026-08-01", 250.0, "breakfast")
+            .await
+            .unwrap();
+        let entries = get_meal_entries_for_date(&pool, "2026-08-01").await;
+        assert_eq!(entries[0].slot, "breakfast");
+        assert_eq!(entries[0].food_item_id, item.id);
+        update_meal_entry(&pool, id, 300.0, "lunch").await;
+        let entries = get_meal_entries_for_date(&pool, "2026-08-01").await;
+        assert_eq!(entries[0].grams, 300.0);
+        assert_eq!(entries[0].slot, "lunch");
+        let raw = get_meal_entry(&pool, id).await.unwrap();
+        assert_eq!(raw.slot, "lunch");
+    }
+
+    #[tokio::test]
     async fn test_meal_entry_wrong_date_not_returned() {
         let pool = test_pool().await;
         let item = insert_food_item(
             &pool, "Banana", "", None, 89.0, 1.1, 23.0, 0.3, 2.6, 12.0, 1.0, 0.0, None, "", "",
         )
         .await;
-        insert_meal_entry(&pool, item.id, "2026-04-08", 100.0)
+        insert_meal_entry(&pool, item.id, "2026-04-08", 100.0, "other")
             .await
             .unwrap();
         let entries = get_meal_entries_for_date(&pool, "2026-04-09").await;

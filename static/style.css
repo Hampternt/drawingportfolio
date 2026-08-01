@@ -546,6 +546,22 @@ body.fitness-dark .targets-row { margin-bottom: 12px; }
 body.fitness-dark .targets-form { display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; margin-top: 8px; }
 body.fitness-dark .targets-form label { font-size: 11px; color: var(--noc-muted); display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 70px; }
 
+/* meal slots (Task 4) */
+body.fitness-dark .slot-group { margin-bottom: 14px; }
+body.fitness-dark .slot-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 7px; }
+body.fitness-dark .slot-cal { font-size: 11px; color: var(--noc-faint); }
+body.fitness-dark .slot-empty { color: color-mix(in srgb, var(--noc-text) 30%, transparent); }
+body.fitness-dark .slot-add-btn { width: 100%; justify-content: flex-start; color: var(--noc-muted); }
+body.fitness-dark .entry-main {
+  flex: 1; display: flex; align-items: center; gap: 10px; min-width: 0;
+  background: none; border: none; padding: 0; font: inherit; color: inherit;
+  cursor: pointer; text-align: left; min-height: 44px;
+}
+body.fitness-dark .slot-chips { display: flex; gap: 7px; flex-wrap: wrap; width: 100%; }
+body.fitness-dark .meal-entry-edit form { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; width: 100%; }
+body.fitness-dark .meal-entry-edit input[name="grams"] { width: 90px; }
+body.fitness-dark .meal-entry-edit select { width: auto; }
+
 /* ── Drawing Tasks ───────────────────────────────────── */
 .tasks-page { max-width: 640px; margin: 0 auto; padding: 1rem; }
 
