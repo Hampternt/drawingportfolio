@@ -1608,6 +1608,72 @@ async fn test_tm_end_broadcasts_summary_and_idle() {
     assert!(html.contains("3 Man"));
 }
 
+/// `/tm/end` must re-broadcast the standings, not just the game/screen/room
+/// surfaces: the "3 MAN" badge on the outgoing 3 Man's leaderboard row is
+/// only ever cleared by a fresh `leaderboard` render, and `render_leaderboard`
+/// is kind-aware (`db::get_active_game` returns `None` once `end_game` has
+/// run) — so a broadcast here is enough to drop it without any special-casing
+/// in this handler. Without it, the badge would linger until the next
+/// unrelated drink/undo happened to trigger one.
+#[tokio::test]
+async fn test_tm_end_broadcasts_leaderboard_without_badge() {
+    use futures::StreamExt;
+    let app = test_app().await;
+    let alice = login(&app, "alice", "1234").await;
+    let bob = login(&app, "bob", "5678").await;
+    let code = create_room(&app, &alice).await;
+    room_page_html(&app, &bob, &code).await;
+    // alice starts the game, so `three_man == alice` — her row carries the
+    // badge from the moment the game begins.
+    post_form(&app, &alice, &format!("/room/{code}/tm/start"), "").await;
+
+    let res = app
+        .clone()
+        .oneshot(
+            Request::get(format!("/room/{code}/sse"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let mut body = res.into_body().into_data_stream();
+    // Drain the 4-frame snapshot (leaderboard/game/screen/room), which
+    // carries the badge since the game is still active at connect time.
+    let mut snapshot_leaderboard_has_badge = false;
+    for _ in 0..4 {
+        let frame = String::from_utf8(body.next().await.unwrap().unwrap().to_vec()).unwrap();
+        if frame.contains("event: leaderboard") {
+            snapshot_leaderboard_has_badge = frame.contains("tm-chip");
+        }
+    }
+    assert!(
+        snapshot_leaderboard_has_badge,
+        "sanity check: the connect-time snapshot should carry the badge while the game is active"
+    );
+
+    let res = post_form(&app, &alice, &format!("/room/{code}/tm/end"), "").await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+
+    // game, screen, room are the three known frames tm/end already sent
+    // (test_tm_end_broadcasts_summary_and_idle covers their content) — drain
+    // them here just to reach the leaderboard frame this test targets.
+    for _ in 0..3 {
+        body.next().await.unwrap().unwrap();
+    }
+
+    let leaderboard_frame = tokio::time::timeout(std::time::Duration::from_secs(2), body.next())
+        .await
+        .expect("tm/end should broadcast a leaderboard refresh once the game ends")
+        .unwrap()
+        .unwrap();
+    let leaderboard_frame = String::from_utf8(leaderboard_frame.to_vec()).unwrap();
+    assert!(leaderboard_frame.contains("event: leaderboard"));
+    assert!(
+        !leaderboard_frame.contains("tm-chip") && !leaderboard_frame.contains("3 MAN"),
+        "leaderboard frame after tm/end should have dropped the 3 MAN badge: {leaderboard_frame:?}"
+    );
+}
+
 #[tokio::test]
 async fn test_idle_panel_offers_both_games() {
     let app = test_app().await;
@@ -2192,6 +2258,47 @@ async fn test_tm_sse_snapshot_includes_tm_panels() {
     assert!(
         room_frame.contains(r#"<span class="tm-chip">3 MAN</span>"#),
         "3 Man room snapshot should carry the 3 MAN chip: {room_frame:?}"
+    );
+}
+
+/// The initial (non-SSE) render of both `/room/{code}` and `/room/{code}/screen`
+/// must carry the same 3 MAN standings badge the SSE snapshot does — both
+/// build their leaderboard HTML from a `rows` query directly rather than
+/// going through the kind-aware `render_leaderboard` helper the SSE path
+/// uses, so a first paint during a running 3 Man game would otherwise flash
+/// badge-less until the next leaderboard broadcast.
+#[tokio::test]
+async fn test_room_and_screen_pages_render_tm_badge_on_initial_load() {
+    let app = test_app().await;
+    let alice = login(&app, "alice", "1234").await;
+    let bob = login(&app, "bob", "5678").await;
+    let code = create_room(&app, &alice).await;
+    room_page_html(&app, &bob, &code).await;
+    // alice starts the game, so `three_man == alice` — her row carries the
+    // badge from the moment the game begins.
+    post_form(&app, &alice, &format!("/room/{code}/tm/start"), "").await;
+
+    let expected_badge_row =
+        r#"<span class="lb-name">alice</span><span class="tm-chip">3 MAN</span>"#;
+
+    let room_html = room_page_html(&app, &alice, &code).await;
+    assert!(
+        room_html.contains(expected_badge_row),
+        "room page's initial leaderboard render should carry the 3 MAN badge: {room_html:?}"
+    );
+
+    let res = app
+        .oneshot(
+            Request::get(format!("/room/{code}/screen"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let screen_html = body_string(res).await;
+    assert!(
+        screen_html.contains(expected_badge_row),
+        "screen page's initial leaderboard render should carry the 3 MAN badge: {screen_html:?}"
     );
 }
 

@@ -199,14 +199,14 @@ async fn room_page(
             crate::game::broadcast_game(&state, room.id, &code, None).await;
         }
     }
-    let rows = db::leaderboard(&state.pool, room.id).await;
+    let leaderboard_items = render_leaderboard(&state, room.id).await;
     let game_panel = crate::game::current_panel(&state, room.id, &code, None).await;
     let room_panel = crate::game::current_room_panel(&state, room.id, &code).await;
     let tpl = RoomTemplate {
         base_path: state.base_path.to_string(),
         code,
         player_id: player.id,
-        leaderboard_items: render::leaderboard_items(&rows),
+        leaderboard_items,
         game_panel,
         room_panel,
     };
@@ -474,7 +474,7 @@ async fn screen_page(
             "Room not found or already ended",
         );
     };
-    let rows = db::leaderboard(&state.pool, room.id).await;
+    let leaderboard_items = render_leaderboard(&state, room.id).await;
     // The screen-scale panel builder, not the phone one — the phone idle
     // panel carries a navigable "Edit rule presets" link that has no
     // business being reachable from an unauthenticated spectator surface.
@@ -487,7 +487,7 @@ async fn screen_page(
     let tpl = ScreenTemplate {
         base_path: state.base_path.to_string(),
         code,
-        leaderboard_items: render::leaderboard_items(&rows),
+        leaderboard_items,
         game_panel,
         qr_svg: render::qr_svg(&join_url),
     };

@@ -162,6 +162,11 @@ pub async fn tm_end_handler(
     state.hub.publish(room.id, RoomMessage::Game(phone_html));
     state.hub.publish(room.id, RoomMessage::Screen(screen_html));
     crate::game::broadcast_room(&state, room.id, &room.code).await;
+    // The game is now ended, so this re-render is kind-aware via
+    // get_active_game returning None — it drops the outgoing 3 Man's
+    // standings badge instead of leaving it stuck until the next
+    // unrelated drink/undo broadcast.
+    crate::routes::broadcast_leaderboard(&state, room.id).await;
     StatusCode::NO_CONTENT.into_response()
 }
 
