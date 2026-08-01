@@ -97,6 +97,14 @@ pub struct DrawingTaskWithImage {
     pub image_url: String,
 }
 
+#[derive(Debug, Clone)]
+pub struct RecentFood {
+    pub food_item_id: i64,
+    pub name: String,
+    pub last_grams: f64,
+    pub last_slot: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct MealEntry {
     pub id: i64,

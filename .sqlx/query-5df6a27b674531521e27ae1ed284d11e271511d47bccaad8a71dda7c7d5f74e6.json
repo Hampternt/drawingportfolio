@@ -1,0 +1,110 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT id, name, brand, barcode, calories, protein, carbs, fat, fiber, sugar, sodium, saturated_fat, package_size, custom_portions, image_url, created_at FROM food_items WHERE barcode = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "id",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "name",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "brand",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "barcode",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "calories",
+        "ordinal": 4,
+        "type_info": "Float"
+      },
+      {
+        "name": "protein",
+        "ordinal": 5,
+        "type_info": "Float"
+      },
+      {
+        "name": "carbs",
+        "ordinal": 6,
+        "type_info": "Float"
+      },
+      {
+        "name": "fat",
+        "ordinal": 7,
+        "type_info": "Float"
+      },
+      {
+        "name": "fiber",
+        "ordinal": 8,
+        "type_info": "Float"
+      },
+      {
+        "name": "sugar",
+        "ordinal": 9,
+        "type_info": "Float"
+      },
+      {
+        "name": "sodium",
+        "ordinal": 10,
+        "type_info": "Float"
+      },
+      {
+        "name": "saturated_fat",
+        "ordinal": 11,
+        "type_info": "Float"
+      },
+      {
+        "name": "package_size",
+        "ordinal": 12,
+        "type_info": "Float"
+      },
+      {
+        "name": "custom_portions",
+        "ordinal": 13,
+        "type_info": "Text"
+      },
+      {
+        "name": "image_url",
+        "ordinal": 14,
+        "type_info": "Text"
+      },
+      {
+        "name": "created_at",
+        "ordinal": 15,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "5df6a27b674531521e27ae1ed284d11e271511d47bccaad8a71dda7c7d5f74e6"
+}

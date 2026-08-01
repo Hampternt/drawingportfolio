@@ -438,6 +438,44 @@ pub async fn insert_meal_entry(
     Ok(id.ok_or_else(|| sqlx::Error::RowNotFound)?)
 }
 
+pub async fn get_recent_foods(pool: &DbPool, limit: i64) -> Vec<crate::models::RecentFood> {
+    // Bare columns + MAX() in SQLite resolve to the max row's values; the
+    // annotated alias can't be referenced by name, so ORDER BY ordinal 5.
+    sqlx::query!(
+        r#"SELECT me.food_item_id as "food_item_id!", fi.name as "name!",
+                  me.grams as "last_grams!: f64", me.slot as "last_slot!",
+                  MAX(me.created_at || '-' || printf('%012d', me.id)) as "latest!: String"
+        FROM meal_entries me
+        JOIN food_items fi ON fi.id = me.food_item_id
+        GROUP BY me.food_item_id
+        ORDER BY 5 DESC
+        LIMIT ?"#,
+        limit
+    )
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default()
+    .into_iter()
+    .map(|r| crate::models::RecentFood {
+        food_item_id: r.food_item_id,
+        name: r.name,
+        last_grams: r.last_grams,
+        last_slot: r.last_slot,
+    })
+    .collect()
+}
+
+pub async fn get_food_item_by_barcode(pool: &DbPool, barcode: &str) -> Option<FoodItem> {
+    sqlx::query_as!(FoodItem,
+        "SELECT id, name, brand, barcode, calories, protein, carbs, fat, fiber, sugar, sodium, saturated_fat, package_size, custom_portions, image_url, created_at FROM food_items WHERE barcode = ?",
+        barcode
+    )
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten()
+}
+
 pub async fn copy_day_entries(pool: &DbPool, from_date: &str, to_date: &str) -> u64 {
     sqlx::query!(
         "INSERT INTO meal_entries (food_item_id, date, grams, slot)
@@ -1146,6 +1184,62 @@ mod tests {
         let t = get_targets(&pool).await;
         assert_eq!(t.calories, 2200.0);
         assert_eq!(t.fat, 70.0);
+    }
+
+    #[tokio::test]
+    async fn test_recent_foods_dedup_and_order() {
+        let pool = test_pool().await;
+        let a = insert_food_item(
+            &pool, "Skyr", "", None, 63.0, 11.0, 4.0, 0.2, 0.0, 0.0, 0.0, 0.0, None, "", "",
+        )
+        .await;
+        let b = insert_food_item(
+            &pool, "Oats", "", None, 379.0, 13.2, 60.1, 6.5, 0.0, 0.0, 0.0, 0.0, None, "", "",
+        )
+        .await;
+        insert_meal_entry(&pool, a.id, "2026-07-30", 250.0, "breakfast")
+            .await
+            .unwrap();
+        insert_meal_entry(&pool, b.id, "2026-07-31", 80.0, "breakfast")
+            .await
+            .unwrap();
+        insert_meal_entry(&pool, a.id, "2026-08-01", 300.0, "snack")
+            .await
+            .unwrap();
+        let recent = get_recent_foods(&pool, 8).await;
+        assert_eq!(recent.len(), 2);
+        assert_eq!(recent[0].name, "Skyr"); // most recently logged first
+        assert_eq!(recent[0].last_grams, 300.0); // grams of the latest log
+        assert_eq!(recent[0].last_slot, "snack");
+    }
+
+    #[tokio::test]
+    async fn test_get_food_item_by_barcode() {
+        let pool = test_pool().await;
+        insert_food_item(
+            &pool,
+            "Bar",
+            "Barebells",
+            Some("5060123456789"),
+            200.0,
+            20.0,
+            16.0,
+            8.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            Some(55.0),
+            "",
+            "",
+        )
+        .await;
+        assert!(get_food_item_by_barcode(&pool, "5060123456789")
+            .await
+            .is_some());
+        assert!(get_food_item_by_barcode(&pool, "0000000000000")
+            .await
+            .is_none());
     }
 
     #[tokio::test]

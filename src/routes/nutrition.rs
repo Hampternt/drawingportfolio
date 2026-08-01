@@ -1136,6 +1136,156 @@ async fn update_meal_entry_handler(
     ))
 }
 
+/// The log card shown when a scan / search / recent tap resolves to a food item.
+/// Portion buttons: package fractions and each custom portion; grams input as fallback.
+fn match_card_html(item: &crate::models::FoodItem, kicker: &str) -> String {
+    let mut portions: Vec<(String, f64)> = Vec::new();
+    if let Some(pkg) = item.package_size {
+        portions.push((format!("{} g", fmt_nutrient(pkg)), pkg));
+        portions.push((format!("Half {} g", fmt_nutrient(pkg * 0.5)), pkg * 0.5));
+    }
+    for part in item.custom_portions.split(',') {
+        if let Ok(g) = part.trim().parse::<f64>() {
+            if g > 0.0 {
+                portions.push((format!("{} g", fmt_nutrient(g)), g));
+            }
+        }
+    }
+    portions.truncate(3);
+    let portion_btns: String = portions
+        .iter()
+        .enumerate()
+        .map(|(i, (label, g))| {
+            format!(
+                r##"<button type="button" class="noc-btn {cls} portion-btn" data-grams="{g}" onclick="pickPortion(this)">{label}</button>"##,
+                cls = if i == 0 { "noc-btn-primary" } else { "noc-btn-secondary" },
+                g = g,
+                label = label
+            )
+        })
+        .collect();
+    let default_grams = portions.first().map(|(_, g)| *g).unwrap_or(100.0);
+    let brand = if item.brand.is_empty() {
+        String::new()
+    } else {
+        format!("{} · ", html_escape(&item.brand))
+    };
+    format!(
+        r##"<div class="match-card noc-card" id="match-card">
+  <div class="match-head">
+    <div class="match-title">{name}</div>
+    <div class="match-sub">{brand}{cal} cal · P {p} · C {c} · F {f} / 100 g</div>
+    <span class="noc-kicker">{kicker}</span>
+  </div>
+  <form hx-post="/api/nutrition/entries" hx-target="#day-section" hx-swap="innerHTML"
+        hx-on::after-request="closeAddSheet()">
+    <input type="hidden" name="date" value="">
+    <input type="hidden" name="food_item_id" value="{id}">
+    <input type="hidden" name="slot" value="other">
+    <div class="noc-kicker">Portion</div>
+    <div class="portion-row">{portion_btns}
+      <input class="noc-input portion-grams" type="number" name="grams" value="{default_grams}" min="1" max="5000" step="0.1" required>
+    </div>
+    <div class="noc-kicker">Meal</div>
+    <div class="slot-chips" data-role="slot-chips">
+      <button type="button" class="noc-tag noc-tag-outline" data-slot="breakfast" onclick="setSlot(this)">Breakfast</button>
+      <button type="button" class="noc-tag noc-tag-outline" data-slot="lunch" onclick="setSlot(this)">Lunch</button>
+      <button type="button" class="noc-tag noc-tag-outline" data-slot="dinner" onclick="setSlot(this)">Dinner</button>
+      <button type="button" class="noc-tag noc-tag-outline" data-slot="snack" onclick="setSlot(this)">Snack</button>
+    </div>
+    <button type="submit" class="noc-btn noc-btn-primary match-log-btn">Log it</button>
+  </form>
+</div>"##,
+        name = html_escape(&item.name),
+        brand = brand,
+        cal = fmt_nutrient(item.calories),
+        p = fmt_nutrient(item.protein),
+        c = fmt_nutrient(item.carbs),
+        f = fmt_nutrient(item.fat),
+        kicker = html_escape(kicker),
+        id = item.id,
+        portion_btns = portion_btns,
+        default_grams = fmt_nutrient(default_grams)
+    )
+}
+
+async fn match_card(
+    AuthSession(_): AuthSession,
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<i64>,
+) -> impl IntoResponse {
+    match crate::db::get_food_item(&state.pool, id).await {
+        Some(item) => Html(match_card_html(&item, "From library")).into_response(),
+        None => (StatusCode::NOT_FOUND, Html(String::new())).into_response(),
+    }
+}
+
+async fn recent_chips(
+    AuthSession(_): AuthSession,
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    let recents = crate::db::get_recent_foods(&state.pool, 8).await;
+    let chips: String = recents
+        .iter()
+        .map(|r| {
+            format!(
+                r##"<button type="button" class="noc-btn noc-btn-secondary recent-chip"
+             hx-get="/fitness/htmx/match-card/{id}" hx-target="#sheet-result" hx-swap="innerHTML">{name} {grams} g</button>"##,
+                id = r.food_item_id,
+                name = html_escape(&r.name),
+                grams = fmt_nutrient(r.last_grams)
+            )
+        })
+        .collect();
+    Html(if chips.is_empty() {
+        "<p class=\"sheet-hint\">Nothing logged yet.</p>".to_string()
+    } else {
+        chips
+    })
+}
+
+async fn food_search(
+    AuthSession(_): AuthSession,
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<HashMap<String, String>>,
+) -> impl IntoResponse {
+    let q = params.get("q").cloned().unwrap_or_default();
+    if q.trim().is_empty() {
+        return Html(String::new());
+    }
+    let items = crate::db::search_food_items(&state.pool, q.trim()).await;
+    let rows: String = items
+        .iter()
+        .map(|i| {
+            format!(
+                r##"<button type="button" class="search-row" data-item-id="{id}"
+             hx-get="/fitness/htmx/match-card/{id}" hx-target="#sheet-result" hx-swap="innerHTML">
+      <span class="search-name">{name}</span>
+      <span class="search-macros">{cal} cal / 100 g</span>
+    </button>"##,
+                id = i.id,
+                name = html_escape(&i.name),
+                cal = fmt_nutrient(i.calories)
+            )
+        })
+        .collect();
+    Html(rows)
+}
+
+async fn barcode_match(
+    AuthSession(_): AuthSession,
+    State(state): State<Arc<AppState>>,
+    Path(code): Path<String>,
+) -> impl IntoResponse {
+    match crate::db::get_food_item_by_barcode(&state.pool, &code).await {
+        Some(item) => {
+            let kicker = format!("Matched · {}", code);
+            Html(match_card_html(&item, &kicker)).into_response()
+        }
+        None => (StatusCode::NOT_FOUND, Html(String::new())).into_response(),
+    }
+}
+
 async fn copy_day_handler(
     AuthSession(_): AuthSession,
     State(state): State<Arc<AppState>>,
@@ -1264,4 +1414,8 @@ pub fn router() -> Router<Arc<AppState>> {
         )
         .route("/fitness/htmx/entries/{id}/edit", get(entry_edit_form))
         .route("/fitness/copy-day", post(copy_day_handler))
+        .route("/fitness/htmx/recent", get(recent_chips))
+        .route("/fitness/htmx/food-search", get(food_search))
+        .route("/fitness/htmx/match-card/{id}", get(match_card))
+        .route("/fitness/htmx/barcode-match/{code}", get(barcode_match))
 }
