@@ -562,6 +562,18 @@ body.fitness-dark .meal-entry-edit form { display: flex; gap: 8px; align-items: 
 body.fitness-dark .meal-entry-edit input[name="grams"] { width: 90px; }
 body.fitness-dark .meal-entry-edit select { width: auto; }
 
+/* week strip (Task 5) */
+body.fitness-dark .week-strip { flex: 1; display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
+body.fitness-dark .day-col { background: none; border: none; padding: 0; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 6px; min-height: 44px; }
+body.fitness-dark .day-letter { font-size: 10px; color: var(--noc-faint); }
+body.fitness-dark .day-letter.selected { color: var(--noc-text); font-weight: 600; }
+body.fitness-dark .day-letter.future { color: color-mix(in srgb, var(--noc-text) 25%, transparent); }
+body.fitness-dark .day-cell { width: 100%; height: 34px; background: var(--noc-surface); border-radius: var(--noc-radius-sm); display: flex; align-items: flex-end; overflow: hidden; }
+body.fitness-dark .day-cell.selected { background: var(--noc-accent-900); box-shadow: 0 0 0 1px var(--noc-accent); }
+body.fitness-dark .day-cell.future { background: var(--noc-surface-2); }
+body.fitness-dark .day-fill { width: 100%; background: var(--noc-n800); border-radius: var(--noc-radius-sm); }
+body.fitness-dark .day-fill.accent { background: var(--noc-accent); }
+
 /* ── Drawing Tasks ───────────────────────────────────── */
 .tasks-page { max-width: 640px; margin: 0 auto; padding: 1rem; }
 

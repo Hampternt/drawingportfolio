@@ -438,6 +438,29 @@ pub async fn insert_meal_entry(
     Ok(id.ok_or_else(|| sqlx::Error::RowNotFound)?)
 }
 
+pub async fn get_calories_by_date_range(
+    pool: &DbPool,
+    start: &str,
+    end: &str,
+) -> Vec<(String, f64)> {
+    sqlx::query!(
+        r#"SELECT me.date as "date!", SUM(me.grams / 100.0 * fi.calories) as "cal!: f64"
+        FROM meal_entries me
+        JOIN food_items fi ON fi.id = me.food_item_id
+        WHERE me.date >= ? AND me.date <= ?
+        GROUP BY me.date
+        ORDER BY me.date ASC"#,
+        start,
+        end
+    )
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default()
+    .into_iter()
+    .map(|r| (r.date, r.cal))
+    .collect()
+}
+
 pub async fn update_meal_entry(pool: &DbPool, id: i64, grams: f64, slot: &str) {
     sqlx::query!(
         "UPDATE meal_entries SET grams = ?, slot = ? WHERE id = ?",
@@ -1110,6 +1133,32 @@ mod tests {
         let t = get_targets(&pool).await;
         assert_eq!(t.calories, 2200.0);
         assert_eq!(t.fat, 70.0);
+    }
+
+    #[tokio::test]
+    async fn test_calories_by_date_range() {
+        let pool = test_pool().await;
+        let item = insert_food_item(
+            &pool, "Rice", "", None, 100.0, 2.0, 20.0, 1.0, 0.0, 0.0, 0.0, 0.0, None, "", "",
+        )
+        .await;
+        insert_meal_entry(&pool, item.id, "2026-07-27", 100.0, "lunch")
+            .await
+            .unwrap();
+        insert_meal_entry(&pool, item.id, "2026-07-27", 50.0, "dinner")
+            .await
+            .unwrap();
+        insert_meal_entry(&pool, item.id, "2026-07-29", 200.0, "lunch")
+            .await
+            .unwrap();
+        insert_meal_entry(&pool, item.id, "2026-08-05", 100.0, "lunch")
+            .await
+            .unwrap(); // outside range
+        let rows = get_calories_by_date_range(&pool, "2026-07-26", "2026-08-01").await;
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].0, "2026-07-27");
+        assert!((rows[0].1 - 150.0).abs() < 0.01);
+        assert!((rows[1].1 - 200.0).abs() < 0.01);
     }
 
     #[tokio::test]

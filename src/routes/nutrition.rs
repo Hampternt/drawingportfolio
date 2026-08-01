@@ -182,6 +182,77 @@ fn macro_rail_html(label: &str, value: f64, target: f64, bar_hex: &str) -> Strin
     )
 }
 
+/// The Sunday-first week containing `date`, as 7 (iso_date, kcal) pairs.
+async fn week_for(pool: &crate::db::DbPool, date: &str) -> Vec<(String, f64)> {
+    use chrono::{Datelike, Duration, NaiveDate};
+    let d = NaiveDate::parse_from_str(date, "%Y-%m-%d")
+        .unwrap_or_else(|_| chrono::Utc::now().date_naive());
+    let sunday = d - Duration::days(d.weekday().num_days_from_sunday() as i64);
+    let days: Vec<String> = (0..7)
+        .map(|i| (sunday + Duration::days(i)).format("%Y-%m-%d").to_string())
+        .collect();
+    let cals = crate::db::get_calories_by_date_range(pool, &days[0], &days[6]).await;
+    days.into_iter()
+        .map(|day| {
+            let cal = cals
+                .iter()
+                .find(|(d2, _)| *d2 == day)
+                .map(|(_, c)| *c)
+                .unwrap_or(0.0);
+            (day, cal)
+        })
+        .collect()
+}
+
+fn week_strip_html(week: &[(String, f64)], selected: &str, today: &str, target_cal: f64) -> String {
+    const LETTERS: [&str; 7] = ["S", "M", "T", "W", "T", "F", "S"];
+    let cols: String = week
+        .iter()
+        .enumerate()
+        .map(|(i, (day, cal))| {
+            let is_selected = day.as_str() == selected;
+            let is_future = day.as_str() > today;
+            let pct = if target_cal > 0.0 {
+                ((cal / target_cal) * 100.0).clamp(0.0, 112.0)
+            } else {
+                0.0
+            };
+            let (cell_cls, fill) = if is_future {
+                ("day-cell future", String::new())
+            } else if is_selected {
+                (
+                    "day-cell selected",
+                    format!(r#"<div class="day-fill accent" style="height:{pct:.0}%"></div>"#),
+                )
+            } else {
+                (
+                    "day-cell",
+                    format!(r#"<div class="day-fill" style="height:{pct:.0}%"></div>"#),
+                )
+            };
+            let letter_cls = if is_selected {
+                "day-letter selected"
+            } else if is_future {
+                "day-letter future"
+            } else {
+                "day-letter"
+            };
+            format!(
+                r##"<button type="button" class="day-col" data-date="{day}" onclick="loadDay('{day}')" aria-label="{day}">
+  <span class="{letter_cls}">{letter}</span>
+  <div class="{cell_cls}">{fill}</div>
+</button>"##,
+                day = day,
+                letter = LETTERS[i],
+                letter_cls = letter_cls,
+                cell_cls = cell_cls,
+                fill = fill
+            )
+        })
+        .collect();
+    format!(r#"<div class="week-strip" id="week-strip">{}</div>"#, cols)
+}
+
 pub fn day_section_html(
     entries: &[crate::models::MealEntryWithFood],
     date: &str,
@@ -405,6 +476,8 @@ fn edit_food_form_html(item: &crate::models::FoodItem) -> String {
 struct FitnessTemplate {
     is_admin: bool,
     today: String,
+    date: String,
+    week_strip_html: String,
     day_section_html: String,
     library_html: String,
 }
@@ -414,17 +487,28 @@ struct FitnessTemplate {
 async fn fitness_page(
     AuthSession(_): AuthSession,
     State(state): State<Arc<AppState>>,
+    Query(params): Query<HashMap<String, String>>,
 ) -> impl IntoResponse {
     let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
-    let entries = crate::db::get_meal_entries_for_date(&state.pool, &today).await;
+    // ?date= selects the shown day; anything unparsable falls back to today
+    let date = params
+        .get("date")
+        .filter(|d| chrono::NaiveDate::parse_from_str(d, "%Y-%m-%d").is_ok())
+        .cloned()
+        .unwrap_or_else(|| today.clone());
+    let entries = crate::db::get_meal_entries_for_date(&state.pool, &date).await;
     let food_items = crate::db::get_food_items(&state.pool).await;
     let targets = crate::db::get_targets(&state.pool).await;
-    let day_html = day_section_html(&entries, &today, &food_items, &targets, true);
+    let week = week_for(&state.pool, &date).await;
+    let strip = week_strip_html(&week, &date, &today, targets.calories);
+    let day_html = day_section_html(&entries, &date, &food_items, &targets, true);
     let lib_html = library_list_html(&food_items, true);
     Html(
         FitnessTemplate {
             is_admin: true,
             today,
+            date,
+            week_strip_html: strip,
             day_section_html: day_html,
             library_html: lib_html,
         }

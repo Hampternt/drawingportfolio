@@ -12,11 +12,11 @@
 {% block content %}
 <section class="fitness-page">
 
-  <!-- Date navigator -->
+  <!-- Date navigator: week strip + step arrows -->
   <div class="fitness-date-nav">
-    <button id="prev-day" class="btn-secondary">←</button>
-    <input type="date" id="date-picker" value="{{ today }}">
-    <button id="next-day" class="btn-secondary">→</button>
+    <button id="prev-day" class="btn-secondary" aria-label="Previous day">←</button>
+    {{ week_strip_html|safe }}
+    <button id="next-day" class="btn-secondary" aria-label="Next day">→</button>
   </div>
 
   <!-- Day section: totals + meal log + log form (pre-rendered by Rust) -->
@@ -88,7 +88,7 @@
 
 <script>
 window.TODAY = "{{ today }}";
-window.currentDate = window.TODAY;
+window.currentDate = "{{ date }}";
 
 // Date navigation
 function filterLibrary(q) {
@@ -99,10 +99,23 @@ function filterLibrary(q) {
   });
 }
 
+function markSelectedDay(date) {
+  document.querySelectorAll('#week-strip .day-col').forEach(col => {
+    const sel = col.dataset.date === date;
+    col.querySelector('.day-letter').classList.toggle('selected', sel);
+    col.querySelector('.day-cell').classList.toggle('selected', sel);
+  });
+}
+
 function loadDay(date) {
   if (!date) return;
+  // outside the rendered week (arrows crossing a Sunday): full navigation re-renders the strip
+  if (![...document.querySelectorAll('#week-strip .day-col')].some(c => c.dataset.date === date)) {
+    location.href = '/fitness?date=' + date;
+    return;
+  }
   window.currentDate = date;
-  document.getElementById('date-picker').value = date;
+  markSelectedDay(date);
   htmx.ajax('GET', '/fitness/htmx/day?date=' + date, {target: '#day-section', swap: 'innerHTML'});
 }
 
@@ -116,10 +129,6 @@ document.getElementById('next-day').onclick = () => {
   const d = new Date(window.currentDate + 'T00:00:00');
   d.setDate(d.getDate() + 1);
   loadDay(d.toISOString().slice(0, 10));
-};
-
-document.getElementById('date-picker').onchange = (e) => {
-  loadDay(e.target.value);
 };
 
 // Meal slots (Task 4): clock-inferred default + chip behavior
