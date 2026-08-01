@@ -19,6 +19,16 @@ fn html_escape(s: &str) -> String {
         .replace('"', "&quot;")
 }
 
+/// Valid ISO date from user input, else today (UTC). Handlers must not trust
+/// the `date` form/query field — `date=""` or junk would otherwise create
+/// entries no view can reach.
+fn sanitize_date(input: Option<&String>) -> String {
+    input
+        .filter(|d| chrono::NaiveDate::parse_from_str(d, "%Y-%m-%d").is_ok())
+        .cloned()
+        .unwrap_or_else(|| chrono::Utc::now().format("%Y-%m-%d").to_string())
+}
+
 fn fmt_nutrient(v: f64) -> String {
     if v == 0.0 {
         "0".to_string()
@@ -585,7 +595,6 @@ fn edit_food_form_html(item: &crate::models::FoodItem, history_html: &str) -> St
 #[template(path = "fitness/feed.html")]
 struct FitnessTemplate {
     is_admin: bool,
-    today: String,
     date: String,
     week_strip_html: String,
     day_section_html: String,
@@ -600,12 +609,7 @@ async fn fitness_page(
     Query(params): Query<HashMap<String, String>>,
 ) -> impl IntoResponse {
     let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
-    // ?date= selects the shown day; anything unparsable falls back to today
-    let date = params
-        .get("date")
-        .filter(|d| chrono::NaiveDate::parse_from_str(d, "%Y-%m-%d").is_ok())
-        .cloned()
-        .unwrap_or_else(|| today.clone());
+    let date = sanitize_date(params.get("date"));
     let entries = crate::db::get_meal_entries_for_date(&state.pool, &date).await;
     let food_items = crate::db::get_food_items(&state.pool).await;
     let targets = crate::db::get_targets(&state.pool).await;
@@ -621,7 +625,6 @@ async fn fitness_page(
     Html(
         FitnessTemplate {
             is_admin: true,
-            today,
             date,
             week_strip_html: strip,
             day_section_html: day_html,
@@ -637,10 +640,7 @@ async fn htmx_day(
     State(state): State<Arc<AppState>>,
     Query(params): Query<HashMap<String, String>>,
 ) -> impl IntoResponse {
-    let date = params
-        .get("date")
-        .cloned()
-        .unwrap_or_else(|| chrono::Utc::now().format("%Y-%m-%d").to_string());
+    let date = sanitize_date(params.get("date"));
     let entries = crate::db::get_meal_entries_for_date(&state.pool, &date).await;
     let food_items = crate::db::get_food_items(&state.pool).await;
     let targets = crate::db::get_targets(&state.pool).await;
@@ -874,10 +874,7 @@ async fn add_meal_entry(
     State(state): State<Arc<AppState>>,
     axum::Form(form): axum::Form<HashMap<String, String>>,
 ) -> impl IntoResponse {
-    let date = form
-        .get("date")
-        .cloned()
-        .unwrap_or_else(|| chrono::Utc::now().format("%Y-%m-%d").to_string());
+    let date = sanitize_date(form.get("date"));
     let food_item_id: i64 = form
         .get("food_item_id")
         .and_then(|v| v.parse().ok())
@@ -931,10 +928,7 @@ async fn delete_meal_entry_handler(
     Query(params): Query<HashMap<String, String>>,
 ) -> impl IntoResponse {
     crate::db::delete_meal_entry(&state.pool, id).await;
-    let date = params
-        .get("date")
-        .cloned()
-        .unwrap_or_else(|| chrono::Utc::now().format("%Y-%m-%d").to_string());
+    let date = sanitize_date(params.get("date"));
     let entries = crate::db::get_meal_entries_for_date(&state.pool, &date).await;
     let food_items = crate::db::get_food_items(&state.pool).await;
     let targets = crate::db::get_targets(&state.pool).await;
@@ -1264,7 +1258,7 @@ async fn entry_edit_form(
     Path(id): Path<i64>,
     Query(params): Query<HashMap<String, String>>,
 ) -> impl IntoResponse {
-    let date = params.get("date").cloned().unwrap_or_default();
+    let date = sanitize_date(params.get("date"));
     match crate::db::get_meal_entry(&state.pool, id).await {
         Some(entry) => {
             let name = crate::db::get_food_item(&state.pool, entry.food_item_id)
@@ -1303,10 +1297,7 @@ async fn update_meal_entry_handler(
     if grams > 0.0 {
         crate::db::update_meal_entry(&state.pool, id, grams, &slot).await;
     }
-    let date = form
-        .get("date")
-        .cloned()
-        .unwrap_or_else(|| chrono::Utc::now().format("%Y-%m-%d").to_string());
+    let date = sanitize_date(form.get("date"));
     let targets = crate::db::get_targets(&state.pool).await;
     let entries = crate::db::get_meal_entries_for_date(&state.pool, &date).await;
     let food_items = crate::db::get_food_items(&state.pool).await;
@@ -1366,7 +1357,7 @@ fn match_card_html(item: &crate::models::FoodItem, kicker: &str) -> String {
     <span class="noc-kicker">{kicker}</span>
   </div>
   <form hx-post="/api/nutrition/entries" hx-target="#day-section" hx-swap="innerHTML"
-        hx-on::after-request="closeAddSheet()">
+        hx-on::after-request="if (event.detail.successful) closeAddSheet()">
     <input type="hidden" name="date" value="">
     <input type="hidden" name="food_item_id" value="{id}">
     <input type="hidden" name="slot" value="other">
@@ -1474,15 +1465,24 @@ async fn barcode_match(
     }
 }
 
+async fn week_strip_fragment(
+    AuthSession(_): AuthSession,
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<HashMap<String, String>>,
+) -> impl IntoResponse {
+    let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+    let date = sanitize_date(params.get("date"));
+    let targets = crate::db::get_targets(&state.pool).await;
+    let week = week_for(&state.pool, &date).await;
+    Html(week_strip_html(&week, &date, &today, targets.calories))
+}
+
 async fn quick_log_handler(
     AuthSession(_): AuthSession,
     State(state): State<Arc<AppState>>,
     axum::Form(form): axum::Form<HashMap<String, String>>,
 ) -> impl IntoResponse {
-    let date = form
-        .get("date")
-        .cloned()
-        .unwrap_or_else(|| chrono::Utc::now().format("%Y-%m-%d").to_string());
+    let date = sanitize_date(form.get("date"));
     let slot = form
         .get("slot")
         .cloned()
@@ -1714,7 +1714,7 @@ async fn create_recipe_handler(
     axum::Form(form): axum::Form<HashMap<String, String>>,
 ) -> impl IntoResponse {
     let name = form.get("name").map(|s| s.trim()).unwrap_or("");
-    let date = form.get("date").cloned().unwrap_or_default();
+    let date = sanitize_date(form.get("date"));
     let slot = form.get("slot").cloned().unwrap_or_default();
     if !name.is_empty() {
         crate::db::create_recipe_from_slot(&state.pool, name, &date, &slot).await;
@@ -1737,10 +1737,7 @@ async fn log_recipe_handler(
     Path(id): Path<i64>,
     axum::Form(form): axum::Form<HashMap<String, String>>,
 ) -> impl IntoResponse {
-    let date = form
-        .get("date")
-        .cloned()
-        .unwrap_or_else(|| chrono::Utc::now().format("%Y-%m-%d").to_string());
+    let date = sanitize_date(form.get("date"));
     let slot = form
         .get("slot")
         .cloned()
@@ -1769,7 +1766,7 @@ fn meals_pane_html(recipes: &[crate::models::RecipeWithTotals]) -> String {
         .map(|r| {
             format!(
                 r##"<div class="meal-row">
-  <form hx-post="/api/nutrition/recipes/{id}/log" hx-target="#day-section" hx-swap="innerHTML" hx-on::after-request="closeAddSheet()">
+  <form hx-post="/api/nutrition/recipes/{id}/log" hx-target="#day-section" hx-swap="innerHTML" hx-on::after-request="if (event.detail.successful) closeAddSheet()">
     <input type="hidden" name="date" value=""><input type="hidden" name="slot" value="other">
     <button type="submit" class="noc-btn noc-btn-secondary meal-log-btn"><span>{name}</span><span class="meal-cal">{cal} cal</span></button>
   </form>
@@ -1851,10 +1848,7 @@ async fn copy_day_handler(
     State(state): State<Arc<AppState>>,
     axum::Form(form): axum::Form<HashMap<String, String>>,
 ) -> impl IntoResponse {
-    let date = form
-        .get("date")
-        .cloned()
-        .unwrap_or_else(|| chrono::Utc::now().format("%Y-%m-%d").to_string());
+    let date = sanitize_date(form.get("date"));
     let yesterday = chrono::NaiveDate::parse_from_str(&date, "%Y-%m-%d")
         .map(|d| {
             (d - chrono::Duration::days(1))
@@ -1882,7 +1876,7 @@ async fn targets_form(
     State(state): State<Arc<AppState>>,
     Query(params): Query<HashMap<String, String>>,
 ) -> impl IntoResponse {
-    let date = params.get("date").cloned().unwrap_or_default();
+    let date = sanitize_date(params.get("date"));
     let t = crate::db::get_targets(&state.pool).await;
     Html(format!(
         r##"<form class="targets-form" hx-post="/api/nutrition/targets" hx-target="#day-section" hx-swap="innerHTML">
@@ -1915,10 +1909,7 @@ async fn set_targets_handler(
         g("fat", 72.0),
     )
     .await;
-    let date = form
-        .get("date")
-        .cloned()
-        .unwrap_or_else(|| chrono::Utc::now().format("%Y-%m-%d").to_string());
+    let date = sanitize_date(form.get("date"));
     let targets = crate::db::get_targets(&state.pool).await;
     let entries = crate::db::get_meal_entries_for_date(&state.pool, &date).await;
     let food_items = crate::db::get_food_items(&state.pool).await;
@@ -2008,6 +1999,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/fitness/htmx/barcode-match/{code}", get(barcode_match))
         .route("/fitness/week", get(week_page))
         .route("/fitness/quick-log", post(quick_log_handler))
+        .route("/fitness/htmx/week-strip", get(week_strip_fragment))
         .route("/api/nutrition/weights", post(log_weight_handler))
         .route("/api/nutrition/recipes", post(create_recipe_handler))
         .route("/api/nutrition/recipes/{id}/log", post(log_recipe_handler))
