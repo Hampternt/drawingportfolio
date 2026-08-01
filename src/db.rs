@@ -438,6 +438,19 @@ pub async fn insert_meal_entry(
     Ok(id.ok_or_else(|| sqlx::Error::RowNotFound)?)
 }
 
+pub async fn copy_day_entries(pool: &DbPool, from_date: &str, to_date: &str) -> u64 {
+    sqlx::query!(
+        "INSERT INTO meal_entries (food_item_id, date, grams, slot)
+         SELECT food_item_id, ?, grams, slot FROM meal_entries WHERE date = ?",
+        to_date,
+        from_date
+    )
+    .execute(pool)
+    .await
+    .map(|r| r.rows_affected())
+    .unwrap_or(0)
+}
+
 pub async fn get_calories_by_date_range(
     pool: &DbPool,
     start: &str,
@@ -1133,6 +1146,27 @@ mod tests {
         let t = get_targets(&pool).await;
         assert_eq!(t.calories, 2200.0);
         assert_eq!(t.fat, 70.0);
+    }
+
+    #[tokio::test]
+    async fn test_copy_day_entries() {
+        let pool = test_pool().await;
+        let item = insert_food_item(
+            &pool, "Oats", "", None, 379.0, 13.2, 60.1, 6.5, 0.0, 0.0, 0.0, 0.0, None, "", "",
+        )
+        .await;
+        insert_meal_entry(&pool, item.id, "2026-07-31", 80.0, "breakfast")
+            .await
+            .unwrap();
+        insert_meal_entry(&pool, item.id, "2026-07-31", 120.0, "lunch")
+            .await
+            .unwrap();
+        let copied = copy_day_entries(&pool, "2026-07-31", "2026-08-01").await;
+        assert_eq!(copied, 2);
+        let entries = get_meal_entries_for_date(&pool, "2026-08-01").await;
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].slot, "breakfast");
+        assert_eq!(entries[1].grams, 120.0);
     }
 
     #[tokio::test]

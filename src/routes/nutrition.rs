@@ -1136,6 +1136,37 @@ async fn update_meal_entry_handler(
     ))
 }
 
+async fn copy_day_handler(
+    AuthSession(_): AuthSession,
+    State(state): State<Arc<AppState>>,
+    axum::Form(form): axum::Form<HashMap<String, String>>,
+) -> impl IntoResponse {
+    let date = form
+        .get("date")
+        .cloned()
+        .unwrap_or_else(|| chrono::Utc::now().format("%Y-%m-%d").to_string());
+    let yesterday = chrono::NaiveDate::parse_from_str(&date, "%Y-%m-%d")
+        .map(|d| {
+            (d - chrono::Duration::days(1))
+                .format("%Y-%m-%d")
+                .to_string()
+        })
+        .unwrap_or_default();
+    if !yesterday.is_empty() {
+        crate::db::copy_day_entries(&state.pool, &yesterday, &date).await;
+    }
+    let targets = crate::db::get_targets(&state.pool).await;
+    let entries = crate::db::get_meal_entries_for_date(&state.pool, &date).await;
+    let food_items = crate::db::get_food_items(&state.pool).await;
+    Html(day_section_html(
+        &entries,
+        &date,
+        &food_items,
+        &targets,
+        true,
+    ))
+}
+
 async fn targets_form(
     AuthSession(_): AuthSession,
     State(state): State<Arc<AppState>>,
@@ -1232,4 +1263,5 @@ pub fn router() -> Router<Arc<AppState>> {
             delete(delete_meal_entry_handler).put(update_meal_entry_handler),
         )
         .route("/fitness/htmx/entries/{id}/edit", get(entry_edit_form))
+        .route("/fitness/copy-day", post(copy_day_handler))
 }

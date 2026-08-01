@@ -84,6 +84,21 @@
     </div>
   </section>
 
+  <div id="fitness-actionbar">
+    <button id="bar-scan" class="noc-btn noc-btn-primary" onclick="startBarcodeScanner('add-food-form')">
+      <svg width="18" height="14" viewBox="0 0 18 14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M1 1v12M4.5 1v12M7.5 1v12M11 1v12M14 1v12M17 1v12"></path></svg>
+      Scan
+    </button>
+    <button id="bar-search" class="noc-btn noc-btn-secondary" onclick="document.getElementById('library-search').focus()">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="7" cy="7" r="5"></circle><path d="M11 11l4 4"></path></svg>
+      Search
+    </button>
+    <button id="bar-copy" class="noc-btn noc-btn-secondary noc-btn-icon" title="Copy yesterday"
+            hx-post="/fitness/copy-day" hx-vals='js:{date: window.currentDate}' hx-target="#day-section" hx-swap="innerHTML">
+      <svg width="17" height="17" viewBox="0 0 17 17" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="9" height="11" rx="2"></rect><path d="M6 15h7a2 2 0 0 0 2-2V6"></path></svg>
+    </button>
+  </div>
+
 </section>
 
 <script>
