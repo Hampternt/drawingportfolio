@@ -260,13 +260,29 @@ async fn login(
     }
 }
 
+/// Renders the standings, tagging the current 3 Man's row with the badge
+/// when a 3 Man game is active. Shared by `broadcast_leaderboard` and the
+/// SSE reconnect snapshot so a fresh connection carries the badge too.
+async fn render_leaderboard(state: &GameState, room_id: i64) -> String {
+    let rows = db::leaderboard(&state.pool, room_id).await;
+    let three_man = match db::get_active_game(&state.pool, room_id).await {
+        Some(game) if game.kind == "three_man" => {
+            let st = crate::three_man::ThreeManState::from_json(
+                game.state_json.as_deref().unwrap_or_default(),
+            );
+            Some(st.three_man)
+        }
+        _ => None,
+    };
+    render::leaderboard_items_tm(&rows, three_man)
+}
+
 /// Re-render the standings and push to every subscribed screen in the room.
 pub(crate) async fn broadcast_leaderboard(state: &GameState, room_id: i64) {
-    let rows = db::leaderboard(&state.pool, room_id).await;
-    state.hub.publish(
-        room_id,
-        crate::hub::RoomMessage::Leaderboard(render::leaderboard_items(&rows)),
-    );
+    let html = render_leaderboard(state, room_id).await;
+    state
+        .hub
+        .publish(room_id, crate::hub::RoomMessage::Leaderboard(html));
 }
 
 #[derive(Deserialize)]
@@ -367,8 +383,7 @@ async fn sse_stream(
         )
             .into_response();
     }
-    let rows = db::leaderboard(&state.pool, room.id).await;
-    let initial = render::leaderboard_items(&rows);
+    let initial = render_leaderboard(&state, room.id).await;
     let initial_game = crate::game::current_panel(&state, room.id, &room.code, None).await;
     let initial_screen = crate::game::current_screen_panel(&state, room.id, &room.code).await;
     let initial_room = crate::game::current_room_panel(&state, room.id, &room.code).await;
@@ -531,6 +546,14 @@ pub fn router() -> Router<GameState> {
         .route("/room/{code}/game/spend", post(crate::game::spend_handler))
         .route("/room/{code}/game/end", post(crate::game::end_game_handler))
         .route("/room/{code}/game/rule", post(crate::game::rule_handler))
+        .route(
+            "/room/{code}/tm/start",
+            post(crate::tm_routes::tm_start_handler),
+        )
+        .route(
+            "/room/{code}/tm/end",
+            post(crate::tm_routes::tm_end_handler),
+        )
         .route("/room/{code}/sse", get(sse_stream))
         .route("/room/{code}/screen", get(screen_page))
         .route("/assets/game.css", get(game_css))

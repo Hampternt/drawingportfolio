@@ -1447,3 +1447,177 @@ async fn test_running_game_unaffected_by_preset_edit() {
         "Waterfall"
     );
 }
+
+// -------------------------------------------------------------
+// 3 Man (Task 12): /tm/start, /tm/end, idle-panel start card,
+// kind-dispatched panels.
+// -------------------------------------------------------------
+
+#[tokio::test]
+async fn test_tm_start_seeds_order_and_renders_dice_ui() {
+    let (app, pool) = test_app_with_pool().await;
+    let alice = login(&app, "alice", "1234").await;
+    let bob = login(&app, "bob", "5678").await;
+    let code = create_room(&app, &alice).await;
+    room_page_html(&app, &bob, &code).await; // bob joins
+
+    let res = post_form(&app, &alice, &format!("/room/{code}/tm/start"), "").await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+
+    let room = drinkinggame::db::get_open_room(&pool, &code).await.unwrap();
+    let game = drinkinggame::db::get_active_game(&pool, room.id)
+        .await
+        .unwrap();
+    assert_eq!(game.kind, "three_man");
+    assert_eq!(game.deck_order, "");
+    assert_eq!(game.rules_json, "");
+    assert!(game.state_json.is_some());
+
+    let html = room_page_html(&app, &alice, &code).await;
+    assert!(html.contains("ROLL THE DICE"));
+    // alice created the room, so she's the starter and initial 3 Man.
+    let alice_player = drinkinggame::db::get_player_by_name(&pool, "alice")
+        .await
+        .unwrap();
+    assert!(html.contains(&format!(r#"data-three-man="{}""#, alice_player.id)));
+}
+
+#[tokio::test]
+async fn test_tm_start_needs_two_players() {
+    let app = test_app().await;
+    let alice = login(&app, "alice", "1234").await;
+    let code = create_room(&app, &alice).await;
+
+    let res = post_form(&app, &alice, &format!("/room/{code}/tm/start"), "").await;
+    assert_eq!(res.status(), StatusCode::CONFLICT);
+    assert!(body_string(res).await.contains("at least 2 players"));
+}
+
+#[tokio::test]
+async fn test_tm_start_conflicts_with_active_rof() {
+    let app = test_app().await;
+    let alice = login(&app, "alice", "1234").await;
+    let bob = login(&app, "bob", "5678").await;
+    let code = create_room(&app, &alice).await;
+    room_page_html(&app, &bob, &code).await;
+    post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/game/start"),
+        "preset_id=1",
+    )
+    .await;
+
+    let res = post_form(&app, &alice, &format!("/room/{code}/tm/start"), "").await;
+    assert_eq!(res.status(), StatusCode::CONFLICT);
+    assert!(body_string(res).await.contains("already running"));
+}
+
+/// `/tm/roll` (and the rest of the action routes) belong to a later task —
+/// `/tm/end` is the only other 3 Man route this task registers, and it's
+/// kind-gated through the same `load_tm()` helper every future `/tm/*`
+/// action handler will share, so it exercises the WrongGameKind path those
+/// routes will need without requiring routes this task doesn't build.
+#[tokio::test]
+async fn test_tm_routes_reject_rof_games() {
+    let app = test_app().await;
+    let alice = login(&app, "alice", "1234").await;
+    let bob = login(&app, "bob", "5678").await;
+    let code = create_room(&app, &alice).await;
+    room_page_html(&app, &bob, &code).await;
+    post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/game/start"),
+        "preset_id=1",
+    )
+    .await;
+
+    let res = post_form(&app, &alice, &format!("/room/{code}/tm/end"), "").await;
+    assert_eq!(res.status(), StatusCode::CONFLICT);
+    assert!(body_string(res).await.contains("belongs to the other game"));
+}
+
+#[tokio::test]
+async fn test_tm_end_broadcasts_summary_and_idle() {
+    use futures::StreamExt;
+    let (app, pool) = test_app_with_pool().await;
+    let alice = login(&app, "alice", "1234").await;
+    let bob = login(&app, "bob", "5678").await;
+    let code = create_room(&app, &alice).await;
+    room_page_html(&app, &bob, &code).await;
+    post_form(&app, &alice, &format!("/room/{code}/tm/start"), "").await;
+
+    // alice: 3 drinks, 1 shot. bob: 1 drink, 2 shots.
+    for _ in 0..3 {
+        post_form(&app, &alice, &format!("/room/{code}/event"), "kind=drink").await;
+    }
+    post_form(&app, &alice, &format!("/room/{code}/event"), "kind=shot").await;
+    post_form(&app, &bob, &format!("/room/{code}/event"), "kind=drink").await;
+    for _ in 0..2 {
+        post_form(&app, &bob, &format!("/room/{code}/event"), "kind=shot").await;
+    }
+
+    let sse_res = app
+        .clone()
+        .oneshot(
+            Request::get(format!("/room/{code}/sse"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let mut sse_body = sse_res.into_body().into_data_stream();
+    for _ in 0..4 {
+        sse_body.next().await.unwrap().unwrap(); // drain the 4-frame snapshot
+    }
+
+    let res = post_form(&app, &alice, &format!("/room/{code}/tm/end"), "").await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+
+    let room = drinkinggame::db::get_open_room(&pool, &code).await.unwrap();
+    assert!(drinkinggame::db::get_active_game(&pool, room.id)
+        .await
+        .is_none()); // games.ended_at is now set
+
+    let game_frame = String::from_utf8(sse_body.next().await.unwrap().unwrap().to_vec()).unwrap();
+    assert!(game_frame.contains("event: game"));
+    assert!(game_frame.contains("GAME OVER"));
+    assert!(game_frame.contains("HARDEST HIT"));
+    assert!(game_frame.contains("alice"));
+    assert!(game_frame.contains("MOST SHOTS"));
+    assert!(game_frame.contains("bob"));
+    // Room total is drinks + shots summed across everyone (alice 3+1, bob
+    // 1+2 = 7 total) — matching Ring of Fire's game_summary/"drinks
+    // logged" convention. (The brief's Step 1 sketch names "4", which is
+    // drinks-only; Step 3's explicit "summed drinks + shots" instruction
+    // governs, so this asserts the rendered cell rather than a bare
+    // substring that both interpretations would satisfy.)
+    assert!(game_frame.contains(
+        r#"<span class="superla-label">ROOM TOTAL</span><span class="superla-name">7</span>"#
+    ));
+
+    let screen_frame = String::from_utf8(sse_body.next().await.unwrap().unwrap().to_vec()).unwrap();
+    assert!(screen_frame.contains("event: screen"));
+    assert!(screen_frame.contains("lost"));
+
+    // Page reload shows both start cards again — the idle panel is back.
+    let html = room_page_html(&app, &alice, &code).await;
+    assert!(html.contains("Ring of Fire"));
+    assert!(html.contains("start-card-amber"));
+    assert!(html.contains("3 Man"));
+}
+
+#[tokio::test]
+async fn test_idle_panel_offers_both_games() {
+    let app = test_app().await;
+    let alice = login(&app, "alice", "1234").await;
+    let code = create_room(&app, &alice).await;
+
+    let html = room_page_html(&app, &alice, &code).await;
+    assert!(html.contains(">START<"));
+    assert!(html.contains("Ring of Fire"));
+    assert!(html.contains("start-card-amber"));
+    assert!(html.contains("3 Man"));
+    assert!(html.contains(&format!("/room/{code}/tm/start")));
+}

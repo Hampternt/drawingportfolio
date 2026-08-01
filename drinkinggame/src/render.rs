@@ -200,6 +200,13 @@ pub fn game_idle_panel(base_path: &str, code: &str, presets: &[RulePreset]) -> S
 </form>
 <a class="presets-link" href="{base_path}/presets">Edit rule presets &rarr;</a>
 </div>
+<div class="start-card start-card-amber">
+<h2 class="start-title">3 Man</h2>
+<p class="start-sub">Two dice. 3s hit the 3 Man. Doubles hand out dice.</p>
+<form hx-post="{base_path}/room/{code}/tm/start" hx-swap="none">
+<button type="submit" class="btn-primary">START</button>
+</form>
+</div>
 </div>"#
     )
 }
@@ -1135,6 +1142,93 @@ pub fn tm_seating_html(v: &TmView) -> String {
     )
 }
 
+/// Post-game superlatives for 3 Man's over panel (phone) and screen-over
+/// panel — built purely from the room leaderboard (Task 12). Unlike Ring of
+/// Fire's `GameSummary`, there's no draws/kings table to join against: 3 Man
+/// games never write to `game_draws`.
+pub struct TmOverView {
+    /// (name, drinks, shots) of the room-leaderboard's top row.
+    pub hardest: Option<(String, i64, i64)>,
+    /// (name, shots) of whoever logged the most shots.
+    pub most_shots: Option<(String, i64)>,
+    /// Room-wide drinks + shots logged this session (all members, summed).
+    pub room_total: i64,
+}
+
+/// Shared 3-cell superlatives grid for `tm_over_panel` and `tm_screen_over`
+/// — MOST DRINKS / MOST SHOTS / ROOM TOTAL. Deliberately narrower than Ring
+/// of Fire's 2x2 grid: no draws (no deck) and no King's Cup (no King) in 3
+/// Man.
+fn tm_superla_grid(s: &TmOverView) -> String {
+    let (drinks_name, drinks_val) = s
+        .hardest
+        .clone()
+        .map(|(n, d, _)| (n, d))
+        .unwrap_or_else(|| ("Nobody".to_string(), 0));
+    let (shots_name, shots_val) = s
+        .most_shots
+        .clone()
+        .unwrap_or_else(|| ("Nobody".to_string(), 0));
+    format!(
+        r#"<div class="superla-grid">
+<div class="superla-cell"><span class="superla-label">MOST DRINKS</span><span class="superla-name">{}</span><span class="superla-value">{} drinks</span></div>
+<div class="superla-cell"><span class="superla-label">MOST SHOTS</span><span class="superla-name">{}</span><span class="superla-value">{} shots</span></div>
+<div class="superla-cell"><span class="superla-label">ROOM TOTAL</span><span class="superla-name">{}</span><span class="superla-value">drinks logged</span></div>
+</div>"#,
+        html_escape(&drinks_name),
+        drinks_val,
+        html_escape(&shots_name),
+        shots_val,
+        s.room_total,
+    )
+}
+
+/// Phone GAME tab, 3 Man over: GAME OVER header, HARDEST HIT hero, 3-cell
+/// superlatives grid. The caller appends the idle panel below so starting a
+/// new game (either kind) is one tap away — same contract as
+/// `game_over_panel`.
+pub fn tm_over_panel(s: &TmOverView) -> String {
+    let (hardest_name, hardest_drinks, hardest_shots) = s
+        .hardest
+        .clone()
+        .unwrap_or_else(|| ("Nobody".to_string(), 0, 0));
+    let initial = hardest_name
+        .chars()
+        .next()
+        .unwrap_or('?')
+        .to_uppercase()
+        .to_string();
+    let hero = format!(
+        r#"<div class="summary-hero"><span class="summary-initial">{}</span><div class="summary-body"><span class="summary-label">HARDEST HIT</span><span class="summary-name">{}</span><span class="summary-line">{} drinks and {} shots, self-inflicted</span></div></div>"#,
+        html_escape(&initial),
+        html_escape(&hardest_name),
+        hardest_drinks,
+        hardest_shots,
+    );
+    let grid = tm_superla_grid(s);
+    format!(
+        r#"<div class="game-over"><span class="over-kicker">3 MAN OVER &middot; NIGHT LOGGED</span><h2 class="over-title">GAME OVER</h2>{hero}{grid}</div>"#
+    )
+}
+
+/// Big-screen left pane, 3 Man over: "{name} lost." + the same 3-cell grid.
+pub fn tm_screen_over(s: &TmOverView) -> String {
+    let name = s
+        .hardest
+        .clone()
+        .map(|(n, _, _)| n)
+        .unwrap_or_else(|| "Nobody".to_string());
+    let line = match &s.hardest {
+        Some((_, d, sh)) => format!("{d} drinks and {sh} shots, self-inflicted."),
+        None => "Nobody logged a drink.".to_string(),
+    };
+    let grid = tm_superla_grid(s);
+    format!(
+        r#"<div class="screen-panel screen-over"><span class="screen-kicker">3 MAN OVER</span><h2 class="screen-hero-title">{} lost.</h2><p class="screen-hero-sub">{line}</p>{grid}</div>"#,
+        html_escape(&name),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1778,5 +1872,66 @@ mod tests {
     #[test]
     fn test_dice_pips() {
         assert_eq!(dice_html(5, 2).matches("die-pip").count(), 7);
+    }
+
+    #[test]
+    fn test_idle_panel_offers_amber_three_man_card() {
+        let html = game_idle_panel("/drinks", "QK4M", &[preset(1, "Standard")]);
+        assert!(html.contains("start-card-amber"));
+        assert!(html.contains("3 Man"));
+        assert!(html.contains("Two dice. 3s hit the 3 Man. Doubles hand out dice."));
+        assert!(html.contains("/drinks/room/QK4M/tm/start"));
+        // Two START buttons now: Ring of Fire's and 3 Man's.
+        assert_eq!(html.matches(">START<").count(), 2);
+    }
+
+    // -------------------------------------------------------------
+    // 3 Man over panels (Task 12)
+    // -------------------------------------------------------------
+
+    #[test]
+    fn test_tm_over_panel_superlatives() {
+        let s = TmOverView {
+            hardest: Some(("alice".into(), 3, 1)),
+            most_shots: Some(("<bob>".into(), 2)),
+            room_total: 7,
+        };
+        let html = tm_over_panel(&s);
+        assert!(html.contains("GAME OVER"));
+        assert!(html.contains("HARDEST HIT"));
+        assert!(html.contains("alice"));
+        assert!(html.contains("3 drinks and 1 shots, self-inflicted"));
+        assert!(html.contains("MOST DRINKS") && html.contains("3 drinks"));
+        assert!(html.contains("MOST SHOTS") && html.contains("&lt;bob&gt;"));
+        assert!(html.contains(
+            r#"<span class="superla-label">ROOM TOTAL</span><span class="superla-name">7</span>"#
+        ));
+    }
+
+    #[test]
+    fn test_tm_screen_over_lost_line() {
+        let s = TmOverView {
+            hardest: Some(("alice".into(), 3, 1)),
+            most_shots: Some(("bob".into(), 2)),
+            room_total: 7,
+        };
+        let html = tm_screen_over(&s);
+        assert!(html.contains("alice lost."));
+        assert!(html.contains("3 drinks and 1 shots, self-inflicted."));
+        assert!(html.contains("superla-grid"));
+    }
+
+    #[test]
+    fn test_tm_over_panel_nobody_fallback() {
+        let s = TmOverView {
+            hardest: None,
+            most_shots: None,
+            room_total: 0,
+        };
+        let html = tm_over_panel(&s);
+        assert!(html.contains("Nobody"));
+        let screen = tm_screen_over(&s);
+        assert!(screen.contains("Nobody lost."));
+        assert!(screen.contains("Nobody logged a drink."));
     }
 }

@@ -26,14 +26,46 @@ pub async fn current_panel(
     announcement: Option<String>,
 ) -> String {
     match db::get_active_game(&state.pool, room_id).await {
+        Some(game) if game.kind == "three_man" => {
+            let (st, names) = tm_view_data(state, &game).await;
+            let view = render::TmView {
+                base_path: &state.base_path,
+                code,
+                st: &st,
+                names: &names,
+            };
+            render::tm_phone_panel(&view)
+        }
         Some(game) => active_panel(state, &game, code, announcement).await,
         None => idle_panel(state, code).await,
     }
 }
 
-async fn idle_panel(state: &GameState, code: &str) -> String {
+pub(crate) async fn idle_panel(state: &GameState, code: &str) -> String {
     let presets = db::list_presets(&state.pool).await;
     render::game_idle_panel(&state.base_path, code, &presets)
+}
+
+/// Parses a 3 Man game's state and loads room member names — the two things
+/// every `TmView` needs — from an already-fetched `Game`. Shared by
+/// `current_panel`/`current_screen_panel`; `current_room_panel` reuses its
+/// own already-fetched member list instead of calling this (avoids a
+/// duplicate `room_members` query).
+async fn tm_view_data(
+    state: &GameState,
+    game: &Game,
+) -> (
+    crate::three_man::ThreeManState,
+    std::collections::HashMap<i64, String>,
+) {
+    let st =
+        crate::three_man::ThreeManState::from_json(game.state_json.as_deref().unwrap_or_default());
+    let names = db::room_members(&state.pool, game.room_id)
+        .await
+        .into_iter()
+        .map(|m| (m.id, m.name))
+        .collect();
+    (st, names)
 }
 
 /// Everything needed to render either the phone's active panel or the
@@ -142,6 +174,16 @@ async fn active_screen_panel(state: &GameState, game: &Game, code: &str) -> Stri
 /// idle "no game running" panel when nothing is active.
 pub async fn current_screen_panel(state: &GameState, room_id: i64, code: &str) -> String {
     match db::get_active_game(&state.pool, room_id).await {
+        Some(game) if game.kind == "three_man" => {
+            let (st, names) = tm_view_data(state, &game).await;
+            let view = render::TmView {
+                base_path: &state.base_path,
+                code,
+                st: &st,
+                names: &names,
+            };
+            render::tm_screen_panel(&view)
+        }
         Some(game) => active_screen_panel(state, &game, code).await,
         None => render::screen_panel_idle(code),
     }
@@ -152,13 +194,34 @@ pub async fn current_screen_panel(state: &GameState, room_id: i64, code: &str) -
 /// this into broadcasts; Task 7 wires it into the room shell.
 pub async fn current_room_panel(state: &GameState, room_id: i64, code: &str) -> String {
     let members = db::room_members(&state.pool, room_id).await;
-    let (house_rules, kings, mode) = match db::get_active_game(&state.pool, room_id).await {
+    let (house_rules, kings, mode, seating) = match db::get_active_game(&state.pool, room_id).await
+    {
+        Some(game) if game.kind == "three_man" => {
+            let st = crate::three_man::ThreeManState::from_json(
+                game.state_json.as_deref().unwrap_or_default(),
+            );
+            let names: std::collections::HashMap<i64, String> =
+                members.iter().map(|m| (m.id, m.name.clone())).collect();
+            let view = render::TmView {
+                base_path: &state.base_path,
+                code,
+                st: &st,
+                names: &names,
+            };
+            (
+                Vec::new(),
+                0,
+                game.kind,
+                Some(render::tm_seating_html(&view)),
+            )
+        }
         Some(game) => (
             db::house_rules(&state.pool, game.id).await,
             db::king_count(&state.pool, game.id).await,
             game.kind,
+            None,
         ),
-        None => (Vec::new(), 0, "idle".to_string()),
+        None => (Vec::new(), 0, "idle".to_string(), None),
     };
     let view = render::RoomView {
         base_path: &state.base_path,
@@ -167,9 +230,7 @@ pub async fn current_room_panel(state: &GameState, room_id: i64, code: &str) -> 
         house_rules: &house_rules,
         kings,
         mode: &mode,
-        // Phase 1 (Ring of Fire / idle) only — a 3 Man game's route handler
-        // (later task) will pass tm_seating_html(...) here instead.
-        seating: None,
+        seating,
     };
     render::room_panel(&view)
 }
@@ -238,7 +299,8 @@ async fn broadcast_game_over(state: &GameState, room_id: i64, code: &str, game_i
 }
 
 /// Shared guard: open room + membership, mirroring log_event's checks.
-async fn member_room(
+/// `pub(crate)` so `tm_routes.rs`'s handlers reuse the exact same check.
+pub(crate) async fn member_room(
     state: &GameState,
     code: &str,
     player: &Player,

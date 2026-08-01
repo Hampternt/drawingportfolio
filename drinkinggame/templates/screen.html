@@ -24,6 +24,7 @@
       </div>
       <ol id="standings-list" class="standings-list">{{ leaderboard_items|safe }}</ol>
     </div>
+    <div id="screen-strip" class="screen-strip"></div>
   </div>
   <script>
 const BP = "{{ base_path }}", CODE = "{{ code }}";
@@ -31,9 +32,20 @@ const lastKeys = {}; let animFlip = false;
 // Same anim-key strategy as room.html's swapPanel, trimmed: no htmx.process
 // (this page never posts anything) and no personalize (a spectator has no
 // player id to key off of).
+//
+// 3 Man (Task 12): tm_screen_panel() returns TWO sibling roots — the main
+// .screen-panel.screen-tm content plus a full-width .seat-strip-screen
+// meant to span the whole screen below both panes, not sit narrow inside
+// #screen-panel's left-column box. Every other panel kind (idle/RoF) has
+// only one root, so the strip lookup below is a no-op for them and
+// #screen-strip just stays empty (and collapsed, see game.css).
 function swapPanel(id, evName, html) {
   const el = document.getElementById(id);
   el.innerHTML = html;
+  const strip = document.getElementById("screen-strip");
+  const seatStrip = el.querySelector(".seat-strip-screen");
+  strip.innerHTML = "";
+  if (seatStrip) strip.appendChild(seatStrip);
   const keyed = el.querySelector("[data-anim-key]");
   if (keyed) {
     const key = keyed.dataset.animKey;

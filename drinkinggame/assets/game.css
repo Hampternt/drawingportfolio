@@ -486,7 +486,10 @@ body[data-player-id] { padding-bottom: 90px; }
 /* screen shell — screen.html's own page layout (left #screen-panel /
    right join+standings pane), as opposed to the .screen-panel fragment
    classes above which style whatever gets swapped into #screen-panel. */
-.screen-grid { display: grid; grid-template-columns: 1fr 1fr; height: 100vh; }
+.screen-grid {
+  display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr auto;
+  height: 100vh;
+}
 .screen-left, .screen-right {
   box-sizing: border-box; height: 100%; min-height: 0; overflow: hidden;
   display: flex; flex-direction: column; min-width: 0;
@@ -495,6 +498,12 @@ body[data-player-id] { padding-bottom: 90px; }
 .screen-right {
   position: relative; padding: 36px 40px; gap: 16px; background: var(--bg-elevated);
 }
+/* Row 2, spanning both columns — 3 Man's full-width bottom seat strip
+   (tm_screen_panel's second sibling root; screen.html's swapPanel() moves
+   it here out of #screen-panel). Empty and collapsed for every other panel
+   kind, so RoF/idle screens are unaffected. */
+.screen-strip { grid-column: 1 / -1; padding: 0 40px 28px; }
+.screen-strip:empty { display: none; }
 
 .screen-emote-layer {
   position: absolute; left: 40px; right: 40px; bottom: 120px; height: 0;
