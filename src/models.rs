@@ -67,6 +67,9 @@ pub struct FoodItem {
     pub package_size: Option<f64>,
     pub custom_portions: String,
     pub image_url: String,
+    pub category: String,
+    pub is_favourite: i64,
+    pub default_portion_g: Option<f64>,
     pub created_at: String,
 }
 
@@ -97,19 +100,46 @@ pub struct DrawingTaskWithImage {
     pub image_url: String,
 }
 
+#[derive(Debug, Clone)]
+pub struct RecipeWithTotals {
+    pub id: i64,
+    pub name: String,
+    pub item_count: i64,
+    pub total_cal: f64,
+}
+
+#[derive(Debug, Clone)]
+pub struct RecentFood {
+    pub food_item_id: i64,
+    pub name: String,
+    pub last_grams: f64,
+    pub last_slot: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct MealEntry {
     pub id: i64,
     pub food_item_id: i64,
     pub date: String,
     pub grams: f64,
+    pub slot: String,
     pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct Targets {
+    pub calories: f64,
+    pub protein: f64,
+    pub carbs: f64,
+    pub fat: f64,
 }
 
 #[derive(Debug, Clone)]
 pub struct MealEntryWithFood {
     pub entry_id: i64,
+    pub food_item_id: i64,
     pub food_name: String,
+    pub slot: String,
     pub grams: f64,
     pub calories: f64,
     pub protein: f64,

@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}Fitness · Week{% endblock %}
+{% block body_class %}fitness-dark{% endblock %}
+
+{% block head %}
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap">
+{% endblock %}
+
+{% block content %}
+<section class="fitness-page week-page">
+  <div class="week-head">
+    <div>
+      <div class="noc-kicker">This week</div>
+      <h1 class="week-title">{{ range_label }}</h1>
+    </div>
+    <a class="noc-btn noc-btn-secondary" href="/fitness">Today</a>
+  </div>
+
+  <div class="noc-card week-chart-card">
+    <div class="week-chart-head">
+      <span class="noc-kicker">Calories vs {{ target_cal }} target</span>
+      <span class="week-avg">avg {{ avg_cal }}</span>
+    </div>
+    {{ bars_html|safe }}
+  </div>
+
+  <div class="week-stats">
+    <div class="noc-card stat-card">
+      <div class="noc-kicker">Protein avg</div>
+      <div class="stat-big">{{ protein_avg }} g</div>
+      <div class="stat-sub">target {{ target_protein }} · {{ protein_hits }} days hit</div>
+    </div>
+    <div class="noc-card stat-card">
+      <div class="noc-kicker">Days logged</div>
+      <div class="stat-big">{{ days_logged }} / 7</div>
+      <div class="stat-sub">streak {{ streak }} days</div>
+    </div>
+  </div>
+
+  <div class="noc-card weight-card" id="weight-card">
+    {{ weight_card_html|safe }}
+  </div>
+
+  <div class="most-logged">
+    <div class="noc-kicker">Most logged this week</div>
+    {{ most_logged_html|safe }}
+  </div>
+</section>
+{% endblock %}

@@ -106,6 +106,31 @@ across multiple pages, move it to the global file.
 
 ---
 
+## Fitness tracker (Nocturne)
+
+The `/fitness` section is a session-gated, phone-first tracker with its own dark visual
+layer — the "Nocturne" design system, scoped under `body.fitness-dark` in `style.css`
+(`--noc-*` tokens, `.noc-*` primitives). The rest of the site keeps the light default.
+
+Information architecture (mockups and decisions in `docs/design/fitness-redesign/`):
+
+- **Today** (`/fitness?date=`) — calorie ring + macro rails against editable daily
+  targets, a Sunday-first week strip (tap a day to load it), entries grouped into
+  breakfast/lunch/dinner/snack slots (clock-inferred default when logging), inline entry
+  editing, copy-yesterday, and a sticky Scan · Search · Copy action bar.
+- **Add sheet** — full-screen overlay; scanner is the default tab (known barcodes become
+  a one-tap log card with portion buttons; unknown ones prefill the add-food form from
+  OpenFoodFacts), plus Recent, Favourites, saved Meals and Search tabs.
+- **Library** — grouped by category with filter chips; detail form edits per-100g
+  values, package/portions, category, favourite and default portion, and shows a 14-day
+  usage strip.
+- **Week** (`/fitness/week`) — read-only trends: calorie bars vs target, protein
+  average/hit-rate, days-logged streak, weight trend with one-tap log, most-logged foods.
+- **Desktop** (≥900px) — same column wider, plus a keyboard quick-add (type-ahead;
+  Enter logs the food's default portion into the clock-inferred slot).
+
+---
+
 ## What not to do
 
 - **Don't duplicate global features** — if something should appear everywhere, it belongs

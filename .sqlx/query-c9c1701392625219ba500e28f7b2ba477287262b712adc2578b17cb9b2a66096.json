@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT food_item_id, grams FROM meal_entries WHERE date = ? AND slot = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "food_item_id",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "grams",
+        "ordinal": 1,
+        "type_info": "Float"
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "c9c1701392625219ba500e28f7b2ba477287262b712adc2578b17cb9b2a66096"
+}

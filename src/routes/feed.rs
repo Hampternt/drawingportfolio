@@ -1,14 +1,13 @@
+use crate::{middleware::OptionalAuth, models::Post, AppState};
+use askama::Template;
 use axum::{
-    Router,
-    routing::get,
     extract::{Query, State},
     response::{Html, IntoResponse},
-    Json,
+    routing::get,
+    Json, Router,
 };
-use askama::Template;
-use std::sync::Arc;
 use serde::Deserialize;
-use crate::{AppState, models::Post, middleware::OptionalAuth};
+use std::sync::Arc;
 
 #[derive(Template)]
 #[template(path = "artportfolio/feed.html")]
@@ -33,10 +32,19 @@ async fn feed_page(
     // request to /artportfolio/htmx/posts?page=0 before anything was visible.
     let mut posts = crate::db::get_posts(&state.pool, 0).await;
     let has_more = posts.len() > 20;
-    if has_more { posts.truncate(20); }
+    if has_more {
+        posts.truncate(20);
+    }
     let initial_posts_html = render_posts_html(&posts, has_more, 1);
 
-    Html(FeedTemplate { is_admin, initial_posts_html }.render().unwrap())
+    Html(
+        FeedTemplate {
+            is_admin,
+            initial_posts_html,
+        }
+        .render()
+        .unwrap(),
+    )
 }
 
 async fn htmx_posts(
@@ -46,7 +54,9 @@ async fn htmx_posts(
     let page = q.page.unwrap_or(0);
     let mut posts = crate::db::get_posts(&state.pool, page).await;
     let has_more = posts.len() > 20;
-    if has_more { posts.truncate(20); }
+    if has_more {
+        posts.truncate(20);
+    }
     Html(render_posts_html(&posts, has_more, page + 1))
 }
 
@@ -88,7 +98,9 @@ async fn api_posts(
     let page = q.page.unwrap_or(0);
     let mut posts = crate::db::get_posts(&state.pool, page).await;
     let has_more = posts.len() > 20;
-    if has_more { posts.truncate(20); }
+    if has_more {
+        posts.truncate(20);
+    }
     Json(PostsResponse { posts, has_more })
 }
 
@@ -96,16 +108,29 @@ pub fn post_card_html(post: &Post, is_first: bool) -> String {
     let caption_html = if post.caption.is_empty() {
         String::new()
     } else {
-        format!("  <p class=\"caption\">{}</p>\n", html_escape(&post.caption))
+        format!(
+            "  <p class=\"caption\">{}</p>\n",
+            html_escape(&post.caption)
+        )
     };
-    let loading = if is_first { r#"loading="eager" fetchpriority="high""# } else { r#"loading="lazy""# };
+    let loading = if is_first {
+        r#"loading="eager" fetchpriority="high""#
+    } else {
+        r#"loading="lazy""#
+    };
     let avif_source = if !post.avif_url.is_empty() {
-        format!("    <source srcset=\"{}\" type=\"image/avif\">\n", html_escape(&post.avif_url))
+        format!(
+            "    <source srcset=\"{}\" type=\"image/avif\">\n",
+            html_escape(&post.avif_url)
+        )
     } else {
         String::new()
     };
     let webp_source = if !post.webp_url.is_empty() {
-        format!("    <source srcset=\"{}\" type=\"image/webp\">\n", html_escape(&post.webp_url))
+        format!(
+            "    <source srcset=\"{}\" type=\"image/webp\">\n",
+            html_escape(&post.webp_url)
+        )
     } else {
         String::new()
     };
@@ -125,9 +150,9 @@ pub fn post_card_html(post: &Post, is_first: bool) -> String {
 
 pub fn html_escape(s: &str) -> String {
     s.replace('&', "&amp;")
-     .replace('<', "&lt;")
-     .replace('>', "&gt;")
-     .replace('"', "&quot;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
 }
 
 pub fn router() -> Router<Arc<AppState>> {
@@ -142,8 +167,8 @@ mod tests {
     use super::*;
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
-    use tower::ServiceExt;
     use sqlx::sqlite::SqlitePoolOptions;
+    use tower::ServiceExt;
 
     async fn test_app() -> Router {
         let pool = SqlitePoolOptions::new()
@@ -157,7 +182,11 @@ mod tests {
             .unwrap()
             .build()
             .unwrap();
-        let state = Arc::new(crate::AppState { pool, storage, webauthn });
+        let state = Arc::new(crate::AppState {
+            pool,
+            storage,
+            webauthn,
+        });
         router().with_state(state)
     }
 
@@ -165,7 +194,12 @@ mod tests {
     async fn test_api_posts_empty() {
         let app = test_app().await;
         let resp = app
-            .oneshot(Request::builder().uri("/artportfolio/api/posts").body(Body::empty()).unwrap())
+            .oneshot(
+                Request::builder()
+                    .uri("/artportfolio/api/posts")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
             .await
             .unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
@@ -180,7 +214,16 @@ mod tests {
                 .unwrap();
             crate::db::run_migrations(&pool).await;
             for i in 0..21 {
-                crate::db::insert_post(&pool, &format!("caption {i}"), "https://example.com/img.jpg", "", "", crate::models::PostFormat::Single.as_str(), 0).await;
+                crate::db::insert_post(
+                    &pool,
+                    &format!("caption {i}"),
+                    "https://example.com/img.jpg",
+                    "",
+                    "",
+                    crate::models::PostFormat::Single.as_str(),
+                    0,
+                )
+                .await;
             }
             pool
         };
@@ -201,7 +244,10 @@ mod tests {
             created_at: "2024-01-01T00:00:00".to_string(),
         };
         let html = post_card_html(&post, false);
-        assert!(!html.contains("class=\"caption\""), "empty caption must not render p.caption");
+        assert!(
+            !html.contains("class=\"caption\""),
+            "empty caption must not render p.caption"
+        );
     }
 
     #[test]
@@ -217,7 +263,10 @@ mod tests {
             created_at: "2024-01-01T00:00:00".to_string(),
         };
         let html = post_card_html(&post, false);
-        assert!(!html.contains("<script>"), "raw script tag should be escaped");
+        assert!(
+            !html.contains("<script>"),
+            "raw script tag should be escaped"
+        );
         assert!(html.contains("&lt;script&gt;"));
     }
 
@@ -235,8 +284,14 @@ mod tests {
         };
         let html = post_card_html(&post, false);
         assert!(html.contains("<picture>"), "should contain picture element");
-        assert!(html.contains("type=\"image/avif\""), "should contain avif source");
-        assert!(html.contains("type=\"image/webp\""), "should contain webp source");
+        assert!(
+            html.contains("type=\"image/avif\""),
+            "should contain avif source"
+        );
+        assert!(
+            html.contains("type=\"image/webp\""),
+            "should contain webp source"
+        );
         assert!(html.contains("img-avif.avif"), "should reference avif url");
         assert!(html.contains("img-webp.webp"), "should reference webp url");
     }
@@ -254,7 +309,10 @@ mod tests {
             created_at: "2024-01-01T00:00:00".to_string(),
         };
         let html = post_card_html(&post, false);
-        assert!(html.contains("<picture>"), "picture element should always be present");
+        assert!(
+            html.contains("<picture>"),
+            "picture element should always be present"
+        );
         assert!(!html.contains("image/avif"), "no avif source for empty url");
         assert!(!html.contains("image/webp"), "no webp source for empty url");
     }

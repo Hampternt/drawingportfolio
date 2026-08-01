@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT id, name, brand, barcode, calories, protein, carbs, fat, fiber, sugar, sodium, saturated_fat, package_size, custom_portions, image_url, created_at FROM food_items WHERE name LIKE ? OR brand LIKE ? ORDER BY name ASC LIMIT 20",
+  "query": "SELECT id, name, brand, barcode, calories, protein, carbs, fat, fiber, sugar, sodium, saturated_fat, package_size, custom_portions, image_url, category, is_favourite, default_portion_g, created_at FROM food_items WHERE id = ?",
   "describe": {
     "columns": [
       {
@@ -79,13 +79,28 @@
         "type_info": "Text"
       },
       {
-        "name": "created_at",
+        "name": "category",
         "ordinal": 15,
+        "type_info": "Text"
+      },
+      {
+        "name": "is_favourite",
+        "ordinal": 16,
+        "type_info": "Integer"
+      },
+      {
+        "name": "default_portion_g",
+        "ordinal": 17,
+        "type_info": "Float"
+      },
+      {
+        "name": "created_at",
+        "ordinal": 18,
         "type_info": "Text"
       }
     ],
     "parameters": {
-      "Right": 2
+      "Right": 1
     },
     "nullable": [
       false,
@@ -103,8 +118,11 @@
       true,
       false,
       false,
+      false,
+      false,
+      true,
       false
     ]
   },
-  "hash": "7bb4662cf7b1afd139e683fe46e961a861f16925fe7a46386a698f269997a17d"
+  "hash": "aa227f2b2259b938f0e624f6fd8ee3c3703ce0e676a89d497d7982fee2012977"
 }

@@ -1,10 +1,10 @@
+use crate::{db, AppState};
 use axum::{
-    extract::{FromRequestParts, ConnectInfo},
+    extract::{ConnectInfo, FromRequestParts},
     http::{request::Parts, StatusCode},
     response::{IntoResponse, Redirect},
 };
 use std::{net::SocketAddr, sync::Arc};
-use crate::{AppState, db};
 
 /// Extractor: requires a valid session cookie. Redirects to /admin/login if missing/expired.
 pub struct AuthSession(pub String); // session ID
@@ -12,7 +12,10 @@ pub struct AuthSession(pub String); // session ID
 impl FromRequestParts<Arc<AppState>> for AuthSession {
     type Rejection = axum::response::Response;
 
-    async fn from_request_parts(parts: &mut Parts, state: &Arc<AppState>) -> Result<Self, Self::Rejection> {
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &Arc<AppState>,
+    ) -> Result<Self, Self::Rejection> {
         let session_id = extract_session_cookie(parts);
 
         if let Some(id) = session_id {
@@ -34,7 +37,10 @@ pub struct OptionalAuth(pub bool);
 impl FromRequestParts<Arc<AppState>> for OptionalAuth {
     type Rejection = std::convert::Infallible;
 
-    async fn from_request_parts(parts: &mut Parts, state: &Arc<AppState>) -> Result<Self, Self::Rejection> {
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &Arc<AppState>,
+    ) -> Result<Self, Self::Rejection> {
         let is_admin = if let Some(id) = extract_session_cookie(parts) {
             db::get_session(&state.pool, &id).await.is_some()
         } else {
@@ -62,7 +68,9 @@ impl<S: Send + Sync> FromRequestParts<S> for LocalhostOnly {
     type Rejection = StatusCode;
 
     async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
-        let addr = parts.extensions.get::<ConnectInfo<SocketAddr>>()
+        let addr = parts
+            .extensions
+            .get::<ConnectInfo<SocketAddr>>()
             .map(|ci| ci.0);
 
         match addr {

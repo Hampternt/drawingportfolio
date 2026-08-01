@@ -1,18 +1,20 @@
 // Barcode scanning via native BarcodeDetector API with OpenFoodFacts lookup.
-// Security: all data from external API is set via .value = (not innerHTML).
+// Decoded codes are handed to window.onBarcodeMatch (defined by the add sheet
+// in feed.html): known barcodes show a one-tap log card, unknown ones fall
+// back to openOffLookup() below, which prefills the add-food form.
+// Security: all data from the external API is set via .value = (not innerHTML).
 
 window.barcodeStream = null;
 window.barcodeAnimFrame = null;
 
-async function startBarcodeScanner(formId) {
+async function startBarcodeScanner() {
+  const status = document.getElementById('scan-status');
   if (!('BarcodeDetector' in window)) {
-    document.getElementById('manual-barcode').hidden = false;
+    status.textContent = 'Camera scanning not supported here — enter the code below.';
     document.getElementById('manual-barcode-input').focus();
     return;
   }
-  const scanner = document.getElementById('barcode-scanner');
-  scanner.hidden = false;
-  document.getElementById('scan-status').textContent = 'Scanning…';
+  status.textContent = 'Hold the barcode inside the frame';
   try {
     barcodeStream = await navigator.mediaDevices.getUserMedia({
       video: { facingMode: 'environment' }
@@ -27,7 +29,7 @@ async function startBarcodeScanner(formId) {
         const codes = await detector.detect(video);
         if (codes.length > 0) {
           stopBarcodeScanner();
-          await lookupBarcode(codes[0].rawValue, formId);
+          window.onBarcodeMatch(codes[0].rawValue);
         } else {
           barcodeAnimFrame = requestAnimationFrame(detect);
         }
@@ -37,8 +39,7 @@ async function startBarcodeScanner(formId) {
     }
     barcodeAnimFrame = requestAnimationFrame(detect);
   } catch (err) {
-    document.getElementById('barcode-scanner').hidden = true;
-    document.getElementById('scan-status').textContent = 'Camera error: ' + err.message;
+    status.textContent = 'Camera error: ' + err.message + ' — enter the code below.';
   }
 }
 
@@ -51,21 +52,22 @@ function stopBarcodeScanner() {
     cancelAnimationFrame(barcodeAnimFrame);
     barcodeAnimFrame = null;
   }
-  document.getElementById('barcode-scanner').hidden = true;
 }
 
-async function lookupManualBarcode() {
+function lookupManualBarcode() {
   const input = document.getElementById('manual-barcode-input');
   const barcode = input.value.trim();
   if (!barcode) return;
-  document.getElementById('manual-barcode').hidden = true;
-  await lookupBarcode(barcode, 'add-food-form');
+  input.value = '';
+  window.onBarcodeMatch(barcode);
 }
 
-async function lookupBarcode(barcode, formId) {
-  const status = document.getElementById('scan-status');
-  document.getElementById('add-food-form').hidden = false;
-  const form = document.getElementById(formId);
+// Unknown product: prefill the library's add-food form from OpenFoodFacts
+// and reveal it, so the user can save the item (then scan again to log it).
+async function openOffLookup(barcode) {
+  const form = document.getElementById('add-food-form');
+  form.hidden = false;
+  form.scrollIntoView({ behavior: 'smooth', block: 'start' });
   try {
     const resp = await fetch(
       'https://world.openfoodfacts.org/api/v0/product/' + encodeURIComponent(barcode) + '.json'

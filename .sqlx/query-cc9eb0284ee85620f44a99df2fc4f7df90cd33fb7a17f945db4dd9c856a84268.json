@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "INSERT INTO meal_entries (food_item_id, date, grams) VALUES (?, ?, ?) RETURNING id",
+  "query": "INSERT INTO meal_entries (food_item_id, date, grams, slot) VALUES (?, ?, ?, ?) RETURNING id",
   "describe": {
     "columns": [
       {
@@ -10,11 +10,11 @@
       }
     ],
     "parameters": {
-      "Right": 3
+      "Right": 4
     },
     "nullable": [
       true
     ]
   },
-  "hash": "c33802d61df349b0735b2b485cbd8deab2e784b7297172ff5559bf2e328a103e"
+  "hash": "cc9eb0284ee85620f44a99df2fc4f7df90cd33fb7a17f945db4dd9c856a84268"
 }

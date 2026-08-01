@@ -1,0 +1,1 @@
+ALTER TABLE meal_entries ADD COLUMN slot TEXT NOT NULL DEFAULT 'other';

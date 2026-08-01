@@ -21,6 +21,20 @@
   </style>
   <script>const IS_ADMIN = true;</script>
   <script src="/static/palette.js" defer></script>
+  <script>
+    // hx-boost swaps body children, not body attributes — re-derive the
+    // fitness theme class from the incoming content on every swap/restore.
+    (function () {
+      function syncFitnessTheme() {
+        document.body.classList.toggle('fitness-dark',
+          !!document.querySelector('main .fitness-page'));
+      }
+      document.addEventListener('htmx:afterSwap', function (e) {
+        if (e.target === document.body) syncFitnessTheme();
+      });
+      document.addEventListener('htmx:historyRestore', syncFitnessTheme);
+    })();
+  </script>
 </head>
 <body hx-boost="true">
   <header>

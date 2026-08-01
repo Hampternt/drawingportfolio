@@ -1,14 +1,31 @@
 {% extends "base.html" %}
 {% block title %}Fitness Tracker{% endblock %}
 
+{% block body_class %}fitness-dark{% endblock %}
+
+{% block head %}
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap">
+{% endblock %}
+
 {% block content %}
 <section class="fitness-page">
 
-  <!-- Date navigator -->
+  <!-- Date navigator: week strip + step arrows -->
   <div class="fitness-date-nav">
-    <button id="prev-day" class="btn-secondary">←</button>
-    <input type="date" id="date-picker" value="{{ today }}">
-    <button id="next-day" class="btn-secondary">→</button>
+    <button id="prev-day" class="btn-secondary" aria-label="Previous day">←</button>
+    {{ week_strip_html|safe }}
+    <button id="next-day" class="btn-secondary" aria-label="Next day">→</button>
+    <a class="noc-btn noc-btn-ghost" href="/fitness/week" aria-label="Week view">Week</a>
+  </div>
+
+  <!-- Desktop quick-add: type-ahead over the library, Enter logs the usual portion -->
+  <div id="quickadd">
+    <input class="noc-input" type="search" id="quickadd-input" placeholder="Type a food, Enter logs your usual portion…"
+           name="q" hx-get="/fitness/htmx/food-search" hx-trigger="input changed delay:250ms"
+           hx-target="#quickadd-results" hx-swap="innerHTML">
+    <div id="quickadd-results"></div>
   </div>
 
   <!-- Day section: totals + meal log + log form (pre-rendered by Rust) -->
@@ -23,7 +40,6 @@
       <div class="library-actions">
         <input type="text" id="library-search" placeholder="Search…" oninput="filterLibrary(this.value)">
         <button class="btn-secondary" onclick="toggleAddForm()">+ Add food</button>
-        <button class="btn-secondary" id="scan-btn" onclick="startBarcodeScanner('add-food-form')">Scan barcode</button>
       </div>
     </div>
 
@@ -49,9 +65,7 @@
       </div>
       <label class="package-size-label">Package / total size (g)<input type="number" name="package_size" id="package-size-field" step="0.1" min="0" placeholder="e.g. 565"></label>
       <label class="package-size-label">Custom portions (g, comma-separated)<input type="text" name="custom_portions" placeholder="e.g. 125, 250, 375"></label>
-      {% if is_admin %}
       <label class="file-label">Image <input type="file" name="image" accept="image/jpeg,image/png,image/webp"></label>
-      {% endif %}
       <input type="hidden" name="image_url" id="image-url-field" value="">
       <div class="form-actions">
         <button type="submit" class="btn-primary">Save food</button>
@@ -59,18 +73,12 @@
       </div>
     </form>
 
-    <!-- Camera preview for barcode scanning -->
-    <div id="barcode-scanner" hidden>
-      <video id="barcode-video" autoplay playsinline></video>
-      <button class="btn-secondary" onclick="stopBarcodeScanner()">Cancel scan</button>
-      <p id="scan-status">Scanning…</p>
-    </div>
-
-    <!-- Manual barcode fallback (shown when BarcodeDetector unavailable) -->
-    <div id="manual-barcode" hidden>
-      <input type="text" id="manual-barcode-input" placeholder="Enter barcode number">
-      <button class="btn-primary" onclick="lookupManualBarcode()">Look up</button>
-      <button class="btn-secondary" onclick="document.getElementById('manual-barcode').hidden = true">Cancel</button>
+    <div class="lib-chips">
+      <button class="noc-tag noc-tag-accent" data-filter="all" onclick="libFilter(this)">All</button>
+      <button class="noc-tag noc-tag-outline" data-filter="fav" onclick="libFilter(this)">Favourites</button>
+      <button class="noc-tag noc-tag-outline" data-filter="recent" onclick="libFilter(this)">Recent</button>
+      <button class="noc-tag noc-tag-outline" data-filter="protein" onclick="libFilter(this)">High protein</button>
+      <button class="noc-tag noc-tag-outline" data-filter="nomacros" onclick="libFilter(this)">No macros yet</button>
     </div>
 
     <div id="food-library">
@@ -78,11 +86,71 @@
     </div>
   </section>
 
+  <div id="fitness-actionbar">
+    <button id="bar-scan" class="noc-btn noc-btn-primary" onclick="openAddSheet('scan')">
+      <svg width="18" height="14" viewBox="0 0 18 14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M1 1v12M4.5 1v12M7.5 1v12M11 1v12M14 1v12M17 1v12"></path></svg>
+      Scan
+    </button>
+    <button id="bar-search" class="noc-btn noc-btn-secondary" onclick="openAddSheet('search')">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="7" cy="7" r="5"></circle><path d="M11 11l4 4"></path></svg>
+      Search
+    </button>
+    <button id="bar-copy" class="noc-btn noc-btn-secondary noc-btn-icon" title="Copy yesterday"
+            hx-post="/fitness/copy-day" hx-vals='js:{date: window.currentDate}' hx-target="#day-section" hx-swap="innerHTML">
+      <svg width="17" height="17" viewBox="0 0 17 17" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="9" height="11" rx="2"></rect><path d="M6 15h7a2 2 0 0 0 2-2V6"></path></svg>
+    </button>
+  </div>
+
+  <div id="add-sheet" hidden>
+    <div class="sheet-head">
+      <span class="noc-kicker">Add food</span>
+      <button class="noc-btn noc-btn-ghost noc-btn-icon" onclick="closeAddSheet()" aria-label="Close">✕</button>
+    </div>
+    <div class="sheet-tabs">
+      <button class="noc-tag noc-tag-accent" data-tab="scan" onclick="sheetTab('scan')">Scan</button>
+      <button class="noc-tag noc-tag-outline" data-tab="recent" onclick="sheetTab('recent')">Recent</button>
+      <button class="noc-tag noc-tag-outline" data-tab="favs" onclick="sheetTab('favs')">Favourites</button>
+      <button class="noc-tag noc-tag-outline" data-tab="meals" onclick="sheetTab('meals')">Meals</button>
+      <button class="noc-tag noc-tag-outline" data-tab="search" onclick="sheetTab('search')">Search</button>
+    </div>
+    <div id="sheet-scan" class="sheet-pane">
+      <div id="barcode-scanner-frame">
+        <video id="barcode-video" autoplay playsinline></video>
+        <p id="scan-status">Hold the barcode inside the frame</p>
+      </div>
+      <div id="manual-barcode">
+        <input class="noc-input" type="text" id="manual-barcode-input" placeholder="Enter barcode number" inputmode="numeric">
+        <button class="noc-btn noc-btn-secondary" onclick="lookupManualBarcode()">Look up</button>
+      </div>
+    </div>
+    <div id="sheet-recent" class="sheet-pane" hidden
+         hx-get="/fitness/htmx/recent" hx-trigger="sheet-open from:body" hx-target="find .chips" hx-swap="innerHTML">
+      <div class="noc-kicker">Log again</div>
+      <div class="chips"></div>
+    </div>
+    <div id="sheet-favs" class="sheet-pane" hidden
+         hx-get="/fitness/htmx/favourites" hx-trigger="sheet-open from:body" hx-target="find .chips" hx-swap="innerHTML">
+      <div class="noc-kicker">Favourites</div>
+      <div class="chips"></div>
+    </div>
+    <div id="sheet-meals" class="sheet-pane" hidden
+         hx-get="/fitness/htmx/meals" hx-trigger="sheet-open from:body" hx-target="find .chips" hx-swap="innerHTML">
+      <div class="noc-kicker">Saved meals</div>
+      <div class="chips"></div>
+    </div>
+    <div id="sheet-search" class="sheet-pane" hidden>
+      <input class="noc-input" type="search" id="sheet-search-input" placeholder="Search your library…"
+             hx-get="/fitness/htmx/food-search" hx-trigger="input changed delay:250ms" hx-target="#sheet-search-results" hx-swap="innerHTML" name="q">
+      <div id="sheet-search-results"></div>
+    </div>
+    <div id="sheet-result"></div>
+  </div>
+
 </section>
 
 <script>
 window.TODAY = "{{ today }}";
-window.currentDate = window.TODAY;
+window.currentDate = "{{ date }}";
 
 // Date navigation
 function filterLibrary(q) {
@@ -93,10 +161,44 @@ function filterLibrary(q) {
   });
 }
 
+function markSelectedDay(date) {
+  document.querySelectorAll('#week-strip .day-col').forEach(col => {
+    const sel = col.dataset.date === date;
+    col.querySelector('.day-letter').classList.toggle('selected', sel);
+    col.querySelector('.day-cell').classList.toggle('selected', sel);
+  });
+}
+
+function libFilter(btn) {
+  document.querySelectorAll('.lib-chips [data-filter]').forEach(b => {
+    b.classList.toggle('noc-tag-accent', b === btn);
+    b.classList.toggle('noc-tag-outline', b !== btn);
+  });
+  const mode = btn.dataset.filter;
+  document.querySelectorAll('#food-library .food-item-card').forEach(card => {
+    const show =
+      mode === 'all' ? true :
+      mode === 'fav' ? card.dataset.fav === '1' :
+      mode === 'recent' ? card.dataset.recent === '1' :
+      mode === 'protein' ? parseFloat(card.dataset.protein) >= 15 :
+      parseFloat(card.dataset.cal) === 0;
+    card.style.display = show ? '' : 'none';
+  });
+  document.querySelectorAll('#food-library .lib-group').forEach(g => {
+    const any = [...g.querySelectorAll('.food-item-card')].some(c => c.style.display !== 'none');
+    g.style.display = any ? '' : 'none';
+  });
+}
+
 function loadDay(date) {
   if (!date) return;
+  // outside the rendered week (arrows crossing a Sunday): full navigation re-renders the strip
+  if (![...document.querySelectorAll('#week-strip .day-col')].some(c => c.dataset.date === date)) {
+    location.href = '/fitness?date=' + date;
+    return;
+  }
   window.currentDate = date;
-  document.getElementById('date-picker').value = date;
+  markSelectedDay(date);
   htmx.ajax('GET', '/fitness/htmx/day?date=' + date, {target: '#day-section', swap: 'innerHTML'});
 }
 
@@ -112,9 +214,138 @@ document.getElementById('next-day').onclick = () => {
   loadDay(d.toISOString().slice(0, 10));
 };
 
-document.getElementById('date-picker').onchange = (e) => {
-  loadDay(e.target.value);
+// Meal slots (Task 4): clock-inferred default + chip behavior
+function defaultSlot() {
+  const h = new Date().getHours();
+  if (h < 11) return 'breakfast';
+  if (h < 15) return 'lunch';
+  if (h < 17) return 'snack';
+  if (h < 22) return 'dinner';
+  return 'snack';
+}
+
+function paintSlotChips(form) {
+  const val = form.querySelector('[name="slot"]').value;
+  form.querySelectorAll('[data-slot]').forEach(b => {
+    b.classList.toggle('noc-tag-accent', b.dataset.slot === val);
+    b.classList.toggle('noc-tag-outline', b.dataset.slot !== val);
+  });
+}
+
+function setSlot(btn) {
+  const form = btn.closest('form');
+  form.querySelector('[name="slot"]').value = btn.dataset.slot;
+  paintSlotChips(form);
+}
+
+function addToSlot(slot) {
+  const form = document.querySelector('.log-entry-form');
+  form.querySelector('[name="slot"]').value = slot;
+  paintSlotChips(form);
+  form.querySelector('[name="food_item_id"]').focus();
+}
+
+function initSlotDefault() {
+  document.querySelectorAll('.log-entry-form').forEach(form => {
+    const input = form.querySelector('[name="slot"]');
+    if (input && input.value === 'other') { input.value = defaultSlot(); }
+    paintSlotChips(form);
+  });
+}
+document.addEventListener('DOMContentLoaded', initSlotDefault);
+document.body.addEventListener('htmx:afterSwap', initSlotDefault);
+
+// Add sheet (Task 7)
+function openAddSheet(tab) {
+  const sheet = document.getElementById('add-sheet');
+  sheet.hidden = false;
+  document.body.classList.add('sheet-open');
+  sheetTab(tab || 'scan');
+  document.body.dispatchEvent(new Event('sheet-open'));
+}
+
+function closeAddSheet() {
+  stopBarcodeScanner();
+  document.getElementById('add-sheet').hidden = true;
+  document.getElementById('sheet-result').innerHTML = '';
+  document.body.classList.remove('sheet-open');
+}
+
+function sheetTab(tab) {
+  ['scan', 'recent', 'favs', 'meals', 'search'].forEach(t => {
+    document.getElementById('sheet-' + t).hidden = t !== tab;
+    const btn = document.querySelector('#add-sheet [data-tab="' + t + '"]');
+    btn.classList.toggle('noc-tag-accent', t === tab);
+    btn.classList.toggle('noc-tag-outline', t !== tab);
+  });
+  if (tab === 'scan') startBarcodeScanner(); else stopBarcodeScanner();
+  if (tab === 'search') document.getElementById('sheet-search-input').focus();
+}
+
+function pickPortion(btn) {
+  const card = btn.closest('form');
+  card.querySelector('.portion-grams').value = btn.dataset.grams;
+  card.querySelectorAll('.portion-btn').forEach(b => {
+    b.classList.toggle('noc-btn-primary', b === btn);
+    b.classList.toggle('noc-btn-secondary', b !== btn);
+  });
+}
+
+// Fill date + clock slot into freshly swapped sheet forms (match card, meal rows)
+function initSheetForms() {
+  document.querySelectorAll('#add-sheet form').forEach(f => {
+    if (f.dataset.init) return;
+    f.dataset.init = '1';
+    const d = f.querySelector('[name="date"]');
+    if (d && !d.value) d.value = window.currentDate;
+    const sl = f.querySelector('[name="slot"]');
+    if (sl && sl.value === 'other') sl.value = defaultSlot();
+    if (f.querySelector('[data-slot]')) paintSlotChips(f);
+  });
+}
+document.body.addEventListener('htmx:afterSwap', initSheetForms);
+
+// Called by barcode.js on every decoded barcode
+window.onBarcodeMatch = function (code) {
+  htmx.ajax('GET', '/fitness/htmx/barcode-match/' + encodeURIComponent(code), {
+    target: '#sheet-result', swap: 'innerHTML'
+  }).then(() => {
+    if (!document.querySelector('#sheet-result form')) {
+      // unknown product: fall back to the OpenFoodFacts add-food flow
+      closeAddSheet();
+      openOffLookup(code); // defined in barcode.js
+    }
+  });
 };
+
+// Desktop quick-add (Task 10)
+function quickLogItem(id) {
+  htmx.ajax('POST', '/fitness/quick-log', {
+    target: '#day-section', swap: 'innerHTML',
+    values: { food_item_id: id, date: window.currentDate, slot: defaultSlot() }
+  });
+  document.getElementById('quickadd-input').value = '';
+  document.getElementById('quickadd-results').innerHTML = '';
+}
+
+function initQuickAdd() {
+  const input = document.getElementById('quickadd-input');
+  if (!input || input.dataset.init) return;
+  input.dataset.init = '1';
+  input.addEventListener('keydown', e => {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    const first = document.querySelector('#quickadd-results .search-row');
+    if (first) quickLogItem(first.dataset.itemId);
+  });
+  // capture phase so the row's hx-get (sheet flow) doesn't also fire here
+  document.getElementById('quickadd-results').addEventListener('click', e => {
+    const row = e.target.closest('.search-row');
+    if (row) { e.preventDefault(); e.stopPropagation(); quickLogItem(row.dataset.itemId); }
+  }, true);
+}
+document.addEventListener('DOMContentLoaded', initQuickAdd);
+document.body.addEventListener('htmx:afterSwap', initQuickAdd);
 
 // Add food form toggle
 function toggleAddForm() {

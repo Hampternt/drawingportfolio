@@ -1,0 +1,801 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics><meta name="design_doc_mode" content="canvas"><link rel="stylesheet" href="_ds/nocturne-993d11db-3ca9-49ba-b78c-894f5761a5e1/styles.css"><script src="_ds/nocturne-993d11db-3ca9-49ba-b78c-894f5761a5e1/_ds_bundle.js"></script><style>body{margin:0;background:#0f101a;font-family:"Inter",system-ui,sans-serif}a{color:#9184d9}a:hover{color:#b5abfc}.dv-turn{padding:40px 44px 32px;border-bottom:1px solid rgba(233,233,237,.10)}.dv-thd{display:flex;align-items:baseline;gap:10px;margin:0 0 6px}.dv-tid{font:600 10px ui-monospace,Menlo,monospace;padding:3px 7px;background:#e9e9ed;color:#161826;border-radius:4px;text-decoration:none}.dv-tname{font:500 13px/1.2 "Inter",system-ui,sans-serif;color:#e9e9ed}.dv-sub{font:400 12px/1.6 "Inter",system-ui,sans-serif;color:rgba(233,233,237,.55);max-width:720px;margin:0 0 24px}.dv-opts{display:flex;flex-wrap:wrap;gap:36px;align-items:flex-start}.dv-opt{flex:none;display:flex;flex-direction:column;gap:10px}.dv-oid{font:600 10.5px ui-monospace,Menlo,monospace;padding:3px 7px;background:rgba(233,233,237,.12);color:#e9e9ed;border-radius:5px;text-decoration:none}.dv-olabel{display:flex;align-items:baseline;gap:8px;font:400 11px/1.3 "Inter",system-ui,sans-serif;color:rgba(233,233,237,.55)}.dv-opt:target .dv-oid{background:#9184d9;color:#161826}.dv-next{margin:26px 0 0;font:12px/1.5 "Inter",system-ui,sans-serif;color:rgba(233,233,237,.45)}</style></helmet>
+
+<section class="dv-turn" id="t3">
+  <div class="dv-thd"><a class="dv-tid" href="#t3">3</a><span class="dv-tname">Desktop — the same day, wider</span></div>
+  <p class="dv-sub">One screen, no new concepts. The phone's stacked cards unfold into three columns: navigation, the day's meal slots, and the targets rail. Desktop has no camera, so the fast path becomes typing — a persistent quick-add field with type-ahead over your library, Enter to log the default portion. Same two-step economy, keyboard instead of scanner.</p>
+  <div class="dv-opts">
+
+    <div class="dv-opt" id="3a">
+      <div class="dv-olabel"><a class="dv-oid" href="#3a">3a</a>Day view — quick-add, meal slots, targets rail</div>
+      <x-import component-from-global-scope="ChromeWindow" from="./browser-window.jsx" width="{{ 1240 }}" height="{{ 780 }}" url="app.fitness/today" hint-size="1240px,780px">
+        <div style="height:100%;display:flex;background:#161826;color:#e9e9ed;font-family:'Inter',system-ui,sans-serif;overflow:hidden">
+
+          <div style="width:210px;flex:none;padding:22px 14px;display:flex;flex-direction:column;gap:4px;background:#131421;box-shadow:inset -1px 0 0 #2b2d3a">
+            <div style="display:flex;align-items:center;gap:9px;padding:0 10px 20px">
+              <div style="width:22px;height:22px;border-radius:6px;background:#2b2741;box-shadow:0 0 0 1px #9184d9"></div>
+              <span style="font-size:14px;font-weight:500;letter-spacing:-.01em">Tracker</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;padding:9px 11px;border-radius:8px;background:#232532;box-shadow:0 0 0 1px #3f424d;font-size:13px">Today</div>
+            <div style="display:flex;align-items:center;gap:10px;padding:9px 11px;border-radius:8px;font-size:13px;color:rgba(233,233,237,.6)">Library</div>
+            <div style="display:flex;align-items:center;gap:10px;padding:9px 11px;border-radius:8px;font-size:13px;color:rgba(233,233,237,.6)">Trends</div>
+            <div style="display:flex;align-items:center;gap:10px;padding:9px 11px;border-radius:8px;font-size:13px;color:rgba(233,233,237,.6)">Weight</div>
+            <div style="flex:1"></div>
+            <div style="display:flex;align-items:center;gap:10px;padding:9px 11px;border-radius:8px;font-size:13px;color:rgba(233,233,237,.6)">Settings</div>
+          </div>
+
+          <div style="flex:1;min-width:0;display:flex;flex-direction:column;overflow:hidden">
+            <div style="padding:22px 26px 16px;display:flex;align-items:flex-end;justify-content:space-between;gap:20px">
+              <div>
+                <div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:rgba(233,233,237,.5)">Friday</div>
+                <div style="font-size:26px;font-weight:500;letter-spacing:-.02em;margin-top:3px">31 July 2026</div>
+              </div>
+              <div style="display:flex;gap:8px">
+                <button class="btn btn-secondary" style="height:38px;font-size:13px">Yesterday</button>
+                <button class="btn btn-secondary" style="height:38px;font-size:13px">Tomorrow</button>
+              </div>
+            </div>
+
+            <div style="padding:0 26px 18px">
+              <div style="height:52px;background:#232532;border-radius:12px;box-shadow:0 0 0 1px #9184d9;display:flex;align-items:center;padding:0 16px;gap:12px">
+                <svg width="17" height="17" viewBox="0 0 17 17" fill="none" stroke="#9184d9" stroke-width="1.6" style="flex:none"><circle cx="7.5" cy="7.5" r="5.5"></circle><path d="M11.5 11.5L16 16"></path></svg>
+                <span style="font-size:15px">chicken thigh</span>
+                <span style="width:1.5px;height:20px;background:#9184d9"></span>
+                <div style="flex:1"></div>
+                <span style="font-size:11px;color:rgba(233,233,237,.4);white-space:nowrap">Enter to log · ⌘K anywhere</span>
+              </div>
+              <div style="margin-top:6px;background:#1c1e2b;border-radius:12px;box-shadow:0 0 0 1px #2b2d3a;overflow:hidden">
+                <div style="padding:11px 16px;display:flex;align-items:center;gap:14px;background:#232532">
+                  <div style="width:28px;height:28px;border-radius:7px;background:#2b2741;box-shadow:0 0 0 1px #9184d9;flex:none"></div>
+                  <div style="flex:1;min-width:0;font-size:13px">Chicken thigh, skinless — roasted</div>
+                  <div style="font-size:12px;color:rgba(233,233,237,.5);white-space:nowrap">usual 180 g · 313 kcal</div>
+                  <span class="tag tag-accent" style="padding:4px 8px;font-size:10px;flex:none">↵</span>
+                </div>
+                <div style="padding:11px 16px;display:flex;align-items:center;gap:14px">
+                  <div style="width:28px;height:28px;border-radius:7px;background:#232532;box-shadow:0 0 0 1px #3f424d;flex:none"></div>
+                  <div style="flex:1;min-width:0;font-size:13px;color:rgba(233,233,237,.75)">Chicken thigh, with skin</div>
+                  <div style="font-size:12px;color:rgba(233,233,237,.5);white-space:nowrap">usual 180 g · 419 kcal</div>
+                </div>
+                <div style="padding:11px 16px;display:flex;align-items:center;gap:14px">
+                  <div style="width:28px;height:28px;border-radius:7px;background:#232532;box-shadow:0 0 0 1px #3f424d;flex:none"></div>
+                  <div style="flex:1;min-width:0;font-size:13px;color:rgba(233,233,237,.75)">Chicken thigh curry — own recipe</div>
+                  <div style="font-size:12px;color:rgba(233,233,237,.5);white-space:nowrap">usual 1 bowl · 520 kcal</div>
+                </div>
+              </div>
+            </div>
+
+            <div style="flex:1;min-height:0;overflow:hidden;padding:0 26px 24px;display:flex;flex-direction:column;gap:14px">
+              <div>
+                <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:7px">
+                  <span style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:rgba(233,233,237,.5)">Breakfast</span>
+                  <span style="font-size:12px;color:rgba(233,233,237,.5)">642 kcal</span>
+                </div>
+                <div style="background:#1c1e2b;border-radius:12px;box-shadow:0 0 0 1px #2b2d3a;overflow:hidden">
+                  <div style="padding:11px 15px;display:flex;align-items:center;gap:13px">
+                    <div style="width:26px;height:26px;border-radius:7px;background:#232532;box-shadow:0 0 0 1px #3f424d;flex:none"></div>
+                    <div style="flex:1;min-width:0;font-size:13px">Skyr Vanilla<span style="color:rgba(233,233,237,.45)"> · 170 g</span></div>
+                    <div style="font-size:12px;color:rgba(233,233,237,.6);white-space:nowrap">108</div>
+                  </div>
+                  <div style="padding:11px 15px;display:flex;align-items:center;gap:13px;box-shadow:inset 0 1px 0 #2b2d3a">
+                    <div style="width:26px;height:26px;border-radius:7px;background:#232532;box-shadow:0 0 0 1px #3f424d;flex:none"></div>
+                    <div style="flex:1;min-width:0;font-size:13px">Oats &amp; whole milk<span style="color:rgba(233,233,237,.45)"> · 90 g</span></div>
+                    <div style="font-size:12px;color:rgba(233,233,237,.6);white-space:nowrap">534</div>
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:7px">
+                  <span style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:rgba(233,233,237,.5)">Lunch</span>
+                  <span style="font-size:12px;color:rgba(233,233,237,.5)">700 kcal</span>
+                </div>
+                <div style="background:#1c1e2b;border-radius:12px;box-shadow:0 0 0 1px #2b2d3a;overflow:hidden">
+                  <div style="padding:11px 15px;display:flex;align-items:center;gap:13px">
+                    <div style="width:26px;height:26px;border-radius:7px;background:#232532;box-shadow:0 0 0 1px #3f424d;flex:none"></div>
+                    <div style="flex:1;min-width:0;font-size:13px">Chicken thigh, roasted<span style="color:rgba(233,233,237,.45)"> · 180 g</span></div>
+                    <div style="font-size:12px;color:rgba(233,233,237,.6);white-space:nowrap">313</div>
+                  </div>
+                  <div style="padding:11px 15px;display:flex;align-items:center;gap:13px;box-shadow:inset 0 1px 0 #2b2d3a">
+                    <div style="width:26px;height:26px;border-radius:7px;background:#232532;box-shadow:0 0 0 1px #3f424d;flex:none"></div>
+                    <div style="flex:1;min-width:0;font-size:13px">Basmati rice<span style="color:rgba(233,233,237,.45)"> · 210 g</span></div>
+                    <div style="font-size:12px;color:rgba(233,233,237,.6);white-space:nowrap">387</div>
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:7px">
+                  <span style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:rgba(233,233,237,.5)">Dinner</span>
+                  <span style="font-size:12px;color:rgba(233,233,237,.35)">empty</span>
+                </div>
+                <div style="padding:14px 15px;border-radius:12px;box-shadow:inset 0 0 0 1px #2b2d3a;font-size:13px;color:rgba(233,233,237,.4)">Nothing logged — type above or press ⌘K</div>
+              </div>
+            </div>
+          </div>
+
+          <div style="width:290px;flex:none;padding:22px 20px;display:flex;flex-direction:column;gap:14px;background:#131421;box-shadow:inset 1px 0 0 #2b2d3a;overflow:hidden">
+            <div style="padding:18px 16px;background:#232532;border-radius:14px;box-shadow:0 0 0 1px #3f424d;display:flex;flex-direction:column;align-items:center;gap:14px">
+              <svg width="128" height="128" viewBox="0 0 98 98">
+                <circle cx="49" cy="49" r="42" fill="none" stroke="#3f424d" stroke-width="6"></circle>
+                <circle cx="49" cy="49" r="42" fill="none" stroke="#9184d9" stroke-width="6" stroke-linecap="round" stroke-dasharray="263.9" stroke-dashoffset="61.2" transform="rotate(-90 49 49)" style="filter:drop-shadow(0 0 6px rgba(145,132,217,.55))"></circle>
+                <text x="49" y="45" text-anchor="middle" fill="#e9e9ed" font-family="Inter" font-size="20" font-weight="500">558</text>
+                <text x="49" y="61" text-anchor="middle" fill="rgba(233,233,237,.5)" font-family="Inter" font-size="9" letter-spacing="0.08em">KCAL LEFT</text>
+              </svg>
+              <div style="width:100%;display:flex;flex-direction:column;gap:11px">
+                <div>
+                  <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:5px"><span>Protein</span><span style="color:rgba(233,233,237,.6);white-space:nowrap">122 / 165 g</span></div>
+                  <div style="height:5px;background:#3f424d;border-radius:3px"><div style="width:74%;height:5px;background:#9184d9;border-radius:3px"></div></div>
+                </div>
+                <div>
+                  <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:5px"><span>Carbs</span><span style="color:rgba(233,233,237,.6);white-space:nowrap">189 / 260 g</span></div>
+                  <div style="height:5px;background:#3f424d;border-radius:3px"><div style="width:73%;height:5px;background:#796cbf;border-radius:3px"></div></div>
+                </div>
+                <div>
+                  <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:5px"><span>Fat</span><span style="color:rgba(233,233,237,.6);white-space:nowrap">51 / 72 g</span></div>
+                  <div style="height:5px;background:#3f424d;border-radius:3px"><div style="width:71%;height:5px;background:#5f5596;border-radius:3px"></div></div>
+                </div>
+              </div>
+            </div>
+
+            <div style="padding:16px;background:#232532;border-radius:14px;box-shadow:0 0 0 1px #3f424d">
+              <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:12px">
+                <span style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:rgba(233,233,237,.5)">This week</span>
+                <span style="font-size:12px;color:rgba(233,233,237,.6);white-space:nowrap">avg 2 140</span>
+              </div>
+              <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:6px;align-items:end">
+                <div style="display:flex;flex-direction:column;align-items:center;gap:6px"><div style="width:100%;height:56px;background:#1c1e2b;border-radius:4px;display:flex;align-items:flex-end"><div style="width:100%;height:62%;background:#3f424d;border-radius:4px"></div></div><span style="font-size:10px;color:rgba(233,233,237,.45)">S</span></div>
+                <div style="display:flex;flex-direction:column;align-items:center;gap:6px"><div style="width:100%;height:56px;background:#1c1e2b;border-radius:4px;display:flex;align-items:flex-end"><div style="width:100%;height:88%;background:#3f424d;border-radius:4px"></div></div><span style="font-size:10px;color:rgba(233,233,237,.45)">M</span></div>
+                <div style="display:flex;flex-direction:column;align-items:center;gap:6px"><div style="width:100%;height:56px;background:#1c1e2b;border-radius:4px;display:flex;align-items:flex-end"><div style="width:100%;height:74%;background:#3f424d;border-radius:4px"></div></div><span style="font-size:10px;color:rgba(233,233,237,.45)">T</span></div>
+                <div style="display:flex;flex-direction:column;align-items:center;gap:6px"><div style="width:100%;height:56px;background:#1c1e2b;border-radius:4px;display:flex;align-items:flex-end"><div style="width:100%;height:96%;background:#3f424d;border-radius:4px"></div></div><span style="font-size:10px;color:rgba(233,233,237,.45)">W</span></div>
+                <div style="display:flex;flex-direction:column;align-items:center;gap:6px"><div style="width:100%;height:56px;background:#1c1e2b;border-radius:4px;display:flex;align-items:flex-end"><div style="width:100%;height:56%;background:#3f424d;border-radius:4px"></div></div><span style="font-size:10px;color:rgba(233,233,237,.45)">T</span></div>
+                <div style="display:flex;flex-direction:column;align-items:center;gap:6px"><div style="width:100%;height:56px;background:#2b2741;border-radius:4px;display:flex;align-items:flex-end;box-shadow:0 0 0 1px #9184d9"><div style="width:100%;height:77%;background:#9184d9;border-radius:4px"></div></div><span style="font-size:10px;color:#e9e9ed;font-weight:600">F</span></div>
+                <div style="display:flex;flex-direction:column;align-items:center;gap:6px"><div style="width:100%;height:56px;background:#1c1e2b;border-radius:4px"></div><span style="font-size:10px;color:rgba(233,233,237,.25)">S</span></div>
+              </div>
+            </div>
+
+            <div style="padding:16px;background:#232532;border-radius:14px;box-shadow:0 0 0 1px #3f424d">
+              <div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:rgba(233,233,237,.5);margin-bottom:10px">Weight</div>
+              <div style="display:flex;align-items:baseline;gap:8px"><span style="font-size:24px;font-weight:500;letter-spacing:-.02em">82.4</span><span style="font-size:13px;color:rgba(233,233,237,.5)">kg</span><span style="font-size:12px;color:#b5abfc;margin-left:auto;white-space:nowrap">−0.3 this week</span></div>
+              <button class="btn btn-secondary btn-block" style="height:38px;font-size:13px;margin-top:12px">Log today's weight</button>
+            </div>
+          </div>
+        </div>
+      </x-import>
+    </div>
+
+  </div>
+  <p class="dv-next">Desktop keeps the phone's two-step promise by swapping camera for keyboard: ⌘K from anywhere, type, Enter logs the default portion into the current meal slot. No barcode scanner, no separate add screen.</p>
+</section>
+
+<section class="dv-turn" id="t2">
+  <div class="dv-thd"><a class="dv-tid" href="#t2">2</a><span class="dv-tname">Scan → confirm → logged: the four-tap path</span></div>
+  <p class="dv-sub">Your flow, drawn out. A known product is <strong style="color:#e9e9ed;font-weight:500">two taps</strong> from home screen to logged (Scan, then Log) because every food carries a default portion. A never-seen product costs one extra step — set the usual portion once, and it is two taps forever after. Editing the portion and cancelling to library-only are both present but demoted, so the common case is never slowed by the rare one.</p>
+  <div class="dv-opts">
+
+    <div class="dv-opt" id="2a">
+      <div class="dv-olabel"><a class="dv-oid" href="#2a">2a</a>Tap 1 — scanner opens straight to camera</div>
+      <x-import component-from-global-scope="IOSDevice" from="./ios-frame.jsx" dark="{{ true }}" hint-size="402px,874px">
+        <div style="height:100%;display:flex;flex-direction:column;background:#0d0e16;color:#e9e9ed;overflow:hidden;padding-top:54px;padding-bottom:26px">
+          <div style="padding:10px 18px 0;display:flex;align-items:center;justify-content:space-between">
+            <button class="btn btn-ghost btn-icon" style="width:44px;height:44px"><svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 2l11 11M13 2L2 13"></path></svg></button>
+            <div style="font-size:13px;color:rgba(233,233,237,.7)">Scan a barcode</div>
+            <button class="btn btn-ghost btn-icon" style="width:44px;height:44px"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 6.5V4.5A1 1 0 015 3.5h1.2l.8-1.3h2l.8 1.3H11a1 1 0 011 1v2"></path><circle cx="8" cy="9.5" r="3"></circle></svg></button>
+          </div>
+
+          <div style="flex:1;margin:16px 18px;border-radius:16px;background:linear-gradient(160deg,#1b1d29,#101119);box-shadow:0 0 0 1px #2b2d3a;position:relative;display:flex;align-items:center;justify-content:center;overflow:hidden">
+            <div style="position:absolute;inset:0;background:radial-gradient(120% 60% at 50% 45%,rgba(145,132,217,.10),transparent 70%)"></div>
+            <div style="position:relative;width:236px;height:150px">
+              <div style="position:absolute;top:0;left:0;width:34px;height:34px;border-top:2px solid #9184d9;border-left:2px solid #9184d9;border-radius:8px 0 0 0"></div>
+              <div style="position:absolute;top:0;right:0;width:34px;height:34px;border-top:2px solid #9184d9;border-right:2px solid #9184d9;border-radius:0 8px 0 0"></div>
+              <div style="position:absolute;bottom:0;left:0;width:34px;height:34px;border-bottom:2px solid #9184d9;border-left:2px solid #9184d9;border-radius:0 0 0 8px"></div>
+              <div style="position:absolute;bottom:0;right:0;width:34px;height:34px;border-bottom:2px solid #9184d9;border-right:2px solid #9184d9;border-radius:0 0 8px 0"></div>
+              <div style="position:absolute;top:50%;left:16px;right:16px;height:2px;background:#9184d9;box-shadow:0 0 12px rgba(145,132,217,.8)"></div>
+              <div style="position:absolute;top:calc(50% - 30px);left:34px;right:34px;height:60px;display:flex;gap:4px;align-items:stretch;opacity:.32">
+                <div style="width:3px;background:#e9e9ed"></div><div style="width:7px;background:#e9e9ed"></div><div style="width:2px;background:#e9e9ed"></div><div style="width:5px;background:#e9e9ed"></div><div style="width:2px;background:#e9e9ed"></div><div style="width:8px;background:#e9e9ed"></div><div style="width:3px;background:#e9e9ed"></div><div style="width:2px;background:#e9e9ed"></div><div style="width:6px;background:#e9e9ed"></div><div style="width:3px;background:#e9e9ed"></div><div style="width:7px;background:#e9e9ed"></div><div style="width:2px;background:#e9e9ed"></div>
+              </div>
+            </div>
+            <div style="position:absolute;bottom:22px;left:0;right:0;text-align:center;font-size:12px;color:rgba(233,233,237,.5)">Hold steady — logging happens on match</div>
+          </div>
+
+          <div style="padding:0 18px;display:flex;gap:10px">
+            <button class="btn btn-secondary" style="flex:1;height:48px;font-size:14px">Enter code</button>
+            <button class="btn btn-secondary" style="flex:1;height:48px;font-size:14px">Search library</button>
+          </div>
+          <div style="padding:14px 18px 4px;text-align:center;font-size:11px;color:rgba(233,233,237,.38)">Scanner is the default tab of Add — no menu, no submenu</div>
+        </div>
+      </x-import>
+    </div>
+
+    <div class="dv-opt" id="2b">
+      <div class="dv-olabel"><a class="dv-oid" href="#2b">2b</a>Tap 2 — known product, default portion pre-filled</div>
+      <x-import component-from-global-scope="IOSDevice" from="./ios-frame.jsx" dark="{{ true }}" hint-size="402px,874px">
+        <div style="height:100%;display:flex;flex-direction:column;background:#0d0e16;color:#e9e9ed;overflow:hidden;padding-top:54px;padding-bottom:26px">
+          <div style="flex:1;position:relative;margin:16px 18px 0;border-radius:16px;background:linear-gradient(160deg,#191b26,#0f1018);box-shadow:0 0 0 1px #262836;display:flex;align-items:center;justify-content:center">
+            <div style="width:150px;height:96px;border-radius:8px;box-shadow:0 0 0 2px rgba(145,132,217,.55);display:flex;align-items:center;justify-content:center;color:rgba(145,132,217,.8)">
+              <svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 11l5 5 9-10"></path></svg>
+            </div>
+          </div>
+
+          <div style="margin:-14px 0 0;padding:20px 18px 16px;background:#161826;border-radius:20px 20px 0 0;box-shadow:0 -1px 0 #3f424d,0 -18px 40px rgba(0,0,0,.5);position:relative">
+            <div style="width:38px;height:4px;border-radius:2px;background:#3f424d;margin:0 auto 16px"></div>
+
+            <div style="display:flex;gap:13px;align-items:flex-start">
+              <div style="width:52px;height:52px;flex:none;border-radius:10px;background:#232532;box-shadow:0 0 0 1px #3f424d"></div>
+              <div style="flex:1;min-width:0">
+                <div style="font-size:17px;font-weight:500;letter-spacing:-.01em;line-height:1.25">Barebells Salty Peanut</div>
+                <div style="font-size:12px;color:rgba(233,233,237,.5);margin-top:3px">Barebells · protein bar · 5060 1234 5678</div>
+              </div>
+              <span class="tag tag-accent" style="padding:5px 9px;font-size:10px;flex:none">In library</span>
+            </div>
+
+            <div style="margin-top:16px;padding:15px 16px;background:#232532;border-radius:14px;box-shadow:0 0 0 1px #3f424d">
+              <div style="display:flex;align-items:baseline;justify-content:space-between">
+                <div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:rgba(233,233,237,.5)">Your usual portion</div>
+                <button class="btn btn-ghost" style="height:auto;padding:2px 6px;font-size:12px;color:#b5abfc">Edit</button>
+              </div>
+              <div style="font-size:26px;font-weight:500;letter-spacing:-.02em;margin-top:6px">1 bar <span style="color:rgba(233,233,237,.45);font-size:18px">· 55 g</span></div>
+              <div style="display:flex;gap:16px;margin-top:12px;font-size:12px;color:rgba(233,233,237,.62);flex-wrap:wrap">
+                <span><span style="color:#e9e9ed">200</span> kcal</span>
+                <span><span style="color:#e9e9ed">20</span> g protein</span>
+                <span><span style="color:#e9e9ed">16</span> g carbs</span>
+                <span><span style="color:#e9e9ed">8</span> g fat</span>
+              </div>
+            </div>
+
+            <div style="display:flex;gap:7px;margin-top:12px;flex-wrap:wrap">
+              <span class="tag tag-outline" style="padding:6px 11px">Breakfast</span>
+              <span class="tag tag-accent" style="padding:6px 11px">Snack</span>
+              <span class="tag tag-outline" style="padding:6px 11px">Lunch</span>
+              <span class="tag tag-outline" style="padding:6px 11px">Dinner</span>
+            </div>
+
+            <button class="btn btn-primary btn-block" style="height:52px;font-size:15px;margin-top:14px">Log 1 bar to Snack</button>
+            <div style="display:flex;gap:10px;margin-top:9px">
+              <button class="btn btn-ghost" style="flex:1;height:44px;font-size:13px">Change portion</button>
+              <button class="btn btn-ghost" style="flex:1;height:44px;font-size:13px;color:rgba(233,233,237,.55)">Not this product</button>
+            </div>
+          </div>
+        </div>
+      </x-import>
+    </div>
+
+    <div class="dv-opt" id="2c">
+      <div class="dv-olabel"><a class="dv-oid" href="#2c">2c</a>First scan only — set the usual portion once</div>
+      <x-import component-from-global-scope="IOSDevice" from="./ios-frame.jsx" dark="{{ true }}" hint-size="402px,874px">
+        <div style="height:100%;display:flex;flex-direction:column;background:#0d0e16;color:#e9e9ed;overflow:hidden;padding-top:54px;padding-bottom:26px">
+          <div style="flex:1;margin:16px 18px 0;border-radius:16px;background:linear-gradient(160deg,#191b26,#0f1018);box-shadow:0 0 0 1px #262836"></div>
+
+          <div style="margin:-14px 0 0;padding:20px 18px 16px;background:#161826;border-radius:20px 20px 0 0;box-shadow:0 -1px 0 #3f424d,0 -18px 40px rgba(0,0,0,.5)">
+            <div style="width:38px;height:4px;border-radius:2px;background:#3f424d;margin:0 auto 16px"></div>
+
+            <div style="display:flex;gap:13px;align-items:flex-start">
+              <div style="width:52px;height:52px;flex:none;border-radius:10px;background:#232532;box-shadow:0 0 0 1px #3f424d"></div>
+              <div style="flex:1;min-width:0">
+                <div style="font-size:17px;font-weight:500;letter-spacing:-.01em;line-height:1.25">Skyr Vanilla 450 g</div>
+                <div style="font-size:12px;color:rgba(233,233,237,.5);margin-top:3px">Arla · from open food data</div>
+              </div>
+              <span class="tag tag-outline" style="padding:5px 9px;font-size:10px;flex:none">New</span>
+            </div>
+
+            <div style="font-size:12px;color:rgba(233,233,237,.55);margin-top:15px;line-height:1.5">First time scanning this. How much are you having? We will remember it as the default.</div>
+
+            <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
+              <span class="tag tag-outline" style="padding:8px 13px">100 g</span>
+              <span class="tag tag-accent" style="padding:8px 13px">170 g</span>
+              <span class="tag tag-outline" style="padding:8px 13px">225 g</span>
+              <span class="tag tag-outline" style="padding:8px 13px">Whole tub</span>
+            </div>
+
+            <div style="display:flex;gap:10px;margin-top:12px;align-items:center">
+              <div style="flex:1;height:52px;background:#232532;border-radius:12px;box-shadow:0 0 0 1px #3f424d;display:flex;align-items:center;padding:0 15px;gap:8px">
+                <span style="font-size:22px;font-weight:500">170</span>
+                <span style="font-size:13px;color:rgba(233,233,237,.5)">g</span>
+                <span style="width:1.5px;height:22px;background:#9184d9;margin-left:1px"></span>
+              </div>
+              <button class="btn btn-secondary btn-icon" style="width:52px;height:52px;font-size:20px">−</button>
+              <button class="btn btn-secondary btn-icon" style="width:52px;height:52px;font-size:20px">+</button>
+            </div>
+
+            <div style="display:flex;gap:16px;margin-top:13px;font-size:12px;color:rgba(233,233,237,.62);flex-wrap:wrap">
+              <span><span style="color:#e9e9ed">108</span> kcal</span>
+              <span><span style="color:#e9e9ed">18</span> g protein</span>
+              <span><span style="color:#e9e9ed">7</span> g carbs</span>
+              <span><span style="color:#e9e9ed">0.3</span> g fat</span>
+            </div>
+
+            <button class="btn btn-primary btn-block" style="height:52px;font-size:15px;margin-top:16px">Save default &amp; log 170 g</button>
+            <div style="display:flex;gap:10px;margin-top:9px">
+              <button class="btn btn-ghost" style="flex:1;height:44px;font-size:13px">Add to library only</button>
+              <button class="btn btn-ghost" style="flex:1;height:44px;font-size:13px;color:rgba(233,233,237,.55)">Cancel</button>
+            </div>
+          </div>
+        </div>
+      </x-import>
+    </div>
+
+    <div class="dv-opt" id="2d">
+      <div class="dv-olabel"><a class="dv-oid" href="#2d">2d</a>Logged — lands back on Today with undo</div>
+      <x-import component-from-global-scope="IOSDevice" from="./ios-frame.jsx" dark="{{ true }}" hint-size="402px,874px">
+        <div style="height:100%;display:flex;flex-direction:column;background:#161826;color:#e9e9ed;overflow:hidden;padding-top:54px;padding-bottom:26px">
+          <div style="padding:14px 18px 12px">
+            <div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:rgba(233,233,237,.5)">Friday</div>
+            <div style="font-size:22px;font-weight:500;letter-spacing:-.015em;margin-top:2px">31 July</div>
+          </div>
+
+          <div style="margin:0 18px;padding:15px 16px;background:#232532;border-radius:14px;box-shadow:0 0 0 1px #3f424d;display:flex;align-items:center;gap:16px">
+            <svg width="72" height="72" viewBox="0 0 98 98" style="flex:none">
+              <circle cx="49" cy="49" r="42" fill="none" stroke="#3f424d" stroke-width="7"></circle>
+              <circle cx="49" cy="49" r="42" fill="none" stroke="#9184d9" stroke-width="7" stroke-linecap="round" stroke-dasharray="263.9" stroke-dashoffset="42" transform="rotate(-90 49 49)" style="filter:drop-shadow(0 0 6px rgba(145,132,217,.55))"></circle>
+              <text x="49" y="46" text-anchor="middle" fill="#e9e9ed" font-family="Inter" font-size="21" font-weight="500">358</text>
+              <text x="49" y="62" text-anchor="middle" fill="rgba(233,233,237,.5)" font-family="Inter" font-size="10" letter-spacing="0.08em">LEFT</text>
+            </svg>
+            <div style="flex:1">
+              <div style="font-size:12px;color:rgba(233,233,237,.55)">Snack just logged</div>
+              <div style="font-size:15px;font-weight:500;margin-top:3px;line-height:1.3">Barebells Salty Peanut</div>
+              <div style="font-size:12px;color:rgba(233,233,237,.55);margin-top:4px">200 kcal · 20 P · 16 C · 8 F</div>
+            </div>
+          </div>
+
+          <div style="margin:12px 18px 0;padding:13px 15px;background:#2b2741;border-radius:12px;box-shadow:0 0 0 1px #9184d9;display:flex;align-items:center;gap:12px">
+            <svg width="18" height="18" viewBox="0 0 22 22" fill="none" stroke="#9184d9" stroke-width="2" style="flex:none"><path d="M4 11l5 5 9-10"></path></svg>
+            <div style="flex:1;font-size:13px;line-height:1.35">Added to Snack</div>
+            <button class="btn btn-ghost" style="height:34px;padding:0 12px;font-size:13px;color:#b5abfc">Undo</button>
+          </div>
+
+          <div style="padding:20px 18px 8px;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:rgba(233,233,237,.5)">Snack · 200 kcal</div>
+          <div style="margin:0 18px;background:#1c1e2b;border-radius:12px;box-shadow:0 0 0 1px #2b2d3a;overflow:hidden">
+            <div style="padding:13px 15px;display:flex;align-items:center;gap:12px;background:#232532">
+              <div style="width:34px;height:34px;border-radius:8px;background:#2b2741;box-shadow:0 0 0 1px #9184d9;flex:none"></div>
+              <div style="flex:1;min-width:0">
+                <div style="font-size:14px;line-height:1.3">Barebells Salty Peanut</div>
+                <div style="font-size:11px;color:rgba(233,233,237,.5);margin-top:2px">1 bar · 55 g</div>
+              </div>
+              <div style="font-size:13px;color:rgba(233,233,237,.75);white-space:nowrap">200</div>
+            </div>
+          </div>
+
+          <div style="flex:1"></div>
+          <div style="padding:0 18px;display:flex;gap:10px">
+            <button class="btn btn-primary" style="flex:1;height:50px;font-size:15px;gap:9px">
+              <svg width="18" height="14" viewBox="0 0 18 14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M1 1v12M4.5 1v12M7.5 1v12M11 1v12M14 1v12M17 1v12"></path></svg>
+              Scan
+            </button>
+            <button class="btn btn-secondary" style="flex:1;height:50px;font-size:15px">Add food</button>
+          </div>
+        </div>
+      </x-import>
+    </div>
+
+  </div>
+  <p class="dv-next">Tap count, known product: <strong style="color:#e9e9ed;font-weight:500">Scan → Log</strong> = 2. First scan of a new product: <strong style="color:#e9e9ed;font-weight:500">Scan → portion → Save &amp; log</strong> = 3, once. Wrong product, wrong portion and library-only are all one tap away but never on the happy path. Open question for you: should the meal slot be inferred from the clock (as shown, Snack pre-selected at 15:40) or always ask?</p>
+</section>
+
+<section class="dv-turn" id="t1">
+  <div class="dv-thd"><a class="dv-tid" href="#t1">1</a><span class="dv-tname">Fitness tracker — phone-first redesign</span></div>
+  <p class="dv-sub">One direction, five screens. Logging moves to a scan-first sheet with recents and one-tap portions; the day gains full macro targets and meal slots; the week is always visible as a strip at the top. Nocturne tokens throughout — accent as line and glow, never a flood.</p>
+  <div class="dv-opts">
+
+    <div class="dv-opt" id="1a">
+      <div class="dv-olabel"><a class="dv-oid" href="#1a">1a</a>Today — targets, week strip, meal slots</div>
+      <x-import component-from-global-scope="IOSDevice" from="./ios-frame.jsx" dark="{{ true }}" hint-size="402px,874px">
+        <div style="height:100%;display:flex;flex-direction:column;background:#161826;color:#e9e9ed;overflow:hidden;padding-top:54px;padding-bottom:26px">
+          <div style="padding:14px 18px 10px;display:flex;align-items:center;justify-content:space-between">
+            <div>
+              <div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:rgba(233,233,237,.5)">Friday</div>
+              <div style="font-size:22px;font-weight:500;letter-spacing:-.015em;margin-top:2px;white-space:nowrap">31 July</div>
+            </div>
+            <div style="display:flex;gap:8px">
+              <button class="btn btn-secondary btn-icon" style="width:44px;height:44px">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M10 3 5 8l5 5"></path></svg>
+              </button>
+              <button class="btn btn-secondary btn-icon" style="width:44px;height:44px">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6 3l5 5-5 5"></path></svg>
+              </button>
+            </div>
+          </div>
+
+          <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:6px;padding:4px 18px 14px">
+            <div style="display:flex;flex-direction:column;align-items:center;gap:6px"><span style="font-size:10px;color:rgba(233,233,237,.45)">S</span><div style="width:100%;height:34px;background:#232532;border-radius:4px;display:flex;align-items:flex-end"><div style="width:100%;height:62%;background:#3f424d;border-radius:4px"></div></div></div>
+            <div style="display:flex;flex-direction:column;align-items:center;gap:6px"><span style="font-size:10px;color:rgba(233,233,237,.45)">M</span><div style="width:100%;height:34px;background:#232532;border-radius:4px;display:flex;align-items:flex-end"><div style="width:100%;height:88%;background:#3f424d;border-radius:4px"></div></div></div>
+            <div style="display:flex;flex-direction:column;align-items:center;gap:6px"><span style="font-size:10px;color:rgba(233,233,237,.45)">T</span><div style="width:100%;height:34px;background:#232532;border-radius:4px;display:flex;align-items:flex-end"><div style="width:100%;height:74%;background:#3f424d;border-radius:4px"></div></div></div>
+            <div style="display:flex;flex-direction:column;align-items:center;gap:6px"><span style="font-size:10px;color:rgba(233,233,237,.45)">W</span><div style="width:100%;height:34px;background:#232532;border-radius:4px;display:flex;align-items:flex-end"><div style="width:100%;height:96%;background:#3f424d;border-radius:4px"></div></div></div>
+            <div style="display:flex;flex-direction:column;align-items:center;gap:6px"><span style="font-size:10px;color:rgba(233,233,237,.45)">T</span><div style="width:100%;height:34px;background:#232532;border-radius:4px;display:flex;align-items:flex-end"><div style="width:100%;height:56%;background:#3f424d;border-radius:4px"></div></div></div>
+            <div style="display:flex;flex-direction:column;align-items:center;gap:6px"><span style="font-size:10px;color:#e9e9ed;font-weight:600">F</span><div style="width:100%;height:34px;background:#2b2741;border-radius:4px;display:flex;align-items:flex-end;box-shadow:0 0 0 1px #9184d9"><div style="width:100%;height:77%;background:#9184d9;border-radius:4px"></div></div></div>
+            <div style="display:flex;flex-direction:column;align-items:center;gap:6px"><span style="font-size:10px;color:rgba(233,233,237,.25)">S</span><div style="width:100%;height:34px;background:#1c1e2b;border-radius:4px"></div></div>
+          </div>
+
+          <div style="margin:0 18px;padding:16px;background:#232532;border-radius:14px;box-shadow:0 0 0 1px #3f424d;display:flex;gap:18px;align-items:center">
+            <svg width="98" height="98" viewBox="0 0 98 98" style="flex:none">
+              <circle cx="49" cy="49" r="42" fill="none" stroke="#3f424d" stroke-width="6"></circle>
+              <circle cx="49" cy="49" r="42" fill="none" stroke="#9184d9" stroke-width="6" stroke-linecap="round" stroke-dasharray="263.9" stroke-dashoffset="61.2" transform="rotate(-90 49 49)" style="filter:drop-shadow(0 0 6px rgba(145,132,217,.55))"></circle>
+              <text x="49" y="46" text-anchor="middle" fill="#e9e9ed" font-family="Inter" font-size="21" font-weight="500">558</text>
+              <text x="49" y="62" text-anchor="middle" fill="rgba(233,233,237,.5)" font-family="Inter" font-size="10" letter-spacing="0.08em">LEFT</text>
+            </svg>
+            <div style="flex:1;display:flex;flex-direction:column;gap:11px">
+              <div>
+                <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:5px"><span>Protein</span><span style="color:rgba(233,233,237,.6);white-space:nowrap">122 / 165 g</span></div>
+                <div style="height:5px;background:#3f424d;border-radius:3px"><div style="width:74%;height:5px;background:#9184d9;border-radius:3px"></div></div>
+              </div>
+              <div>
+                <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:5px"><span>Carbs</span><span style="color:rgba(233,233,237,.6);white-space:nowrap">189 / 260 g</span></div>
+                <div style="height:5px;background:#3f424d;border-radius:3px"><div style="width:73%;height:5px;background:#796cbf;border-radius:3px"></div></div>
+              </div>
+              <div>
+                <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:5px"><span>Fat</span><span style="color:rgba(233,233,237,.6);white-space:nowrap">62 / 75 g</span></div>
+                <div style="height:5px;background:#3f424d;border-radius:3px"><div style="width:83%;height:5px;background:#5d5294;border-radius:3px"></div></div>
+              </div>
+              <div style="font-size:11px;color:rgba(233,233,237,.45);margin-top:1px">1 842 of 2 400 cal · 77%</div>
+            </div>
+          </div>
+
+          <div style="flex:1;overflow:hidden;padding:16px 18px 0;display:flex;flex-direction:column;gap:14px">
+            <div>
+              <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:7px">
+                <span style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:rgba(233,233,237,.5)">Breakfast</span>
+                <span style="font-size:11px;color:rgba(233,233,237,.45)">576 cal</span>
+              </div>
+              <div style="display:flex;flex-direction:column">
+                <div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid rgba(233,233,237,.10)">
+                  <span style="flex:1;font-size:14px">Skyr Natural</span><span style="font-size:12px;color:rgba(233,233,237,.5)">250 g</span><span style="font-size:13px;color:#d2cefd;min-width:52px;text-align:right">158</span>
+                </div>
+                <div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid rgba(233,233,237,.10)">
+                  <span style="flex:1;font-size:14px">Oats, rolled</span><span style="font-size:12px;color:rgba(233,233,237,.5)">80 g</span><span style="font-size:13px;color:#d2cefd;min-width:52px;text-align:right">303</span>
+                </div>
+                <div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid rgba(233,233,237,.10)">
+                  <span style="flex:1;font-size:14px">Banana</span><span style="font-size:12px;color:rgba(233,233,237,.5)">120 g</span><span style="font-size:13px;color:#d2cefd;min-width:52px;text-align:right">107</span>
+                </div>
+              </div>
+            </div>
+            <div>
+              <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:7px">
+                <span style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:rgba(233,233,237,.5)">Lunch</span>
+                <span style="font-size:11px;color:rgba(233,233,237,.45)">873 cal</span>
+              </div>
+              <div style="display:flex;flex-direction:column">
+                <div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid rgba(233,233,237,.10)">
+                  <span style="flex:1;font-size:14px">Chicken breast</span><span style="font-size:12px;color:rgba(233,233,237,.5)">180 g</span><span style="font-size:13px;color:#d2cefd;min-width:52px;text-align:right">297</span>
+                </div>
+                <div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid rgba(233,233,237,.10)">
+                  <span style="flex:1;font-size:14px">Basmati rice, dry</span><span style="font-size:12px;color:rgba(233,233,237,.5)">125 g</span><span style="font-size:13px;color:#d2cefd;min-width:52px;text-align:right">444</span>
+                </div>
+                <div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid rgba(233,233,237,.10)">
+                  <span style="flex:1;font-size:14px">Olive oil</span><span style="font-size:12px;color:rgba(233,233,237,.5)">15 g</span><span style="font-size:13px;color:#d2cefd;min-width:52px;text-align:right">133</span>
+                </div>
+              </div>
+            </div>
+            <div>
+              <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:7px">
+                <span style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:rgba(233,233,237,.5)">Dinner</span>
+                <span style="font-size:11px;color:rgba(233,233,237,.3)">empty</span>
+              </div>
+              <button class="btn btn-secondary btn-block" style="height:44px;justify-content:flex-start;color:rgba(233,233,237,.55);margin-top:0">+ Add to dinner</button>
+            </div>
+          </div>
+
+          <div style="padding:12px 18px 8px;display:flex;gap:10px;background:linear-gradient(to top,#161826 60%,rgba(22,24,38,0))">
+            <button class="btn btn-primary" style="flex:1;height:50px;font-size:15px;gap:9px">
+              <svg width="18" height="14" viewBox="0 0 18 14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M1 1v12M4.5 1v12M7.5 1v12M11 1v12M14 1v12M17 1v12"></path></svg>
+              Scan
+            </button>
+            <button class="btn btn-secondary" style="flex:1;height:50px;font-size:15px;gap:8px">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="7" cy="7" r="5"></circle><path d="M11 11l4 4"></path></svg>
+              Search
+            </button>
+            <button class="btn btn-secondary btn-icon" style="width:50px;height:50px" title="Copy yesterday">
+              <svg width="17" height="17" viewBox="0 0 17 17" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="9" height="11" rx="2"></rect><path d="M6 15h7a2 2 0 0 0 2-2V6"></path></svg>
+            </button>
+          </div>
+        </div>
+      </x-import>
+    </div>
+
+    <div class="dv-opt" id="1b">
+      <div class="dv-olabel"><a class="dv-oid" href="#1b">1b</a>Scan-first add sheet — recents, one-tap portions</div>
+      <x-import component-from-global-scope="IOSDevice" from="./ios-frame.jsx" dark="{{ true }}" hint-size="402px,874px">
+        <div style="height:100%;display:flex;flex-direction:column;background:#161826;color:#e9e9ed;overflow:hidden;padding-top:54px;padding-bottom:26px">
+          <div style="position:relative;height:212px;background:#0b0c14;overflow:hidden;flex:none">
+            <div style="position:absolute;inset:0;background:radial-gradient(120% 90% at 50% 40%,#20222f,#0b0c14 70%)"></div>
+            <div style="position:absolute;left:50%;top:96px;transform:translate(-50%,-50%);width:214px;height:92px;border-radius:8px;box-shadow:0 0 0 1px rgba(145,132,217,.35),0 0 26px rgba(145,132,217,.28)"></div>
+            <div style="position:absolute;left:50%;top:96px;transform:translate(-50%,-50%);width:180px;height:1.5px;background:#9184d9;box-shadow:0 0 10px #9184d9"></div>
+            <div style="position:absolute;left:0;right:0;bottom:14px;text-align:center;font-size:12px;color:rgba(233,233,237,.6)">Hold the barcode inside the frame</div>
+            <button class="btn btn-secondary btn-icon" style="position:absolute;top:12px;right:14px;width:44px;height:44px;background:rgba(11,12,20,.6)">
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 2l10 10M12 2L2 12"></path></svg>
+            </button>
+          </div>
+
+          <div style="padding:14px 18px 0;display:flex;gap:7px;flex-wrap:wrap">
+            <span class="tag tag-accent" style="padding:6px 11px">Scan</span>
+            <span class="tag tag-outline" style="padding:6px 11px">Recent</span>
+            <span class="tag tag-outline" style="padding:6px 11px">Favourites</span>
+            <span class="tag tag-outline" style="padding:6px 11px">Meals</span>
+            <span class="tag tag-outline" style="padding:6px 11px">Search</span>
+          </div>
+
+          <div style="margin:16px 18px 0;padding:14px;background:#232532;border-radius:14px;box-shadow:0 0 0 1px #595d6c,0 6px 18px rgba(0,0,0,.55)">
+            <div style="display:flex;gap:12px;align-items:center">
+              <div style="width:52px;height:52px;border-radius:8px;background:#2b2741;box-shadow:0 0 0 1px #3f424d;flex:none"></div>
+              <div style="flex:1;min-width:0">
+                <div style="font-size:11px;color:#d2cefd;letter-spacing:.06em;text-transform:uppercase">Matched · 5711953068166</div>
+                <div style="font-size:16px;font-weight:500;margin-top:2px">Skyr Natural</div>
+                <div style="font-size:12px;color:rgba(233,233,237,.55)">Arla · 63 cal · P 11 · C 4 · F 0.2 / 100 g</div>
+              </div>
+            </div>
+
+            <div style="margin-top:14px;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:rgba(233,233,237,.5)">Portion</div>
+            <div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:8px">
+              <button class="btn btn-primary" style="height:44px;flex:1">250 g</button>
+              <button class="btn btn-secondary" style="height:44px;flex:1">Half 225 g</button>
+              <button class="btn btn-secondary" style="height:44px;flex:1">Custom</button>
+            </div>
+
+            <div style="margin-top:14px;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:rgba(233,233,237,.5)">Meal</div>
+            <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:8px">
+              <button class="btn btn-primary" style="height:44px;font-size:13px">Breakfast</button>
+              <button class="btn btn-secondary" style="height:44px;font-size:13px">Lunch</button>
+              <button class="btn btn-secondary" style="height:44px;font-size:13px">Dinner</button>
+              <button class="btn btn-secondary" style="height:44px;font-size:13px">Snack</button>
+            </div>
+
+            <div style="display:flex;align-items:center;gap:12px;margin-top:16px">
+              <div style="flex:1;font-size:13px;color:rgba(233,233,237,.6)">158 cal · P 27.5 · C 10 · F 0.5</div>
+              <button class="btn btn-primary" style="height:48px;padding-inline:22px;font-size:15px">Log it</button>
+            </div>
+          </div>
+
+          <div style="padding:12px 18px 0;flex:1;overflow:hidden">
+            <div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:rgba(233,233,237,.5);margin-bottom:7px">Log again</div>
+            <div style="display:flex;gap:8px;overflow:hidden">
+              <button class="btn btn-secondary" style="height:44px">Oats 80 g</button>
+              <button class="btn btn-secondary" style="height:44px">Chicken 180 g</button>
+              <button class="btn btn-secondary" style="height:44px">Rice 125 g</button>
+            </div>
+            <div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:rgba(233,233,237,.5);margin:10px 0 7px">Saved meals</div>
+            <div style="display:flex;flex-direction:column;gap:8px">
+              <button class="btn btn-secondary" style="height:44px;justify-content:space-between;width:100%;text-align:left"><span>Overnight oats + skyr</span><span style="color:rgba(233,233,237,.5);font-weight:400">576 cal</span></button>
+            </div>
+          </div>
+        </div>
+      </x-import>
+    </div>
+
+    <div class="dv-opt" id="1c">
+      <div class="dv-olabel"><a class="dv-oid" href="#1c">1c</a>Food library — grouped, filterable, not a flat list</div>
+      <x-import component-from-global-scope="IOSDevice" from="./ios-frame.jsx" dark="{{ true }}" hint-size="402px,874px">
+        <div style="height:100%;display:flex;flex-direction:column;background:#161826;color:#e9e9ed;overflow:hidden;padding-top:54px;padding-bottom:26px">
+          <div style="padding:14px 18px 0;display:flex;align-items:center;justify-content:space-between">
+            <div style="font-size:22px;font-weight:500;letter-spacing:-.015em">Food library</div>
+            <button class="btn btn-primary" style="height:44px">+ Add</button>
+          </div>
+          <div style="padding:14px 18px 0"><input class="input" placeholder="Search 84 foods…" style="height:44px"></div>
+          <div style="display:flex;gap:7px;flex-wrap:wrap;padding:12px 18px 0">
+            <span class="tag tag-accent" style="padding:6px 11px">All</span>
+            <span class="tag tag-outline" style="padding:6px 11px">Favourites</span>
+            <span class="tag tag-outline" style="padding:6px 11px">Recent</span>
+            <span class="tag tag-outline" style="padding:6px 11px">High protein</span>
+            <span class="tag tag-outline" style="padding:6px 11px">No macros yet</span>
+          </div>
+
+          <div style="flex:1;overflow:hidden;padding:18px 18px 0;display:flex;flex-direction:column;gap:16px">
+            <div>
+              <div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:rgba(233,233,237,.5);margin-bottom:8px">Dairy &amp; eggs</div>
+              <div style="display:flex;flex-direction:column;gap:8px">
+                <div style="display:flex;gap:12px;align-items:center;padding:10px;background:#232532;border-radius:8px;box-shadow:0 0 0 1px #3f424d">
+                  <div style="width:40px;height:40px;border-radius:6px;background:#2b2741;flex:none"></div>
+                  <div style="flex:1;min-width:0">
+                    <div style="font-size:14px">Skyr Natural <span style="color:rgba(233,233,237,.5);font-size:12px">Arla</span></div>
+                    <div style="font-size:11.5px;color:rgba(233,233,237,.55)">63 cal · P 11 · C 4 · F 0.2</div>
+                  </div>
+                  <span class="tag tag-neutral" style="padding:4px 8px;font-size:10px">450 g</span>
+                </div>
+                <div style="display:flex;gap:12px;align-items:center;padding:10px;background:#232532;border-radius:8px;box-shadow:0 0 0 1px #3f424d">
+                  <div style="width:40px;height:40px;border-radius:6px;background:#2b2741;flex:none"></div>
+                  <div style="flex:1;min-width:0">
+                    <div style="font-size:14px">Cheddar <span style="color:rgba(233,233,237,.5);font-size:12px">Cathedral City</span></div>
+                    <div style="font-size:11.5px;color:rgba(233,233,237,.55)">415 cal · P 25 · C 0.1 · F 34.9</div>
+                  </div>
+                  <span class="tag tag-neutral" style="padding:4px 8px;font-size:10px">350 g</span>
+                </div>
+              </div>
+            </div>
+            <div>
+              <div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:rgba(233,233,237,.5);margin-bottom:8px">Protein</div>
+              <div style="display:flex;flex-direction:column;gap:8px">
+                <div style="display:flex;gap:12px;align-items:center;padding:10px;background:#232532;border-radius:8px;box-shadow:0 0 0 1px #3f424d">
+                  <div style="width:40px;height:40px;border-radius:6px;background:#2b2741;flex:none"></div>
+                  <div style="flex:1;min-width:0">
+                    <div style="font-size:14px">Chicken breast</div>
+                    <div style="font-size:11.5px;color:rgba(233,233,237,.55)">165 cal · P 31 · C 0 · F 3.6</div>
+                  </div>
+                  <span class="tag tag-accent" style="padding:4px 8px;font-size:10px">★</span>
+                </div>
+                <div style="display:flex;gap:12px;align-items:center;padding:10px;background:#232532;border-radius:8px;box-shadow:0 0 0 1px #3f424d">
+                  <div style="width:40px;height:40px;border-radius:6px;background:#2b2741;flex:none"></div>
+                  <div style="flex:1;min-width:0">
+                    <div style="font-size:14px">Protein powder, whey <span style="color:rgba(233,233,237,.5);font-size:12px">MyProtein</span></div>
+                    <div style="font-size:11.5px;color:rgba(233,233,237,.55)">385 cal · P 75 · C 8 · F 5.5</div>
+                  </div>
+                  <span class="tag tag-neutral" style="padding:4px 8px;font-size:10px">1 kg</span>
+                </div>
+              </div>
+            </div>
+            <div>
+              <div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:rgba(233,233,237,.5);margin-bottom:8px">Grains &amp; starch</div>
+              <div style="display:flex;flex-direction:column;gap:8px">
+                <div style="display:flex;gap:12px;align-items:center;padding:10px;background:#232532;border-radius:8px;box-shadow:0 0 0 1px #3f424d">
+                  <div style="width:40px;height:40px;border-radius:6px;background:#2b2741;flex:none"></div>
+                  <div style="flex:1;min-width:0">
+                    <div style="font-size:14px">Oats, rolled</div>
+                    <div style="font-size:11.5px;color:rgba(233,233,237,.55)">379 cal · P 13.2 · C 60.1 · F 6.5</div>
+                  </div>
+                  <span class="tag tag-neutral" style="padding:4px 8px;font-size:10px">1 kg</span>
+                </div>
+                <div style="display:flex;gap:12px;align-items:center;padding:10px;background:#232532;border-radius:8px;box-shadow:0 0 0 1px #3f424d">
+                  <div style="width:40px;height:40px;border-radius:6px;background:#2b2741;flex:none"></div>
+                  <div style="flex:1;min-width:0">
+                    <div style="font-size:14px">Basmati rice, dry <span style="color:rgba(233,233,237,.5);font-size:12px">Tilda</span></div>
+                    <div style="font-size:11.5px;color:rgba(233,233,237,.55)">355 cal · P 8.5 · C 78 · F 0.9</div>
+                  </div>
+                  <span class="tag tag-neutral" style="padding:4px 8px;font-size:10px">500 g</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </x-import>
+    </div>
+
+    <div class="dv-opt" id="1d">
+      <div class="dv-olabel"><a class="dv-oid" href="#1d">1d</a>Food detail &amp; edit — one sheet, no separate form</div>
+      <x-import component-from-global-scope="IOSDevice" from="./ios-frame.jsx" dark="{{ true }}" hint-size="402px,874px">
+        <div style="height:100%;display:flex;flex-direction:column;background:#161826;color:#e9e9ed;overflow:hidden;padding-top:54px;padding-bottom:26px">
+          <div style="padding:14px 18px 0;display:flex;align-items:center;gap:10px">
+            <button class="btn btn-secondary btn-icon" style="width:44px;height:44px">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M10 3 5 8l5 5"></path></svg>
+            </button>
+            <div style="flex:1;font-size:13px;color:rgba(233,233,237,.55)">Food library</div>
+            <button class="btn btn-ghost" style="height:44px">Delete</button>
+          </div>
+
+          <div style="padding:14px 18px 0;display:flex;gap:14px;align-items:center">
+            <div style="width:76px;height:76px;border-radius:8px;background:#2b2741;box-shadow:0 0 0 1px #3f424d;flex:none;display:flex;align-items:center;justify-content:center;font-size:10px;color:rgba(233,233,237,.4);text-align:center;line-height:1.3">product<br>photo</div>
+            <div style="flex:1;min-width:0">
+              <div style="font-size:20px;font-weight:500;letter-spacing:-.015em">Skyr Natural</div>
+              <div style="font-size:13px;color:rgba(233,233,237,.55);margin-top:2px">Arla · 5711953068166</div>
+              <div style="display:flex;gap:6px;margin-top:8px"><span class="tag tag-accent" style="padding:4px 9px;font-size:10px">Favourite</span><span class="tag tag-neutral" style="padding:4px 9px;font-size:10px">Logged 41×</span></div>
+            </div>
+          </div>
+
+          <div style="margin:18px 18px 0;background:#232532;border-radius:14px;box-shadow:0 0 0 1px #3f424d;overflow:hidden">
+            <div style="padding:11px 14px;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:rgba(233,233,237,.5);border-bottom:1px solid rgba(233,233,237,.10)">Per 100 g · tap to edit</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr">
+              <div style="padding:11px 14px;border-bottom:1px solid rgba(233,233,237,.10);border-right:1px solid rgba(233,233,237,.10);display:flex;justify-content:space-between"><span style="font-size:13px;color:rgba(233,233,237,.6)">Calories</span><span style="font-size:14px">63</span></div>
+              <div style="padding:11px 14px;border-bottom:1px solid rgba(233,233,237,.10);display:flex;justify-content:space-between"><span style="font-size:13px;color:rgba(233,233,237,.6)">Protein</span><span style="font-size:14px">11</span></div>
+              <div style="padding:11px 14px;border-bottom:1px solid rgba(233,233,237,.10);border-right:1px solid rgba(233,233,237,.10);display:flex;justify-content:space-between"><span style="font-size:13px;color:rgba(233,233,237,.6)">Carbs</span><span style="font-size:14px">4</span></div>
+              <div style="padding:11px 14px;border-bottom:1px solid rgba(233,233,237,.10);display:flex;justify-content:space-between"><span style="font-size:13px;color:rgba(233,233,237,.6)">Fat</span><span style="font-size:14px">0.2</span></div>
+              <div style="padding:11px 14px;border-bottom:1px solid rgba(233,233,237,.10);border-right:1px solid rgba(233,233,237,.10);display:flex;justify-content:space-between"><span style="font-size:13px;color:rgba(233,233,237,.6)">Fiber</span><span style="font-size:14px">0</span></div>
+              <div style="padding:11px 14px;border-bottom:1px solid rgba(233,233,237,.10);display:flex;justify-content:space-between"><span style="font-size:13px;color:rgba(233,233,237,.6)">Sugar</span><span style="font-size:14px">4</span></div>
+              <div style="padding:11px 14px;border-right:1px solid rgba(233,233,237,.10);display:flex;justify-content:space-between"><span style="font-size:13px;color:rgba(233,233,237,.6)">Sodium</span><span style="font-size:14px">45</span></div>
+              <div style="padding:11px 14px;display:flex;justify-content:space-between"><span style="font-size:13px;color:rgba(233,233,237,.6)">Sat. fat</span><span style="font-size:14px">0.1</span></div>
+            </div>
+          </div>
+
+          <div style="padding:18px 18px 0">
+            <div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:rgba(233,233,237,.5);margin-bottom:8px">Package &amp; portions</div>
+            <div style="display:flex;gap:8px;align-items:center">
+              <input class="input" value="450" style="height:44px;width:96px">
+              <span style="font-size:13px;color:rgba(233,233,237,.55)">g package</span>
+            </div>
+            <div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:10px">
+              <span class="tag tag-accent" style="padding:7px 12px">125 g ×</span>
+              <span class="tag tag-accent" style="padding:7px 12px">250 g ×</span>
+              <span class="tag tag-accent" style="padding:7px 12px">375 g ×</span>
+              <button class="btn btn-secondary" style="height:34px;font-size:12px">+ portion</button>
+            </div>
+          </div>
+
+          <div style="padding:20px 18px 0;flex:1">
+            <div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:rgba(233,233,237,.5);margin-bottom:10px">Last 14 days</div>
+            <div style="display:flex;align-items:flex-end;gap:5px;height:52px">
+              <div style="flex:1;height:40%;background:#3f424d;border-radius:2px"></div><div style="flex:1;height:0%;background:#3f424d;border-radius:2px"></div><div style="flex:1;height:70%;background:#3f424d;border-radius:2px"></div><div style="flex:1;height:70%;background:#3f424d;border-radius:2px"></div><div style="flex:1;height:40%;background:#3f424d;border-radius:2px"></div><div style="flex:1;height:0%;background:#3f424d;border-radius:2px"></div><div style="flex:1;height:100%;background:#3f424d;border-radius:2px"></div><div style="flex:1;height:70%;background:#3f424d;border-radius:2px"></div><div style="flex:1;height:70%;background:#3f424d;border-radius:2px"></div><div style="flex:1;height:0%;background:#3f424d;border-radius:2px"></div><div style="flex:1;height:40%;background:#3f424d;border-radius:2px"></div><div style="flex:1;height:70%;background:#3f424d;border-radius:2px"></div><div style="flex:1;height:70%;background:#3f424d;border-radius:2px"></div><div style="flex:1;height:70%;background:#9184d9;border-radius:2px"></div>
+            </div>
+          </div>
+
+          <div style="padding:12px 18px 8px;display:flex;gap:10px">
+            <button class="btn btn-secondary" style="flex:1;height:50px;font-size:15px">Cancel</button>
+            <button class="btn btn-primary" style="flex:1;height:50px;font-size:15px">Save changes</button>
+          </div>
+        </div>
+      </x-import>
+    </div>
+
+    <div class="dv-opt" id="1e">
+      <div class="dv-olabel"><a class="dv-oid" href="#1e">1e</a>Week &amp; weight — trend, hit rate, averages</div>
+      <x-import component-from-global-scope="IOSDevice" from="./ios-frame.jsx" dark="{{ true }}" hint-size="402px,874px">
+        <div style="height:100%;display:flex;flex-direction:column;background:#161826;color:#e9e9ed;overflow:hidden;padding-top:54px;padding-bottom:26px">
+          <div style="padding:14px 18px 0;display:flex;align-items:center;justify-content:space-between">
+            <div>
+              <div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:rgba(233,233,237,.5)">This week</div>
+              <div style="font-size:22px;font-weight:500;letter-spacing:-.015em;margin-top:2px;white-space:nowrap">27 Jul – 2 Aug</div>
+            </div>
+            <div style="display:flex;gap:6px">
+              <span class="tag tag-accent" style="padding:6px 11px">Week</span>
+              <span class="tag tag-outline" style="padding:6px 11px">Month</span>
+            </div>
+          </div>
+
+          <div style="margin:18px 18px 0;padding:16px;background:#232532;border-radius:14px;box-shadow:0 0 0 1px #3f424d">
+            <div style="display:flex;justify-content:space-between;align-items:baseline">
+              <span style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:rgba(233,233,237,.5)">Calories vs 2 400 target</span>
+              <span style="font-size:12px;color:rgba(233,233,237,.55)">avg 2 118</span>
+            </div>
+            <div style="position:relative;height:138px;margin-top:12px">
+              <div style="position:absolute;left:0;right:0;top:26px;border-top:1px dashed rgba(145,132,217,.45)"></div>
+              <div style="position:absolute;right:0;top:8px;font-size:10px;color:#d2cefd">2 400</div>
+              <div style="position:absolute;inset:0;display:flex;align-items:flex-end;gap:9px">
+                <div style="flex:1;height:62%;background:#3f424d;border-radius:4px 4px 0 0"></div>
+                <div style="flex:1;height:88%;background:#3f424d;border-radius:4px 4px 0 0"></div>
+                <div style="flex:1;height:74%;background:#3f424d;border-radius:4px 4px 0 0"></div>
+                <div style="flex:1;height:96%;background:#3f424d;border-radius:4px 4px 0 0"></div>
+                <div style="flex:1;height:56%;background:#3f424d;border-radius:4px 4px 0 0"></div>
+                <div style="flex:1;height:77%;background:#9184d9;border-radius:4px 4px 0 0;box-shadow:0 0 14px rgba(145,132,217,.35)"></div>
+                <div style="flex:1;height:4%;background:#232532;box-shadow:inset 0 0 0 1px #3f424d;border-radius:4px 4px 0 0"></div>
+              </div>
+            </div>
+            <div style="display:flex;gap:9px;margin-top:8px">
+              <span style="flex:1;text-align:center;font-size:10px;color:rgba(233,233,237,.45)">S</span><span style="flex:1;text-align:center;font-size:10px;color:rgba(233,233,237,.45)">M</span><span style="flex:1;text-align:center;font-size:10px;color:rgba(233,233,237,.45)">T</span><span style="flex:1;text-align:center;font-size:10px;color:rgba(233,233,237,.45)">W</span><span style="flex:1;text-align:center;font-size:10px;color:rgba(233,233,237,.45)">T</span><span style="flex:1;text-align:center;font-size:10px;color:#e9e9ed">F</span><span style="flex:1;text-align:center;font-size:10px;color:rgba(233,233,237,.25)">S</span>
+            </div>
+          </div>
+
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:14px 18px 0">
+            <div style="padding:14px;background:#232532;border-radius:8px;box-shadow:0 0 0 1px #3f424d">
+              <div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:rgba(233,233,237,.5)">Protein avg</div>
+              <div style="font-size:26px;font-weight:500;margin-top:4px">148 g</div>
+              <div style="font-size:11px;color:rgba(233,233,237,.45)">target 165 · 4 of 6 days hit</div>
+            </div>
+            <div style="padding:14px;background:#232532;border-radius:8px;box-shadow:0 0 0 1px #3f424d">
+              <div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:rgba(233,233,237,.5)">Days logged</div>
+              <div style="font-size:26px;font-weight:500;margin-top:4px">6 / 7</div>
+              <div style="font-size:11px;color:rgba(233,233,237,.45)">streak 12 days</div>
+            </div>
+          </div>
+
+          <div style="margin:14px 18px 0;padding:16px;background:#232532;border-radius:14px;box-shadow:0 0 0 1px #3f424d">
+            <div style="display:flex;justify-content:space-between;align-items:baseline">
+              <span style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:rgba(233,233,237,.5)">Weight</span>
+              <span style="font-size:12px;color:rgba(233,233,237,.55)">−0.4 kg / 30 d</span>
+            </div>
+            <div style="display:flex;align-items:baseline;gap:10px;margin-top:6px">
+              <span style="font-size:30px;font-weight:500;letter-spacing:-.015em">78.6</span><span style="font-size:13px;color:rgba(233,233,237,.5)">kg · this morning</span>
+            </div>
+            <svg viewBox="0 0 320 60" width="100%" height="60" style="margin-top:8px" preserveAspectRatio="none">
+              <polyline points="0,18 32,22 64,14 96,26 128,24 160,34 192,30 224,40 256,36 288,44 320,42" fill="none" stroke="#9184d9" stroke-width="2" stroke-linecap="round" style="filter:drop-shadow(0 0 5px rgba(145,132,217,.5))"></polyline>
+            </svg>
+            <button class="btn btn-secondary btn-block" style="height:44px">Log this morning's weight</button>
+          </div>
+
+          <div style="padding:12px 18px 0;flex:1">
+            <div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:rgba(233,233,237,.5);margin-bottom:7px">Most logged this week</div>
+            <div style="display:flex;flex-direction:column;gap:8px">
+              <div style="display:flex;align-items:center;gap:10px;font-size:13px"><span style="flex:1">Skyr Natural</span><span style="color:rgba(233,233,237,.5)">6×</span></div>
+              <div style="display:flex;align-items:center;gap:10px;font-size:13px"><span style="flex:1">Chicken breast</span><span style="color:rgba(233,233,237,.5)">5×</span></div>
+              <div style="display:flex;align-items:center;gap:10px;font-size:13px"><span style="flex:1">Oats, rolled</span><span style="color:rgba(233,233,237,.5)">5×</span></div>
+            </div>
+          </div>
+        </div>
+      </x-import>
+    </div>
+
+  </div>
+  <p class="dv-next">Try next: "make <a class="dv-oid" href="#1a">1a</a> denser — I want dinner visible without scrolling" · "swap the ring in <a class="dv-oid" href="#1a">1a</a> for plain numbers" · "show the empty-day state of <a class="dv-oid" href="#1a">1a</a>"</p>
+</section>
+</x-dc>
+</body>
+</html>

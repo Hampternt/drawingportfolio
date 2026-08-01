@@ -38,6 +38,11 @@ const COMMANDS = [
     action() { location.href = '/fitness'; },
   },
   {
+    label: 'Go to Fitness Week',
+    keywords: ['week', 'trends', 'weight', 'streak', 'fitness'],
+    action() { location.href = '/fitness/week'; },
+  },
+  {
     label: 'Go to Hub',
     keywords: ['home', 'hub', 'index', 'start', 'main'],
     action() { location.href = '/'; },
