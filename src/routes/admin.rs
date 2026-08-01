@@ -1,25 +1,29 @@
-use axum::{
-    Router,
-    routing::{get, post, delete},
-    extract::{State, Path, Multipart},
-    response::{Html, IntoResponse},
-    http::StatusCode,
-};
-use askama::Template;
-use std::sync::Arc;
 use crate::AppState;
+use askama::Template;
+use axum::{
+    extract::{Multipart, Path, State},
+    http::StatusCode,
+    response::{Html, IntoResponse},
+    routing::{delete, get, post},
+    Router,
+};
+use std::sync::Arc;
 
 const MAX_IMAGE_BYTES: usize = 35 * 1024 * 1024; // 35 MB
 
 async fn encode_as_avif(bytes: Vec<u8>) -> Result<Vec<u8>, String> {
     tokio::task::spawn_blocking(move || {
-        let img = image::load_from_memory(&bytes)
-            .map_err(|e| format!("decode failed: {e}"))?;
+        let img = image::load_from_memory(&bytes).map_err(|e| format!("decode failed: {e}"))?;
         let rgba = img.to_rgba8();
         let (width, height) = rgba.dimensions();
         let pixels: Vec<rgb::RGBA8> = rgba
             .pixels()
-            .map(|p| rgb::RGBA8 { r: p[0], g: p[1], b: p[2], a: p[3] })
+            .map(|p| rgb::RGBA8 {
+                r: p[0],
+                g: p[1],
+                b: p[2],
+                a: p[3],
+            })
             .collect();
         let encoded = ravif::Encoder::new()
             .with_quality(80.0)
@@ -72,34 +76,56 @@ async fn upload_post(
                 caption = field.text().await.ok();
             }
             Some("format") => {
-                if let Ok(v) = field.text().await { post_format = v; }
+                if let Ok(v) = field.text().await {
+                    post_format = v;
+                }
             }
             Some("source") => {
                 // Only accept known source values; default to "admin"
                 if let Ok(v) = field.text().await {
-                    source = if v == "gallery" { v } else { "admin".to_string() };
+                    source = if v == "gallery" {
+                        v
+                    } else {
+                        "admin".to_string()
+                    };
                 }
             }
             Some("image") => {
-                let content_type = field.content_type()
+                let content_type = field
+                    .content_type()
                     .unwrap_or("application/octet-stream")
                     .to_string();
 
-                if !matches!(content_type.as_str(), "image/jpeg" | "image/png" | "image/webp") {
-                    return (StatusCode::BAD_REQUEST, Html("Invalid image type".to_string()))
+                if !matches!(
+                    content_type.as_str(),
+                    "image/jpeg" | "image/png" | "image/webp"
+                ) {
+                    return (
+                        StatusCode::BAD_REQUEST,
+                        Html("Invalid image type".to_string()),
+                    )
                         .into_response();
                 }
 
                 let bytes = field.bytes().await.unwrap_or_default();
 
                 if bytes.len() > MAX_IMAGE_BYTES {
-                    return (StatusCode::PAYLOAD_TOO_LARGE, Html("Image too large (max 35MB)".to_string()))
+                    return (
+                        StatusCode::PAYLOAD_TOO_LARGE,
+                        Html("Image too large (max 35MB)".to_string()),
+                    )
                         .into_response();
                 }
 
                 let ext = match validate_magic_bytes(&bytes) {
                     Some(ext) => ext,
-                    None => return (StatusCode::BAD_REQUEST, Html("Invalid image file".to_string())).into_response(),
+                    None => {
+                        return (
+                            StatusCode::BAD_REQUEST,
+                            Html("Invalid image file".to_string()),
+                        )
+                            .into_response()
+                    }
                 };
 
                 image_data = Some((bytes.to_vec(), format!("image/{ext}"), ext));
@@ -111,7 +137,9 @@ async fn upload_post(
     let caption = caption.unwrap_or_default();
     let (bytes, content_type, ext) = match image_data {
         Some(d) => d,
-        None => return (StatusCode::BAD_REQUEST, Html("Missing image".to_string())).into_response(),
+        None => {
+            return (StatusCode::BAD_REQUEST, Html("Missing image".to_string())).into_response()
+        }
     };
 
     // Client sends WebP (converted via canvas); upload original directly and return immediately.
@@ -123,18 +151,33 @@ async fn upload_post(
     let original_key = format!("{uuid}.{ext}");
     let avif_key = format!("{uuid}-avif.avif");
 
-    let image_url = match state.storage.upload(&original_key, bytes, &content_type).await {
+    let image_url = match state
+        .storage
+        .upload(&original_key, bytes, &content_type)
+        .await
+    {
         Ok(url) => url,
         Err(e) => {
             tracing::error!("storage upload error: {e}");
-            return (StatusCode::INTERNAL_SERVER_ERROR, Html("Upload failed".to_string())).into_response();
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Html("Upload failed".to_string()),
+            )
+                .into_response();
         }
     };
     let webp_url = image_url.clone(); // already WebP from client
 
     let post = crate::db::insert_post(
-        &state.pool, caption.trim(), &image_url, &webp_url, "", &post_format, file_size_bytes,
-    ).await;
+        &state.pool,
+        caption.trim(),
+        &image_url,
+        &webp_url,
+        "",
+        &post_format,
+        file_size_bytes,
+    )
+    .await;
     tracing::info!("post created: id={}, key={original_key}, size={file_size_bytes} bytes, format={post_format}", post.id);
 
     let state_clone = Arc::clone(&state);
@@ -142,9 +185,16 @@ async fn upload_post(
     tokio::spawn(async move {
         match encode_as_avif(bytes_for_avif).await {
             Ok(avif_bytes) => {
-                match state_clone.storage.upload(&avif_key, avif_bytes, "image/avif").await {
+                match state_clone
+                    .storage
+                    .upload(&avif_key, avif_bytes, "image/avif")
+                    .await
+                {
                     Ok(avif_url) => {
-                        if let Err(e) = crate::db::update_post_avif_url(&state_clone.pool, post_id, &avif_url).await {
+                        if let Err(e) =
+                            crate::db::update_post_avif_url(&state_clone.pool, post_id, &avif_url)
+                                .await
+                        {
                             tracing::error!("avif db update failed for post id={post_id}: {e}");
                         } else {
                             tracing::info!("avif variant ready for post id={post_id}");
@@ -173,7 +223,9 @@ async fn delete_post(
     if let Some(urls) = crate::db::delete_post_and_get_urls(&state.pool, id).await {
         tracing::info!("deleting post id={id}");
         for url in [&urls.image_url, &urls.webp_url, &urls.avif_url] {
-            if url.is_empty() { continue; } // old posts may have no variants
+            if url.is_empty() {
+                continue;
+            } // old posts may have no variants
             if let Err(e) = state.storage.delete_by_url(url).await {
                 tracing::error!("storage delete failed for post id={id} url={url}: {e}");
             }
@@ -185,9 +237,15 @@ async fn delete_post(
 }
 
 pub fn validate_magic_bytes(bytes: &[u8]) -> Option<&'static str> {
-    if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) { return Some("jpeg"); }
-    if bytes.starts_with(b"\x89PNG\r\n\x1a\n") { return Some("png"); }
-    if bytes.starts_with(b"RIFF") && bytes.get(8..12) == Some(b"WEBP") { return Some("webp"); }
+    if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
+        return Some("jpeg");
+    }
+    if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        return Some("png");
+    }
+    if bytes.starts_with(b"RIFF") && bytes.get(8..12) == Some(b"WEBP") {
+        return Some("webp");
+    }
     None
 }
 
@@ -198,12 +256,18 @@ fn admin_post_card_html(post: &crate::models::Post) -> String {
         format!("    <p>{}</p>\n", html_escape(&post.caption))
     };
     let avif_source = if !post.avif_url.is_empty() {
-        format!("    <source srcset=\"{}\" type=\"image/avif\">\n", html_escape(&post.avif_url))
+        format!(
+            "    <source srcset=\"{}\" type=\"image/avif\">\n",
+            html_escape(&post.avif_url)
+        )
     } else {
         String::new()
     };
     let webp_source = if !post.webp_url.is_empty() {
-        format!("    <source srcset=\"{}\" type=\"image/webp\">\n", html_escape(&post.webp_url))
+        format!(
+            "    <source srcset=\"{}\" type=\"image/webp\">\n",
+            html_escape(&post.webp_url)
+        )
     } else {
         String::new()
     };
@@ -233,9 +297,9 @@ fn admin_post_card_html(post: &crate::models::Post) -> String {
 
 fn html_escape(s: &str) -> String {
     s.replace('&', "&amp;")
-     .replace('<', "&lt;")
-     .replace('>', "&gt;")
-     .replace('"', "&quot;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
 }
 
 pub fn router() -> Router<Arc<AppState>> {
@@ -253,15 +317,11 @@ mod tests {
     // Minimal valid 1x1 red PNG (generated with correct CRCs)
     fn test_png() -> Vec<u8> {
         vec![
-            0x89,0x50,0x4E,0x47,0x0D,0x0A,0x1A,0x0A,
-            0x00,0x00,0x00,0x0D,0x49,0x48,0x44,0x52,
-            0x00,0x00,0x00,0x01,0x00,0x00,0x00,0x01,
-            0x08,0x02,0x00,0x00,0x00,0x90,0x77,0x53,0xDE,
-            0x00,0x00,0x00,0x0C,0x49,0x44,0x41,0x54,
-            0x78,0x9C,0x63,0xF8,0xCF,0xC0,0x00,0x00,
-            0x03,0x01,0x01,0x00,0xC9,0xFE,0x92,0xEF,
-            0x00,0x00,0x00,0x00,0x49,0x45,0x4E,0x44,
-            0xAE,0x42,0x60,0x82,
+            0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48,
+            0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x02, 0x00, 0x00,
+            0x00, 0x90, 0x77, 0x53, 0xDE, 0x00, 0x00, 0x00, 0x0C, 0x49, 0x44, 0x41, 0x54, 0x78,
+            0x9C, 0x63, 0xF8, 0xCF, 0xC0, 0x00, 0x00, 0x03, 0x01, 0x01, 0x00, 0xC9, 0xFE, 0x92,
+            0xEF, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
         ]
     }
 
@@ -301,10 +361,18 @@ mod tests {
     #[tokio::test]
     async fn test_encode_as_avif_returns_nonempty_bytes() {
         let result = encode_as_avif(test_png()).await;
-        assert!(result.is_ok(), "avif encode should succeed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "avif encode should succeed: {:?}",
+            result.err()
+        );
         let bytes = result.unwrap();
         assert!(!bytes.is_empty());
         // AVIF is an ISOBMFF container; bytes 4..8 are the 'ftyp' box type
-        assert_eq!(&bytes[4..8], b"ftyp", "output should be an AVIF/ISOBMFF file");
+        assert_eq!(
+            &bytes[4..8],
+            b"ftyp",
+            "output should be an AVIF/ISOBMFF file"
+        );
     }
 }

@@ -1,5 +1,5 @@
-use aws_sdk_s3::{Client, config::Region, primitives::ByteStream};
 use aws_config::BehaviorVersion;
+use aws_sdk_s3::{config::Region, primitives::ByteStream, Client};
 
 pub struct ObjectStorage {
     client: Client,
@@ -11,8 +11,8 @@ impl ObjectStorage {
     pub async fn from_env() -> Self {
         let endpoint = std::env::var("STORAGE_ENDPOINT")
             .unwrap_or_else(|_| "http://localhost:9000".to_string());
-        let bucket = std::env::var("STORAGE_BUCKET")
-            .unwrap_or_else(|_| "portfolio-images".to_string());
+        let bucket =
+            std::env::var("STORAGE_BUCKET").unwrap_or_else(|_| "portfolio-images".to_string());
         let public_url = std::env::var("STORAGE_PUBLIC_URL")
             .unwrap_or_else(|_| "http://localhost:3000/static".to_string());
 
@@ -28,11 +28,20 @@ impl ObjectStorage {
 
         let client = Client::from_conf(s3_config);
 
-        ObjectStorage { client, bucket, public_url }
+        ObjectStorage {
+            client,
+            bucket,
+            public_url,
+        }
     }
 
     /// Upload bytes, return the public URL for the stored object.
-    pub async fn upload(&self, key: &str, data: Vec<u8>, content_type: &str) -> Result<String, String> {
+    pub async fn upload(
+        &self,
+        key: &str,
+        data: Vec<u8>,
+        content_type: &str,
+    ) -> Result<String, String> {
         self.client
             .put_object()
             .bucket(&self.bucket)

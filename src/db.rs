@@ -1,6 +1,12 @@
-use sqlx::{SqlitePool, sqlite::{SqlitePoolOptions, SqliteConnectOptions}};
+use crate::models::{
+    AuthChallengeState, DrawingTaskWithImage, FoodItem, MealEntryWithFood, PasskeyCredential, Post,
+    Session, TaskImage,
+};
+use sqlx::{
+    sqlite::{SqliteConnectOptions, SqlitePoolOptions},
+    SqlitePool,
+};
 use std::str::FromStr;
-use crate::models::{Post, Session, PasskeyCredential, AuthChallengeState, FoodItem, MealEntryWithFood, TaskImage, DrawingTaskWithImage};
 
 pub type DbPool = SqlitePool;
 
@@ -90,7 +96,11 @@ pub async fn insert_post(
     .expect("failed to fetch inserted post")
 }
 
-pub async fn update_post_avif_url(pool: &DbPool, id: i64, avif_url: &str) -> Result<(), sqlx::Error> {
+pub async fn update_post_avif_url(
+    pool: &DbPool,
+    id: i64,
+    avif_url: &str,
+) -> Result<(), sqlx::Error> {
     sqlx::query!("UPDATE posts SET avif_url = ? WHERE id = ?", avif_url, id)
         .execute(pool)
         .await?;
@@ -106,11 +116,14 @@ pub struct PostUrls {
 pub async fn delete_post_and_get_urls(pool: &DbPool, id: i64) -> Option<PostUrls> {
     let mut tx = pool.begin().await.ok()?;
 
-    let row = sqlx::query!("SELECT image_url, webp_url, avif_url FROM posts WHERE id = ?", id)
-        .fetch_optional(&mut *tx)
-        .await
-        .ok()
-        .flatten();
+    let row = sqlx::query!(
+        "SELECT image_url, webp_url, avif_url FROM posts WHERE id = ?",
+        id
+    )
+    .fetch_optional(&mut *tx)
+    .await
+    .ok()
+    .flatten();
 
     if let Some(r) = row {
         sqlx::query!("DELETE FROM posts WHERE id = ?", id)
@@ -132,7 +145,8 @@ pub async fn delete_post_and_get_urls(pool: &DbPool, id: i64) -> Option<PostUrls
 pub async fn create_session(pool: &DbPool, id: &str, expires_at: &str) {
     sqlx::query!(
         "INSERT INTO sessions (id, expires_at) VALUES (?, ?)",
-        id, expires_at
+        id,
+        expires_at
     )
     .execute(pool)
     .await
@@ -162,18 +176,22 @@ pub async fn cleanup_expired(pool: &DbPool) {
         .execute(pool)
         .await
         .ok();
-    let challenges = sqlx::query!("DELETE FROM auth_challenge_state WHERE expires_at <= datetime('now')")
-        .execute(pool)
-        .await
-        .ok();
+    let challenges =
+        sqlx::query!("DELETE FROM auth_challenge_state WHERE expires_at <= datetime('now')")
+            .execute(pool)
+            .await
+            .ok();
 
     let session_rows = sessions.map(|r| r.rows_affected()).unwrap_or(0);
     let challenge_rows = challenges.map(|r| r.rows_affected()).unwrap_or(0);
-    tracing::info!("cleanup: removed {session_rows} expired sessions, {challenge_rows} expired challenges");
+    tracing::info!(
+        "cleanup: removed {session_rows} expired sessions, {challenge_rows} expired challenges"
+    );
 }
 
 pub async fn get_all_credentials(pool: &DbPool) -> Vec<PasskeyCredential> {
-    sqlx::query_as!(PasskeyCredential,
+    sqlx::query_as!(
+        PasskeyCredential,
         r#"SELECT id as "id!", passkey_json as "passkey_json!" FROM passkey_credentials"#
     )
     .fetch_all(pool)
@@ -184,7 +202,8 @@ pub async fn get_all_credentials(pool: &DbPool) -> Vec<PasskeyCredential> {
 pub async fn save_credential(pool: &DbPool, id: &str, passkey_json: &str) {
     sqlx::query!(
         "INSERT OR REPLACE INTO passkey_credentials (id, passkey_json) VALUES (?, ?)",
-        id, passkey_json
+        id,
+        passkey_json
     )
     .execute(pool)
     .await
@@ -194,7 +213,9 @@ pub async fn save_credential(pool: &DbPool, id: &str, passkey_json: &str) {
 pub async fn save_challenge(pool: &DbPool, id: &str, state_json: &str, expires_at: &str) {
     sqlx::query!(
         "INSERT INTO auth_challenge_state (id, state_json, expires_at) VALUES (?, ?, ?)",
-        id, state_json, expires_at
+        id,
+        state_json,
+        expires_at
     )
     .execute(pool)
     .await
@@ -363,28 +384,37 @@ pub async fn get_meal_entries_for_date(pool: &DbPool, date: &str) -> Vec<MealEnt
     .await
     .unwrap_or_default();
 
-    rows.into_iter().map(|r| {
-        let factor = r.grams / 100.0;
-        MealEntryWithFood {
-            entry_id: r.entry_id,
-            food_name: r.food_name,
-            grams: r.grams,
-            calories: r.base_calories * factor,
-            protein: r.base_protein * factor,
-            carbs: r.base_carbs * factor,
-            fat: r.base_fat * factor,
-            fiber: r.base_fiber * factor,
-            sugar: r.base_sugar * factor,
-            sodium: r.base_sodium * factor,
-            saturated_fat: r.base_saturated_fat * factor,
-        }
-    }).collect()
+    rows.into_iter()
+        .map(|r| {
+            let factor = r.grams / 100.0;
+            MealEntryWithFood {
+                entry_id: r.entry_id,
+                food_name: r.food_name,
+                grams: r.grams,
+                calories: r.base_calories * factor,
+                protein: r.base_protein * factor,
+                carbs: r.base_carbs * factor,
+                fat: r.base_fat * factor,
+                fiber: r.base_fiber * factor,
+                sugar: r.base_sugar * factor,
+                sodium: r.base_sodium * factor,
+                saturated_fat: r.base_saturated_fat * factor,
+            }
+        })
+        .collect()
 }
 
-pub async fn insert_meal_entry(pool: &DbPool, food_item_id: i64, date: &str, grams: f64) -> Result<i64, sqlx::Error> {
+pub async fn insert_meal_entry(
+    pool: &DbPool,
+    food_item_id: i64,
+    date: &str,
+    grams: f64,
+) -> Result<i64, sqlx::Error> {
     let id = sqlx::query!(
         "INSERT INTO meal_entries (food_item_id, date, grams) VALUES (?, ?, ?) RETURNING id",
-        food_item_id, date, grams
+        food_item_id,
+        date,
+        grams
     )
     .fetch_one(pool)
     .await?
@@ -413,7 +443,8 @@ pub struct TaskFilters {
 pub async fn insert_task_image(pool: &DbPool, title: &str, image_url: &str) {
     sqlx::query!(
         "INSERT INTO task_images (title, image_url) VALUES (?, ?)",
-        title, image_url
+        title,
+        image_url
     )
     .execute(pool)
     .await
@@ -485,10 +516,13 @@ pub async fn delete_drawing_task(pool: &DbPool, id: i64) {
 }
 
 pub async fn toggle_task_completed(pool: &DbPool, id: i64) {
-    sqlx::query!("UPDATE drawing_tasks SET completed = 1 - completed WHERE id = ?", id)
-        .execute(pool)
-        .await
-        .ok();
+    sqlx::query!(
+        "UPDATE drawing_tasks SET completed = 1 - completed WHERE id = ?",
+        id
+    )
+    .execute(pool)
+    .await
+    .ok();
 }
 
 pub async fn get_tasks_filtered(pool: &DbPool, f: &TaskFilters) -> Vec<DrawingTaskWithImage> {
@@ -525,19 +559,21 @@ pub async fn get_tasks_filtered(pool: &DbPool, f: &TaskFilters) -> Vec<DrawingTa
     .await
     .unwrap_or_default();
 
-    rows.into_iter().map(|r| DrawingTaskWithImage {
-        id: r.id,
-        image_id: r.image_id,
-        title: r.title,
-        prompt: r.prompt,
-        subject: r.subject,
-        difficulty: r.difficulty,
-        task_type: r.task_type,
-        completed: r.completed != 0,
-        created_at: r.created_at,
-        image_title: r.image_title,
-        image_url: r.image_url,
-    }).collect()
+    rows.into_iter()
+        .map(|r| DrawingTaskWithImage {
+            id: r.id,
+            image_id: r.image_id,
+            title: r.title,
+            prompt: r.prompt,
+            subject: r.subject,
+            difficulty: r.difficulty,
+            task_type: r.task_type,
+            completed: r.completed != 0,
+            created_at: r.created_at,
+            image_title: r.image_title,
+            image_url: r.image_url,
+        })
+        .collect()
 }
 
 /// Distinct non-empty subjects, for the filter dropdown and admin datalist.
@@ -582,7 +618,16 @@ mod tests {
     #[tokio::test]
     async fn test_insert_and_get_post() {
         let pool = test_pool().await;
-        let post = insert_post(&pool, "test caption", "https://example.com/img.jpg", "", "", crate::models::PostFormat::Single.as_str(), 0).await;
+        let post = insert_post(
+            &pool,
+            "test caption",
+            "https://example.com/img.jpg",
+            "",
+            "",
+            crate::models::PostFormat::Single.as_str(),
+            0,
+        )
+        .await;
         assert_eq!(post.caption, "test caption");
         let posts = get_posts(&pool, 0).await;
         assert_eq!(posts.len(), 1);
@@ -592,7 +637,16 @@ mod tests {
     #[tokio::test]
     async fn test_delete_post() {
         let pool = test_pool().await;
-        let post = insert_post(&pool, "to delete", "https://example.com/img.jpg", "https://example.com/img-webp.webp", "https://example.com/img-avif.avif", crate::models::PostFormat::Single.as_str(), 0).await;
+        let post = insert_post(
+            &pool,
+            "to delete",
+            "https://example.com/img.jpg",
+            "https://example.com/img-webp.webp",
+            "https://example.com/img-avif.avif",
+            crate::models::PostFormat::Single.as_str(),
+            0,
+        )
+        .await;
         let urls = delete_post_and_get_urls(&pool, post.id).await;
         assert!(urls.is_some());
         let urls = urls.unwrap();
@@ -640,7 +694,16 @@ mod tests {
     async fn test_insert_post_stores_format_and_filesize() {
         let pool = test_pool().await;
         let fmt = crate::models::PostFormat::Single.as_str();
-        let post = insert_post(&pool, "hello", "https://example.com/img.jpg", "", "", fmt, 12345).await;
+        let post = insert_post(
+            &pool,
+            "hello",
+            "https://example.com/img.jpg",
+            "",
+            "",
+            fmt,
+            12345,
+        )
+        .await;
         assert_eq!(post.format, "single");
         assert_eq!(post.file_size_bytes, 12345);
     }
@@ -656,7 +719,24 @@ mod tests {
     #[tokio::test]
     async fn test_insert_and_get_food_item() {
         let pool = test_pool().await;
-        let item = insert_food_item(&pool, "Chicken Breast", "Generic", None, 165.0, 31.0, 0.0, 3.6, 0.0, 0.0, 74.0, 1.0, None, "", "").await;
+        let item = insert_food_item(
+            &pool,
+            "Chicken Breast",
+            "Generic",
+            None,
+            165.0,
+            31.0,
+            0.0,
+            3.6,
+            0.0,
+            0.0,
+            74.0,
+            1.0,
+            None,
+            "",
+            "",
+        )
+        .await;
         assert_eq!(item.name, "Chicken Breast");
         assert_eq!(item.calories, 165.0);
         assert!(item.barcode.is_none());
@@ -667,8 +747,42 @@ mod tests {
     #[tokio::test]
     async fn test_search_food_items() {
         let pool = test_pool().await;
-        insert_food_item(&pool, "Chicken Breast", "Generic", None, 165.0, 31.0, 0.0, 3.6, 0.0, 0.0, 74.0, 1.0, None, "", "").await;
-        insert_food_item(&pool, "Brown Rice", "Generic", None, 112.0, 2.6, 23.5, 0.9, 1.8, 0.0, 5.0, 0.2, None, "", "").await;
+        insert_food_item(
+            &pool,
+            "Chicken Breast",
+            "Generic",
+            None,
+            165.0,
+            31.0,
+            0.0,
+            3.6,
+            0.0,
+            0.0,
+            74.0,
+            1.0,
+            None,
+            "",
+            "",
+        )
+        .await;
+        insert_food_item(
+            &pool,
+            "Brown Rice",
+            "Generic",
+            None,
+            112.0,
+            2.6,
+            23.5,
+            0.9,
+            1.8,
+            0.0,
+            5.0,
+            0.2,
+            None,
+            "",
+            "",
+        )
+        .await;
         let results = search_food_items(&pool, "chicken").await;
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].name, "Chicken Breast");
@@ -677,7 +791,24 @@ mod tests {
     #[tokio::test]
     async fn test_delete_food_item() {
         let pool = test_pool().await;
-        let item = insert_food_item(&pool, "Test Item", "", None, 100.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, None, "", "https://example.com/img.jpg").await;
+        let item = insert_food_item(
+            &pool,
+            "Test Item",
+            "",
+            None,
+            100.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            None,
+            "",
+            "https://example.com/img.jpg",
+        )
+        .await;
         let url = delete_food_item(&pool, item.id).await;
         assert_eq!(url, Some("https://example.com/img.jpg".to_string()));
         assert!(get_food_items(&pool).await.is_empty());
@@ -686,8 +817,27 @@ mod tests {
     #[tokio::test]
     async fn test_insert_meal_entry_and_get_for_date() {
         let pool = test_pool().await;
-        let item = insert_food_item(&pool, "White Rice", "", None, 130.0, 2.7, 28.6, 0.3, 0.4, 0.0, 1.0, 0.1, None, "", "").await;
-        insert_meal_entry(&pool, item.id, "2026-04-09", 200.0).await.unwrap();
+        let item = insert_food_item(
+            &pool,
+            "White Rice",
+            "",
+            None,
+            130.0,
+            2.7,
+            28.6,
+            0.3,
+            0.4,
+            0.0,
+            1.0,
+            0.1,
+            None,
+            "",
+            "",
+        )
+        .await;
+        insert_meal_entry(&pool, item.id, "2026-04-09", 200.0)
+            .await
+            .unwrap();
         let entries = get_meal_entries_for_date(&pool, "2026-04-09").await;
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].food_name, "White Rice");
@@ -698,10 +848,17 @@ mod tests {
     #[tokio::test]
     async fn test_delete_meal_entry() {
         let pool = test_pool().await;
-        let item = insert_food_item(&pool, "Apple", "", None, 52.0, 0.3, 14.0, 0.2, 2.4, 10.0, 1.0, 0.0, None, "", "").await;
-        let entry_id = insert_meal_entry(&pool, item.id, "2026-04-09", 150.0).await.unwrap();
+        let item = insert_food_item(
+            &pool, "Apple", "", None, 52.0, 0.3, 14.0, 0.2, 2.4, 10.0, 1.0, 0.0, None, "", "",
+        )
+        .await;
+        let entry_id = insert_meal_entry(&pool, item.id, "2026-04-09", 150.0)
+            .await
+            .unwrap();
         delete_meal_entry(&pool, entry_id).await;
-        assert!(get_meal_entries_for_date(&pool, "2026-04-09").await.is_empty());
+        assert!(get_meal_entries_for_date(&pool, "2026-04-09")
+            .await
+            .is_empty());
     }
 
     fn no_filters() -> TaskFilters {
@@ -722,7 +879,16 @@ mod tests {
     async fn test_insert_task_and_get() {
         let pool = test_pool().await;
         let img_id = seed_image(&pool).await;
-        insert_drawing_task(&pool, img_id, "Draw the hands", "Focus on the hands only", "anatomy", "hard", "focus study").await;
+        insert_drawing_task(
+            &pool,
+            img_id,
+            "Draw the hands",
+            "Focus on the hands only",
+            "anatomy",
+            "hard",
+            "focus study",
+        )
+        .await;
         let tasks = get_tasks_filtered(&pool, &no_filters()).await;
         assert_eq!(tasks.len(), 1);
         assert_eq!(tasks[0].title, "Draw the hands");
@@ -735,9 +901,36 @@ mod tests {
     async fn test_multiple_tasks_on_one_image() {
         let pool = test_pool().await;
         let img_id = seed_image(&pool).await;
-        insert_drawing_task(&pool, img_id, "Focus on hands", "", "anatomy", "hard", "focus study").await;
-        insert_drawing_task(&pool, img_id, "Redraw in ink style", "", "style", "medium", "style study").await;
-        insert_drawing_task(&pool, img_id, "Change the lighting", "", "lighting", "easy", "modification").await;
+        insert_drawing_task(
+            &pool,
+            img_id,
+            "Focus on hands",
+            "",
+            "anatomy",
+            "hard",
+            "focus study",
+        )
+        .await;
+        insert_drawing_task(
+            &pool,
+            img_id,
+            "Redraw in ink style",
+            "",
+            "style",
+            "medium",
+            "style study",
+        )
+        .await;
+        insert_drawing_task(
+            &pool,
+            img_id,
+            "Change the lighting",
+            "",
+            "lighting",
+            "easy",
+            "modification",
+        )
+        .await;
         let tasks = get_tasks_filtered(&pool, &no_filters()).await;
         assert_eq!(tasks.len(), 3);
         assert!(tasks.iter().all(|t| t.image_id == img_id));
@@ -835,14 +1028,22 @@ mod tests {
         insert_drawing_task(&pool, img_id, "C", "", "", "easy", "").await;
 
         assert_eq!(get_task_subjects(&pool).await, vec!["anatomy", "style"]);
-        assert_eq!(get_task_types(&pool).await, vec!["focus study", "style study"]);
+        assert_eq!(
+            get_task_types(&pool).await,
+            vec!["focus study", "style study"]
+        );
     }
 
     #[tokio::test]
     async fn test_meal_entry_wrong_date_not_returned() {
         let pool = test_pool().await;
-        let item = insert_food_item(&pool, "Banana", "", None, 89.0, 1.1, 23.0, 0.3, 2.6, 12.0, 1.0, 0.0, None, "", "").await;
-        insert_meal_entry(&pool, item.id, "2026-04-08", 100.0).await.unwrap();
+        let item = insert_food_item(
+            &pool, "Banana", "", None, 89.0, 1.1, 23.0, 0.3, 2.6, 12.0, 1.0, 0.0, None, "", "",
+        )
+        .await;
+        insert_meal_entry(&pool, item.id, "2026-04-08", 100.0)
+            .await
+            .unwrap();
         let entries = get_meal_entries_for_date(&pool, "2026-04-09").await;
         assert!(entries.is_empty());
     }

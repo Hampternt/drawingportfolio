@@ -10,19 +10,19 @@
 // These tell Rust "there are other .rs files in src/ that belong to this project".
 // Each `mod` declaration makes the module's public items available under that name,
 // e.g. `db::connect(...)` or `routes::feed::router()`.
-mod db;         // All database queries (SQLite via sqlx)
+mod db; // All database queries (SQLite via sqlx)
 mod middleware; // Custom request extractors: AuthSession, OptionalAuth, LocalhostOnly
-mod models;     // Plain data structs that mirror database rows
-mod routes;     // One sub-module per feature area (hub, feed, admin, auth, nutrition, tasks)
-mod storage;    // S3-compatible object storage wrapper (Hetzner)
+mod models; // Plain data structs that mirror database rows
+mod routes; // One sub-module per feature area (hub, feed, admin, auth, nutrition, tasks)
+mod storage; // S3-compatible object storage wrapper (Hetzner)
 
-use std::sync::Arc;
-use axum::Router;
 use axum::extract::DefaultBodyLimit;
+use axum::Router;
+use std::sync::Arc;
 use tower_http::services::ServeDir;
 use tower_http::trace::TraceLayer;
-use webauthn_rs::prelude::*;
 use url::Url;
+use webauthn_rs::prelude::*;
 
 /// Shared application state, passed to every route handler.
 ///
@@ -59,8 +59,8 @@ async fn main() {
     dotenvy::dotenv().ok();
 
     // --- Database setup ---
-    let database_url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "sqlite:./portfolio.db".to_string());
+    let database_url =
+        std::env::var("DATABASE_URL").unwrap_or_else(|_| "sqlite:./portfolio.db".to_string());
 
     // `await` suspends this async function until the connection pool is ready.
     // Rust's async model: `.await` yields control back to the Tokio runtime,
@@ -80,8 +80,8 @@ async fn main() {
     // RP_ID must be the bare domain (e.g. "example.com").
     // RP_ORIGIN must be the full origin with scheme (e.g. "https://example.com").
     let rp_id = std::env::var("RP_ID").unwrap_or_else(|_| "localhost".to_string());
-    let rp_origin = std::env::var("RP_ORIGIN")
-        .unwrap_or_else(|_| "http://localhost:3000".to_string());
+    let rp_origin =
+        std::env::var("RP_ORIGIN").unwrap_or_else(|_| "http://localhost:3000".to_string());
     let rp_origin_url = Url::parse(&rp_origin).expect("invalid RP_ORIGIN");
 
     let webauthn = WebauthnBuilder::new(&rp_id, &rp_origin_url)
@@ -102,7 +102,11 @@ async fn main() {
 
     // Wrap AppState in Arc so it can be shared across every route handler.
     // From this point on, `state` is never mutated — it's read-only shared data.
-    let state = Arc::new(AppState { pool, storage, webauthn });
+    let state = Arc::new(AppState {
+        pool,
+        storage,
+        webauthn,
+    });
 
     // --- Background cleanup task ---
     // `tokio::spawn` launches a new async task that runs concurrently alongside
@@ -132,13 +136,13 @@ async fn main() {
     // `.merge()` combines them into one big router — order doesn't matter.
     // `.with_state(state)` injects AppState into every handler that asks for it.
     let app = Router::new()
-        .merge(routes::hub::router())        // GET /
-        .merge(routes::feed::router())       // GET /artportfolio (and HTMX/JSON sub-routes)
-        .merge(routes::admin::router())      // GET /admin, POST/DELETE /api/admin/posts
-        .merge(routes::auth::router())       // POST /api/auth/... (WebAuthn ceremonies)
-        .merge(routes::nutrition::router())  // GET /fitness, POST/DELETE /api/nutrition/...
-        .merge(routes::tasks::router())      // GET /tasks, POST/DELETE /api/tasks/...
-        .nest_service("/drinks", drinks)  // party drink tracker (drinkinggame crate)
+        .merge(routes::hub::router()) // GET /
+        .merge(routes::feed::router()) // GET /artportfolio (and HTMX/JSON sub-routes)
+        .merge(routes::admin::router()) // GET /admin, POST/DELETE /api/admin/posts
+        .merge(routes::auth::router()) // POST /api/auth/... (WebAuthn ceremonies)
+        .merge(routes::nutrition::router()) // GET /fitness, POST/DELETE /api/nutrition/...
+        .merge(routes::tasks::router()) // GET /tasks, POST/DELETE /api/tasks/...
+        .nest_service("/drinks", drinks) // party drink tracker (drinkinggame crate)
         // Serve files from the `static/` directory on disk at the /static URL prefix.
         // Unlike templates (compiled into the binary), these are read from disk at runtime.
         .nest_service("/static", ServeDir::new("static"))
@@ -160,7 +164,9 @@ async fn main() {
     axum::serve(
         listener,
         app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
-    ).await.unwrap();
+    )
+    .await
+    .unwrap();
 }
 
 /// Fallback handler for any URL that doesn't match a registered route.

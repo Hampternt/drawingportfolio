@@ -6,27 +6,30 @@
 //! and a "change the lighting" modification. Tasks are filterable by subject,
 //! difficulty and task type, and sortable like a problem list.
 
-use axum::{
-    Router,
-    routing::{get, post, delete},
-    response::{Html, IntoResponse},
-    extract::{State, Path, Query, Multipart},
-    http::StatusCode,
-};
-use askama::Template;
-use std::sync::Arc;
-use std::collections::HashMap;
-use crate::{AppState, middleware::{OptionalAuth, AuthSession}};
 use crate::db::TaskFilters;
 use crate::models::{DrawingTaskWithImage, TaskImage};
+use crate::{
+    middleware::{AuthSession, OptionalAuth},
+    AppState,
+};
+use askama::Template;
+use axum::{
+    extract::{Multipart, Path, Query, State},
+    http::StatusCode,
+    response::{Html, IntoResponse},
+    routing::{delete, get, post},
+    Router,
+};
+use std::collections::HashMap;
+use std::sync::Arc;
 
 // ── HTML helpers ──────────────────────────────────────────────────────────────
 
 fn html_escape(s: &str) -> String {
     s.replace('&', "&amp;")
-     .replace('<', "&lt;")
-     .replace('>', "&gt;")
-     .replace('"', "&quot;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
 }
 
 fn difficulty_label(d: &str) -> &'static str {
@@ -38,12 +41,20 @@ fn difficulty_label(d: &str) -> &'static str {
 }
 
 fn selected_if(cond: bool) -> &'static str {
-    if cond { " selected" } else { "" }
+    if cond {
+        " selected"
+    } else {
+        ""
+    }
 }
 
 fn task_card_html(t: &DrawingTaskWithImage, is_admin: bool) -> String {
     let done_class = if t.completed { " task-done" } else { "" };
-    let check = if t.completed { "<span class=\"task-check\" title=\"Completed\">✓</span>" } else { "" };
+    let check = if t.completed {
+        "<span class=\"task-check\" title=\"Completed\">✓</span>"
+    } else {
+        ""
+    };
     let prompt_html = if t.prompt.is_empty() {
         String::new()
     } else {
@@ -52,12 +63,18 @@ fn task_card_html(t: &DrawingTaskWithImage, is_admin: bool) -> String {
     let subject_tag = if t.subject.is_empty() {
         String::new()
     } else {
-        format!("<span class=\"task-tag\">{}</span>", html_escape(&t.subject))
+        format!(
+            "<span class=\"task-tag\">{}</span>",
+            html_escape(&t.subject)
+        )
     };
     let type_tag = if t.task_type.is_empty() {
         String::new()
     } else {
-        format!("<span class=\"task-tag\">{}</span>", html_escape(&t.task_type))
+        format!(
+            "<span class=\"task-tag\">{}</span>",
+            html_escape(&t.task_type)
+        )
     };
     let admin_btns = if is_admin {
         let toggle_label = if t.completed { "Undo" } else { "Done" };
@@ -115,16 +132,29 @@ pub fn board_html(
     f: &TaskFilters,
     is_admin: bool,
 ) -> String {
-    let subject_options: String = subjects.iter()
-        .map(|s| format!("<option value=\"{v}\"{sel}>{v}</option>",
-            v = html_escape(s), sel = selected_if(*s == f.subject)))
+    let subject_options: String = subjects
+        .iter()
+        .map(|s| {
+            format!(
+                "<option value=\"{v}\"{sel}>{v}</option>",
+                v = html_escape(s),
+                sel = selected_if(*s == f.subject)
+            )
+        })
         .collect();
-    let type_options: String = types.iter()
-        .map(|s| format!("<option value=\"{v}\"{sel}>{v}</option>",
-            v = html_escape(s), sel = selected_if(*s == f.task_type)))
+    let type_options: String = types
+        .iter()
+        .map(|s| {
+            format!(
+                "<option value=\"{v}\"{sel}>{v}</option>",
+                v = html_escape(s),
+                sel = selected_if(*s == f.task_type)
+            )
+        })
         .collect();
 
-    let cards: String = tasks.iter()
+    let cards: String = tasks
+        .iter()
         .map(|t| task_card_html(t, is_admin))
         .collect::<Vec<_>>()
         .join("\n");
@@ -183,26 +213,40 @@ pub fn board_html(
 /// Admin panel: upload a reference image, attach a task to an existing image,
 /// and manage (delete) uploaded images. Swapped into #task-admin.
 pub fn admin_html(images: &[TaskImage], subjects: &[String], types: &[String]) -> String {
-    let image_options: String = images.iter()
-        .map(|i| format!("<option value=\"{}\">{}</option>", i.id, html_escape(&i.title)))
+    let image_options: String = images
+        .iter()
+        .map(|i| {
+            format!(
+                "<option value=\"{}\">{}</option>",
+                i.id,
+                html_escape(&i.title)
+            )
+        })
         .collect();
-    let subject_datalist: String = subjects.iter()
+    let subject_datalist: String = subjects
+        .iter()
         .map(|s| format!("<option value=\"{}\"></option>", html_escape(s)))
         .collect();
-    let type_datalist: String = types.iter()
+    let type_datalist: String = types
+        .iter()
         .map(|s| format!("<option value=\"{}\"></option>", html_escape(s)))
         .collect();
-    let image_rows: String = images.iter()
-        .map(|i| format!(
-            r##"<li class="task-image-row">
+    let image_rows: String = images
+        .iter()
+        .map(|i| {
+            format!(
+                r##"<li class="task-image-row">
   <img class="task-thumb" src="{url}" alt="{title}" loading="lazy">
   <span class="task-image-title">{title}</span>
   <button class="task-delete-btn" hx-delete="/api/tasks/images/{id}"
           hx-target="#task-admin" hx-swap="innerHTML"
           hx-confirm="Delete this image and ALL tasks attached to it?">×</button>
 </li>"##,
-            url = html_escape(&i.image_url), title = html_escape(&i.title), id = i.id
-        ))
+                url = html_escape(&i.image_url),
+                title = html_escape(&i.title),
+                id = i.id
+            )
+        })
         .collect::<Vec<_>>()
         .join("\n");
 
@@ -253,7 +297,10 @@ fn filters_from_params(params: &HashMap<String, String>) -> TaskFilters {
         subject: params.get("subject").cloned().unwrap_or_default(),
         difficulty: params.get("difficulty").cloned().unwrap_or_default(),
         task_type: params.get("task_type").cloned().unwrap_or_default(),
-        sort: params.get("sort").cloned().unwrap_or_else(|| "newest".to_string()),
+        sort: params
+            .get("sort")
+            .cloned()
+            .unwrap_or_else(|| "newest".to_string()),
     }
 }
 
@@ -297,12 +344,20 @@ async fn tasks_page(
 ) -> impl IntoResponse {
     let f = filters_from_params(&HashMap::new());
     let board = render_board(&state, &f, is_admin).await;
-    let admin = if is_admin { render_admin(&state).await } else { String::new() };
-    Html(TasksTemplate {
-        is_admin,
-        board_html: board,
-        admin_html: admin,
-    }.render().unwrap())
+    let admin = if is_admin {
+        render_admin(&state).await
+    } else {
+        String::new()
+    };
+    Html(
+        TasksTemplate {
+            is_admin,
+            board_html: board,
+            admin_html: admin,
+        }
+        .render()
+        .unwrap(),
+    )
 }
 
 async fn htmx_board(
@@ -336,27 +391,46 @@ async fn add_task_image(
     }
 
     if title.is_empty() {
-        return (StatusCode::BAD_REQUEST, Html("<p>Title is required</p>".to_string())).into_response();
+        return (
+            StatusCode::BAD_REQUEST,
+            Html("<p>Title is required</p>".to_string()),
+        )
+            .into_response();
     }
     let Some(bytes) = image_bytes else {
-        return (StatusCode::BAD_REQUEST, Html("<p>Image is required</p>".to_string())).into_response();
+        return (
+            StatusCode::BAD_REQUEST,
+            Html("<p>Image is required</p>".to_string()),
+        )
+            .into_response();
     };
     let Some(ext) = crate::routes::admin::validate_magic_bytes(&bytes) else {
-        return (StatusCode::BAD_REQUEST, Html("<p>Unsupported image format</p>".to_string())).into_response();
+        return (
+            StatusCode::BAD_REQUEST,
+            Html("<p>Unsupported image format</p>".to_string()),
+        )
+            .into_response();
     };
 
     let ct = format!("image/{ext}");
     let key = format!("tasks/{}.{}", uuid::Uuid::new_v4(), ext);
     let url = match state.storage.upload(&key, bytes, &ct).await {
         Ok(u) => u,
-        Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, Html("<p>Upload failed</p>".to_string())).into_response(),
+        Err(_) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Html("<p>Upload failed</p>".to_string()),
+            )
+                .into_response()
+        }
     };
 
     crate::db::insert_task_image(&state.pool, &title, &url).await;
     (
         [("HX-Trigger", "refresh-board")],
         Html(render_admin(&state).await),
-    ).into_response()
+    )
+        .into_response()
 }
 
 async fn delete_task_image_handler(
@@ -380,22 +454,55 @@ async fn add_task(
     State(state): State<Arc<AppState>>,
     axum::Form(form): axum::Form<HashMap<String, String>>,
 ) -> impl IntoResponse {
-    let image_id: i64 = form.get("image_id").and_then(|v| v.parse().ok()).unwrap_or(0);
-    let title = form.get("title").map(|s| s.trim().to_string()).unwrap_or_default();
-    let prompt = form.get("prompt").map(|s| s.trim().to_string()).unwrap_or_default();
-    let subject = form.get("subject").map(|s| s.trim().to_lowercase()).unwrap_or_default();
-    let task_type = form.get("task_type").map(|s| s.trim().to_lowercase()).unwrap_or_default();
-    let difficulty = normalize_difficulty(form.get("difficulty").map(String::as_str).unwrap_or("medium"));
+    let image_id: i64 = form
+        .get("image_id")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0);
+    let title = form
+        .get("title")
+        .map(|s| s.trim().to_string())
+        .unwrap_or_default();
+    let prompt = form
+        .get("prompt")
+        .map(|s| s.trim().to_string())
+        .unwrap_or_default();
+    let subject = form
+        .get("subject")
+        .map(|s| s.trim().to_lowercase())
+        .unwrap_or_default();
+    let task_type = form
+        .get("task_type")
+        .map(|s| s.trim().to_lowercase())
+        .unwrap_or_default();
+    let difficulty = normalize_difficulty(
+        form.get("difficulty")
+            .map(String::as_str)
+            .unwrap_or("medium"),
+    );
 
     if image_id == 0 || title.is_empty() {
-        return (StatusCode::BAD_REQUEST, Html("<p>Image and title are required</p>".to_string())).into_response();
+        return (
+            StatusCode::BAD_REQUEST,
+            Html("<p>Image and title are required</p>".to_string()),
+        )
+            .into_response();
     }
 
-    crate::db::insert_drawing_task(&state.pool, image_id, &title, &prompt, &subject, difficulty, &task_type).await;
+    crate::db::insert_drawing_task(
+        &state.pool,
+        image_id,
+        &title,
+        &prompt,
+        &subject,
+        difficulty,
+        &task_type,
+    )
+    .await;
     (
         [("HX-Trigger", "refresh-board")],
         Html(render_admin(&state).await),
-    ).into_response()
+    )
+        .into_response()
 }
 
 async fn delete_task_handler(
