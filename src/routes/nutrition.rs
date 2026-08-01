@@ -4,7 +4,7 @@ use axum::{
     extract::{Multipart, Path, Query, State},
     http::StatusCode,
     response::{Html, IntoResponse},
-    routing::{delete, get, post, put},
+    routing::{delete, get, post},
     Router,
 };
 use std::collections::HashMap;
@@ -115,10 +115,67 @@ pub fn meal_entry_row_html(
     )
 }
 
+const RING_CIRC: f64 = 263.9; // 2π · 42 — matches the r="42" in calorie_ring_svg
+
+fn ring_offset(consumed: f64, target: f64) -> f64 {
+    let frac = if target > 0.0 {
+        (consumed / target).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+    RING_CIRC * (1.0 - frac)
+}
+
+fn rail_pct(value: f64, target: f64) -> f64 {
+    if target <= 0.0 {
+        return 0.0;
+    }
+    (value / target * 100.0).clamp(0.0, 100.0)
+}
+
+fn calorie_ring_svg(consumed: f64, target: f64) -> String {
+    let offset = ring_offset(consumed, target);
+    let remaining = (target - consumed).round();
+    let (big, small) = if remaining >= 0.0 {
+        (format!("{:.0}", remaining), "LEFT")
+    } else {
+        (format!("{:.0}", -remaining), "OVER")
+    };
+    // stroke hexes are the literal values of --noc-n800 / --noc-accent (SVG attrs can't read CSS vars from fragment strings)
+    format!(
+        r##"<svg class="cal-ring" width="98" height="98" viewBox="0 0 98 98" role="img" aria-label="{big} kcal {small_lc}">
+  <circle cx="49" cy="49" r="42" fill="none" stroke="#3f424d" stroke-width="6"></circle>
+  <circle cx="49" cy="49" r="42" fill="none" stroke="#9184d9" stroke-width="6" stroke-linecap="round" stroke-dasharray="{circ}" stroke-dashoffset="{offset:.1}" transform="rotate(-90 49 49)" style="filter:drop-shadow(0 0 6px rgba(145,132,217,.55))"></circle>
+  <text x="49" y="46" text-anchor="middle" fill="#e9e9ed" font-size="21" font-weight="500">{big}</text>
+  <text x="49" y="62" text-anchor="middle" fill="rgba(233,233,237,.5)" font-size="10" letter-spacing="0.08em">{small}</text>
+</svg>"##,
+        big = big,
+        small = small,
+        small_lc = small.to_lowercase(),
+        circ = RING_CIRC,
+        offset = offset
+    )
+}
+
+fn macro_rail_html(label: &str, value: f64, target: f64, bar_hex: &str) -> String {
+    format!(
+        r##"<div class="macro-rail">
+  <div class="rail-head"><span>{label}</span><span class="rail-nums">{v:.0} / {t:.0} g</span></div>
+  <div class="rail-track"><div class="rail-fill" style="width:{pct:.0}%;background:{bar_hex}"></div></div>
+</div>"##,
+        label = label,
+        v = value,
+        t = target,
+        pct = rail_pct(value, target),
+        bar_hex = bar_hex
+    )
+}
+
 pub fn day_section_html(
     entries: &[crate::models::MealEntryWithFood],
     date: &str,
     food_items: &[crate::models::FoodItem],
+    targets: &crate::models::Targets,
     is_admin: bool,
 ) -> String {
     let total_cal: f64 = entries.iter().map(|e| e.calories).sum();
@@ -164,13 +221,35 @@ pub fn day_section_html(
         .collect::<Vec<_>>()
         .join("\n");
 
-    format!(
-        r##"<div class="day-totals">
-  <span class="total-cal">{} cal</span>
-  <span class="total-macro">P {}g</span>
-  <span class="total-macro">C {}g</span>
-  <span class="total-macro">F {}g</span>
+    let pct_of_target = if targets.calories > 0.0 {
+        (total_cal / targets.calories * 100.0).round()
+    } else {
+        0.0
+    };
+    let summary = format!(
+        r##"<div class="day-summary noc-card">
+  {ring}
+  <div class="macro-rails">
+    {p}{c}{f}
+    <div class="cal-caption">{cal:.0} of {tcal:.0} cal · {pct:.0}%</div>
+  </div>
 </div>
+<div class="targets-row">
+  <button class="noc-btn noc-btn-ghost" hx-get="/fitness/htmx/targets?date={date}" hx-target="#targets-editor" hx-swap="innerHTML">Edit targets</button>
+  <div id="targets-editor"></div>
+</div>"##,
+        ring = calorie_ring_svg(total_cal, targets.calories),
+        p = macro_rail_html("Protein", total_protein, targets.protein, "#9184d9"),
+        c = macro_rail_html("Carbs", total_carbs, targets.carbs, "#796cbf"),
+        f = macro_rail_html("Fat", total_fat, targets.fat, "#5d5294"),
+        cal = total_cal,
+        tcal = targets.calories,
+        pct = pct_of_target,
+        date = html_escape(date)
+    );
+
+    format!(
+        r##"{}
 <ul class="meal-list">
 {}</ul>
 <form class="log-entry-form"
@@ -194,10 +273,7 @@ pub fn day_section_html(
   <span class="grams-label">g</span>
   <button type="submit" class="btn-primary">Log</button>
 </form>"##,
-        fmt_nutrient(total_cal),
-        fmt_nutrient(total_protein),
-        fmt_nutrient(total_carbs),
-        fmt_nutrient(total_fat),
+        summary,
         entries_html,
         html_escape(date),
         options_html
@@ -290,7 +366,8 @@ async fn fitness_page(
     let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
     let entries = crate::db::get_meal_entries_for_date(&state.pool, &today).await;
     let food_items = crate::db::get_food_items(&state.pool).await;
-    let day_html = day_section_html(&entries, &today, &food_items, true);
+    let targets = crate::db::get_targets(&state.pool).await;
+    let day_html = day_section_html(&entries, &today, &food_items, &targets, true);
     let lib_html = library_list_html(&food_items, true);
     Html(
         FitnessTemplate {
@@ -315,7 +392,14 @@ async fn htmx_day(
         .unwrap_or_else(|| chrono::Utc::now().format("%Y-%m-%d").to_string());
     let entries = crate::db::get_meal_entries_for_date(&state.pool, &date).await;
     let food_items = crate::db::get_food_items(&state.pool).await;
-    Html(day_section_html(&entries, &date, &food_items, true))
+    let targets = crate::db::get_targets(&state.pool).await;
+    Html(day_section_html(
+        &entries,
+        &date,
+        &food_items,
+        &targets,
+        true,
+    ))
 }
 
 async fn add_food_item(
@@ -539,13 +623,29 @@ async fn add_meal_entry(
     if food_item_id == 0 || grams <= 0.0 {
         let entries = crate::db::get_meal_entries_for_date(&state.pool, &date).await;
         let food_items = crate::db::get_food_items(&state.pool).await;
-        return Html(day_section_html(&entries, &date, &food_items, true)).into_response();
+        let targets = crate::db::get_targets(&state.pool).await;
+        return Html(day_section_html(
+            &entries,
+            &date,
+            &food_items,
+            &targets,
+            true,
+        ))
+        .into_response();
     }
 
     let _ = crate::db::insert_meal_entry(&state.pool, food_item_id, &date, grams).await;
     let entries = crate::db::get_meal_entries_for_date(&state.pool, &date).await;
     let food_items = crate::db::get_food_items(&state.pool).await;
-    Html(day_section_html(&entries, &date, &food_items, true)).into_response()
+    let targets = crate::db::get_targets(&state.pool).await;
+    Html(day_section_html(
+        &entries,
+        &date,
+        &food_items,
+        &targets,
+        true,
+    ))
+    .into_response()
 }
 
 async fn delete_meal_entry_handler(
@@ -561,7 +661,14 @@ async fn delete_meal_entry_handler(
         .unwrap_or_else(|| chrono::Utc::now().format("%Y-%m-%d").to_string());
     let entries = crate::db::get_meal_entries_for_date(&state.pool, &date).await;
     let food_items = crate::db::get_food_items(&state.pool).await;
-    Html(day_section_html(&entries, &date, &food_items, true))
+    let targets = crate::db::get_targets(&state.pool).await;
+    Html(day_section_html(
+        &entries,
+        &date,
+        &food_items,
+        &targets,
+        true,
+    ))
 }
 
 async fn edit_food_form(
@@ -791,10 +898,89 @@ async fn update_food_item_handler(
     Html(library_list_html(&all_items, true)).into_response()
 }
 
+async fn targets_form(
+    AuthSession(_): AuthSession,
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<HashMap<String, String>>,
+) -> impl IntoResponse {
+    let date = params.get("date").cloned().unwrap_or_default();
+    let t = crate::db::get_targets(&state.pool).await;
+    Html(format!(
+        r##"<form class="targets-form" hx-post="/api/nutrition/targets" hx-target="#day-section" hx-swap="innerHTML">
+  <input type="hidden" name="date" value="{date}">
+  <label>kcal<input class="noc-input" type="number" name="calories" min="0" step="1" value="{cal:.0}" required></label>
+  <label>P g<input class="noc-input" type="number" name="protein" min="0" step="1" value="{p:.0}" required></label>
+  <label>C g<input class="noc-input" type="number" name="carbs" min="0" step="1" value="{c:.0}" required></label>
+  <label>F g<input class="noc-input" type="number" name="fat" min="0" step="1" value="{f:.0}" required></label>
+  <button type="submit" class="noc-btn noc-btn-primary">Save</button>
+</form>"##,
+        date = html_escape(&date),
+        cal = t.calories,
+        p = t.protein,
+        c = t.carbs,
+        f = t.fat
+    ))
+}
+
+async fn set_targets_handler(
+    AuthSession(_): AuthSession,
+    State(state): State<Arc<AppState>>,
+    axum::Form(form): axum::Form<HashMap<String, String>>,
+) -> impl IntoResponse {
+    let g = |k: &str, d: f64| form.get(k).and_then(|v| v.parse().ok()).unwrap_or(d);
+    crate::db::set_targets(
+        &state.pool,
+        g("calories", 2400.0),
+        g("protein", 165.0),
+        g("carbs", 260.0),
+        g("fat", 72.0),
+    )
+    .await;
+    let date = form
+        .get("date")
+        .cloned()
+        .unwrap_or_else(|| chrono::Utc::now().format("%Y-%m-%d").to_string());
+    let targets = crate::db::get_targets(&state.pool).await;
+    let entries = crate::db::get_meal_entries_for_date(&state.pool, &date).await;
+    let food_items = crate::db::get_food_items(&state.pool).await;
+    Html(day_section_html(
+        &entries,
+        &date,
+        &food_items,
+        &targets,
+        true,
+    ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_ring_offset_bounds() {
+        // full ring left at zero consumed, empty at/beyond target
+        assert!((ring_offset(0.0, 2400.0) - 263.9).abs() < 0.1);
+        assert!(ring_offset(2400.0, 2400.0).abs() < 0.1);
+        assert!(ring_offset(3000.0, 2400.0).abs() < 0.1);
+        // 77% consumed → 23% of the circumference remains as offset
+        assert!((ring_offset(1848.0, 2400.0) - 60.7).abs() < 0.5);
+    }
+
+    #[test]
+    fn test_rail_pct_clamps() {
+        assert_eq!(rail_pct(0.0, 165.0), 0.0);
+        assert_eq!(rail_pct(330.0, 165.0), 100.0);
+        assert!((rail_pct(122.0, 165.0) - 73.9).abs() < 0.2);
+        assert_eq!(rail_pct(50.0, 0.0), 0.0);
+    }
+}
+
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/fitness", get(fitness_page))
         .route("/fitness/htmx/day", get(htmx_day))
+        .route("/fitness/htmx/targets", get(targets_form))
+        .route("/api/nutrition/targets", post(set_targets_handler))
         .route("/api/nutrition/food-items", post(add_food_item))
         .route(
             "/api/nutrition/food-items/{id}",

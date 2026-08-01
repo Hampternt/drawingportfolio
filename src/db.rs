@@ -1,6 +1,6 @@
 use crate::models::{
     AuthChallengeState, DrawingTaskWithImage, FoodItem, MealEntryWithFood, PasskeyCredential, Post,
-    Session, TaskImage,
+    Session, Targets, TaskImage,
 };
 use sqlx::{
     sqlite::{SqliteConnectOptions, SqlitePoolOptions},
@@ -57,6 +57,11 @@ pub async fn run_migrations(pool: &DbPool) {
         .execute(pool)
         .await
         .expect("failed to run drawing tasks migration");
+
+    // Migration 009: daily nutrition targets (single row, single user)
+    let _ = sqlx::query(include_str!("../migrations/009_targets.sql"))
+        .execute(pool)
+        .await;
 }
 
 pub async fn get_posts(pool: &DbPool, page: i64) -> Vec<Post> {
@@ -427,6 +432,32 @@ pub async fn delete_meal_entry(pool: &DbPool, id: i64) {
         .execute(pool)
         .await
         .ok();
+}
+
+pub async fn get_targets(pool: &DbPool) -> Targets {
+    sqlx::query_as!(Targets,
+        r#"SELECT calories as "calories!", protein as "protein!", carbs as "carbs!", fat as "fat!" FROM targets WHERE id = 1"#
+    )
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten()
+    .unwrap_or(Targets { calories: 2400.0, protein: 165.0, carbs: 260.0, fat: 72.0 })
+}
+
+pub async fn set_targets(pool: &DbPool, calories: f64, protein: f64, carbs: f64, fat: f64) {
+    sqlx::query!(
+        "INSERT INTO targets (id, calories, protein, carbs, fat) VALUES (1, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET calories = excluded.calories, protein = excluded.protein,
+         carbs = excluded.carbs, fat = excluded.fat",
+        calories,
+        protein,
+        carbs,
+        fat
+    )
+    .execute(pool)
+    .await
+    .ok();
 }
 
 // ── Drawing tasks ─────────────────────────────────────────────────────────────
@@ -1032,6 +1063,18 @@ mod tests {
             get_task_types(&pool).await,
             vec!["focus study", "style study"]
         );
+    }
+
+    #[tokio::test]
+    async fn test_targets_default_and_set() {
+        let pool = test_pool().await;
+        let t = get_targets(&pool).await;
+        assert_eq!(t.calories, 2400.0);
+        assert_eq!(t.protein, 165.0);
+        set_targets(&pool, 2200.0, 170.0, 240.0, 70.0).await;
+        let t = get_targets(&pool).await;
+        assert_eq!(t.calories, 2200.0);
+        assert_eq!(t.fat, 70.0);
     }
 
     #[tokio::test]

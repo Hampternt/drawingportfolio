@@ -1,0 +1,38 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT calories as \"calories!\", protein as \"protein!\", carbs as \"carbs!\", fat as \"fat!\" FROM targets WHERE id = 1",
+  "describe": {
+    "columns": [
+      {
+        "name": "calories!",
+        "ordinal": 0,
+        "type_info": "Float"
+      },
+      {
+        "name": "protein!",
+        "ordinal": 1,
+        "type_info": "Float"
+      },
+      {
+        "name": "carbs!",
+        "ordinal": 2,
+        "type_info": "Float"
+      },
+      {
+        "name": "fat!",
+        "ordinal": 3,
+        "type_info": "Float"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "d42f5b6eb05064d3bf45a730033e92e262e2b4c045b590b7c969ea3a5982c1c4"
+}

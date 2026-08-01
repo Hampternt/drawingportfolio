@@ -106,6 +106,14 @@ pub struct MealEntry {
     pub created_at: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct Targets {
+    pub calories: f64,
+    pub protein: f64,
+    pub carbs: f64,
+    pub fat: f64,
+}
+
 #[derive(Debug, Clone)]
 pub struct MealEntryWithFood {
     pub entry_id: i64,

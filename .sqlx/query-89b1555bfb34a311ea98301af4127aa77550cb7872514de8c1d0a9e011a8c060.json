@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO targets (id, calories, protein, carbs, fat) VALUES (1, ?, ?, ?, ?)\n         ON CONFLICT(id) DO UPDATE SET calories = excluded.calories, protein = excluded.protein,\n         carbs = excluded.carbs, fat = excluded.fat",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": []
+  },
+  "hash": "89b1555bfb34a311ea98301af4127aa77550cb7872514de8c1d0a9e011a8c060"
+}

@@ -533,6 +533,19 @@ body.fitness-dark #manual-barcode input {
 body.fitness-dark #barcode-scanner video { width: 100%; border-radius: var(--noc-radius-lg); box-shadow: var(--noc-shadow-card); }
 body.fitness-dark #scan-status { color: var(--noc-muted); font-size: 13px; }
 
+/* day summary — ring + rails (Task 3) */
+body.fitness-dark .day-summary { display: flex; gap: 18px; align-items: center; margin-bottom: 10px; }
+body.fitness-dark .cal-ring { flex: none; }
+body.fitness-dark .macro-rails { flex: 1; display: flex; flex-direction: column; gap: 11px; }
+body.fitness-dark .macro-rail .rail-head { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 5px; }
+body.fitness-dark .macro-rail .rail-nums { color: var(--noc-muted); white-space: nowrap; }
+body.fitness-dark .rail-track { height: 5px; background: var(--noc-n800); border-radius: 3px; }
+body.fitness-dark .rail-fill { height: 5px; border-radius: 3px; }
+body.fitness-dark .cal-caption { font-size: 11px; color: var(--noc-faint); margin-top: 1px; }
+body.fitness-dark .targets-row { margin-bottom: 12px; }
+body.fitness-dark .targets-form { display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; margin-top: 8px; }
+body.fitness-dark .targets-form label { font-size: 11px; color: var(--noc-muted); display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 70px; }
+
 /* ── Drawing Tasks ───────────────────────────────────── */
 .tasks-page { max-width: 640px; margin: 0 auto; padding: 1rem; }
 
