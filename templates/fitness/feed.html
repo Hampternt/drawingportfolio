@@ -20,6 +20,14 @@
     <a class="noc-btn noc-btn-ghost" href="/fitness/week" aria-label="Week view">Week</a>
   </div>
 
+  <!-- Desktop quick-add: type-ahead over the library, Enter logs the usual portion -->
+  <div id="quickadd">
+    <input class="noc-input" type="search" id="quickadd-input" placeholder="Type a food, Enter logs your usual portion…"
+           name="q" hx-get="/fitness/htmx/food-search" hx-trigger="input changed delay:250ms"
+           hx-target="#quickadd-results" hx-swap="innerHTML">
+    <div id="quickadd-results"></div>
+  </div>
+
   <!-- Day section: totals + meal log + log form (pre-rendered by Rust) -->
   <div id="day-section">
     {{ day_section_html|safe }}
@@ -309,6 +317,35 @@ window.onBarcodeMatch = function (code) {
     }
   });
 };
+
+// Desktop quick-add (Task 10)
+function quickLogItem(id) {
+  htmx.ajax('POST', '/fitness/quick-log', {
+    target: '#day-section', swap: 'innerHTML',
+    values: { food_item_id: id, date: window.currentDate, slot: defaultSlot() }
+  });
+  document.getElementById('quickadd-input').value = '';
+  document.getElementById('quickadd-results').innerHTML = '';
+}
+
+function initQuickAdd() {
+  const input = document.getElementById('quickadd-input');
+  if (!input || input.dataset.init) return;
+  input.dataset.init = '1';
+  input.addEventListener('keydown', e => {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    const first = document.querySelector('#quickadd-results .search-row');
+    if (first) quickLogItem(first.dataset.itemId);
+  });
+  // capture phase so the row's hx-get (sheet flow) doesn't also fire here
+  document.getElementById('quickadd-results').addEventListener('click', e => {
+    const row = e.target.closest('.search-row');
+    if (row) { e.preventDefault(); e.stopPropagation(); quickLogItem(row.dataset.itemId); }
+  }, true);
+}
+document.addEventListener('DOMContentLoaded', initQuickAdd);
+document.body.addEventListener('htmx:afterSwap', initQuickAdd);
 
 // Add food form toggle
 function toggleAddForm() {

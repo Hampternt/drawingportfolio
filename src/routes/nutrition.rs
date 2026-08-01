@@ -1474,6 +1474,42 @@ async fn barcode_match(
     }
 }
 
+async fn quick_log_handler(
+    AuthSession(_): AuthSession,
+    State(state): State<Arc<AppState>>,
+    axum::Form(form): axum::Form<HashMap<String, String>>,
+) -> impl IntoResponse {
+    let date = form
+        .get("date")
+        .cloned()
+        .unwrap_or_else(|| chrono::Utc::now().format("%Y-%m-%d").to_string());
+    let slot = form
+        .get("slot")
+        .cloned()
+        .unwrap_or_else(|| "other".to_string());
+    let slot = if SLOTS.iter().any(|(k, _)| *k == slot) {
+        slot
+    } else {
+        "other".to_string()
+    };
+    if let Some(id) = form.get("food_item_id").and_then(|v| v.parse::<i64>().ok()) {
+        if let Some(item) = crate::db::get_food_item(&state.pool, id).await {
+            let grams = item.default_portion_g.unwrap_or(100.0);
+            let _ = crate::db::insert_meal_entry(&state.pool, id, &date, grams, &slot).await;
+        }
+    }
+    let targets = crate::db::get_targets(&state.pool).await;
+    let entries = crate::db::get_meal_entries_for_date(&state.pool, &date).await;
+    let food_items = crate::db::get_food_items(&state.pool).await;
+    Html(day_section_html(
+        &entries,
+        &date,
+        &food_items,
+        &targets,
+        true,
+    ))
+}
+
 #[derive(Template)]
 #[template(path = "fitness/week.html")]
 struct WeekTemplate {
@@ -1971,6 +2007,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/fitness/htmx/match-card/{id}", get(match_card))
         .route("/fitness/htmx/barcode-match/{code}", get(barcode_match))
         .route("/fitness/week", get(week_page))
+        .route("/fitness/quick-log", post(quick_log_handler))
         .route("/api/nutrition/weights", post(log_weight_handler))
         .route("/api/nutrition/recipes", post(create_recipe_handler))
         .route("/api/nutrition/recipes/{id}/log", post(log_recipe_handler))

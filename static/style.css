@@ -666,6 +666,18 @@ body.fitness-dark .meal-row form { flex: 1; }
 body.fitness-dark .meal-log-btn { width: 100%; justify-content: space-between; }
 body.fitness-dark .meal-cal { color: var(--noc-muted); font-size: 12px; }
 
+/* desktop + quick-add (Task 10) */
+body.fitness-dark #quickadd { display: none; position: relative; margin: 0 0 16px; }
+body.fitness-dark #quickadd-results { position: absolute; top: 100%; left: 0; right: 0; z-index: 30; background: var(--noc-surface-2); border-radius: var(--noc-radius-md); box-shadow: var(--noc-shadow-pop); }
+body.fitness-dark #quickadd-results .search-row { margin-top: 0; border-radius: 0; box-shadow: none; background: transparent; }
+body.fitness-dark #quickadd-results .search-row:first-child { background: var(--noc-surface); }
+@media (min-width: 900px) {
+  body.fitness-dark .fitness-page { max-width: 760px; padding-bottom: 40px; }
+  body.fitness-dark #quickadd { display: block; }
+  body.fitness-dark #fitness-actionbar { position: static; max-width: none; padding: 16px 0 0; background: none; }
+  body.fitness-dark #add-sheet { max-width: 560px; border-radius: var(--noc-radius-lg); inset: 40px auto auto 50%; transform: translateX(-50%); max-height: calc(100vh - 80px); box-shadow: var(--noc-shadow-pop); }
+}
+
 /* ── Drawing Tasks ───────────────────────────────────── */
 .tasks-page { max-width: 640px; margin: 0 auto; padding: 1rem; }
 
