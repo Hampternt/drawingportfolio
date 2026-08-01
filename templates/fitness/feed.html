@@ -149,7 +149,6 @@
 </section>
 
 <script>
-window.TODAY = "{{ today }}";
 window.currentDate = "{{ date }}";
 
 // Date navigation
@@ -202,17 +201,21 @@ function loadDay(date) {
   htmx.ajax('GET', '/fitness/htmx/day?date=' + date, {target: '#day-section', swap: 'innerHTML'});
 }
 
-document.getElementById('prev-day').onclick = () => {
-  const d = new Date(window.currentDate + 'T00:00:00');
-  d.setDate(d.getDate() - 1);
-  loadDay(d.toISOString().slice(0, 10));
-};
+// toISOString() renders UTC and would skip/repeat days east of UTC —
+// format from local date parts instead.
+function localIso(d) {
+  const pad = n => String(n).padStart(2, '0');
+  return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+}
 
-document.getElementById('next-day').onclick = () => {
+function stepDay(delta) {
   const d = new Date(window.currentDate + 'T00:00:00');
-  d.setDate(d.getDate() + 1);
-  loadDay(d.toISOString().slice(0, 10));
-};
+  d.setDate(d.getDate() + delta);
+  loadDay(localIso(d));
+}
+
+document.getElementById('prev-day').onclick = () => stepDay(-1);
+document.getElementById('next-day').onclick = () => stepDay(1);
 
 // Meal slots (Task 4): clock-inferred default + chip behavior
 function defaultSlot() {
@@ -253,7 +256,6 @@ function initSlotDefault() {
   });
 }
 document.addEventListener('DOMContentLoaded', initSlotDefault);
-document.body.addEventListener('htmx:afterSwap', initSlotDefault);
 
 // Add sheet (Task 7)
 function openAddSheet(tab) {
@@ -303,10 +305,13 @@ function initSheetForms() {
     if (f.querySelector('[data-slot]')) paintSlotChips(f);
   });
 }
-document.body.addEventListener('htmx:afterSwap', initSheetForms);
+
 
 // Called by barcode.js on every decoded barcode
 window.onBarcodeMatch = function (code) {
+  // htmx does not swap on 404, so a stale card from a previous scan would
+  // otherwise satisfy the fallback check below and mislabel the product.
+  document.getElementById('sheet-result').innerHTML = '';
   htmx.ajax('GET', '/fitness/htmx/barcode-match/' + encodeURIComponent(code), {
     target: '#sheet-result', swap: 'innerHTML'
   }).then(() => {
@@ -345,7 +350,23 @@ function initQuickAdd() {
   }, true);
 }
 document.addEventListener('DOMContentLoaded', initQuickAdd);
-document.body.addEventListener('htmx:afterSwap', initQuickAdd);
+
+// Body-level htmx listeners — registered once per tab: <body> survives
+// hx-boost swaps, so re-running this script on a boosted return visit must
+// not stack duplicates (CLAUDE.md hx-boost rule).
+if (!window.__fitnessBound) {
+  window.__fitnessBound = true;
+  document.body.addEventListener('htmx:afterSwap', e => {
+    initSlotDefault();
+    initSheetForms();
+    initQuickAdd();
+    // keep the week strip's selected bar in sync after any day mutation
+    if (e.target && e.target.id === 'day-section' && document.getElementById('week-strip')) {
+      htmx.ajax('GET', '/fitness/htmx/week-strip?date=' + window.currentDate,
+        {target: '#week-strip', swap: 'outerHTML'});
+    }
+  });
+}
 
 // Add food form toggle
 function toggleAddForm() {

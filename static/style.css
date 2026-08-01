@@ -406,22 +406,6 @@ body.fitness-dark .noc-kicker {
 
 /* date header */
 .fitness-date-nav { display: flex; align-items: center; gap: 8px; margin: 14px 0; }
-.fitness-date-nav input[type="date"] {
-  flex: 1; min-height: 44px; padding: 6px 12px; font: inherit; font-size: 14px;
-  color: var(--noc-text); background: var(--noc-surface);
-  border: 1px solid var(--noc-divider); border-radius: var(--noc-radius-md);
-  color-scheme: dark;
-}
-
-/* day totals (pre-targets shape; Task 3 replaces this block's markup) */
-body.fitness-dark .day-totals {
-  display: flex; gap: 16px; flex-wrap: wrap; align-items: baseline;
-  background: var(--noc-surface); border-radius: var(--noc-radius-lg);
-  box-shadow: var(--noc-shadow-card); padding: 16px; margin-bottom: 14px;
-  font-size: 14px;
-}
-body.fitness-dark .day-totals .total-cal { font-size: 22px; font-weight: 500; letter-spacing: -.015em; }
-body.fitness-dark .day-totals .total-macro { color: var(--noc-muted); }
 
 /* meal entries */
 body.fitness-dark .meal-list { list-style: none; padding: 0; margin: 0 0 12px; }
@@ -481,7 +465,6 @@ body.fitness-dark .food-info { flex: 1; min-width: 0; }
 body.fitness-dark .food-info strong { display: block; font-size: 14px; font-weight: 500; }
 body.fitness-dark .food-brand { color: var(--noc-muted); font-size: 12px; font-weight: 400; margin-left: 4px; }
 body.fitness-dark .food-macros { font-size: 11.5px; color: var(--noc-muted); }
-body.fitness-dark .food-pkg { margin-left: 6px; color: var(--noc-faint); font-size: 11px; }
 body.fitness-dark .food-admin-btns { display: flex; gap: 4px; align-items: center; flex: none; }
 body.fitness-dark .food-item-card.editing { display: block; padding: 0; background: none; box-shadow: none; }
 
@@ -530,7 +513,6 @@ body.fitness-dark #manual-barcode input {
 }
 
 /* barcode scanner */
-body.fitness-dark #barcode-scanner video { width: 100%; border-radius: var(--noc-radius-lg); box-shadow: var(--noc-shadow-card); }
 body.fitness-dark #scan-status { color: var(--noc-muted); font-size: 13px; }
 
 /* day summary — ring + rails (Task 3) */
