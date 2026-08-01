@@ -167,6 +167,9 @@ pub async fn current_room_panel(state: &GameState, room_id: i64, code: &str) -> 
         house_rules: &house_rules,
         kings,
         mode: &mode,
+        // Phase 1 (Ring of Fire / idle) only — a 3 Man game's route handler
+        // (later task) will pass tm_seating_html(...) here instead.
+        seating: None,
     };
     render::room_panel(&view)
 }

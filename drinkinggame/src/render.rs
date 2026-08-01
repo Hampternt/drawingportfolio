@@ -8,6 +8,7 @@
 
 use crate::cards::Card;
 use crate::models::{DrawCount, HouseRule, LeaderboardRow, RoomMember, RulePreset};
+use crate::three_man::{GiveMode, Phase};
 
 /// Same escape set as the portfolio's html_escape.
 pub fn html_escape(s: &str) -> String {
@@ -24,6 +25,13 @@ pub fn html_escape(s: &str) -> String {
 /// `personalize()` can mark the viewer's row and feed the idle stat card /
 /// thumb-bar labels without a second render pass.
 pub fn leaderboard_items(rows: &[LeaderboardRow]) -> String {
+    leaderboard_items_tm(rows, None)
+}
+
+/// Same as `leaderboard_items`, but when a 3 Man game is active the current
+/// 3 Man's row gets a "3 MAN" badge span (`leaderboard_items` delegates here
+/// with `None`, which renders identically to before).
+pub fn leaderboard_items_tm(rows: &[LeaderboardRow], three_man: Option<i64>) -> String {
     if rows.is_empty() {
         return r#"<li class="lb-empty">Nobody here yet</li>"#.to_string();
     }
@@ -31,8 +39,13 @@ pub fn leaderboard_items(rows: &[LeaderboardRow]) -> String {
         .enumerate()
         .map(|(i, r)| {
             let rank = i + 1;
+            let badge = if three_man == Some(r.id) {
+                r#"<span class="tm-chip">3 MAN</span>"#
+            } else {
+                ""
+            };
             format!(
-                r#"<li class="lb-row" data-player-id="{id}" data-drinks="{drinks}" data-shots="{shots}" data-rank="{rank}"><span class="lb-rank">{rank}</span><span class="lb-name">{name}</span><span class="lb-counts">{drinks} D &middot; {shots} S</span></li>"#,
+                r#"<li class="lb-row" data-player-id="{id}" data-drinks="{drinks}" data-shots="{shots}" data-rank="{rank}"><span class="lb-rank">{rank}</span><span class="lb-name">{name}</span>{badge}<span class="lb-counts">{drinks} D &middot; {shots} S</span></li>"#,
                 id = r.id,
                 drinks = r.drinks,
                 shots = r.shots,
@@ -98,6 +111,10 @@ pub struct RoomView<'a> {
     pub kings: i64,
     /// Active game's `kind` ("ring_of_fire" | "three_man" | ...) or "idle".
     pub mode: &'a str,
+    /// Pre-rendered by `tm_seating_html` (Task 11) when a 3 Man game is
+    /// active; `None` for idle/Ring of Fire. Slots between WHO'S HERE and
+    /// HOUSE RULES — the seating block replaces nothing.
+    pub seating: Option<String>,
 }
 
 /// A card face in pure HTML/CSS — rank top-left, suit glyph under it, a
@@ -465,8 +482,13 @@ pub fn room_panel(view: &RoomView) -> String {
     } else {
         format!("{n} here")
     };
+    let tm_chip = if view.mode == "three_man" {
+        r#"<span class="tm-chip">3 MAN</span>"#
+    } else {
+        ""
+    };
     let topbar = format!(
-        r#"<template data-topbar><div class="topbar-chips">{topbar_chips}</div><span class="topbar-count">{topbar_count_label}</span></template>"#
+        r#"<template data-topbar><div class="topbar-chips">{topbar_chips}</div>{tm_chip}<span class="topbar-count">{topbar_count_label}</span></template>"#
     );
 
     let room_code_card = format!(
@@ -525,8 +547,14 @@ pub fn room_panel(view: &RoomView) -> String {
         r#"<form class="end-night-form" method="post" action="{base_path}/room/{code}/end" onsubmit="return confirm('End the night for everyone?')"><button type="submit" class="btn-danger">End the night for everyone</button></form>"#
     );
 
+    // Deliberate TABLE-tab deviation from the prototype: seating slots
+    // between WHO'S HERE and HOUSE RULES rather than replacing either, so
+    // the room-code card and share/big-screen actions stay reachable
+    // mid-game.
+    let seating_block = view.seating.as_deref().unwrap_or_default();
+
     format!(
-        r#"{topbar}<div class="room-panel" data-mode="{}">{room_code_card}{member_section}{rules_section}{kings_section}{end_form}</div>"#,
+        r#"{topbar}<div class="room-panel" data-mode="{}">{room_code_card}{member_section}{seating_block}{rules_section}{kings_section}{end_form}</div>"#,
         html_escape(view.mode),
     )
 }
@@ -564,11 +592,556 @@ pub fn qr_svg(url: &str) -> String {
     }
 }
 
+// ---------------------------------------------------------------------
+// 3 Man (Task 11) — phone GAME/TABLE tab, big-screen panel. Renders
+// `crate::three_man::ThreeManState`; never mutates it. Per-viewer
+// differences go through the same data-attribute contract as Ring of
+// Fire: `data-show-player` (server pre-hides with the `hidden` attribute),
+// `data-hide-player` (default visible), `data-me-text`+`data-player-id`.
+// ---------------------------------------------------------------------
+
+pub struct TmView<'a> {
+    pub base_path: &'a str,
+    pub code: &'a str,
+    pub st: &'a crate::three_man::ThreeManState,
+    pub names: &'a std::collections::HashMap<i64, String>,
+}
+
+fn tm_name(v: &TmView, id: i64) -> String {
+    html_escape(v.names.get(&id).map(|s| s.as_str()).unwrap_or("?"))
+}
+
+fn tm_initial(v: &TmView, id: i64) -> String {
+    let n = v.names.get(&id).map(|s| s.as_str()).unwrap_or("?");
+    html_escape(&n.chars().next().unwrap_or('?').to_uppercase().to_string())
+}
+
+/// Standard 3x3 pip layout per die face (row-major positions 0..9).
+fn die_pip_positions(v: u8) -> &'static [usize] {
+    match v {
+        1 => &[4],
+        2 => &[0, 8],
+        3 => &[0, 4, 8],
+        4 => &[0, 2, 6, 8],
+        5 => &[0, 2, 4, 6, 8],
+        6 => &[0, 2, 3, 5, 6, 8],
+        _ => &[],
+    }
+}
+
+/// Nine cells per die, in grid order — filled positions get `.die-pip`,
+/// empty ones get an unstyled placeholder so the 3x3 grid alignment holds.
+fn die_face_html(value: u8) -> String {
+    let filled = die_pip_positions(value);
+    (0..9)
+        .map(|i| {
+            if filled.contains(&i) {
+                r#"<span class="die-pip"></span>"#.to_string()
+            } else {
+                r#"<span class="die-cell"></span>"#.to_string()
+            }
+        })
+        .collect()
+}
+
+/// Two `.die` pip grids, each individually `data-anim="tumble"` so the
+/// client's anim-key gate (see `swapPanel` in room.html) replays the
+/// tumble on every new roll.
+pub fn dice_html(d1: u8, d2: u8) -> String {
+    format!(
+        r#"<div class="die" data-anim="tumble">{}</div><div class="die" data-anim="tumble">{}</div>"#,
+        die_face_html(d1),
+        die_face_html(d2),
+    )
+}
+
+/// One `.seat` per seat in `st.order`, tag precedence ROLLING > ←7 > 9→ >
+/// 3 MAN. Shared by the phone seat strip and the screen bottom strip —
+/// `extra_cls`/`label`/`caption` are the only things that differ between
+/// them.
+fn tm_seat_strip_html(v: &TmView, extra_cls: &str, label: &str, caption: &str) -> String {
+    let st = v.st;
+    let len = st.order.len();
+    let order_csv = st
+        .order
+        .iter()
+        .map(i64::to_string)
+        .collect::<Vec<_>>()
+        .join(",");
+    let seats: String = st
+        .order
+        .iter()
+        .enumerate()
+        .map(|(idx, &id)| {
+            let (cls, tag) = if idx == st.roller_idx {
+                (" seat-rolling", "ROLLING")
+            } else if idx == (st.roller_idx + 1) % len {
+                (" seat-left7", "\u{2190}7")
+            } else if idx == (st.roller_idx + len - 1) % len {
+                (" seat-right9", "9\u{2192}")
+            } else if id == st.three_man {
+                (" seat-3man", "3 MAN")
+            } else {
+                ("", "")
+            };
+            let initial = tm_initial(v, id);
+            let name = tm_name(v, id);
+            format!(
+                r#"<div class="seat{cls}"><span class="seat-tag">{tag}</span><span class="seat-avatar">{initial}</span><span class="seat-name">{name}</span></div>"#
+            )
+        })
+        .collect();
+    let roller = st.roller();
+    let three_man = st.three_man;
+    format!(
+        r#"<div class="seat-strip{extra_cls}" data-order="{order_csv}" data-roller="{roller}" data-three-man="{three_man}"><div class="seat-strip-head"><span class="seat-strip-label">{label}</span><span class="seat-strip-caption">{caption}</span></div><div class="seat-strip-row">{seats}</div></div>"#
+    )
+}
+
+fn tm_turn_banner(v: &TmView) -> String {
+    let roller = v.st.roller();
+    let name = tm_name(v, roller);
+    format!(
+        r#"<div class="turn-banner"><span class="turn-banner-dot"></span><span class="turn-banner-text" data-me-text="YOUR TURN" data-player-id="{roller}">{name} IS UP</span></div>"#
+    )
+}
+
+fn tm_roll_button(v: &TmView) -> String {
+    format!(
+        r#"<button class="btn-draw" hx-post="{}/room/{}/tm/roll" hx-swap="none" data-sound="dice-roll"><span class="btn-draw-label">ROLL THE DICE</span><span class="btn-draw-sub">ANY PHONE CAN TAP</span></button>"#,
+        v.base_path, v.code,
+    )
+}
+
+fn tm_pass_button(v: &TmView) -> String {
+    let next = tm_name(v, v.st.left_of(v.st.roller_idx));
+    format!(
+        r#"<button class="btn-pass" hx-post="{}/room/{}/tm/pass" hx-swap="none">PASS TO {next}</button>"#,
+        v.base_path, v.code,
+    )
+}
+
+/// Dice pips + sum + call rows (or the dashed nobody-drinks box). Rendered
+/// whenever `st.dice` is `Some` — Ready-with-`stale` shows the previous
+/// roll dimmed, every other phase shows the current one at full opacity.
+fn tm_verdict_card(v: &TmView) -> Option<String> {
+    let st = v.st;
+    let (d1, d2) = st.dice?;
+    let sum = d1 + d2;
+    let stale_cls = if st.stale { " stale" } else { "" };
+    let caption = if st.stale {
+        let last = tm_name(v, st.last_roller.unwrap_or_else(|| st.roller()));
+        format!("LAST ROLL &middot; {last}")
+    } else {
+        "ROLLED".to_string()
+    };
+    let calls_html = if st.calls.is_empty() {
+        r#"<div class="nobody-box">Nothing. Nobody drinks. Pass it on.</div>"#.to_string()
+    } else {
+        st.calls
+            .iter()
+            .map(|c| {
+                let initial = tm_initial(v, c.player_id);
+                let name = tm_name(v, c.player_id);
+                let amt = c.amount;
+                let pid = c.player_id;
+                let reason = html_escape(&c.reason);
+                format!(
+                    r#"<div class="call-row"><span class="call-avatar">{initial}</span><div class="call-body"><span class="call-headline" data-me-text="You drink {amt}" data-player-id="{pid}">{name} drinks {amt}</span><span class="call-reason">{reason}</span></div><span class="call-amount">{amt}</span></div>"#
+                )
+            })
+            .collect()
+    };
+    let dice = dice_html(d1, d2);
+    Some(format!(
+        r#"<div class="verdict-card{stale_cls}"><div class="dice-row">{dice}<div class="dice-sum"><span class="dice-sum-value">{sum}</span><span class="dice-sum-caption">{caption}</span></div></div><div class="call-list">{calls_html}</div></div>"#
+    ))
+}
+
+/// HandOff-only: roller-only picker (grid of members minus the current 3
+/// Man) + a spectator banner for everyone else.
+fn tm_handoff_block(v: &TmView) -> String {
+    let st = v.st;
+    if st.phase != Phase::HandOff {
+        return String::new();
+    }
+    let roller = st.roller();
+    let roller_name = tm_name(v, roller);
+    let targets: String = st
+        .order
+        .iter()
+        .filter(|&&id| id != st.three_man)
+        .map(|&id| {
+            let initial = tm_initial(v, id);
+            let name = tm_name(v, id);
+            format!(
+                r#"<button class="handoff-btn" hx-post="{}/room/{}/tm/three-man" hx-vals='{{"target":{id}}}' hx-swap="none"><span class="handoff-btn-initial">{initial}</span><span class="handoff-btn-name">{name}</span></button>"#,
+                v.base_path, v.code,
+            )
+        })
+        .collect();
+    format!(
+        r#"<div class="handoff-panel" data-show-player="{roller}" hidden><span class="handoff-kicker">YOU ROLLED A THREE &middot; PASS IT ON</span><h3 class="handoff-title">Who's 3 Man now?</h3><p class="handoff-sub">You don't drink for this one &mdash; you hand the title over. Every 3 from here is theirs.</p><div class="handoff-grid">{targets}</div></div><div class="handoff-spectator" data-hide-player="{roller}"><span class="handoff-spectator-tag">3 MAN</span><span class="handoff-spectator-text">{roller_name} is picking the next 3 Man&hellip;</span></div>"#
+    )
+}
+
+/// Assign-only: owner-only mode choice → slot/target grid → SEND, plus a
+/// spectator banner for everyone else.
+fn tm_assign_block(v: &TmView) -> String {
+    let st = v.st;
+    if st.phase != Phase::Assign {
+        return String::new();
+    }
+    let Some(double) = &st.double else {
+        return String::new();
+    };
+    let owner = double.owner;
+    let owner_name = tm_name(v, owner);
+    let value = double.value;
+    let base = v.base_path;
+    let code = v.code;
+
+    let inner = match double.mode {
+        None => {
+            let split_btn = if st.order.len() >= 3 {
+                format!(
+                    r#"<button class="mode-btn" hx-post="{base}/room/{code}/tm/mode" hx-vals='{{"mode":"split"}}' hx-swap="none"><span class="mode-btn-title">One die each to two people</span><span class="mode-btn-sub">Two different people, one die apiece.</span></button>"#
+                )
+            } else {
+                String::new()
+            };
+            format!(
+                r#"<div class="mode-row"><button class="mode-btn" hx-post="{base}/room/{code}/tm/mode" hx-vals='{{"mode":"both"}}' hx-swap="none"><span class="mode-btn-title">Both dice to one person</span><span class="mode-btn-sub">They roll two and drink the total.</span></button>{split_btn}</div>"#
+            )
+        }
+        Some(_) => {
+            let next_slot = double.slots.iter().position(|s| s.is_none());
+            let slots_html: String = double
+                .slots
+                .iter()
+                .enumerate()
+                .map(|(i, s)| {
+                    let n = i + 1;
+                    match s {
+                        Some(pid) => {
+                            let name = tm_name(v, *pid);
+                            format!(
+                                r#"<button class="slot-cell slot-filled" hx-post="{base}/room/{code}/tm/clear-slot" hx-vals='{{"slot":{i}}}' hx-swap="none"><span class="slot-label">SLOT {n}</span><span class="slot-value">{name} &times;</span></button>"#
+                            )
+                        }
+                        None => format!(
+                            r#"<div class="slot-cell"><span class="slot-label">SLOT {n}</span><span class="slot-value">&mdash;</span></div>"#
+                        ),
+                    }
+                })
+                .collect();
+            let targets_html = match next_slot {
+                Some(slot) => st
+                    .order
+                    .iter()
+                    .filter(|&&id| id != owner && !double.slots.contains(&Some(id)))
+                    .map(|&id| {
+                        let initial = tm_initial(v, id);
+                        let name = tm_name(v, id);
+                        format!(
+                            r#"<button class="target-btn" hx-post="{base}/room/{code}/tm/target" hx-vals='{{"slot":{slot},"player":{id}}}' hx-swap="none"><span class="target-btn-initial">{initial}</span><span class="target-btn-name">{name}</span></button>"#
+                        )
+                    })
+                    .collect::<String>(),
+                None => String::new(),
+            };
+            let disabled = if next_slot.is_some() { " disabled" } else { "" };
+            format!(
+                r#"<div class="slot-grid">{slots_html}</div><div class="target-grid">{targets_html}</div><button class="btn-primary send-btn" hx-post="{base}/room/{code}/tm/send" hx-swap="none" data-sound="dice-give"{disabled}>SEND THE DICE</button>"#
+            )
+        }
+    };
+
+    format!(
+        r#"<div class="assign-panel" data-show-player="{owner}" hidden><span class="assign-kicker">DOUBLE {value} &middot; GIVE THE DICE AWAY</span><p class="assign-sub">They drink whatever they roll. If a {value} comes back, you drink the combined total.</p>{inner}</div><div class="assign-spectator" data-hide-player="{owner}"><span class="assign-spectator-tag">DOUBLE {value}</span><span class="assign-spectator-text">{owner_name} is handing out the dice&hellip;</span></div>"#
+    )
+}
+
+/// Gifts-only: one ROLL button per pending gift (visible on any phone —
+/// gift rolls aren't gated to a single actor), rolled gifts show their
+/// values, payback banner once `double.payback` is set.
+fn tm_gifts_block(v: &TmView) -> String {
+    let st = v.st;
+    if st.phase != Phase::Gifts {
+        return String::new();
+    }
+    let Some(double) = &st.double else {
+        return String::new();
+    };
+    let base = v.base_path;
+    let code = v.code;
+    let rows: String = double
+        .gifts
+        .iter()
+        .enumerate()
+        .map(|(slot, g)| {
+            let initial = tm_initial(v, g.player_id);
+            let name = tm_name(v, g.player_id);
+            let body = match &g.values {
+                Some(values) => {
+                    let total: u32 = values.iter().map(|&x| x as u32).sum();
+                    let vals = values
+                        .iter()
+                        .map(u8::to_string)
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    format!(r#"<span class="gift-status">rolled {vals} &middot; drinks {total}</span>"#)
+                }
+                None => {
+                    let dice_count = g.dice_count;
+                    format!(
+                        r#"<span class="gift-status">waiting to roll</span><button class="gift-roll-btn" hx-post="{base}/room/{code}/tm/gift-roll" hx-vals='{{"slot":{slot}}}' hx-swap="none" data-sound="dice-roll">ROLL {dice_count} DICE</button>"#
+                    )
+                }
+            };
+            format!(
+                r#"<div class="gift-row"><span class="gift-avatar">{initial}</span><div class="gift-body"><span class="gift-name">{name}</span>{body}</div></div>"#
+            )
+        })
+        .collect();
+    let payback = match double.payback {
+        Some(total) => {
+            let owner_name = tm_name(v, double.owner);
+            format!(
+                r#"<div class="payback-banner">PAYBACK &mdash; {owner_name} drinks {total}</div>"#
+            )
+        }
+        None => String::new(),
+    };
+    let value = double.value;
+    let owner_name = tm_name(v, double.owner);
+    format!(
+        r#"<div class="gifts-panel"><span class="gifts-kicker">DOUBLE {value} FROM {owner_name}</span>{rows}{payback}</div>"#
+    )
+}
+
+/// Phone GAME tab while a 3 Man game is active. Root carries
+/// `data-anim-key="{seq}"`. Always: turn banner + exposure-line hook +
+/// seat strip. Phase-specific: Ready → ROLL (+ stale verdict below);
+/// Rolled/HandOff/Assign/Gifts → verdict card + the matching phase block;
+/// PASS shows whenever `pass()` would currently succeed.
+pub fn tm_phone_panel(v: &TmView) -> String {
+    let st = v.st;
+    let turn_banner = tm_turn_banner(v);
+    let seat_strip = tm_seat_strip_html(v, "", "SEATING &middot; CLOCKWISE", "LEFT = NEXT TO ROLL");
+    let verdict = tm_verdict_card(v).unwrap_or_default();
+    let handoff = tm_handoff_block(v);
+    let assign = tm_assign_block(v);
+    let gifts = tm_gifts_block(v);
+    let roll_btn = if st.phase == Phase::Ready {
+        tm_roll_button(v)
+    } else {
+        String::new()
+    };
+    let pass_allowed =
+        st.phase == Phase::Rolled || (st.phase == Phase::Gifts && st.gifts_complete());
+    let pass_btn = if pass_allowed {
+        tm_pass_button(v)
+    } else {
+        String::new()
+    };
+    let end_btn = format!(
+        r#"<button class="btn-ghost" hx-post="{}/room/{}/tm/end" hx-swap="none" hx-confirm="End the game for everyone?">End the game</button>"#,
+        v.base_path, v.code,
+    );
+    let seq = st.seq;
+    format!(
+        r#"<div class="game-active" data-anim-key="{seq}">{turn_banner}<p id="exposure-line"></p>{seat_strip}{verdict}{handoff}{assign}{gifts}{roll_btn}{pass_btn}{end_btn}</div>"#
+    )
+}
+
+/// Big-screen left pane + full-width bottom seat strip. The "WAITING ON"
+/// full-pane state only appears before the first roll of the game
+/// (`st.dice.is_none()`) — between rolls the dimmed stale verdict stays.
+pub fn tm_screen_panel(v: &TmView) -> String {
+    let st = v.st;
+    let three_man_name = tm_name(v, st.three_man);
+    let header = format!(
+        r#"<div class="screen-top"><span class="live-dot"></span><span class="screen-kicker">3 MAN</span><span class="tm-chip">{three_man_name}</span></div>"#
+    );
+
+    let body = match st.dice {
+        None => {
+            let roller_name = tm_name(v, st.roller());
+            format!(
+                r#"<div class="screen-waiting"><span class="screen-kicker">WAITING ON</span><h2 class="screen-hero-title">{roller_name}</h2><p class="screen-hero-sub">Two dice. Three, seven, nine, eleven &mdash; or a double.</p></div>"#
+            )
+        }
+        Some((d1, d2)) => {
+            let sum = d1 + d2;
+            let dimmed = if st.stale { " stale" } else { "" };
+            let caption = if st.stale {
+                let last = tm_name(v, st.last_roller.unwrap_or_else(|| st.roller()));
+                format!("LAST ROLL &middot; {last}")
+            } else {
+                "ON THE TABLE".to_string()
+            };
+            let headline = if st.calls.is_empty() {
+                "Nobody drinks.".to_string()
+            } else {
+                st.calls
+                    .iter()
+                    .map(|c| html_escape(&c.reason))
+                    .collect::<Vec<_>>()
+                    .join(" &middot; ")
+            };
+            let calls_html = if st.calls.is_empty() {
+                r#"<div class="nobody-box">Nobody drinks. Pass it on.</div>"#.to_string()
+            } else {
+                st.calls
+                    .iter()
+                    .map(|c| {
+                        let initial = tm_initial(v, c.player_id);
+                        let name = tm_name(v, c.player_id);
+                        let amt = c.amount;
+                        let reason = html_escape(&c.reason);
+                        format!(
+                            r#"<div class="call-row"><span class="call-avatar">{initial}</span><div class="call-body"><span class="call-headline">{name} drinks {amt}</span><span class="call-reason">{reason}</span></div><span class="call-amount">{amt}</span></div>"#
+                        )
+                    })
+                    .collect()
+            };
+            let phase_banner = match st.phase {
+                Phase::HandOff => {
+                    let roller_name = tm_name(v, st.roller());
+                    format!(
+                        r#"<div class="handoff-panel"><span class="handoff-kicker">HANDING OVER</span><span class="handoff-title">{roller_name} is picking a new 3 Man</span></div>"#
+                    )
+                }
+                Phase::Assign => match &st.double {
+                    Some(double) => {
+                        let mode_label = match double.mode {
+                            None => "choosing how".to_string(),
+                            Some(GiveMode::Both) => "both dice to one person".to_string(),
+                            Some(GiveMode::Split) => "one die each to two people".to_string(),
+                        };
+                        let value = double.value;
+                        let owner_name = tm_name(v, double.owner);
+                        format!(
+                            r#"<div class="assign-panel"><span class="assign-kicker">DOUBLE {value}</span><span class="assign-title">{owner_name} is handing the dice out</span><span class="assign-mode-label">{mode_label}</span></div>"#
+                        )
+                    }
+                    None => String::new(),
+                },
+                Phase::Gifts => match &st.double {
+                    Some(double) => {
+                        let rows: String = double
+                            .gifts
+                            .iter()
+                            .map(|g| {
+                                let initial = tm_initial(v, g.player_id);
+                                let name = tm_name(v, g.player_id);
+                                let (status, value) = match &g.values {
+                                    Some(values) => {
+                                        let total: u32 = values.iter().map(|&x| x as u32).sum();
+                                        (format!("drinks {total}"), total.to_string())
+                                    }
+                                    None => ("rolling&hellip;".to_string(), "&mdash;".to_string()),
+                                };
+                                format!(
+                                    r#"<div class="gift-row"><span class="gift-avatar">{initial}</span><div class="gift-body"><span class="gift-name">{name}</span><span class="gift-status">{status}</span></div><span class="gift-value">{value}</span></div>"#
+                                )
+                            })
+                            .collect();
+                        let payback = match double.payback {
+                            Some(total) => {
+                                let owner_name = tm_name(v, double.owner);
+                                format!(
+                                    r#"<div class="payback-banner">PAYBACK &mdash; {owner_name} drinks {total}</div>"#
+                                )
+                            }
+                            None => String::new(),
+                        };
+                        let value = double.value;
+                        let owner_name = tm_name(v, double.owner);
+                        format!(
+                            r#"<div class="gifts-panel"><span class="gifts-kicker">DOUBLE {value} from {owner_name}</span>{rows}{payback}</div>"#
+                        )
+                    }
+                    None => String::new(),
+                },
+                Phase::Ready | Phase::Rolled => String::new(),
+            };
+            let dice = dice_html(d1, d2);
+            format!(
+                r#"<div class="verdict-card{dimmed}"><div class="dice-row">{dice}<div class="dice-sum"><span class="dice-sum-value">{sum}</span><span class="dice-sum-caption">{caption}</span><span class="dice-sum-headline">{headline}</span></div></div>{calls_html}</div>{phase_banner}"#
+            )
+        }
+    };
+
+    let seat_strip = tm_seat_strip_html(
+        v,
+        " seat-strip-screen",
+        "THE TABLE &middot; CLOCKWISE",
+        "7 hits the left &middot; 9 hits the right &middot; 11 hits the roller",
+    );
+    let seq = st.seq;
+    format!(
+        r#"<div class="screen-panel screen-tm" data-anim-key="{seq}">{header}{body}</div>{seat_strip}"#
+    )
+}
+
+/// TABLE-tab seating list (↑/↓ move, per-row 3 MAN assign) + a static
+/// rules-reference card set. `room_panel` embeds the result verbatim.
+pub fn tm_seating_html(v: &TmView) -> String {
+    let st = v.st;
+    let base = v.base_path;
+    let code = v.code;
+    let roller = st.roller();
+    let rows: String = st
+        .order
+        .iter()
+        .enumerate()
+        .map(|(idx, &id)| {
+            let pos = idx + 1;
+            let tag = if id == roller {
+                "ROLLING"
+            } else if id == st.three_man {
+                "3 MAN"
+            } else {
+                ""
+            };
+            let initial = tm_initial(v, id);
+            let name = tm_name(v, id);
+            format!(
+                r#"<div class="seat-move"><span class="seat-pos">{pos}</span><span class="seat-avatar">{initial}</span><div class="seat-info"><span class="seat-name-line">{name}</span><span class="seat-tag-line">{tag}</span></div><div class="seat-actions"><button class="seat-btn" hx-post="{base}/room/{code}/tm/seat" hx-vals='{{"player":{id},"delta":-1}}' hx-swap="none">&uarr;</button><button class="seat-btn" hx-post="{base}/room/{code}/tm/seat" hx-vals='{{"player":{id},"delta":1}}' hx-swap="none">&darr;</button><button class="seat-btn seat-btn-three" hx-post="{base}/room/{code}/tm/three-man" hx-vals='{{"target":{id}}}' hx-swap="none">3 MAN</button></div></div>"#
+            )
+        })
+        .collect();
+
+    let rule_cards = [
+        ("3", "Three", "Every 3 (and a total of 3) hits the 3 Man &mdash; unless they rolled it, then the crown moves instead."),
+        ("7", "Seven", "Left of the roller drinks."),
+        ("9", "Nine", "Right of the roller drinks."),
+        ("11", "Eleven", "The roller drinks."),
+        ("=", "Doubles", "Give the dice away &mdash; both to one person, or split between two. A matching number coming back means you drink the total."),
+    ];
+    let cards: String = rule_cards
+        .iter()
+        .map(|(key, title, text)| {
+            format!(
+                r#"<div class="rules-ref-card"><span class="rules-ref-key">{key}</span><div class="rules-ref-body"><span class="rules-ref-title">{title}</span><span class="rules-ref-text">{text}</span></div></div>"#
+            )
+        })
+        .collect();
+
+    format!(
+        r#"<div class="seating-list"><span class="seating-caption">SEATING ORDER</span><p class="seating-sub">7 and 9 hit the roller's neighbours, so this list has to match the actual room.</p>{rows}</div><div class="rules-ref"><span class="rules-ref-caption">THE RULES</span>{cards}</div>"#
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::cards::{Card, Suit};
     use crate::models::{DrawCount, RulePreset};
+    use crate::three_man::ThreeManState;
+    use std::collections::HashMap;
 
     #[test]
     fn test_escape() {
@@ -808,6 +1381,7 @@ mod tests {
             house_rules: &house_rules,
             kings: 1,
             mode: "idle",
+            seating: None,
         };
         let html = room_panel(&view);
         assert!(html.starts_with("<template data-topbar>"));
@@ -889,5 +1463,285 @@ mod tests {
     fn test_qr_svg_degrades_on_oversized_input() {
         let svg = qr_svg(&"x".repeat(5000));
         assert_eq!(svg, "");
+    }
+
+    // -------------------------------------------------------------
+    // 3 Man (Task 11)
+    // -------------------------------------------------------------
+
+    /// 3 players alice(1)/bob(2)/cara(3), starter alice, three_man
+    /// reassigned to bob — order [1,2,3], roller_idx 0 (alice), Ready.
+    fn tm_view_fixture() -> (ThreeManState, HashMap<i64, String>) {
+        let mut st = ThreeManState::new(vec![1, 2, 3], 1);
+        st.set_three_man(2).unwrap();
+        let names = HashMap::from([
+            (1, "alice".to_string()),
+            (2, "bob".to_string()),
+            (3, "cara".to_string()),
+        ]);
+        (st, names)
+    }
+
+    #[test]
+    fn test_tm_phone_ready_state() {
+        let (st, names) = tm_view_fixture();
+        let v = TmView {
+            base_path: "/drinks",
+            code: "QK4M",
+            st: &st,
+            names: &names,
+        };
+        let html = tm_phone_panel(&v);
+        assert!(html.contains(r#"data-order="1,2,3""#));
+        assert!(html.contains(r#"data-roller="1""#));
+        assert!(html.contains(r#"data-three-man="2""#));
+        assert!(html.contains(r#"data-anim-key="0""#));
+        assert!(html.contains(r#"data-me-text="YOUR TURN" data-player-id="1""#));
+        assert!(html.contains("/drinks/room/QK4M/tm/roll"));
+        assert!(!html.contains("/tm/pass"));
+        assert!(html.contains(r#"id="exposure-line""#));
+    }
+
+    #[test]
+    fn test_tm_phone_rolled_verdict_and_pass() {
+        let (mut st, names) = tm_view_fixture();
+        st.roll(3, 4).unwrap(); // sum 7 + a lone 3: both hit bob (left-of-roller AND three_man)
+        assert_eq!(st.phase, crate::three_man::Phase::Rolled);
+        let v = TmView {
+            base_path: "/drinks",
+            code: "QK4M",
+            st: &st,
+            names: &names,
+        };
+        let html = tm_phone_panel(&v);
+        assert!(html.contains("die-pip"));
+        assert!(html.contains(">7<"));
+        assert!(html.contains("bob drinks 1"));
+        assert!(html.contains(r#"data-me-text="You drink 1" data-player-id="2""#));
+        assert!(html.contains("PASS TO bob"));
+        assert!(html.contains("/drinks/room/QK4M/tm/pass"));
+    }
+
+    #[test]
+    fn test_tm_phone_nobody_drinks_box() {
+        let (mut st, names) = tm_view_fixture();
+        st.roll(2, 4).unwrap(); // sum 6, no 3s — nobody drinks
+        assert!(st.calls.is_empty());
+        let v = TmView {
+            base_path: "/drinks",
+            code: "QK4M",
+            st: &st,
+            names: &names,
+        };
+        let html = tm_phone_panel(&v);
+        assert!(html.contains("nobody-box"));
+    }
+
+    #[test]
+    fn test_tm_handoff_picker_only_on_roller_phone() {
+        let (mut st, names) = tm_view_fixture();
+        st.set_three_man(1).unwrap(); // roller (alice) is now also the 3 Man
+        st.roll(3, 6).unwrap(); // a lone 3 rolled by the 3 Man themself -> HandOff
+        assert_eq!(st.phase, crate::three_man::Phase::HandOff);
+        let v = TmView {
+            base_path: "/drinks",
+            code: "QK4M",
+            st: &st,
+            names: &names,
+        };
+        let html = tm_phone_panel(&v);
+        assert!(html.contains(r#"data-show-player="1" hidden"#));
+        assert!(html.contains(r#"data-hide-player="1""#));
+        assert!(html.contains("/drinks/room/QK4M/tm/three-man"));
+        // Picker excludes the outgoing 3 Man (alice) but offers bob/cara.
+        assert!(html.contains("bob"));
+        assert!(html.contains("cara"));
+    }
+
+    #[test]
+    fn test_tm_assign_owner_only_and_split_hidden_at_two_players() {
+        let (mut st, names) = tm_view_fixture();
+        st.roll(4, 4).unwrap(); // double, no 3s/7/9/11 -> Assign, owner = alice (roller)
+        assert_eq!(st.phase, crate::three_man::Phase::Assign);
+        let v = TmView {
+            base_path: "/drinks",
+            code: "QK4M",
+            st: &st,
+            names: &names,
+        };
+        let html = tm_phone_panel(&v);
+        assert!(html.contains(r#"data-show-player="1" hidden"#));
+        assert!(html.contains("Both dice to one person"));
+        assert!(html.contains("One die each to two people")); // 3 players -> SPLIT offered
+
+        let mut st2 = ThreeManState::new(vec![1, 2], 1);
+        st2.roll(2, 2).unwrap();
+        assert_eq!(st2.phase, crate::three_man::Phase::Assign);
+        let names2 = HashMap::from([(1, "alice".to_string()), (2, "bob".to_string())]);
+        let v2 = TmView {
+            base_path: "/drinks",
+            code: "QK4M",
+            st: &st2,
+            names: &names2,
+        };
+        let html2 = tm_phone_panel(&v2);
+        assert!(!html2.contains("One die each to two people"));
+    }
+
+    #[test]
+    fn test_tm_gifts_rows_and_payback() {
+        let (mut st, names) = tm_view_fixture();
+        st.roll(4, 4).unwrap();
+        st.set_mode(crate::three_man::GiveMode::Both).unwrap();
+        st.pick_target(0, 3).unwrap(); // cara
+        st.send().unwrap();
+        assert_eq!(st.phase, crate::three_man::Phase::Gifts);
+        let v = TmView {
+            base_path: "/drinks",
+            code: "QK4M",
+            st: &st,
+            names: &names,
+        };
+        let html = tm_phone_panel(&v);
+        assert!(html.contains("ROLL 2 DICE"));
+        assert!(html.contains("/drinks/room/QK4M/tm/gift-roll"));
+        assert!(html.contains(r#"hx-vals='{"slot":0}'"#));
+        assert!(!html.contains("data-show-player")); // gift ROLL is any-phone
+
+        st.gift_roll(0, vec![4, 2]).unwrap(); // a gifted 4 matches the double value -> payback
+        assert_eq!(st.double.as_ref().unwrap().payback, Some(6));
+        let v = TmView {
+            base_path: "/drinks",
+            code: "QK4M",
+            st: &st,
+            names: &names,
+        };
+        let html = tm_phone_panel(&v);
+        assert!(html.contains("payback-banner"));
+        assert!(html.contains("PAYBACK"));
+        assert!(html.contains("alice drinks 6"));
+        assert!(html.contains("PASS TO")); // gifts complete -> pass eligible again
+    }
+
+    #[test]
+    fn test_tm_stale_verdict_dimmed() {
+        let (mut st, names) = tm_view_fixture();
+        st.roll(2, 4).unwrap();
+        st.pass().unwrap();
+        assert!(st.stale);
+        let v = TmView {
+            base_path: "/drinks",
+            code: "QK4M",
+            st: &st,
+            names: &names,
+        };
+        let html = tm_phone_panel(&v);
+        assert!(html.contains("verdict-card stale"));
+        assert!(html.contains("LAST ROLL &middot; alice"));
+    }
+
+    #[test]
+    fn test_tm_screen_waiting_only_before_first_roll() {
+        let (st, names) = tm_view_fixture();
+        let v = TmView {
+            base_path: "/drinks",
+            code: "QK4M",
+            st: &st,
+            names: &names,
+        };
+        let html = tm_screen_panel(&v);
+        assert!(html.contains("WAITING ON"));
+        assert!(html.contains("alice"));
+
+        let mut st2 = st;
+        st2.roll(2, 4).unwrap();
+        st2.pass().unwrap();
+        assert!(st2.stale);
+        let v2 = TmView {
+            base_path: "/drinks",
+            code: "QK4M",
+            st: &st2,
+            names: &names,
+        };
+        let html2 = tm_screen_panel(&v2);
+        assert!(html2.contains("verdict-card stale"));
+        assert!(!html2.contains("WAITING ON"));
+    }
+
+    #[test]
+    fn test_tm_seating_and_topbar_chip() {
+        let (st, names) = tm_view_fixture();
+        let v = TmView {
+            base_path: "/drinks",
+            code: "QK4M",
+            st: &st,
+            names: &names,
+        };
+        let seating = tm_seating_html(&v);
+        assert!(seating.contains("/drinks/room/QK4M/tm/seat"));
+        assert!(seating.contains("/drinks/room/QK4M/tm/three-man"));
+        assert!(seating.contains("rules-ref"));
+
+        let members = vec![
+            RoomMember {
+                id: 1,
+                name: "alice".into(),
+                joined_at: "t".into(),
+            },
+            RoomMember {
+                id: 2,
+                name: "bob".into(),
+                joined_at: "t".into(),
+            },
+            RoomMember {
+                id: 3,
+                name: "cara".into(),
+                joined_at: "t".into(),
+            },
+        ];
+        let house_rules: Vec<HouseRule> = vec![];
+        let room_view = RoomView {
+            base_path: "/drinks",
+            code: "QK4M",
+            members: &members,
+            house_rules: &house_rules,
+            kings: 0,
+            mode: "three_man",
+            seating: Some(seating),
+        };
+        let html = room_panel(&room_view);
+        assert!(html.contains("3 MAN"));
+        assert!(html.contains("at the table"));
+    }
+
+    #[test]
+    fn test_leaderboard_tm_badge() {
+        let rows = vec![
+            LeaderboardRow {
+                id: 1,
+                name: "alice".into(),
+                drinks: 1,
+                shots: 0,
+            },
+            LeaderboardRow {
+                id: 2,
+                name: "bob".into(),
+                drinks: 0,
+                shots: 0,
+            },
+        ];
+        let html = leaderboard_items_tm(&rows, Some(2));
+        assert_eq!(html.matches("3 MAN").count(), 1);
+        let bob_idx = html.find("bob").unwrap();
+        let badge_idx = html.find("3 MAN").unwrap();
+        assert!(badge_idx > bob_idx);
+
+        // plain leaderboard_items (None) never renders the badge.
+        assert!(!leaderboard_items(&rows).contains("3 MAN"));
+    }
+
+    #[test]
+    fn test_dice_pips() {
+        assert_eq!(dice_html(5, 2).matches("die-pip").count(), 7);
     }
 }

@@ -51,6 +51,25 @@
   <script>
 const BP = "{{ base_path }}", CODE = "{{ code }}";
 const lastKeys = {}; let animFlip = false;
+// 3 Man (Task 11): derives the viewer's exposure line ("You're on their
+// left — a 7 is yours.") from the seat strip's data-order/-roller/
+// -three-man attrs. No game logic beyond neighbour lookup lives here.
+function exposureLine(root) {
+  const strip = (root || document).querySelector("[data-order]");
+  const out = document.getElementById("exposure-line");
+  if (!strip || !out) return;
+  const me = document.body.dataset.playerId;
+  const order = strip.dataset.order.split(",");
+  const i = order.indexOf(strip.dataset.roller), mine = order.indexOf(me);
+  if (i < 0 || mine < 0) { out.textContent = ""; return; }
+  const n = order.length;
+  const parts = [];
+  if (mine === (i + 1) % n) parts.push("You're on their left — a 7 is yours.");
+  if (mine === (i + n - 1) % n) parts.push("You're on their right — a 9 is yours.");
+  if (me === strip.dataset.threeMan) parts.push("Any 3 is yours.");
+  if (mine === i) parts.push("An 11 is yours.");
+  out.textContent = parts.join(" ");
+}
 function personalize(root) {
   root = root || document;
   const me = document.body.dataset.playerId;
