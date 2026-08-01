@@ -19,7 +19,7 @@ When building without a live database (e.g. on the server): `SQLX_OFFLINE=true c
 
 The repo is a cargo workspace — `cargo build` / `cargo test` at the root cover both the `drawingportfolio` binary and the `drinkinggame` crate. `cargo run -p drinkinggame` serves the drinking game standalone on `:3001` (no portfolio, no nginx).
 
-Tests live in `src/db.rs`, `src/routes/feed.rs`, and `src/routes/admin.rs`.
+Tests live in `src/db.rs`, `src/routes/feed.rs`, and `src/routes/admin.rs` (portfolio, 34 tests). The `drinkinggame` crate has its own, larger suite: unit tests across `drinkinggame/src/*.rs` (rooms, db, rules, hub, render, `three_man.rs` state machine — 100 tests) plus integration tests in `drinkinggame/tests/http.rs` (61 tests) covering both games' routes end to end.
 
 ## Environment
 
@@ -34,6 +34,7 @@ Copy `.env.example` to `.env`. Key variables:
 | `STORAGE_PUBLIC_URL` | Public base URL for served images |
 | `RP_ID` / `RP_ORIGIN` | WebAuthn relying party (domain / full origin URL) |
 | `DRINKS_DATABASE_URL` | SQLite path for the drinking game (separate file from the portfolio DB) |
+| `DRINKS_SOUNDS_DIR` | Directory the drinking game reads sound-effect mp3s from at request time (default `drinks-sounds`, relative to the working directory) |
 
 DB migrations run automatically at startup via `db::run_migrations()`.
 
@@ -61,7 +62,7 @@ Single Rust/Axum binary with server-side rendering via Askama templates + HTMX f
 
 **Storage (`src/storage.rs`):** `ObjectStorage` wraps aws-sdk-s3 with `force_path_style(true)` (required for non-AWS endpoints). Upload returns a public URL constructed from `STORAGE_PUBLIC_URL`.
 
-`/drinks` is the `drinkinggame` crate (own DB, own name+PIN sessions, SSE leaderboards, Ring of Fire card game with server-side rule presets at `/drinks/presets`) nested via `nest_service` in `main.rs`; its templates do NOT extend `base.html` (recorded exception).
+`/drinks` is the `drinkinggame` crate (own DB, own name+PIN sessions, SSE leaderboards) nested via `nest_service` in `main.rs`; its templates do NOT extend `base.html` (recorded exception). Redesigned as a three-tab phone shell (table / game / players) with a public spectator "big screen" view (`/drinks/room/{code}/screen`, joinable via an in-page QR code) that mirrors the live game over the same SSE stream. Two games share a room: Ring of Fire (card draws, server-side rule presets at `/drinks/presets`, Jack "make a rule" flow, King's Cup) and 3 Man (`three_man.rs` — dice, 3-hits-the-3-Man hand-off, doubles that hand out gift dice in "both" or "split" mode with payback, per-room async locking around each action route). Both games' UI fragments personalize per viewer via a `data-show-player`/`data-hide-player`/`data-me-text` attribute contract that client-side `personalize()` JS resolves against the viewer's own player id — e.g. a hand-off picker is `data-show-player`-gated to the roller while everyone else sees a `data-hide-player`-gated spectator banner for the same moment.
 
 ## Key implementation details
 
@@ -115,6 +116,8 @@ Deploy config is in `deploy/`:
 Only `static/` (served from disk) and `.env` must be present alongside the binary — Askama templates are compiled in. `/opt/portfolio/src/` on the server is a stale old checkout unused by the deploy process.
 
 On first deploy of the drinking game, add `DRINKS_DATABASE_URL=sqlite:///opt/portfolio/drinkinggame.db` to the server's `.env` — the relative-path fallback only works locally because `portfolio.service` sets `WorkingDirectory`.
+
+The drinking game's fonts (woff2) are `include_bytes!`-compiled into the binary — nothing to copy to the server for those. Its sound effects are the opposite: no mp3s are committed to the repo (out of scope by design), so the game ships silent until mp3s are dropped in. To enable sound, create the directory named by `DRINKS_SOUNDS_DIR` (default `drinks-sounds`, relative to `portfolio.service`'s `WorkingDirectory`) on the server and drop in `drink.mp3`, `shot.mp3`, `card-draw.mp3`, `card-use.mp3`, `dice-roll.mp3`, `dice-give.mp3` — any other filename 404s. No restart needed; the route reads from disk per request.
 
 Server update command:
 ```bash
