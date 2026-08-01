@@ -320,156 +320,209 @@ main {
   background: #f0f0f0;
 }
 
+/* ── Nocturne tokens (fitness) ─────────────────── */
+/* Ported subset of docs/design/fitness-redesign/nocturne-tokens.css,
+   prefixed --noc- and scoped to the fitness pages via body.fitness-dark. */
+body.fitness-dark {
+  --noc-bg: #161826;
+  --noc-surface: #232532;
+  --noc-surface-2: #1c1e2b;
+  --noc-text: #e9e9ed;
+  --noc-accent: #9184d9;
+  --noc-accent-300: #d2cefd;
+  --noc-accent-400: #b5abfc;
+  --noc-accent-900: #2b2741;
+  --noc-n700: #595d6c;
+  --noc-n800: #3f424d;
+  --noc-n900: #292b31;
+  --noc-divider: color-mix(in srgb, #e9e9ed 16%, transparent);
+  --noc-muted: color-mix(in srgb, #e9e9ed 55%, transparent);
+  --noc-faint: color-mix(in srgb, #e9e9ed 45%, transparent);
+  --noc-radius-sm: 4px;
+  --noc-radius-md: 8px;
+  --noc-radius-lg: 14px;
+  --noc-shadow-card: 0 0 0 1px #3f424d;
+  --noc-shadow-pop: 0 0 0 1px #595d6c, 0 6px 18px rgba(0,0,0,0.55);
+
+  background: var(--noc-bg);
+  color: var(--noc-text);
+  font-family: "Inter", system-ui, sans-serif;
+}
+body.fitness-dark header {
+  background: var(--noc-bg);
+  border-bottom: 1px solid var(--noc-divider);
+}
+body.fitness-dark header .site-title,
+body.fitness-dark header nav a { color: var(--noc-text); }
+body.fitness-dark header nav a:hover { color: var(--noc-accent); }
+body.fitness-dark ::selection { background: color-mix(in srgb, var(--noc-accent) 30%, transparent); }
+body.fitness-dark :focus-visible { outline: 2px solid var(--noc-accent); outline-offset: 2px; }
+
+/* Nocturne primitives (fitness-scoped) */
+body.fitness-dark .noc-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  cursor: pointer; font: inherit; font-weight: 500; font-size: 14px; line-height: 1.2;
+  color: var(--noc-text); background: transparent;
+  border: 1px solid transparent; border-radius: var(--noc-radius-md);
+  min-height: 44px; padding: 8px 14px;
+}
+body.fitness-dark .noc-btn:disabled { opacity: .45; cursor: not-allowed; }
+body.fitness-dark .noc-btn-primary { color: var(--noc-accent); border-color: var(--noc-accent); }
+body.fitness-dark .noc-btn-primary:hover { background: color-mix(in srgb, var(--noc-accent) 12%, transparent); }
+body.fitness-dark .noc-btn-primary:active { background: color-mix(in srgb, var(--noc-accent) 22%, transparent); }
+body.fitness-dark .noc-btn-secondary { border-color: var(--noc-divider); }
+body.fitness-dark .noc-btn-secondary:hover { background: color-mix(in srgb, var(--noc-text) 7%, transparent); }
+body.fitness-dark .noc-btn-secondary:active { background: color-mix(in srgb, var(--noc-text) 14%, transparent); }
+body.fitness-dark .noc-btn-ghost { color: var(--noc-accent); }
+body.fitness-dark .noc-btn-ghost:hover { background: color-mix(in srgb, var(--noc-accent) 10%, transparent); }
+body.fitness-dark .noc-btn-icon { width: 44px; padding: 0; }
+body.fitness-dark .noc-input {
+  width: 100%; min-height: 44px; padding: 6px 12px; font: inherit; font-size: 14px;
+  color: var(--noc-text); caret-color: var(--noc-accent);
+  background: var(--noc-surface);
+  border: 1px solid var(--noc-divider); border-radius: var(--noc-radius-md);
+}
+body.fitness-dark .noc-input:hover { border-color: color-mix(in srgb, var(--noc-text) 45%, transparent); }
+body.fitness-dark .noc-input:focus-visible { border-color: var(--noc-accent); outline-offset: 0; }
+body.fitness-dark .noc-tag {
+  display: inline-flex; align-items: center; font-size: 11px; letter-spacing: .02em;
+  padding: 6px 11px; border-radius: 6px; border: 1px solid transparent;
+  background: none; cursor: pointer; font-family: inherit; color: var(--noc-text);
+}
+body.fitness-dark .noc-tag-accent { background: var(--noc-accent-900); color: var(--noc-accent-300); border-color: var(--noc-accent); }
+body.fitness-dark .noc-tag-outline { border-color: var(--noc-accent); color: var(--noc-accent); }
+body.fitness-dark .noc-tag-neutral { background: var(--noc-n800); color: var(--noc-text); }
+body.fitness-dark .noc-card {
+  background: var(--noc-surface); border-radius: var(--noc-radius-lg);
+  box-shadow: var(--noc-shadow-card); padding: 16px;
+}
+body.fitness-dark .noc-kicker {
+  font-size: 11px; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--noc-muted);
+}
+
 /* ── Fitness Tracker ─────────────────────────────────── */
-.fitness-page { max-width: 640px; margin: 0 auto; padding: 1rem; }
+.fitness-page { max-width: 640px; margin: 0 auto; padding: 0 16px 90px; }
 
-.fitness-date-nav {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  margin-bottom: 1.25rem;
-}
+/* date header */
+.fitness-date-nav { display: flex; align-items: center; gap: 8px; margin: 14px 0; }
 .fitness-date-nav input[type="date"] {
-  flex: 1;
-  padding: 0.4rem 0.6rem;
-  border: 1px solid #ddd;
-  border-radius: 4px;
-  font-size: 0.95rem;
+  flex: 1; min-height: 44px; padding: 6px 12px; font: inherit; font-size: 14px;
+  color: var(--noc-text); background: var(--noc-surface);
+  border: 1px solid var(--noc-divider); border-radius: var(--noc-radius-md);
+  color-scheme: dark;
 }
 
-.day-totals {
-  display: flex;
-  gap: 1rem;
-  padding: 0.75rem;
-  background: #f5f5f5;
-  border-radius: 6px;
-  margin-bottom: 0.75rem;
-  font-size: 0.9rem;
-  flex-wrap: wrap;
+/* day totals (pre-targets shape; Task 3 replaces this block's markup) */
+body.fitness-dark .day-totals {
+  display: flex; gap: 16px; flex-wrap: wrap; align-items: baseline;
+  background: var(--noc-surface); border-radius: var(--noc-radius-lg);
+  box-shadow: var(--noc-shadow-card); padding: 16px; margin-bottom: 14px;
+  font-size: 14px;
 }
-.total-cal { font-weight: 600; }
-.total-macro { color: #555; }
+body.fitness-dark .day-totals .total-cal { font-size: 22px; font-weight: 500; letter-spacing: -.015em; }
+body.fitness-dark .day-totals .total-macro { color: var(--noc-muted); }
 
-.meal-list { list-style: none; padding: 0; margin: 0 0 0.75rem; }
-.meal-entry {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.5rem 0;
-  border-bottom: 1px solid #eee;
-  font-size: 0.9rem;
+/* meal entries */
+body.fitness-dark .meal-list { list-style: none; padding: 0; margin: 0 0 12px; }
+body.fitness-dark .meal-entry {
+  display: flex; align-items: center; gap: 10px; padding: 9px 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--noc-text) 10%, transparent);
+  font-size: 14px;
 }
-.entry-name { flex: 1; }
-.entry-grams, .entry-cal { color: #555; white-space: nowrap; }
+body.fitness-dark .meal-entry .entry-name { flex: 1; min-width: 0; }
+body.fitness-dark .meal-entry .entry-grams { color: var(--noc-muted); font-size: 12px; white-space: nowrap; }
+body.fitness-dark .meal-entry .entry-cal { color: var(--noc-accent-300); font-size: 13px; min-width: 52px; text-align: right; white-space: nowrap; }
 
-.log-entry-form {
-  display: flex;
-  gap: 0.5rem;
-  align-items: center;
-  flex-wrap: wrap;
-  margin-top: 0.5rem;
+/* shared delete / small buttons inside fragments */
+body.fitness-dark .food-delete-btn {
+  background: none; border: none; cursor: pointer; color: var(--noc-faint);
+  font-size: 17px; min-width: 44px; min-height: 44px; border-radius: var(--noc-radius-md);
 }
-.log-entry-form select { flex: 1; min-width: 120px; padding: 0.4rem; border: 1px solid #ddd; border-radius: 4px; }
-.log-entry-form input[type="number"] { width: 70px; padding: 0.4rem; border: 1px solid #ddd; border-radius: 4px; }
-.grams-label { color: #555; font-size: 0.85rem; }
-
-.food-library-section { margin-top: 2rem; }
-.library-header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.75rem; }
-.library-header h2 { margin: 0; font-size: 1.1rem; }
-.library-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; }
-.library-actions input[type="text"] { padding: 0.35rem 0.6rem; border: 1px solid #ddd; border-radius: 4px; font-size: 0.9rem; }
-
-.food-library-list { list-style: none; padding: 0; margin: 0; }
-.food-item-card {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  padding: 0.6rem 0;
-  border-bottom: 1px solid #eee;
+body.fitness-dark .food-delete-btn:hover { color: var(--noc-accent-400); background: color-mix(in srgb, var(--noc-accent) 10%, transparent); }
+body.fitness-dark .food-edit-btn {
+  background: none; border: 1px solid var(--noc-divider); border-radius: var(--noc-radius-md);
+  cursor: pointer; color: var(--noc-muted); font-size: 12px; font-family: inherit;
+  min-height: 34px; padding: 4px 10px;
 }
-.food-thumb { width: 40px; height: 40px; object-fit: cover; border-radius: 4px; flex-shrink: 0; }
-.food-info { flex: 1; }
-.food-info strong { display: block; font-size: 0.95rem; }
-.food-brand { font-size: 0.8rem; color: #777; margin-left: 0.25rem; }
-.food-macros { font-size: 0.8rem; color: #555; }
+body.fitness-dark .food-edit-btn:hover { background: color-mix(in srgb, var(--noc-text) 7%, transparent); }
 
-.food-delete-btn {
-  background: none;
-  border: none;
-  cursor: pointer;
-  color: #aaa;
-  font-size: 1.1rem;
-  padding: 0 0.25rem;
-  flex-shrink: 0;
+/* log form */
+body.fitness-dark .log-entry-form { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
+body.fitness-dark .log-entry-form select,
+body.fitness-dark .log-entry-form input[type="number"] {
+  min-height: 44px; padding: 6px 10px; font: inherit; font-size: 14px;
+  color: var(--noc-text); background: var(--noc-surface);
+  border: 1px solid var(--noc-divider); border-radius: var(--noc-radius-md);
 }
-.food-delete-btn:hover { color: #c00; }
+body.fitness-dark .log-entry-form select[name="food_item_id"] { flex: 1; min-width: 140px; }
+body.fitness-dark .log-entry-form input[type="number"] { width: 84px; }
+body.fitness-dark .log-entry-form .grams-label { color: var(--noc-muted); font-size: 13px; }
+body.fitness-dark .log-entry-form select:disabled { opacity: .45; }
 
-.nutrient-form {
-  background: #f9f9f9;
-  border: 1px solid #ddd;
-  border-radius: 6px;
-  padding: 1rem;
-  margin-bottom: 1rem;
+/* library */
+body.fitness-dark .food-library-section { margin-top: 28px; }
+body.fitness-dark .library-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+body.fitness-dark .library-header h2 { margin: 0; font-size: 20px; font-weight: 500; letter-spacing: -.015em; }
+body.fitness-dark .library-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+body.fitness-dark .library-actions input[type="text"] {
+  min-height: 44px; padding: 6px 12px; font: inherit; font-size: 14px;
+  color: var(--noc-text); background: var(--noc-surface);
+  border: 1px solid var(--noc-divider); border-radius: var(--noc-radius-md);
 }
-.nutrient-form > input[type="text"] {
-  display: block;
+body.fitness-dark .food-library-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px; }
+body.fitness-dark .food-item-card {
+  display: flex; align-items: center; gap: 12px; padding: 10px;
+  background: var(--noc-surface); border-radius: var(--noc-radius-md);
+  box-shadow: var(--noc-shadow-card);
+}
+body.fitness-dark .food-thumb { width: 40px; height: 40px; border-radius: 6px; object-fit: cover; flex: none; background: var(--noc-accent-900); }
+body.fitness-dark .food-info { flex: 1; min-width: 0; }
+body.fitness-dark .food-info strong { display: block; font-size: 14px; font-weight: 500; }
+body.fitness-dark .food-brand { color: var(--noc-muted); font-size: 12px; font-weight: 400; margin-left: 4px; }
+body.fitness-dark .food-macros { font-size: 11.5px; color: var(--noc-muted); }
+body.fitness-dark .food-pkg { margin-left: 6px; color: var(--noc-faint); font-size: 11px; }
+body.fitness-dark .food-admin-btns { display: flex; gap: 4px; align-items: center; flex: none; }
+
+/* add/edit food form */
+body.fitness-dark .nutrient-form {
+  display: flex; flex-direction: column; gap: 10px; padding: 16px;
+  background: var(--noc-surface); border-radius: var(--noc-radius-lg);
+  box-shadow: var(--noc-shadow-card); margin-bottom: 12px;
+}
+body.fitness-dark .nutrient-form input {
+  min-height: 44px; padding: 6px 12px; font: inherit; font-size: 14px;
+  color: var(--noc-text); background: var(--noc-surface-2);
+  border: 1px solid var(--noc-divider); border-radius: var(--noc-radius-md);
   width: 100%;
-  box-sizing: border-box;
-  margin-bottom: 0.5rem;
-  padding: 0.4rem 0.6rem;
-  border: 1px solid #ddd;
-  border-radius: 4px;
 }
-.nutrient-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0.5rem;
-  margin: 0.5rem 0;
-}
-.nutrient-grid label { font-size: 0.8rem; color: #555; }
-.nutrient-grid input[type="number"] {
-  display: block;
-  width: 100%;
-  box-sizing: border-box;
-  margin-top: 0.2rem;
-  padding: 0.35rem 0.5rem;
-  border: 1px solid #ddd;
-  border-radius: 4px;
-}
-.file-label { display: block; font-size: 0.85rem; margin: 0.5rem 0; color: #555; }
-.form-actions { display: flex; gap: 0.5rem; margin-top: 0.75rem; }
+body.fitness-dark .nutrient-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+body.fitness-dark .nutrient-grid label,
+body.fitness-dark .package-size-label,
+body.fitness-dark .file-label { font-size: 12px; color: var(--noc-muted); display: flex; flex-direction: column; gap: 4px; }
+body.fitness-dark .form-actions { display: flex; gap: 8px; }
 
-#barcode-scanner {
-  background: #000;
-  border-radius: 6px;
-  padding: 0.5rem;
-  margin-bottom: 1rem;
-  text-align: center;
+/* legacy button classes still emitted by shared markup — restyle in scope */
+body.fitness-dark .btn-primary {
+  display: inline-flex; align-items: center; justify-content: center;
+  cursor: pointer; font: inherit; font-weight: 500; font-size: 14px;
+  color: var(--noc-accent); background: transparent;
+  border: 1px solid var(--noc-accent); border-radius: var(--noc-radius-md);
+  min-height: 44px; padding: 8px 16px;
 }
-#barcode-video { width: 100%; max-height: 240px; border-radius: 4px; }
-#scan-status { color: #fff; font-size: 0.85rem; margin: 0.5rem 0; }
-#manual-barcode {
-  display: flex;
-  gap: 0.5rem;
-  align-items: center;
-  flex-wrap: wrap;
-  padding: 0.75rem;
-  background: #f5f5f5;
-  border-radius: 6px;
-  margin-bottom: 1rem;
+body.fitness-dark .btn-primary:hover { background: color-mix(in srgb, var(--noc-accent) 12%, transparent); }
+body.fitness-dark .btn-secondary {
+  display: inline-flex; align-items: center; justify-content: center;
+  cursor: pointer; font: inherit; font-size: 14px;
+  color: var(--noc-text); background: transparent;
+  border: 1px solid var(--noc-divider); border-radius: var(--noc-radius-md);
+  min-height: 44px; padding: 8px 14px;
 }
-#manual-barcode input { flex: 1; padding: 0.4rem 0.6rem; border: 1px solid #ddd; border-radius: 4px; }
+body.fitness-dark .btn-secondary:hover { background: color-mix(in srgb, var(--noc-text) 7%, transparent); }
 
-.food-pkg { margin-left: 0.4rem; color: #888; font-size: 0.8rem; }
-.portion-select { padding: 0.4rem; border: 1px solid #ddd; border-radius: 4px; min-width: 80px; }
-.portion-select:disabled { opacity: 0.4; cursor: not-allowed; }
-.package-size-label { display: block; font-size: 0.85rem; color: #555; margin: 0.5rem 0; }
-.package-size-label input { display: block; width: 100%; box-sizing: border-box; margin-top: 0.2rem; padding: 0.35rem 0.5rem; border: 1px solid #ddd; border-radius: 4px; }
-.food-admin-btns { display: flex; gap: 0.25rem; align-items: center; flex-shrink: 0; }
-.food-edit-btn { background: none; border: 1px solid #ddd; border-radius: 4px; cursor: pointer; color: #555; font-size: 0.75rem; padding: 0.15rem 0.4rem; }
-.food-edit-btn:hover { border-color: #888; color: #333; }
-.food-item-card.editing { display: block; }
-.edit-food-form { margin: 0; }
+/* barcode scanner */
+body.fitness-dark #barcode-scanner video { width: 100%; border-radius: var(--noc-radius-lg); box-shadow: var(--noc-shadow-card); }
+body.fitness-dark #scan-status { color: var(--noc-muted); font-size: 13px; }
 
 /* ── Drawing Tasks ───────────────────────────────────── */
 .tasks-page { max-width: 640px; margin: 0 auto; padding: 1rem; }

@@ -17,7 +17,7 @@
   <script src="/static/palette.js" defer></script>
   {% block head %}{% endblock %}
 </head>
-<body hx-boost="true">
+<body hx-boost="true" class="{% block body_class %}{% endblock %}">
   <header>
     <a href="/" class="site-title">Portfolio</a>
     <nav>
