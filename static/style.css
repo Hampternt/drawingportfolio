@@ -634,6 +634,38 @@ body.fitness-dark .hist-strip { display: flex; align-items: flex-end; gap: 5px; 
 body.fitness-dark .hist-bar { flex: 1; background: var(--noc-n800); border-radius: 2px; }
 body.fitness-dark .hist-strip .hist-bar:last-child { background: var(--noc-accent); }
 
+/* week page + saved meals (Task 9) */
+body.fitness-dark .week-head { display: flex; align-items: flex-end; justify-content: space-between; margin: 14px 0 18px; }
+body.fitness-dark .week-title { font-size: 22px; font-weight: 500; letter-spacing: -.015em; margin: 2px 0 0; }
+body.fitness-dark .week-chart-card { margin-bottom: 14px; }
+body.fitness-dark .week-chart-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 12px; }
+body.fitness-dark .week-avg { font-size: 12px; color: var(--noc-muted); }
+body.fitness-dark .wk-chart { position: relative; height: 138px; display: flex; align-items: flex-end; gap: 9px; }
+body.fitness-dark .wk-target-line { position: absolute; left: 0; right: 0; bottom: 89.3%; border-top: 1px dashed color-mix(in srgb, var(--noc-accent) 45%, transparent); }
+body.fitness-dark .wk-bar { flex: 1; height: var(--h); background: var(--noc-n800); border-radius: 4px 4px 0 0; min-height: 2px; }
+body.fitness-dark .wk-bar.today { background: var(--noc-accent); box-shadow: 0 0 14px color-mix(in srgb, var(--noc-accent) 35%, transparent); }
+body.fitness-dark .wk-bar.future { background: var(--noc-surface); box-shadow: inset 0 0 0 1px var(--noc-n800); }
+body.fitness-dark .wk-letters { display: flex; gap: 9px; margin-top: 8px; }
+body.fitness-dark .wk-letters span { flex: 1; text-align: center; font-size: 10px; color: var(--noc-faint); }
+body.fitness-dark .week-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 14px; }
+body.fitness-dark .stat-big { font-size: 26px; font-weight: 500; margin-top: 4px; letter-spacing: -.015em; }
+body.fitness-dark .stat-sub { font-size: 11px; color: var(--noc-faint); }
+body.fitness-dark .weight-card { margin-bottom: 14px; }
+body.fitness-dark .weight-now { display: flex; align-items: baseline; gap: 10px; margin: 6px 0 8px; }
+body.fitness-dark .weight-delta { font-size: 12px; color: var(--noc-accent-400); }
+body.fitness-dark .weight-form { display: flex; gap: 8px; margin-top: 12px; }
+body.fitness-dark .weight-form input { width: 110px; }
+body.fitness-dark .most-row { display: flex; align-items: center; gap: 10px; font-size: 13px; padding: 5px 0; }
+body.fitness-dark .most-row .most-name { flex: 1; }
+body.fitness-dark .most-row .most-n { color: var(--noc-muted); }
+body.fitness-dark .save-meal { margin-top: 6px; }
+body.fitness-dark .save-meal summary { font-size: 11px; color: var(--noc-faint); cursor: pointer; min-height: 32px; display: flex; align-items: center; }
+body.fitness-dark .save-meal form { display: flex; gap: 8px; margin-top: 6px; }
+body.fitness-dark .meal-row { display: flex; align-items: center; gap: 6px; margin-top: 8px; }
+body.fitness-dark .meal-row form { flex: 1; }
+body.fitness-dark .meal-log-btn { width: 100%; justify-content: space-between; }
+body.fitness-dark .meal-cal { color: var(--noc-muted); font-size: 12px; }
+
 /* ── Drawing Tasks ───────────────────────────────────── */
 .tasks-page { max-width: 640px; margin: 0 auto; padding: 1rem; }
 

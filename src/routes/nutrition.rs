@@ -197,6 +197,32 @@ fn macro_rail_html(label: &str, value: f64, target: f64, bar_hex: &str) -> Strin
     )
 }
 
+/// Consecutive logged days ending at `today` (or yesterday when today is
+/// not yet logged). `logged_desc` is distinct dates, newest first.
+fn compute_streak(logged_desc: &[String], today: &str) -> i64 {
+    use chrono::{Duration, NaiveDate};
+    let Ok(today) = NaiveDate::parse_from_str(today, "%Y-%m-%d") else {
+        return 0;
+    };
+    let mut expect = today;
+    let mut streak = 0i64;
+    for (i, d) in logged_desc.iter().enumerate() {
+        let Ok(d) = NaiveDate::parse_from_str(d, "%Y-%m-%d") else {
+            break;
+        };
+        if i == 0 && d == today - Duration::days(1) {
+            expect = d; // today not logged yet — start from yesterday
+        }
+        if d == expect {
+            streak += 1;
+            expect -= Duration::days(1);
+        } else if d < expect {
+            break;
+        }
+    }
+    streak
+}
+
 /// The Sunday-first week containing `date`, as 7 (iso_date, kcal) pairs.
 async fn week_for(pool: &crate::db::DbPool, date: &str) -> Vec<(String, f64)> {
     use chrono::{Datelike, Duration, NaiveDate};
@@ -305,7 +331,20 @@ pub fn day_section_html(
                     .map(|e| meal_entry_row_html(e, date, is_admin))
                     .collect::<Vec<_>>()
                     .join("\n");
-                format!("<ul class=\"meal-list\">\n{}\n</ul>", rows)
+                format!(
+                    r##"<ul class="meal-list">
+{rows}
+</ul>
+<details class="save-meal"><summary>Save as meal</summary>
+<form hx-post="/api/nutrition/recipes" hx-target="#day-section" hx-swap="innerHTML">
+  <input type="hidden" name="date" value="{date}"><input type="hidden" name="slot" value="{key}">
+  <input class="noc-input" type="text" name="name" placeholder="Meal name" required>
+  <button type="submit" class="noc-btn noc-btn-secondary">Save</button>
+</form></details>"##,
+                    rows = rows,
+                    date = html_escape(date),
+                    key = key
+                )
             };
             format!(
                 r##"<div class="slot-group" id="slot-{key}">
@@ -1435,6 +1474,303 @@ async fn barcode_match(
     }
 }
 
+#[derive(Template)]
+#[template(path = "fitness/week.html")]
+struct WeekTemplate {
+    is_admin: bool,
+    range_label: String,
+    target_cal: String,
+    avg_cal: String,
+    bars_html: String,
+    protein_avg: String,
+    target_protein: String,
+    protein_hits: i64,
+    days_logged: i64,
+    streak: i64,
+    weight_card_html: String,
+    most_logged_html: String,
+}
+
+fn weight_card_html(latest: Option<(String, f64)>, series: &[(String, f64)]) -> String {
+    let (val, sub) = match &latest {
+        Some((date, kg)) => (format!("{:.1}", kg), format!("kg · {}", html_escape(date))),
+        None => ("—".to_string(), "no weight logged yet".to_string()),
+    };
+    let delta = if series.len() >= 2 {
+        let d = series.last().unwrap().1 - series.first().unwrap().1;
+        format!(
+            r#"<span class="weight-delta">{}{:.1} kg / 30 d</span>"#,
+            if d <= 0.0 { "−" } else { "+" },
+            d.abs()
+        )
+    } else {
+        String::new()
+    };
+    let line = if series.len() >= 2 {
+        let min = series.iter().map(|(_, k)| *k).fold(f64::INFINITY, f64::min);
+        let max = series
+            .iter()
+            .map(|(_, k)| *k)
+            .fold(f64::NEG_INFINITY, f64::max);
+        let span = (max - min).max(0.5);
+        let pts: Vec<String> = series
+            .iter()
+            .enumerate()
+            .map(|(i, (_, k))| {
+                let x = i as f64 / (series.len() - 1) as f64 * 320.0;
+                let y = 8.0 + (max - k) / span * 44.0;
+                format!("{:.0},{:.1}", x, y)
+            })
+            .collect();
+        format!(
+            r##"<svg viewBox="0 0 320 60" width="100%" height="60" preserveAspectRatio="none"><polyline points="{}" fill="none" stroke="#9184d9" stroke-width="2" stroke-linecap="round" style="filter:drop-shadow(0 0 5px rgba(145,132,217,.5))"></polyline></svg>"##,
+            pts.join(" ")
+        )
+    } else {
+        String::new()
+    };
+    format!(
+        r##"<div class="week-chart-head"><span class="noc-kicker">Weight</span>{delta}</div>
+<div class="weight-now"><span class="stat-big">{val}</span><span class="stat-sub">{sub}</span></div>
+{line}
+<form class="weight-form" hx-post="/api/nutrition/weights" hx-target="#weight-card" hx-swap="innerHTML">
+  <input class="noc-input" type="number" name="kg" step="0.1" min="20" max="400" placeholder="kg" required>
+  <button type="submit" class="noc-btn noc-btn-secondary">Log today's weight</button>
+</form>"##,
+        delta = delta,
+        val = val,
+        sub = sub,
+        line = line
+    )
+}
+
+async fn week_page(
+    AuthSession(_): AuthSession,
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    use chrono::{Duration, NaiveDate};
+    let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+    let targets = crate::db::get_targets(&state.pool).await;
+    let week = week_for(&state.pool, &today).await;
+    let start = week[0].0.clone();
+    let end = week[6].0.clone();
+
+    let logged: Vec<&(String, f64)> = week
+        .iter()
+        .filter(|(d, c)| *c > 0.0 && d.as_str() <= today.as_str())
+        .collect();
+    let avg_cal = if logged.is_empty() {
+        0.0
+    } else {
+        logged.iter().map(|(_, c)| c).sum::<f64>() / logged.len() as f64
+    };
+
+    let bars: String = week
+        .iter()
+        .map(|(d, c)| {
+            let pct = if targets.calories > 0.0 {
+                (c / targets.calories * 100.0).clamp(0.0, 112.0)
+            } else {
+                0.0
+            };
+            let cls = if *d == today {
+                "wk-bar today"
+            } else if d.as_str() > today.as_str() {
+                "wk-bar future"
+            } else {
+                "wk-bar"
+            };
+            format!(
+                r##"<a class="{cls}" href="/fitness?date={d}" style="--h:{pct:.0}%" aria-label="{d}"></a>"##,
+                cls = cls,
+                d = d,
+                pct = pct
+            )
+        })
+        .collect();
+    // the target line sits at 100/112 of the clamped bar scale — fixed in CSS (bottom: 89.3%)
+    let bars_html = format!(
+        r##"<div class="wk-chart"><div class="wk-target-line"></div>{bars}</div>
+<div class="wk-letters"><span>S</span><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span></div>"##,
+        bars = bars
+    );
+
+    let prot = crate::db::get_protein_by_date_range(&state.pool, &start, &end).await;
+    let protein_avg = if prot.is_empty() {
+        0.0
+    } else {
+        prot.iter().map(|(_, p)| p).sum::<f64>() / prot.len() as f64
+    };
+    let protein_hits = prot.iter().filter(|(_, p)| *p >= targets.protein).count() as i64;
+    let days_logged = logged.len() as i64;
+    let streak = compute_streak(
+        &crate::db::get_logged_dates_desc(&state.pool, 400).await,
+        &today,
+    );
+
+    let month_ago = NaiveDate::parse_from_str(&today, "%Y-%m-%d")
+        .map(|d| (d - Duration::days(30)).format("%Y-%m-%d").to_string())
+        .unwrap_or_default();
+    let weights = crate::db::get_weights_since(&state.pool, &month_ago).await;
+    let latest = crate::db::get_latest_weight(&state.pool).await;
+
+    let most = crate::db::get_most_logged_between(&state.pool, &start, &end, 5).await;
+    let most_logged_html: String = most
+        .iter()
+        .map(|(name, n)| {
+            format!(
+                r#"<div class="most-row"><span class="most-name">{}</span><span class="most-n">{}×</span></div>"#,
+                html_escape(name),
+                n
+            )
+        })
+        .collect();
+
+    let range_label = {
+        let s = NaiveDate::parse_from_str(&start, "%Y-%m-%d").unwrap();
+        let e = NaiveDate::parse_from_str(&end, "%Y-%m-%d").unwrap();
+        format!("{} – {}", s.format("%-d %b"), e.format("%-d %b"))
+    };
+
+    Html(
+        WeekTemplate {
+            is_admin: true,
+            range_label,
+            target_cal: format!("{:.0}", targets.calories),
+            avg_cal: format!("{:.0}", avg_cal),
+            bars_html,
+            protein_avg: format!("{:.0}", protein_avg),
+            target_protein: format!("{:.0} g", targets.protein),
+            protein_hits,
+            days_logged,
+            streak,
+            weight_card_html: weight_card_html(latest, &weights),
+            most_logged_html,
+        }
+        .render()
+        .unwrap(),
+    )
+}
+
+async fn log_weight_handler(
+    AuthSession(_): AuthSession,
+    State(state): State<Arc<AppState>>,
+    axum::Form(form): axum::Form<HashMap<String, String>>,
+) -> impl IntoResponse {
+    use chrono::{Duration, NaiveDate};
+    let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+    if let Some(kg) = form.get("kg").and_then(|v| v.parse::<f64>().ok()) {
+        if (20.0..=400.0).contains(&kg) {
+            crate::db::upsert_weight(&state.pool, &today, kg).await;
+        }
+    }
+    let month_ago = NaiveDate::parse_from_str(&today, "%Y-%m-%d")
+        .map(|d| (d - Duration::days(30)).format("%Y-%m-%d").to_string())
+        .unwrap_or_default();
+    let weights = crate::db::get_weights_since(&state.pool, &month_ago).await;
+    let latest = crate::db::get_latest_weight(&state.pool).await;
+    Html(weight_card_html(latest, &weights))
+}
+
+async fn create_recipe_handler(
+    AuthSession(_): AuthSession,
+    State(state): State<Arc<AppState>>,
+    axum::Form(form): axum::Form<HashMap<String, String>>,
+) -> impl IntoResponse {
+    let name = form.get("name").map(|s| s.trim()).unwrap_or("");
+    let date = form.get("date").cloned().unwrap_or_default();
+    let slot = form.get("slot").cloned().unwrap_or_default();
+    if !name.is_empty() {
+        crate::db::create_recipe_from_slot(&state.pool, name, &date, &slot).await;
+    }
+    let targets = crate::db::get_targets(&state.pool).await;
+    let entries = crate::db::get_meal_entries_for_date(&state.pool, &date).await;
+    let food_items = crate::db::get_food_items(&state.pool).await;
+    Html(day_section_html(
+        &entries,
+        &date,
+        &food_items,
+        &targets,
+        true,
+    ))
+}
+
+async fn log_recipe_handler(
+    AuthSession(_): AuthSession,
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<i64>,
+    axum::Form(form): axum::Form<HashMap<String, String>>,
+) -> impl IntoResponse {
+    let date = form
+        .get("date")
+        .cloned()
+        .unwrap_or_else(|| chrono::Utc::now().format("%Y-%m-%d").to_string());
+    let slot = form
+        .get("slot")
+        .cloned()
+        .unwrap_or_else(|| "other".to_string());
+    let slot = if SLOTS.iter().any(|(k, _)| *k == slot) {
+        slot
+    } else {
+        "other".to_string()
+    };
+    crate::db::log_recipe(&state.pool, id, &date, &slot).await;
+    let targets = crate::db::get_targets(&state.pool).await;
+    let entries = crate::db::get_meal_entries_for_date(&state.pool, &date).await;
+    let food_items = crate::db::get_food_items(&state.pool).await;
+    Html(day_section_html(
+        &entries,
+        &date,
+        &food_items,
+        &targets,
+        true,
+    ))
+}
+
+fn meals_pane_html(recipes: &[crate::models::RecipeWithTotals]) -> String {
+    let rows: String = recipes
+        .iter()
+        .map(|r| {
+            format!(
+                r##"<div class="meal-row">
+  <form hx-post="/api/nutrition/recipes/{id}/log" hx-target="#day-section" hx-swap="innerHTML" hx-on::after-request="closeAddSheet()">
+    <input type="hidden" name="date" value=""><input type="hidden" name="slot" value="other">
+    <button type="submit" class="noc-btn noc-btn-secondary meal-log-btn"><span>{name}</span><span class="meal-cal">{cal} cal</span></button>
+  </form>
+  <button class="food-delete-btn" hx-delete="/api/nutrition/recipes/{id}" hx-target="#sheet-meals .chips" hx-swap="innerHTML" hx-confirm="Delete this saved meal?">×</button>
+</div>"##,
+                id = r.id,
+                name = html_escape(&r.name),
+                cal = format!("{:.0}", r.total_cal)
+            )
+        })
+        .collect();
+    if rows.is_empty() {
+        "<p class=\"sheet-hint\">No saved meals yet — save a day's slot from the Today view.</p>"
+            .to_string()
+    } else {
+        rows
+    }
+}
+
+async fn meals_pane(
+    AuthSession(_): AuthSession,
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    let recipes = crate::db::get_recipes_with_totals(&state.pool).await;
+    Html(meals_pane_html(&recipes))
+}
+
+async fn delete_recipe_handler(
+    AuthSession(_): AuthSession,
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<i64>,
+) -> impl IntoResponse {
+    crate::db::delete_recipe(&state.pool, id).await;
+    let recipes = crate::db::get_recipes_with_totals(&state.pool).await;
+    Html(meals_pane_html(&recipes))
+}
+
 async fn toggle_favourite_handler(
     AuthSession(_): AuthSession,
     State(state): State<Arc<AppState>>,
@@ -1564,6 +1900,29 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_compute_streak() {
+        let d = |s: &str| s.to_string();
+        assert_eq!(compute_streak(&[], "2026-08-01"), 0);
+        assert_eq!(
+            compute_streak(
+                &[d("2026-08-01"), d("2026-07-31"), d("2026-07-30")],
+                "2026-08-01"
+            ),
+            3
+        );
+        // today not yet logged still counts yesterday's run
+        assert_eq!(
+            compute_streak(&[d("2026-07-31"), d("2026-07-30")], "2026-08-01"),
+            2
+        );
+        // gap breaks it
+        assert_eq!(
+            compute_streak(&[d("2026-08-01"), d("2026-07-29")], "2026-08-01"),
+            1
+        );
+    }
+
+    #[test]
     fn test_ring_offset_bounds() {
         // full ring left at zero consumed, empty at/beyond target
         assert!((ring_offset(0.0, 2400.0) - 263.9).abs() < 0.1);
@@ -1611,4 +1970,10 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/fitness/htmx/food-search", get(food_search))
         .route("/fitness/htmx/match-card/{id}", get(match_card))
         .route("/fitness/htmx/barcode-match/{code}", get(barcode_match))
+        .route("/fitness/week", get(week_page))
+        .route("/api/nutrition/weights", post(log_weight_handler))
+        .route("/api/nutrition/recipes", post(create_recipe_handler))
+        .route("/api/nutrition/recipes/{id}/log", post(log_recipe_handler))
+        .route("/api/nutrition/recipes/{id}", delete(delete_recipe_handler))
+        .route("/fitness/htmx/meals", get(meals_pane))
 }

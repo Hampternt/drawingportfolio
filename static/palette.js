@@ -36,6 +36,11 @@ const COMMANDS = [
     label: 'Go to Fitness Tracker',
     keywords: ['fitness', 'food', 'nutrition', 'calories', 'meals', 'health', 'tracker'],
     action() { location.href = '/fitness'; },
+  {
+    label: 'Go to Fitness Week',
+    keywords: ['week', 'trends', 'weight', 'streak', 'fitness'],
+    action() { location.href = '/fitness/week'; },
+  },
   },
   {
     label: 'Go to Hub',

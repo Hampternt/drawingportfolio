@@ -101,6 +101,14 @@ pub struct DrawingTaskWithImage {
 }
 
 #[derive(Debug, Clone)]
+pub struct RecipeWithTotals {
+    pub id: i64,
+    pub name: String,
+    pub item_count: i64,
+    pub total_cal: f64,
+}
+
+#[derive(Debug, Clone)]
 pub struct RecentFood {
     pub food_item_id: i64,
     pub name: String,

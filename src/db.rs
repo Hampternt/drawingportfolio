@@ -72,6 +72,11 @@ pub async fn run_migrations(pool: &DbPool) {
     let _ = sqlx::query(include_str!("../migrations/010_food_meta.sql"))
         .execute(pool)
         .await;
+
+    // Migration 011: weight log + saved meals (recipes)
+    let _ = sqlx::query(include_str!("../migrations/011_weights_recipes.sql"))
+        .execute(pool)
+        .await;
 }
 
 pub async fn get_posts(pool: &DbPool, page: i64) -> Vec<Post> {
@@ -516,6 +521,185 @@ pub async fn get_food_item_by_barcode(pool: &DbPool, barcode: &str) -> Option<Fo
     .await
     .ok()
     .flatten()
+}
+
+pub async fn upsert_weight(pool: &DbPool, date: &str, kg: f64) {
+    sqlx::query!(
+        "INSERT INTO weights (date, kg) VALUES (?, ?) ON CONFLICT(date) DO UPDATE SET kg = excluded.kg",
+        date,
+        kg
+    )
+    .execute(pool)
+    .await
+    .ok();
+}
+
+pub async fn get_weights_since(pool: &DbPool, start: &str) -> Vec<(String, f64)> {
+    sqlx::query!(
+        r#"SELECT date as "date!", kg as "kg!: f64" FROM weights WHERE date >= ? ORDER BY date ASC"#,
+        start
+    )
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default()
+    .into_iter()
+    .map(|r| (r.date, r.kg))
+    .collect()
+}
+
+pub async fn get_latest_weight(pool: &DbPool) -> Option<(String, f64)> {
+    sqlx::query!(
+        r#"SELECT date as "date!", kg as "kg!: f64" FROM weights ORDER BY date DESC LIMIT 1"#
+    )
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten()
+    .map(|r| (r.date, r.kg))
+}
+
+pub async fn get_protein_by_date_range(
+    pool: &DbPool,
+    start: &str,
+    end: &str,
+) -> Vec<(String, f64)> {
+    sqlx::query!(
+        r#"SELECT me.date as "date!", SUM(me.grams / 100.0 * fi.protein) as "protein!: f64"
+        FROM meal_entries me JOIN food_items fi ON fi.id = me.food_item_id
+        WHERE me.date >= ? AND me.date <= ?
+        GROUP BY me.date ORDER BY me.date ASC"#,
+        start,
+        end
+    )
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default()
+    .into_iter()
+    .map(|r| (r.date, r.protein))
+    .collect()
+}
+
+pub async fn get_logged_dates_desc(pool: &DbPool, limit: i64) -> Vec<String> {
+    sqlx::query!(
+        r#"SELECT DISTINCT date as "date!" FROM meal_entries ORDER BY date DESC LIMIT ?"#,
+        limit
+    )
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default()
+    .into_iter()
+    .map(|r| r.date)
+    .collect()
+}
+
+pub async fn get_most_logged_between(
+    pool: &DbPool,
+    start: &str,
+    end: &str,
+    limit: i64,
+) -> Vec<(String, i64)> {
+    // ORDER BY ordinal 2: the annotated count alias can't be named in ORDER BY
+    sqlx::query!(
+        r#"SELECT fi.name as "name!", COUNT(*) as "n!: i64"
+        FROM meal_entries me JOIN food_items fi ON fi.id = me.food_item_id
+        WHERE me.date >= ? AND me.date <= ?
+        GROUP BY me.food_item_id ORDER BY 2 DESC, fi.name ASC LIMIT ?"#,
+        start,
+        end,
+        limit
+    )
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default()
+    .into_iter()
+    .map(|r| (r.name, r.n))
+    .collect()
+}
+
+pub async fn create_recipe_from_slot(
+    pool: &DbPool,
+    name: &str,
+    date: &str,
+    slot: &str,
+) -> Option<i64> {
+    let mut tx = pool.begin().await.ok()?;
+    let rows = sqlx::query!(
+        "SELECT food_item_id, grams FROM meal_entries WHERE date = ? AND slot = ?",
+        date,
+        slot
+    )
+    .fetch_all(&mut *tx)
+    .await
+    .ok()?;
+    if rows.is_empty() {
+        return None;
+    }
+    let rid = sqlx::query!("INSERT INTO recipes (name) VALUES (?) RETURNING id", name)
+        .fetch_one(&mut *tx)
+        .await
+        .ok()?
+        .id;
+    for r in rows {
+        sqlx::query!(
+            "INSERT INTO recipe_items (recipe_id, food_item_id, grams) VALUES (?, ?, ?)",
+            rid,
+            r.food_item_id,
+            r.grams
+        )
+        .execute(&mut *tx)
+        .await
+        .ok()?;
+    }
+    tx.commit().await.ok()?;
+    Some(rid)
+}
+
+pub async fn get_recipes_with_totals(pool: &DbPool) -> Vec<crate::models::RecipeWithTotals> {
+    sqlx::query!(
+        r#"SELECT r.id as "id!", r.name as "name!",
+                  COUNT(ri.id) as "item_count!: i64",
+                  COALESCE(SUM(ri.grams / 100.0 * fi.calories), 0) as "total_cal!: f64"
+        FROM recipes r
+        LEFT JOIN recipe_items ri ON ri.recipe_id = r.id
+        LEFT JOIN food_items fi ON fi.id = ri.food_item_id
+        GROUP BY r.id ORDER BY r.name ASC"#
+    )
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default()
+    .into_iter()
+    .map(|r| crate::models::RecipeWithTotals {
+        id: r.id,
+        name: r.name,
+        item_count: r.item_count,
+        total_cal: r.total_cal,
+    })
+    .collect()
+}
+
+pub async fn log_recipe(pool: &DbPool, id: i64, date: &str, slot: &str) -> u64 {
+    sqlx::query!(
+        "INSERT INTO meal_entries (food_item_id, date, grams, slot)
+         SELECT food_item_id, ?, grams, ? FROM recipe_items WHERE recipe_id = ?",
+        date,
+        slot,
+        id
+    )
+    .execute(pool)
+    .await
+    .map(|r| r.rows_affected())
+    .unwrap_or(0)
+}
+
+pub async fn delete_recipe(pool: &DbPool, id: i64) {
+    sqlx::query!("DELETE FROM recipe_items WHERE recipe_id = ?", id)
+        .execute(pool)
+        .await
+        .ok();
+    sqlx::query!("DELETE FROM recipes WHERE id = ?", id)
+        .execute(pool)
+        .await
+        .ok();
 }
 
 pub async fn copy_day_entries(pool: &DbPool, from_date: &str, to_date: &str) -> u64 {
@@ -1358,6 +1542,82 @@ mod tests {
         assert!(get_food_item_by_barcode(&pool, "0000000000000")
             .await
             .is_none());
+    }
+
+    #[tokio::test]
+    async fn test_weight_upsert_and_range() {
+        let pool = test_pool().await;
+        upsert_weight(&pool, "2026-07-30", 82.7).await;
+        upsert_weight(&pool, "2026-07-31", 82.4).await;
+        upsert_weight(&pool, "2026-07-31", 82.5).await; // same-day overwrite
+        let all = get_weights_since(&pool, "2026-07-01").await;
+        assert_eq!(all.len(), 2);
+        assert_eq!(all[1], ("2026-07-31".to_string(), 82.5));
+        assert_eq!(
+            get_latest_weight(&pool).await,
+            Some(("2026-07-31".to_string(), 82.5))
+        );
+    }
+
+    #[tokio::test]
+    async fn test_recipe_create_and_log() {
+        let pool = test_pool().await;
+        let a = insert_food_item(
+            &pool, "Oats", "", None, 379.0, 13.0, 60.0, 6.5, 0.0, 0.0, 0.0, 0.0, None, "", "",
+        )
+        .await;
+        let b = insert_food_item(
+            &pool, "Skyr", "", None, 63.0, 11.0, 4.0, 0.2, 0.0, 0.0, 0.0, 0.0, None, "", "",
+        )
+        .await;
+        insert_meal_entry(&pool, a.id, "2026-07-31", 80.0, "breakfast")
+            .await
+            .unwrap();
+        insert_meal_entry(&pool, b.id, "2026-07-31", 250.0, "breakfast")
+            .await
+            .unwrap();
+        assert!(
+            create_recipe_from_slot(&pool, "Overnight oats", "2026-07-31", "dinner")
+                .await
+                .is_none()
+        ); // empty slot
+        let rid = create_recipe_from_slot(&pool, "Overnight oats", "2026-07-31", "breakfast")
+            .await
+            .unwrap();
+        let recipes = get_recipes_with_totals(&pool).await;
+        assert_eq!(recipes.len(), 1);
+        assert_eq!(recipes[0].item_count, 2);
+        assert!((recipes[0].total_cal - (379.0 * 0.8 + 63.0 * 2.5)).abs() < 0.1);
+        let inserted = log_recipe(&pool, rid, "2026-08-01", "snack").await;
+        assert_eq!(inserted, 2);
+        let entries = get_meal_entries_for_date(&pool, "2026-08-01").await;
+        assert!(entries.iter().all(|e| e.slot == "snack"));
+        delete_recipe(&pool, rid).await;
+        assert!(get_recipes_with_totals(&pool).await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_protein_range_and_logged_dates() {
+        let pool = test_pool().await;
+        let a = insert_food_item(
+            &pool, "Chicken", "", None, 165.0, 31.0, 0.0, 3.6, 0.0, 0.0, 0.0, 0.0, None, "", "",
+        )
+        .await;
+        insert_meal_entry(&pool, a.id, "2026-07-30", 200.0, "lunch")
+            .await
+            .unwrap();
+        insert_meal_entry(&pool, a.id, "2026-07-31", 100.0, "lunch")
+            .await
+            .unwrap();
+        let prot = get_protein_by_date_range(&pool, "2026-07-30", "2026-07-31").await;
+        assert_eq!(prot.len(), 2);
+        assert!((prot[0].1 - 62.0).abs() < 0.01);
+        assert_eq!(
+            get_logged_dates_desc(&pool, 10).await,
+            vec!["2026-07-31", "2026-07-30"]
+        );
+        let most = get_most_logged_between(&pool, "2026-07-27", "2026-08-02", 5).await;
+        assert_eq!(most[0], ("Chicken".to_string(), 2));
     }
 
     #[tokio::test]

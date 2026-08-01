@@ -17,6 +17,7 @@
     <button id="prev-day" class="btn-secondary" aria-label="Previous day">←</button>
     {{ week_strip_html|safe }}
     <button id="next-day" class="btn-secondary" aria-label="Next day">→</button>
+    <a class="noc-btn noc-btn-ghost" href="/fitness/week" aria-label="Week view">Week</a>
   </div>
 
   <!-- Day section: totals + meal log + log form (pre-rendered by Rust) -->
@@ -101,6 +102,7 @@
       <button class="noc-tag noc-tag-accent" data-tab="scan" onclick="sheetTab('scan')">Scan</button>
       <button class="noc-tag noc-tag-outline" data-tab="recent" onclick="sheetTab('recent')">Recent</button>
       <button class="noc-tag noc-tag-outline" data-tab="favs" onclick="sheetTab('favs')">Favourites</button>
+      <button class="noc-tag noc-tag-outline" data-tab="meals" onclick="sheetTab('meals')">Meals</button>
       <button class="noc-tag noc-tag-outline" data-tab="search" onclick="sheetTab('search')">Search</button>
     </div>
     <div id="sheet-scan" class="sheet-pane">
@@ -121,6 +123,11 @@
     <div id="sheet-favs" class="sheet-pane" hidden
          hx-get="/fitness/htmx/favourites" hx-trigger="sheet-open from:body" hx-target="find .chips" hx-swap="innerHTML">
       <div class="noc-kicker">Favourites</div>
+      <div class="chips"></div>
+    </div>
+    <div id="sheet-meals" class="sheet-pane" hidden
+         hx-get="/fitness/htmx/meals" hx-trigger="sheet-open from:body" hx-target="find .chips" hx-swap="innerHTML">
+      <div class="noc-kicker">Saved meals</div>
       <div class="chips"></div>
     </div>
     <div id="sheet-search" class="sheet-pane" hidden>
@@ -257,7 +264,7 @@ function closeAddSheet() {
 }
 
 function sheetTab(tab) {
-  ['scan', 'recent', 'favs', 'search'].forEach(t => {
+  ['scan', 'recent', 'favs', 'meals', 'search'].forEach(t => {
     document.getElementById('sheet-' + t).hidden = t !== tab;
     const btn = document.querySelector('#add-sheet [data-tab="' + t + '"]');
     btn.classList.toggle('noc-tag-accent', t === tab);
@@ -276,16 +283,19 @@ function pickPortion(btn) {
   });
 }
 
-// Fill date + clock slot into a freshly swapped match card
-function initMatchCard() {
-  const card = document.querySelector('#sheet-result form');
-  if (!card || card.dataset.init) return;
-  card.dataset.init = '1';
-  card.querySelector('[name="date"]').value = window.currentDate;
-  card.querySelector('[name="slot"]').value = defaultSlot();
-  paintSlotChips(card);
+// Fill date + clock slot into freshly swapped sheet forms (match card, meal rows)
+function initSheetForms() {
+  document.querySelectorAll('#add-sheet form').forEach(f => {
+    if (f.dataset.init) return;
+    f.dataset.init = '1';
+    const d = f.querySelector('[name="date"]');
+    if (d && !d.value) d.value = window.currentDate;
+    const sl = f.querySelector('[name="slot"]');
+    if (sl && sl.value === 'other') sl.value = defaultSlot();
+    if (f.querySelector('[data-slot]')) paintSlotChips(f);
+  });
 }
-document.body.addEventListener('htmx:afterSwap', initMatchCard);
+document.body.addEventListener('htmx:afterSwap', initSheetForms);
 
 // Called by barcode.js on every decoded barcode
 window.onBarcodeMatch = function (code) {
