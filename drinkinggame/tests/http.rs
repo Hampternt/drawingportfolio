@@ -2105,10 +2105,16 @@ async fn test_midgame_join_appends_to_order() {
         .id;
     assert!(st.order.contains(&carol_id));
 
-    // The join broadcasts a room refresh (as always) — observe it on the SSE
-    // stream to prove the mid-game join hook actually ran, not just the DB.
-    let frame = String::from_utf8(sse_body.next().await.unwrap().unwrap().to_vec()).unwrap();
-    assert!(frame.contains("event: room"));
+    // broadcast_room fires on every room-page join regardless of game state,
+    // so it alone wouldn't prove the mid-game join hook ran — but
+    // broadcast_game only fires when the hook actually appended a new
+    // player to a running 3 Man's order, so that's the frame that proves it.
+    // The handler emits them in that order (room, then game) while still
+    // holding the room lock.
+    let room_frame = String::from_utf8(sse_body.next().await.unwrap().unwrap().to_vec()).unwrap();
+    assert!(room_frame.contains("event: room"));
+    let game_frame = String::from_utf8(sse_body.next().await.unwrap().unwrap().to_vec()).unwrap();
+    assert!(game_frame.contains("event: game"));
 }
 
 #[tokio::test]

@@ -168,29 +168,36 @@ async fn room_page(
 
     // Mid-game join: a running 3 Man round tracks seating in its own
     // `order` field (not just room_players), so a newcomer needs appending
-    // there too or they'd never get a turn. Locked so this reload can't
-    // race an action handler's own load -> mutate -> persist.
-    let mut tm_joined = false;
+    // there too or they'd never get a turn. Locked across load -> mutate ->
+    // persist -> broadcast, the same discipline every `/tm/*` action
+    // handler uses — releasing the lock before broadcasting would let a
+    // concurrent action handler's broadcast land first, leaving this
+    // request's now-stale render as the last word on every client's screen.
     {
         let lock = state.locks.for_room(room.id);
         let _guard = lock.lock().await;
+        let mut tm_joined = false;
         if let Some(game) = db::get_active_game(&state.pool, room.id).await {
             if game.kind == "three_man" {
                 let mut st = crate::three_man::ThreeManState::from_json(
                     game.state_json.as_deref().unwrap_or_default(),
                 );
-                st.add_player(player.id);
-                db::set_game_state(&state.pool, game.id, &st.to_json()).await;
-                tm_joined = true;
+                // Already seated (a revisit, not a fresh join): skip the
+                // rewrite and the extra broadcast — an unchanged order needs
+                // neither.
+                if !st.order.contains(&player.id) {
+                    st.add_player(player.id);
+                    db::set_game_state(&state.pool, game.id, &st.to_json()).await;
+                    tm_joined = true;
+                }
             }
         }
-    }
-
-    // New members appear on everyone's ROOM tab without waiting for the
-    // next unrelated event.
-    crate::game::broadcast_room(&state, room.id, &code).await;
-    if tm_joined {
-        crate::game::broadcast_game(&state, room.id, &code, None).await;
+        // New members appear on everyone's ROOM tab without waiting for the
+        // next unrelated event.
+        crate::game::broadcast_room(&state, room.id, &code).await;
+        if tm_joined {
+            crate::game::broadcast_game(&state, room.id, &code, None).await;
+        }
     }
     let rows = db::leaderboard(&state.pool, room.id).await;
     let game_panel = crate::game::current_panel(&state, room.id, &code, None).await;
