@@ -10,3 +10,6 @@ drinkinggame.db*
 
 # Claude Code worktrees are local scratch, never content
 .claude/worktrees/
+
+# Personal permission allowlist, not shared config
+.claude/settings.local.json

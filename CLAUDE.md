@@ -5,6 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 ```bash
+./scripts/verify.sh    # the gate: fmt + clippy + tests + JS syntax — run this before claiming done
 cargo build            # debug build
 cargo build --release  # release build
 cargo run              # run dev server on :3000
@@ -19,7 +20,9 @@ When building without a live database (e.g. on the server): `SQLX_OFFLINE=true c
 
 The repo is a cargo workspace — `cargo build` / `cargo test` at the root cover both the `drawingportfolio` binary and the `drinkinggame` crate. `cargo run -p drinkinggame` serves the drinking game standalone on `:3001` (no portfolio, no nginx).
 
-Tests live in `src/db.rs`, `src/routes/feed.rs`, and `src/routes/admin.rs` (portfolio, 34 tests). The `drinkinggame` crate has its own, larger suite: unit tests across `drinkinggame/src/*.rs` (rooms, db, rules, hub, render, `three_man.rs` state machine — 100 tests) plus integration tests in `drinkinggame/tests/http.rs` (77 tests) covering both games' routes end to end.
+`./scripts/verify.sh` is the single acceptance gate — `cargo fmt --check`, `cargo clippy`, the workspace test suite, and `node --check` over `static/*.js` (a nested palette entry broke `palette.js` once; nothing else catches JS syntax). It runs clippy *without* `-D warnings` because the tree carries 19 pre-existing warnings; promote it once that reaches zero.
+
+Tests live in `src/db.rs`, `src/routes/feed.rs`, and `src/routes/admin.rs` (portfolio, 48 tests) plus `tests/static_assets.rs` (4 tests — guards `static/*.css` against nested `/* */` comment markers, which browsers resolve by silently dropping the next rule). The `drinkinggame` crate has its own, larger suite: unit tests across `drinkinggame/src/*.rs` (rooms, db, rules, hub, render, `three_man.rs` state machine — 100 tests) plus integration tests in `drinkinggame/tests/http.rs` (77 tests) covering both games' routes end to end.
 
 ## Environment
 
@@ -74,11 +77,15 @@ Single Rust/Axum binary with server-side rendering via Askama templates + HTMX f
 - **chrono** is pinned to `0.4.34` — `0.4.35+` renames `Duration` to `TimeDelta` (breaking change)
 - **Nutrition dates/timezones:** server "today" is UTC (`Utc::now()`), meal-slot defaults come from the browser clock, and the day-step arrows format dates from local parts (never `toISOString()`, which is UTC and skips days east of UTC). For a UTC+2 user, logs between 00:00–02:00 local land on the previous UTC date — accepted single-user trade-off.
 - **Nutrition tracker:** Session-gated (`AuthSession` on every route — no longer public). UI is the Nocturne dark theme: tokens live under `body.fitness-dark` in `style.css` (`--noc-*` variables, `.noc-*` primitives); design reference and decisions in `docs/design/fitness-redesign/`. The `fitness-dark` body class is re-derived across hx-boost navigations by an inline script in `base.html`/`admin.html` (hx-boost swaps body children, not attributes). Barcode scanning via native `BarcodeDetector` + OpenFoodFacts: a known barcode opens a one-tap log card in the add sheet; unknown ones prefill the add-food form (`openOffLookup` in `barcode.js`).
-- **Tests:** `src/db.rs` holds the db-layer tests (nutrition CRUD, slots, targets, ranges, recipes, weights) and `src/routes/nutrition.rs` has unit tests for the ring/rail math and streak logic — 48 tests total across the workspace.
+- **Tests:** `src/db.rs` holds the db-layer tests (nutrition CRUD, slots, targets, ranges, recipes, weights) and `src/routes/nutrition.rs` has unit tests for the ring/rail math and streak logic — 229 tests across the workspace.
 
 ## Architecture Rules
 
 See `docs/design.md` for the human-readable design guide. Rules Claude must follow:
+
+**Writing or executing a plan**
+- Invoke the project skill `plan-economics` **before** writing a spec into a plan or starting subagent-driven-development. It sets plan sizing (one plan = one session = one deployable slice), delegates plan writing and design ingestion to subagents, and defines the per-task risk classes that decide which tasks get an LLM review. It overrides parts of `superpowers:writing-plans` and `superpowers:subagent-driven-development` — the overrides are named in the skill.
+- Plan shape: `docs/superpowers/plan-template.md`. Every task carries a class and one acceptance line (`./scripts/verify.sh`).
 
 **Templates**
 - Every user-facing page must extend `base.html`. Exception: `admin.html` is standalone — when adding any new global feature (script, style, header element), update **both** `base.html` and `admin.html`.
