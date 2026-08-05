@@ -6,8 +6,15 @@
 
 window.barcodeStream = null;
 window.barcodeAnimFrame = null;
+// Bumped on every stop/start: an in-flight getUserMedia or detect() that
+// resolves after its session ended must not touch the camera or reschedule,
+// otherwise a stale start leaks a live camera track and the next open fails
+// until the page is reloaded.
+window.barcodeSession = window.barcodeSession || 0;
 
 async function startBarcodeScanner() {
+  stopBarcodeScanner();
+  const session = ++window.barcodeSession;
   const status = document.getElementById('scan-status');
   if (!('BarcodeDetector' in window)) {
     status.textContent = 'Camera scanning not supported here — enter the code below.';
@@ -16,42 +23,56 @@ async function startBarcodeScanner() {
   }
   status.textContent = 'Hold the barcode inside the frame';
   try {
-    barcodeStream = await navigator.mediaDevices.getUserMedia({
+    const stream = await navigator.mediaDevices.getUserMedia({
       video: { facingMode: 'environment' }
     });
+    if (session !== window.barcodeSession) {
+      stream.getTracks().forEach(t => t.stop());
+      return;
+    }
+    window.barcodeStream = stream;
     const video = document.getElementById('barcode-video');
-    video.srcObject = barcodeStream;
+    video.srcObject = stream;
+    // autoplay is only honored reliably on the element's first use
+    await video.play();
     const detector = new BarcodeDetector({
       formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39']
     });
     async function detect() {
+      if (session !== window.barcodeSession) return;
       try {
         const codes = await detector.detect(video);
+        if (session !== window.barcodeSession) return;
         if (codes.length > 0) {
           stopBarcodeScanner();
           window.onBarcodeMatch(codes[0].rawValue);
         } else {
-          barcodeAnimFrame = requestAnimationFrame(detect);
+          window.barcodeAnimFrame = requestAnimationFrame(detect);
         }
       } catch {
-        barcodeAnimFrame = requestAnimationFrame(detect);
+        window.barcodeAnimFrame = requestAnimationFrame(detect);
       }
     }
-    barcodeAnimFrame = requestAnimationFrame(detect);
+    window.barcodeAnimFrame = requestAnimationFrame(detect);
   } catch (err) {
-    status.textContent = 'Camera error: ' + err.message + ' — enter the code below.';
+    if (session === window.barcodeSession) {
+      status.textContent = 'Camera error: ' + err.message + ' — enter the code below.';
+    }
   }
 }
 
 function stopBarcodeScanner() {
-  if (barcodeStream) {
-    barcodeStream.getTracks().forEach(t => t.stop());
-    barcodeStream = null;
+  window.barcodeSession++;
+  if (window.barcodeStream) {
+    window.barcodeStream.getTracks().forEach(t => t.stop());
+    window.barcodeStream = null;
   }
-  if (barcodeAnimFrame) {
-    cancelAnimationFrame(barcodeAnimFrame);
-    barcodeAnimFrame = null;
+  if (window.barcodeAnimFrame) {
+    cancelAnimationFrame(window.barcodeAnimFrame);
+    window.barcodeAnimFrame = null;
   }
+  const video = document.getElementById('barcode-video');
+  if (video) video.srcObject = null;
 }
 
 function lookupManualBarcode() {
