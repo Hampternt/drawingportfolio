@@ -356,6 +356,14 @@ document.addEventListener('DOMContentLoaded', initQuickAdd);
 // not stack duplicates (CLAUDE.md hx-boost rule).
 if (!window.__fitnessBound) {
   window.__fitnessBound = true;
+  // hx-boost swaps the body without unloading the page — stop a live camera
+  // before navigating away (body target only: fragment swaps like the
+  // week-strip refresh must not kill an active scan)
+  document.body.addEventListener('htmx:beforeSwap', e => {
+    if (e.target === document.body && typeof stopBarcodeScanner === 'function') {
+      stopBarcodeScanner();
+    }
+  });
   document.body.addEventListener('htmx:afterSwap', e => {
     initSlotDefault();
     initSheetForms();

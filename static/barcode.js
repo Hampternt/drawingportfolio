@@ -4,6 +4,10 @@
 // back to openOffLookup() below, which prefills the add-food form.
 // Security: all data from the external API is set via .value = (not innerHTML).
 
+// hx-boost navigation re-executes this script — stop any stream a previous
+// execution left live before clobbering the handle, or the track is orphaned
+// and holds the camera until the tab closes.
+if (window.barcodeStream) window.barcodeStream.getTracks().forEach(t => t.stop());
 window.barcodeStream = null;
 window.barcodeAnimFrame = null;
 // Bumped on every stop/start: an in-flight getUserMedia or detect() that
@@ -35,6 +39,7 @@ async function startBarcodeScanner() {
     video.srcObject = stream;
     // autoplay is only honored reliably on the element's first use
     await video.play();
+    if (session !== window.barcodeSession) return;
     const detector = new BarcodeDetector({
       formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39']
     });
