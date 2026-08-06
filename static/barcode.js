@@ -37,8 +37,15 @@ async function startBarcodeScanner() {
     window.barcodeStream = stream;
     const video = document.getElementById('barcode-video');
     video.srcObject = stream;
-    // autoplay is only honored reliably on the element's first use
-    await video.play();
+    // autoplay is only honored reliably on the element's first use. A stop
+    // during playback rejects with AbortError — that is an ordinary teardown,
+    // not a camera failure, so it must not reach the catch below and paint
+    // "Camera error" over the status line. The session check handles it.
+    try {
+      await video.play();
+    } catch {
+      /* fall through to the session check */
+    }
     if (session !== window.barcodeSession) return;
     const detector = new BarcodeDetector({
       formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39']
@@ -55,6 +62,10 @@ async function startBarcodeScanner() {
           window.barcodeAnimFrame = requestAnimationFrame(detect);
         }
       } catch {
+        // A detect() that throws after teardown must not re-arm the loop —
+        // the entry guard above only runs on the next frame, by which point
+        // the handle has already been written over a stopped session.
+        if (session !== window.barcodeSession) return;
         window.barcodeAnimFrame = requestAnimationFrame(detect);
       }
     }
@@ -76,8 +87,14 @@ function stopBarcodeScanner() {
     cancelAnimationFrame(window.barcodeAnimFrame);
     window.barcodeAnimFrame = null;
   }
+  // Clearing srcObject alone leaves the element playing out its dead stream;
+  // pause first so the next open starts from a stopped element rather than
+  // resuming into a frozen last frame.
   const video = document.getElementById('barcode-video');
-  if (video) video.srcObject = null;
+  if (video && video.srcObject) {
+    video.pause();
+    video.srcObject = null;
+  }
 }
 
 function lookupManualBarcode() {
