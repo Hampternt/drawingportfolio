@@ -115,7 +115,7 @@
     </div>
     <div id="sheet-scan" class="sheet-pane">
       <div id="barcode-scanner-frame">
-        <video id="barcode-video" autoplay playsinline></video>
+        <video id="barcode-video" autoplay muted playsinline></video>
         <p id="scan-status">Hold the barcode inside the frame</p>
       </div>
       <div id="manual-barcode">
@@ -356,6 +356,14 @@ document.addEventListener('DOMContentLoaded', initQuickAdd);
 // not stack duplicates (CLAUDE.md hx-boost rule).
 if (!window.__fitnessBound) {
   window.__fitnessBound = true;
+  // hx-boost swaps the body without unloading the page — stop a live camera
+  // before navigating away (body target only: fragment swaps like the
+  // week-strip refresh must not kill an active scan)
+  document.body.addEventListener('htmx:beforeSwap', e => {
+    if (e.target === document.body && typeof stopBarcodeScanner === 'function') {
+      stopBarcodeScanner();
+    }
+  });
   document.body.addEventListener('htmx:afterSwap', e => {
     initSlotDefault();
     initSheetForms();
