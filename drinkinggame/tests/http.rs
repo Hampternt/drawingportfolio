@@ -3010,3 +3010,121 @@ async fn test_rename_after_game_over_does_not_clobber_the_summary() {
     assert!(!seen.contains("event: game"), "{seen}");
     assert!(!seen.contains("event: screen"), "{seen}");
 }
+
+// ---------------------------------------------------------------------
+// Last Call — Plan A-vis Task 2: GET /lastcall/preview
+// ---------------------------------------------------------------------
+
+/// finding: `boundary_cards()` exists precisely because the catalog cannot
+/// sit exactly on the §7.5 thresholds — a mis-typed fixture that quietly
+/// lands on the wrong side of a threshold makes the whole boundary group
+/// meaningless, so the fixtures themselves are pinned here rather than
+/// trusted.
+#[test]
+fn test_boundary_cards_hit_their_boundaries() {
+    let cards: std::collections::HashMap<&str, drinkinggame::last_call::Card> =
+        drinkinggame::lc_preview::boundary_cards()
+            .into_iter()
+            .collect();
+
+    assert_eq!(cards["Title — 14 chars"].title.chars().count(), 14);
+    assert_eq!(cards["Title — 15 chars"].title.chars().count(), 15);
+    assert_eq!(cards["Title — 24 chars"].title.chars().count(), 24);
+    assert_eq!(cards["Title — 25 chars"].title.chars().count(), 25);
+
+    assert_eq!(cards["Body — 108 chars"].text.chars().count(), 108);
+    assert_eq!(cards["Body — 109 chars"].text.chars().count(), 109);
+
+    assert_eq!(cards["Keywords — 0"].keywords.len(), 0);
+    assert_eq!(cards["Keywords — 3"].keywords.len(), 3);
+    assert_eq!(cards["Keywords — 6"].keywords.len(), 6);
+}
+
+#[tokio::test]
+async fn test_preview_page_is_public() {
+    // No login anywhere in this test — that absence is itself the assertion
+    // that the route is unguarded, unlike its /presets neighbours.
+    let app = test_app_with_base("/drinks").await;
+    let res = get(&app, "/lastcall/preview").await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let html = body_string(res).await;
+    assert!(html.contains(r#"href="/drinks/assets/lastcall.css""#));
+    assert!(html.contains(r#"src="/drinks/assets/lc_motion.js""#));
+}
+
+#[tokio::test]
+async fn test_preview_renders_five_primitives_in_five_decks() {
+    let app = test_app().await;
+    let html = body_string(get(&app, "/lastcall/preview").await).await;
+
+    for slug in ["beer", "cider", "wine", "liquor", "soft"] {
+        assert!(html.contains(&format!("lc-deck-{slug}")), "missing {slug}");
+    }
+    for needle in ["lc-cardface", "lc-pip", "lc-mini", "lc-back", "lc-dot"] {
+        assert!(html.contains(needle), "missing {needle}");
+    }
+    assert!(
+        html.matches("lc-cardface").count() >= 5,
+        "expected at least 5 lc-cardface, got {}",
+        html.matches("lc-cardface").count()
+    );
+    for size in ["strip", "flight", "pile", "stack"] {
+        assert!(
+            html.contains(&format!(r#"data-size="{size}""#)),
+            "missing data-size=\"{size}\""
+        );
+    }
+}
+
+#[tokio::test]
+async fn test_preview_shows_every_title_ramp_step() {
+    let app = test_app().await;
+    let html = body_string(get(&app, "/lastcall/preview").await).await;
+    assert!(html.contains("lc-title-lg"));
+    assert!(html.contains("lc-title-md"));
+    assert!(html.contains("lc-title-sm"));
+}
+
+#[tokio::test]
+async fn test_preview_shows_truncation_and_expansion() {
+    let app = test_app().await;
+    let html = body_string(get(&app, "/lastcall/preview").await).await;
+    assert!(html.contains("data-expandable"));
+    assert!(html.contains("lc-kw-more"));
+    assert!(html.contains("+3"));
+    assert!(html.contains("lc-cardface-expanded"));
+}
+
+#[tokio::test]
+async fn test_preview_shows_every_cost_pip() {
+    let app = test_app().await;
+    let html = body_string(get(&app, "/lastcall/preview").await).await;
+    for cost in ["1", "2", "3"] {
+        let needle = format!(r#"data-cost="{cost}""#);
+        let count = html.matches(&needle).count();
+        assert!(count >= 5, "expected >= 5 {needle}, got {count}");
+    }
+}
+
+#[tokio::test]
+async fn test_preview_has_no_style_element_and_no_behaviour() {
+    let app = test_app().await;
+    let html = body_string(get(&app, "/lastcall/preview").await).await;
+    assert!(!html.contains("<style"));
+    for banned in ["hx-post", "hx-get", "onclick"] {
+        assert!(!html.contains(banned), "found forbidden `{banned}`");
+    }
+    // Inline style="--dx:…" custom-property attributes are expected on Task
+    // 3's at-rest flight sample; a `style=` attribute containing a literal
+    // `#` (a hex colour) is not — colour comes from the stylesheet, only
+    // positions/durations may come from custom properties.
+    for (i, _) in html.match_indices("style=\"") {
+        let rest = &html[i..];
+        let end = rest[7..].find('"').map(|e| e + 7).unwrap_or(rest.len());
+        let value = &rest[..end];
+        assert!(
+            !value.contains('#'),
+            "style attribute contains a hex colour: {value}"
+        );
+    }
+}

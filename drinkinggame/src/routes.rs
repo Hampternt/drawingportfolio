@@ -750,6 +750,7 @@ pub fn router() -> Router<GameState> {
         .route("/assets/lc_motion.js", get(lc_motion_js))
         .route("/assets/fonts/{name}", get(font_asset))
         .route("/assets/sounds/{name}", get(sound_asset))
+        .route("/lastcall/preview", get(crate::lc_preview::preview_page))
         .route(
             "/presets",
             get(crate::presets::presets_page).post(crate::presets::create_preset),

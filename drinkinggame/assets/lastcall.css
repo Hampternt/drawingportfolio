@@ -472,3 +472,43 @@ body.lc { margin: 0; min-height: 100vh; display: flex; flex-direction: column;
   .lc-timer { transform: scaleX(0); }
   .lc-cardface, .lc-btn { transition: none; }
 }
+
+/* preview page (Plan A-vis Task 2) — a permanent style guide, not a shell
+   screen. body.lc supplies the ground/colour/font scaffolding shared with
+   every other Last Call page; everything here is page layout only, built
+   entirely from the tokens above — no new colours. */
+.lc-preview-head { max-width: 1100px; margin: 0 auto; padding: 32px 20px 8px; }
+.lc-preview-head h1 { font-family: var(--font-display); font-weight: 900; font-size: 28px;
+                       letter-spacing: -.02em; color: var(--lc-text); }
+.lc-preview-head p { margin-top: 10px; font-size: 14px; line-height: 1.5;
+                      color: var(--lc-secondary); max-width: 640px; }
+
+.lc-preview-nav { max-width: 1100px; margin: 0 auto; padding: 4px 20px 24px;
+                   display: flex; flex-wrap: wrap; gap: 10px 16px;
+                   border-bottom: 1px solid var(--lc-hair); }
+.lc-preview-nav a { font-family: var(--font-ui); font-weight: 700; font-size: 12px;
+                     letter-spacing: .04em; text-transform: uppercase;
+                     color: var(--lc-label); text-decoration: none; }
+.lc-preview-nav a:hover { color: var(--lc-text); }
+
+.lc-preview-group { max-width: 1100px; margin: 0 auto; padding: 32px 20px;
+                     border-bottom: 1px solid var(--lc-hair); }
+.lc-preview-group h2 { font-family: var(--font-display); font-weight: 900; font-size: 20px;
+                        color: var(--lc-text); }
+.lc-preview-note { margin-top: 6px; font-size: 13px; line-height: 1.5;
+                    color: var(--lc-faint); max-width: 720px; }
+.lc-preview-body { margin-top: 20px; display: flex; flex-direction: column; gap: 24px; }
+
+.lc-preview-row { display: flex; flex-direction: column; gap: 12px; }
+.lc-preview-subhead { font-family: var(--font-ui); font-weight: 700; font-size: 11px;
+                       letter-spacing: .1em; text-transform: uppercase; color: var(--lc-label); }
+.lc-preview-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+                    gap: 14px; }
+
+.lc-preview-swatch { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+.lc-preview-sample { display: flex; align-items: center; }
+.lc-preview-caption { font-family: var(--font-mono); font-size: 11px; color: var(--lc-label); }
+
+/* Step 4's clamped/expanded pairing — the clamped card_face beside its
+   card_face_expanded twin, so what the clamp lost is visible, not asserted. */
+.lc-preview-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; align-items: start; }
