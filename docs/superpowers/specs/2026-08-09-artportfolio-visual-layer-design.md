@@ -11,14 +11,26 @@ reference, not authority. Two places where they disagree are resolved in
 "Handoff corrections" below.
 
 The design system itself is committed at
-`docs/design/artportfolio-redesign/_ds/hampter-design-system-.../` (fonts excluded —
-they are byte-identical duplicates of `drinkinggame/assets/fonts/`).
+`docs/design/artportfolio-redesign/_ds/hampter-design-system-.../`, complete with its
+nine woff2 faces, so the previews render in the real type.
 
-Opening `ArtPortfolioFeed.dc.html` in a browser renders it in fallback faces: the file
-declares `font-family:'Archivo',system-ui,sans-serif` but ships no `@font-face` rule and
-never references `assets/fonts/`, so the woff2 files would not change its rendering
-whether present or not. Type is therefore specified by the README's tables, not by what
-the preview displays.
+The fonts are needed even though they duplicate `drinkinggame/assets/fonts/` byte for
+byte. `ArtPortfolioFeed.dc.html` declares no `@font-face` of its own and appears to
+have no font dependency, but it loads `ds-base.js`, which injects
+`_ds/<folder>/styles.css` at runtime; that file's first line is
+`@import url("tokens/fonts.css")`, and `tokens/fonts.css` declares nine `@font-face`
+rules pointing at `../assets/fonts/*.woff2`. Drop the directory and all nine 404, and
+the previews silently fall back to the `system-ui` in
+`font-family:'Archivo',system-ui,sans-serif` — which matters because the handoff's
+instruction is to recreate its type "exactly; do not approximate". Anyone measuring
+tracking or metrics against a fallback-rendered preview would be measuring the wrong
+face.
+
+Repointing `src:url()` at `drinkinggame/assets/fonts/` would save the 124 KB, but it
+would edit a vendored artifact and hard-code a six-level relative path from `docs/`
+into the drinking-game crate — a silent break the first time either directory moves.
+Keeping the bundle self-contained also matches `docs/design/last-call/`, which retains
+its own copy.
 
 ## Goal
 
