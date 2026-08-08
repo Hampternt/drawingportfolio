@@ -9,6 +9,7 @@ pub mod game;
 pub mod hub;
 pub mod last_call;
 pub mod lc_cards;
+pub mod lc_render;
 pub mod mechanics;
 pub mod models;
 pub mod presets;
