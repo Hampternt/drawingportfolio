@@ -326,7 +326,8 @@ button:active { transform: scale(.97); }
                                                 color: var(--lc-amber); }
 
 /* plaque states — idle is the base. locked/drawing/hit/eliminated layer on.
-   The animations for is-hit and is-drawing are authored in Plan A-vis. */
+   The animations for is-hit and is-drawing are authored in Plan A-vis's
+   motion section below (.lc-plaque.is-hit / .is-drawing rules). */
 .lc-lock-tick { color: var(--lc-violet); font-size: 13px; margin-left: 6px; }
 .lc-plaque:not(.is-locked) .lc-lock-tick { display: none; }
 .lc-plaque.is-eliminated { opacity: .4; }
@@ -348,10 +349,11 @@ body.lc { margin: 0; min-height: 100vh; display: flex; flex-direction: column;
 .lc-banner-meta { font-family: var(--font-ui); font-weight: 700; font-size: 10px;
                   letter-spacing: .13em; text-transform: uppercase; color: var(--lc-label); }
 /* #lc-beat-timer / .lc-timer: this slice's beat_timer() emits the id, class,
-   data-duration-ms/data-elapsed-ms and the --lc-beat-ms custom property, but
-   deliberately no rule here — height, transform-origin, background and the
+   data-duration-ms/data-elapsed-ms and the --lc-beat-ms custom property.
+   height, transform-origin, background and the
    `animation: lc-timer var(--lc-beat-ms, 60s) …` keyframe are authored in
-   Plan A-vis, same deferral as is-hit/is-drawing above. */
+   Plan A-vis's motion section below (.lc-timer rules), same as is-hit/is-drawing
+   above. */
 .lc-tabs { padding: 0 18px; display: flex; border-bottom: 1px solid var(--lc-hair); }
 .lc-tab { background: none; border: 0; padding: 9px 14px 8px; cursor: pointer;
           font-family: var(--font-display); font-weight: 800; font-size: 11px;
@@ -394,3 +396,79 @@ body.lc { margin: 0; min-height: 100vh; display: flex; flex-direction: column;
             padding: 8px 14px; font-size: 13px; cursor: pointer; }
 .lc-setup-row { display: flex; align-items: center; gap: 8px; font-size: 13px;
                 color: var(--lc-body); }
+
+/* motion — flights. lc-fly and lc-dot are verbatim from the design bundle. */
+@keyframes lc-fly {                     /* big screen, 6s cycle */
+  0%   { opacity: 0; transform: translate(0,0) scale(.5); }
+  3%   { opacity: 1; transform: translate(0,0) scale(.85); }
+  22%  { opacity: 1; transform: translate(var(--dx), var(--dy)) scale(1); }
+  27%  { opacity: 0; transform: translate(var(--dx), var(--dy)) scale(.92); }
+  100% { opacity: 0; transform: translate(var(--dx), var(--dy)) scale(.92); }
+}
+@keyframes lc-dot {                     /* phone mini-table, 4.4s cycle */
+  0%   { opacity: 0; transform: translate(0,0) scale(.6); }
+  8%   { opacity: 1; transform: translate(0,0) scale(1); }
+  46%  { opacity: 1; transform: translate(var(--dx), var(--dy)) scale(1); }
+  54%  { opacity: 0; transform: translate(var(--dx), var(--dy)) scale(.6); }
+  100% { opacity: 0; transform: translate(var(--dx), var(--dy)) scale(.6); }
+}
+
+.lc-flight {
+  position: absolute; top: 0; left: 0; pointer-events: none;
+  background: var(--lc-fill, var(--lc-body));
+  animation-duration: 6s; animation-timing-function: linear;
+  animation-fill-mode: forwards; animation-iteration-count: 1;
+}
+.lc-flight[data-scale="card"] { width: 44px; height: 62px; border-radius: 3px;
+                                animation-name: lc-fly; }
+.lc-flight[data-scale="dot"]  { width: 8px;  height: 8px;  border-radius: 50%;
+                                animation-duration: 4.4s; animation-name: lc-dot; }
+
+/* motion — state changes. Named in the bundle as prose only; authored here. */
+@keyframes lc-shake {                   /* plaque hit — 4px horizontal, 190ms */
+  0%, 100% { transform: translateX(0); }
+  20%  { transform: translateX(-4px); }
+  45%  { transform: translateX(4px); }
+  70%  { transform: translateX(-2px); }
+  90%  { transform: translateX(2px); }
+}
+@keyframes lc-hp-flash {                /* HP to rose and back */
+  0%   { color: var(--lc-text); }
+  15%  { color: var(--lc-rose); }
+  60%  { color: var(--lc-rose); }
+  100% { color: var(--lc-text); }
+}
+@keyframes lc-pulse {                   /* deck rule, while that player draws */
+  0%, 100% { opacity: 1; }
+  50%      { opacity: .45; }
+}
+@keyframes lc-banner {                  /* beat-name cross-fade, 280ms */
+  0%   { opacity: 0; transform: translateY(4px); }
+  100% { opacity: 1; transform: none; }
+}
+@keyframes lc-timer {                   /* beat rail filling down */
+  from { transform: scaleX(1); }
+  to   { transform: scaleX(0); }
+}
+
+.lc-plaque.is-hit            { animation: lc-shake 190ms var(--lc-ease) 1; }
+.lc-plaque.is-hit .lc-hp     { animation: lc-hp-flash 560ms var(--lc-ease) 1; }
+.lc-plaque.is-drawing .lc-rule { animation: lc-pulse 900ms var(--lc-ease) infinite; }
+.lc-banner-beat              { animation: lc-banner 280ms var(--lc-ease) 1; }
+.lc-timer {
+  height: 2px; transform-origin: left center;
+  background: var(--lc-beat, var(--lc-amber));
+  animation: lc-timer var(--lc-beat-ms, 60s) linear 1 forwards;
+}
+.lc-timer.is-urgent { background: var(--lc-rose); }
+
+@media (prefers-reduced-motion: reduce) {
+  /* Stop the flights and hold them at rest opacity — an attribute selector on
+     the animation name, as the bundle does. */
+  .lc-flight { animation: none !important; opacity: 0; }
+  .lc-plaque.is-hit, .lc-plaque.is-hit .lc-hp,
+  .lc-plaque.is-drawing .lc-rule,
+  .lc-banner-beat, .lc-timer { animation: none !important; }
+  .lc-timer { transform: scaleX(0); }
+  .lc-cardface, .lc-btn { transition: none; }
+}

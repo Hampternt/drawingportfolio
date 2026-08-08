@@ -70,6 +70,7 @@ async fn test_assets_are_served() {
         ("/assets/game.css", "text/css"),
         ("/assets/lastcall.css", "text/css"),
         ("/assets/htmx.min.js", "application/javascript"),
+        ("/assets/lc_motion.js", "application/javascript"),
     ] {
         let res = app
             .clone()
@@ -238,6 +239,79 @@ async fn test_lastcall_css_has_every_component_root() {
         css.contains(deferral_marker),
         "{needle} present but no comment documents its Plan A-vis deferral"
     );
+}
+
+#[tokio::test]
+async fn test_lastcall_css_has_every_keyframe() {
+    let app = test_app().await;
+    let css = body_string(get(&app, "/assets/lastcall.css").await).await;
+    for needle in [
+        "@keyframes lc-fly",
+        "@keyframes lc-dot",
+        "@keyframes lc-shake",
+        "@keyframes lc-hp-flash",
+        "@keyframes lc-pulse",
+        "@keyframes lc-banner",
+        "@keyframes lc-timer",
+    ] {
+        assert!(css.contains(needle), "missing {needle}");
+    }
+}
+
+#[tokio::test]
+async fn test_lastcall_css_reduced_motion_is_one_block() {
+    let app = test_app().await;
+    let css = body_string(get(&app, "/assets/lastcall.css").await).await;
+    let marker = "prefers-reduced-motion: reduce";
+    let count = css.matches(marker).count();
+    assert_eq!(
+        count, 1,
+        "expected exactly one {marker} block, found {count}"
+    );
+
+    // Walk from the marker to the matching close of the @media block itself
+    // (brace-depth 0), not just the first inner rule's `}` — the assertions
+    // below must see the whole block, including rules past the first one.
+    let start = css.find(marker).expect("marker present");
+    let open = css[start..]
+        .find('{')
+        .map(|i| start + i)
+        .expect("block opens");
+    let mut depth = 0i32;
+    let mut end = css.len();
+    for (i, ch) in css[open..].char_indices() {
+        match ch {
+            '{' => depth += 1,
+            '}' => {
+                depth -= 1;
+                if depth == 0 {
+                    end = open + i + 1;
+                    break;
+                }
+            }
+            _ => {}
+        }
+    }
+    let block = &css[start..end];
+    assert!(block.contains(".lc-flight"), "block missing .lc-flight");
+    assert!(
+        block.contains("animation: none"),
+        "block missing animation: none"
+    );
+}
+
+#[tokio::test]
+async fn test_lc_motion_js_binds_both_lifecycle_events() {
+    let app = test_app().await;
+    let js = body_string(get(&app, "/assets/lc_motion.js").await).await;
+    for needle in [
+        "DOMContentLoaded",
+        "htmx:afterSwap",
+        "animationend",
+        "data-flight-anchor",
+    ] {
+        assert!(js.contains(needle), "missing {needle}");
+    }
 }
 
 #[tokio::test]
