@@ -7,6 +7,8 @@ pub mod db;
 pub mod error;
 pub mod game;
 pub mod hub;
+pub mod last_call;
+pub mod lc_cards;
 pub mod mechanics;
 pub mod models;
 pub mod presets;
