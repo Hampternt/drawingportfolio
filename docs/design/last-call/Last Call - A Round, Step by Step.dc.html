@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+@font-face { font-family: 'Archivo'; font-weight: 600; src: url("drinkinggame/assets/fonts/archivo-600.woff2") format("woff2"); font-display: swap; }
+@font-face { font-family: 'Archivo'; font-weight: 700; src: url("drinkinggame/assets/fonts/archivo-700.woff2") format("woff2"); font-display: swap; }
+@font-face { font-family: 'Archivo'; font-weight: 800; src: url("drinkinggame/assets/fonts/archivo-800.woff2") format("woff2"); font-display: swap; }
+@font-face { font-family: 'Archivo'; font-weight: 900; src: url("drinkinggame/assets/fonts/archivo-900.woff2") format("woff2"); font-display: swap; }
+@font-face { font-family: 'Space Grotesk'; font-weight: 400; src: url("drinkinggame/assets/fonts/space-grotesk-400.woff2") format("woff2"); font-display: swap; }
+@font-face { font-family: 'Space Grotesk'; font-weight: 500; src: url("drinkinggame/assets/fonts/space-grotesk-500.woff2") format("woff2"); font-display: swap; }
+@font-face { font-family: 'Space Grotesk'; font-weight: 600; src: url("drinkinggame/assets/fonts/space-grotesk-600.woff2") format("woff2"); font-display: swap; }
+@font-face { font-family: 'Space Grotesk'; font-weight: 700; src: url("drinkinggame/assets/fonts/space-grotesk-700.woff2") format("woff2"); font-display: swap; }
+doc-page:not(:defined) { visibility: hidden; }
+body { margin: 0; background: #0f0d16; }
+doc-page { background: #0f0d16; }
+a { color: #b48ef7; text-decoration: underline; text-underline-offset: 2px; }
+a:hover { color: #ff6b5e; }
+</style>
+<script src="./doc-page.js"></script>
+</helmet>
+<doc-page margin="0">
+<div style="background: #14111c; padding: 0.7in 0.8in; color: #ece8f5;">
+
+<header style="border-bottom: 3px solid rgba(242,238,248,.32); padding-bottom: 22px; margin-bottom: 32px; break-inside: avoid;">
+  <div style="display: flex; justify-content: space-between; align-items: baseline; gap: 20px; font: 600 10px 'Space Grotesk', sans-serif; letter-spacing: .16em; color: #8d87a0; text-transform: uppercase;">
+    <span>Last Call &middot; Overview</span>
+    <span>One round, three players, six beats</span>
+  </div>
+  <h1 style="font: 900 68px/.9 'Archivo', sans-serif; letter-spacing: -.045em; color: #ece8f5; margin: 16px 0 0; text-transform: uppercase;">A round, step by step</h1>
+  <p style="font: 500 18px/1.45 'Space Grotesk', sans-serif; color: #a79fbb; margin: 14px 0 0; max-width: 34em; text-wrap: pretty;">Everything the design currently says, played out as a single worked round. Three players, round 4, mid&#8209;game. Every number here follows the rules as written &mdash; where a number doesn't exist yet, it's marked <strong style="color:#ffb570;">provisional</strong>.</p>
+</header>
+
+<section style="margin-bottom: 34px;">
+  <h2 style="font: 900 13px 'Archivo', sans-serif; letter-spacing: .16em; text-transform: uppercase; color: #ece8f5; margin: 0 0 8px; padding-bottom: 8px; border-bottom: 1px solid rgba(242,238,248,.17);">The table, at the start of round 4</h2>
+  <p style="font: 400 14px/1.55 'Space Grotesk', sans-serif; color: #a79fbb; margin: 0 0 18px; max-width: 44em;">Three decks, three different vessels, three very different positions. The bar under each name is their vessel: one segment per pull, filled means undrunk. That bar is how much they can still spend this round.</p>
+
+  <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; break-inside: avoid;">
+    <div style="background: #1d1929; border-radius: 12px; padding: 16px 17px; border-top: 4px solid #ffb570;">
+      <div style="display: flex; justify-content: space-between; align-items: baseline;">
+        <div style="font: 900 22px 'Archivo', sans-serif; color: #ece8f5; letter-spacing: -.02em;">SARA</div>
+        <div style="font: 900 18px 'Archivo', sans-serif; color: #ece8f5;">14 <span style="font: 700 10px 'Space Grotesk', sans-serif; color: #8d87a0;">HP</span></div>
+      </div>
+      <div style="font: 600 10px 'Space Grotesk', sans-serif; letter-spacing: .12em; color: #ffb570; text-transform: uppercase; margin: 3px 0 12px;">Beer &middot; 50cl can &middot; 8 pulls full</div>
+      <div style="display: flex; gap: 3px; margin-bottom: 8px;"><span style="flex:1;height:22px;border-radius:3px;background:#ffb570;"></span><span style="flex:1;height:22px;border-radius:3px;background:#ffb570;"></span><span style="flex:1;height:22px;border-radius:3px;background:#ffb570;"></span><span style="flex:1;height:22px;border-radius:3px;background:#ffb570;"></span><span style="flex:1;height:22px;border-radius:3px;background:#ffb570;"></span><span style="flex:1;height:22px;border-radius:3px;background:rgba(242,238,248,.12);"></span><span style="flex:1;height:22px;border-radius:3px;background:rgba(242,238,248,.12);"></span><span style="flex:1;height:22px;border-radius:3px;background:rgba(242,238,248,.12);"></span></div>
+      <div style="font: 400 12.5px/1.5 'Space Grotesk', sans-serif; color: #a79fbb;"><strong style="color:#ece8f5;">Level 5.</strong> Four cards in hand, five pulls to play them with. Comfortable, and no bomb available anywhere: Beer&rsquo;s list is 1s and 2s only.</div>
+    </div>
+    <div style="background: #1d1929; border-radius: 12px; padding: 16px 17px; border-top: 4px solid #f7768e;">
+      <div style="display: flex; justify-content: space-between; align-items: baseline;">
+        <div style="font: 900 22px 'Archivo', sans-serif; color: #ece8f5; letter-spacing: -.02em;">BEN</div>
+        <div style="font: 900 18px 'Archivo', sans-serif; color: #ff6b5e;">9 <span style="font: 700 10px 'Space Grotesk', sans-serif; color: #8d87a0;">HP</span></div>
+      </div>
+      <div style="font: 600 10px 'Space Grotesk', sans-serif; letter-spacing: .12em; color: #f7768e; text-transform: uppercase; margin: 3px 0 12px;">Liquor &middot; 4cl measure &middot; 4 pulls full</div>
+      <div style="display: flex; gap: 3px; margin-bottom: 8px;"><span style="flex:1;height:22px;border-radius:3px;background:#f7768e;"></span><span style="flex:1;height:22px;border-radius:3px;background:#f7768e;"></span><span style="flex:1;height:22px;border-radius:3px;background:rgba(242,238,248,.12);"></span><span style="flex:1;height:22px;border-radius:3px;background:rgba(242,238,248,.12);"></span></div>
+      <div style="font: 400 12.5px/1.5 'Space Grotesk', sans-serif; color: #a79fbb;"><strong style="color:#ece8f5;">Level 2.</strong> One 2&#8209;cost in hand and exactly two pulls to pay for it. One play and the glass is dry &mdash; and no new cards unless he finishes it.</div>
+    </div>
+    <div style="background: #1d1929; border-radius: 12px; padding: 16px 17px; border-top: 4px solid #6fb6ff;">
+      <div style="display: flex; justify-content: space-between; align-items: baseline;">
+        <div style="font: 900 22px 'Archivo', sans-serif; color: #ece8f5; letter-spacing: -.02em;">MO</div>
+        <div style="font: 900 18px 'Archivo', sans-serif; color: #ece8f5;">17 <span style="font: 700 10px 'Space Grotesk', sans-serif; color: #8d87a0;">HP</span></div>
+      </div>
+      <div style="font: 600 10px 'Space Grotesk', sans-serif; letter-spacing: .12em; color: #6fb6ff; text-transform: uppercase; margin: 3px 0 12px;">Soft &middot; any cup &middot; 6 pulls full</div>
+      <div style="display: flex; gap: 3px; margin-bottom: 8px;"><span style="flex:1;height:22px;border-radius:3px;background:#6fb6ff;"></span><span style="flex:1;height:22px;border-radius:3px;background:#6fb6ff;"></span><span style="flex:1;height:22px;border-radius:3px;background:#6fb6ff;"></span><span style="flex:1;height:22px;border-radius:3px;background:#6fb6ff;"></span><span style="flex:1;height:22px;border-radius:3px;background:#6fb6ff;"></span><span style="flex:1;height:22px;border-radius:3px;background:#6fb6ff;"></span></div>
+      <div style="font: 400 12.5px/1.5 'Space Grotesk', sans-serif; color: #a79fbb;"><strong style="color:#ece8f5;">Level 6, full cup, four cards.</strong> Refilling costs him nothing but time, so he is permanently the richest player in cards and the poorest in damage.</div>
+    </div>
+  </div>
+
+  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-top: 18px; break-inside: avoid;">
+    <div style="border: 1px solid rgba(242,238,248,.18); border-radius: 11px; padding: 14px 16px;">
+      <div style="font: 600 10px 'Space Grotesk', sans-serif; letter-spacing: .12em; color: #8d87a0; text-transform: uppercase; margin-bottom: 6px;">Provisional damage numbers used below</div>
+      <div style="display: flex; gap: 10px; align-items: stretch;">
+        <div style="flex:1; background: rgba(242,238,248,.055); border-radius: 8px; padding: 9px 10px;"><div style="font: 800 12px 'Archivo', sans-serif; color: #4a4363; background:#cdc6dd; border-radius:4px; display:inline-block; padding:1px 7px;">1</div><div style="font: 900 20px 'Archivo', sans-serif; color: #ece8f5; margin-top:5px;">2 dmg</div></div>
+        <div style="flex:1; background: rgba(242,238,248,.055); border-radius: 8px; padding: 9px 10px;"><div style="font: 800 12px 'Archivo', sans-serif; color: #191624; background:#d99a48; border-radius:4px; display:inline-block; padding:1px 7px;">2</div><div style="font: 900 20px 'Archivo', sans-serif; color: #ece8f5; margin-top:5px;">4 dmg</div></div>
+        <div style="flex:1; background: rgba(242,238,248,.055); border-radius: 8px; padding: 9px 10px;"><div style="font: 800 12px 'Archivo', sans-serif; color: #f7f3ea; background:#c4382c; border-radius:4px; display:inline-block; padding:1px 7px;">3</div><div style="font: 900 20px 'Archivo', sans-serif; color: #ece8f5; margin-top:5px;">6 dmg</div></div>
+      </div>
+      <p style="font: 400 12px/1.45 'Space Grotesk', sans-serif; color: #a79fbb; margin: 9px 0 0;">Flat 2 damage per pull, so a 3&#8209;cost never out&#8209;values three 1&#8209;costs on raw numbers &mdash; it wins by being unreactable or hitting everyone. These are invented for this walkthrough; the doc has none.</p>
+    </div>
+    <div style="border: 1px solid rgba(255,107,94,.35); background: rgba(255,107,94,.07); border-radius: 11px; padding: 14px 16px;">
+      <div style="font: 600 10px 'Space Grotesk', sans-serif; letter-spacing: .12em; color: #ff6b5e; text-transform: uppercase; margin-bottom: 6px;">Why three players is already awkward</div>
+      <p style="font: 400 12.5px/1.5 'Space Grotesk', sans-serif; color: #ece8f5; margin: 0;">At three, every attack is legible &mdash; there are only two people to aim at, so bluffing is thin and the react window mostly resolves into &ldquo;both of them hit the low one&rdquo;. Ghosts, pacts and Bar Tab all need a crowd. The walkthrough works, and it shows exactly why the doc's fallback is <strong>four minimum</strong>.</p>
+    </div>
+  </div>
+</section>
+
+<section style="margin-bottom: 30px; break-before: page;">
+  <h2 style="font: 900 13px 'Archivo', sans-serif; letter-spacing: .16em; text-transform: uppercase; color: #ece8f5; margin: 0 0 8px; padding-bottom: 8px; border-bottom: 1px solid rgba(242,238,248,.17);">The six beats</h2>
+  <div style="display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; margin: 16px 0 6px; break-inside: avoid;">
+    <div style="border-top: 4px solid rgba(242,238,248,.32); padding-top: 8px;"><div style="font: 600 10px 'Space Grotesk', sans-serif; color: #8d87a0;">~20s</div><div style="font: 900 15px 'Archivo', sans-serif; color: #ece8f5; text-transform: uppercase;">Draw</div></div>
+    <div style="border-top: 4px solid #ffb570; padding-top: 8px;"><div style="font: 600 10px 'Space Grotesk', sans-serif; color: #8d87a0;">~10s</div><div style="font: 900 15px 'Archivo', sans-serif; color: #ece8f5; text-transform: uppercase;">Deal</div></div>
+    <div style="border-top: 4px solid #b48ef7; padding-top: 8px;"><div style="font: 600 10px 'Space Grotesk', sans-serif; color: #8d87a0;">3 min cap</div><div style="font: 900 15px 'Archivo', sans-serif; color: #ece8f5; text-transform: uppercase;">Diplomacy</div></div>
+    <div style="border-top: 4px solid #b48ef7; padding-top: 8px;"><div style="font: 600 10px 'Space Grotesk', sans-serif; color: #8d87a0;">60s cap</div><div style="font: 900 15px 'Archivo', sans-serif; color: #ece8f5; text-transform: uppercase;">Lock</div></div>
+    <div style="border-top: 4px solid #d99a48; padding-top: 8px;"><div style="font: 600 10px 'Space Grotesk', sans-serif; color: #8d87a0;">20s</div><div style="font: 900 15px 'Archivo', sans-serif; color: #ece8f5; text-transform: uppercase;">Respond</div></div>
+    <div style="border-top: 4px solid #ff6b5e; padding-top: 8px;"><div style="font: 600 10px 'Space Grotesk', sans-serif; color: #8d87a0;">~15s</div><div style="font: 900 15px 'Archivo', sans-serif; color: #ece8f5; text-transform: uppercase;">Resolve</div></div>
+  </div>
+  <p style="font: 400 13px/1.5 'Space Grotesk', sans-serif; color: #a79fbb; margin: 0; max-width: 44em;">Three to five minutes end to end. Everyone is in the same beat at the same time and only <strong style="color:#ece8f5;">lock</strong> is hidden &mdash; the clocks are backstops, and a beat ends the moment all three are ready. Turn order exists only inside resolve.</p>
+</section>
+
+<section style="margin-bottom: 30px;">
+  <div style="display: flex; align-items: baseline; gap: 12px; border-bottom: 1px solid rgba(242,238,248,.17); padding-bottom: 8px; margin-bottom: 6px;">
+    <div style="font: 900 34px 'Archivo', sans-serif; color: rgba(242,238,248,.28); letter-spacing: -.03em; line-height: 1;">1</div>
+    <h2 style="font: 900 22px 'Archivo', sans-serif; letter-spacing: -.02em; color: #ece8f5; margin: 0;">Draw &mdash; about 20 seconds</h2>
+    <div style="font: 600 10px 'Space Grotesk', sans-serif; letter-spacing: .12em; color: #8d87a0; text-transform: uppercase; margin-left: auto;">Discard &middot; finish &amp; draw, or keep</div>
+  </div>
+  <p style="font: 400 14px/1.55 'Space Grotesk', sans-serif; color: #ece8f5; margin: 12px 0 16px; max-width: 46em; text-wrap: pretty;">Bin whatever you don&rsquo;t want, face down. Then one decision: finish what&rsquo;s in front of you and open a fresh vessel &mdash; taking a full hand <em>on top of</em> everything you kept &mdash; or keep what you have and draw nothing. There is no other way to gain a card.</p>
+
+  <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; break-inside: avoid;">
+    <div style="border: 1px solid rgba(242,238,248,.18); border-radius: 11px; padding: 14px 16px;">
+      <div style="font: 800 14px 'Archivo', sans-serif; color: #ffb570; margin-bottom: 6px;">SARA keeps</div>
+      <p style="font: 400 12.5px/1.5 'Space Grotesk', sans-serif; color: #a79fbb; margin: 0;">Bins a dead 2&#8209;cost, drinks nothing, draws nothing. <strong style="color:#ece8f5;">Level 5, three cards</strong> &mdash; a 2&#8209;cost attack, a 1&#8209;cost attack and a 1&#8209;cost coaster she has been saving. Comfortable, and no bomb in sight: Beer&rsquo;s list is 1s and 2s only.</p>
+    </div>
+    <div style="border: 1px solid rgba(255,181,112,.4); background: rgba(255,181,112,.07); border-radius: 11px; padding: 14px 16px;">
+      <div style="font: 800 14px 'Archivo', sans-serif; color: #ffb570; margin-bottom: 6px;">BEN FINISHES &amp; DRAWS</div>
+      <p style="font: 400 12.5px/1.5 'Space Grotesk', sans-serif; color: #a79fbb; margin: 0;">Two pulls left and one card is a dead round, so he empties the glass and pours a fresh measure. <strong style="color:#ece8f5;">Level 4, and five new cards on top of the 2&#8209;cost he kept.</strong> Six cards, four pulls to spend them with &mdash; Liquor is 2s and 3s, so that is two plays at most.</p>
+    </div>
+    <div style="border: 1px solid rgba(242,238,248,.18); border-radius: 11px; padding: 14px 16px;">
+      <div style="font: 800 14px 'Archivo', sans-serif; color: #6fb6ff; margin-bottom: 6px;">MO keeps</div>
+      <p style="font: 400 12.5px/1.5 'Space Grotesk', sans-serif; color: #a79fbb; margin: 0;">Full cup, four cards, nothing to finish. He could down the Coke for five more cards at any moment and it would cost him nothing but the trip to the kitchen &mdash; he is choosing not to yet. <strong style="color:#ece8f5;">Level 6, four cards.</strong></p>
+    </div>
+  </div>
+
+  <div style="border-left: 3px solid #b48ef7; padding-left: 13px; margin-top: 16px; break-inside: avoid;">
+    <div style="font: 600 10px 'Space Grotesk', sans-serif; letter-spacing: .12em; color: #b48ef7; text-transform: uppercase; margin-bottom: 4px;">What might happen instead</div>
+    <p style="font: 400 13px/1.5 'Space Grotesk', sans-serif; color: #a79fbb; margin: 0; max-width: 46em;">Ben keeps instead. He plays his single 2&#8209;cost, empties the glass anyway, and starts round 5 on level 0 with nothing &mdash; a dead seat until he refills. The economy makes not drinking the losing line, which is the pressure the design wants; it is also the thing to watch hardest in playtest, because the losing player is the one being nudged to drink fastest.</p>
+  </div>
+</section>
+
+<section style="margin-bottom: 30px;">
+  <div style="display: flex; align-items: baseline; gap: 12px; border-bottom: 1px solid rgba(242,238,248,.17); padding-bottom: 8px; margin-bottom: 6px;">
+    <div style="font: 900 34px 'Archivo', sans-serif; color: rgba(242,238,248,.28); letter-spacing: -.03em; line-height: 1;">2</div>
+    <h2 style="font: 900 22px 'Archivo', sans-serif; letter-spacing: -.02em; color: #ece8f5; margin: 0;">Deal &mdash; about 10 seconds</h2>
+    <div style="font: 600 10px 'Space Grotesk', sans-serif; letter-spacing: .12em; color: #8d87a0; text-transform: uppercase; margin-left: auto;">Event public &middot; quests private</div>
+  </div>
+  <p style="font: 400 14px/1.55 'Space Grotesk', sans-serif; color: #ece8f5; margin: 12px 0 16px; max-width: 46em; text-wrap: pretty;">One event flips face up for the whole table and lasts exactly this round. Next round&rsquo;s event is already shown beside it, so the talking can trade on a future both parties can see. Quests are dealt privately, and not to everyone.</p>
+
+  <div style="display: grid; grid-template-columns: 1.4fr 1fr; gap: 16px; break-inside: avoid;">
+    <div style="background: #1d1929; border: 1px solid rgba(255,181,112,.42); border-radius: 12px; padding: 18px 20px;">
+      <div style="font: 600 10px 'Space Grotesk', sans-serif; letter-spacing: .14em; color: #ffb570; text-transform: uppercase; margin-bottom: 8px;">Event &middot; this round only</div>
+      <div style="font: 900 30px/1.02 'Archivo', sans-serif; color: #ffb570; letter-spacing: -.025em; text-transform: uppercase; margin-bottom: 8px;">Round of Shots</div>
+      <p style="font: 400 13.5px/1.5 'Space Grotesk', sans-serif; color: #cdc6dd; margin: 0 0 14px;">Any two players may swap one card face down, if both agree. Deals struck this beat are not enforced by the app.</p>
+      <div style="border-top: 1px solid rgba(242,238,248,.14); padding-top: 12px;">
+        <div style="font: 700 9.5px 'Space Grotesk', sans-serif; letter-spacing: .12em; color: #8d87a0; text-transform: uppercase; margin-bottom: 5px;">Next round, already visible</div>
+        <div style="font: 800 14px 'Archivo', sans-serif; color: #cdc6dd;">Last Orders <span style="font: 400 12px 'Space Grotesk', sans-serif; color: #8d87a0;">&mdash; play at least one card or take 2.</span></div>
+      </div>
+    </div>
+    <div style="border: 1px solid rgba(180,142,247,.35); background: rgba(180,142,247,.08); border-radius: 12px; padding: 16px 18px;">
+      <div style="font: 600 10px 'Space Grotesk', sans-serif; letter-spacing: .12em; color: #b48ef7; text-transform: uppercase; margin-bottom: 6px;">Quests dealt</div>
+      <div style="font: 400 12.5px/1.5 'Space Grotesk', sans-serif; color: #a79fbb;"><strong style="color:#ece8f5;">Sara</strong> holds one from round 2: <em>Ben ends a round on 5 HP or less. +2 HP.</em><br><br><strong style="color:#ece8f5;">Ben</strong> is dealt one now. Nobody knows what.<br><br><strong style="color:#ece8f5;">Mo</strong> has none, and the others cannot tell.</div>
+    </div>
+  </div>
+
+  <div style="border-left: 3px solid #ffb570; padding-left: 13px; margin-top: 16px; break-inside: avoid;">
+    <div style="font: 600 10px 'Space Grotesk', sans-serif; letter-spacing: .12em; color: #ffb570; text-transform: uppercase; margin-bottom: 4px;">Why the event lands before the talking</div>
+    <p style="font: 400 13px/1.5 'Space Grotesk', sans-serif; color: #a79fbb; margin: 0; max-width: 46em;">Round of Shots is only interesting because it arrives with three minutes of negotiation still ahead of it. Deal it after the talking and it is a dice roll; deal it before, and it is the thing everyone is talking about. Last Orders being visible for next round is why Mo starts thinking about a card he will need in four minutes.</p>
+  </div>
+</section>
+
+<section style="margin-bottom: 30px; break-before: page;">
+  <div style="display: flex; align-items: baseline; gap: 12px; border-bottom: 1px solid rgba(242,238,248,.17); padding-bottom: 8px; margin-bottom: 6px;">
+    <div style="font: 900 34px 'Archivo', sans-serif; color: rgba(242,238,248,.28); letter-spacing: -.03em; line-height: 1;">3</div>
+    <h2 style="font: 900 22px 'Archivo', sans-serif; letter-spacing: -.02em; color: #ece8f5; margin: 0;">Diplomacy &mdash; open floor, 3 minute cap</h2>
+    <div style="font: 600 10px 'Space Grotesk', sans-serif; letter-spacing: .12em; color: #8d87a0; text-transform: uppercase; margin-left: auto;">Nothing here is binding</div>
+  </div>
+  <p style="font: 400 14px/1.55 'Space Grotesk', sans-serif; color: #ece8f5; margin: 12px 0 16px; max-width: 46em; text-wrap: pretty;">The app enforces none of this, which is exactly why it is worth doing. Anyone may un&#8209;ready until the last person taps in.</p>
+
+  <div style="display: grid; gap: 10px; break-inside: avoid;">
+    <div style="display: grid; grid-template-columns: 92px 1fr; gap: 14px; align-items: start; background: #1d1929; border-radius: 11px; padding: 13px 16px;">
+      <div style="font: 900 15px 'Archivo', sans-serif; color: #f7768e;">BEN</div>
+      <p style="font: 400 13px/1.5 'Space Grotesk', sans-serif; color: #a79fbb; margin: 0;">&ldquo;I have got nothing, I just poured.&rdquo; A lie, and a cheap one &mdash; the whole table watched him finish the glass, which under the draw rule means he is holding <em>more</em> than anyone.</p>
+    </div>
+    <div style="display: grid; grid-template-columns: 92px 1fr; gap: 14px; align-items: start; background: #1d1929; border-radius: 11px; padding: 13px 16px;">
+      <div style="font: 900 15px 'Archivo', sans-serif; color: #6fb6ff;">MO</div>
+      <p style="font: 400 13px/1.5 'Space Grotesk', sans-serif; color: #a79fbb; margin: 0;">Offers Sara a deal out loud: he will shield her this round if she points at Ben rather than at him. He does not mention that he is holding the only shield at the table.</p>
+    </div>
+    <div style="display: grid; grid-template-columns: 92px 1fr; gap: 14px; align-items: start; background: #1d1929; border-radius: 11px; padding: 13px 16px;">
+      <div style="font: 900 15px 'Archivo', sans-serif; color: #ffb570;">SARA</div>
+      <p style="font: 400 13px/1.5 'Space Grotesk', sans-serif; color: #a79fbb; margin: 0;">Takes the deal, because she was aiming at Ben anyway &mdash; her quest needs him under 5. She reveals her 1&#8209;cost coaster to prove she is not defenceless. That reveal is public and cannot be taken back.</p>
+    </div>
+  </div>
+
+  <div style="border-left: 3px solid #b48ef7; padding-left: 13px; margin-top: 16px; break-inside: avoid;">
+    <div style="font: 600 10px 'Space Grotesk', sans-serif; letter-spacing: .12em; color: #b48ef7; text-transform: uppercase; margin-bottom: 4px;">What might happen instead</div>
+    <p style="font: 400 13px/1.5 'Space Grotesk', sans-serif; color: #a79fbb; margin: 0; max-width: 46em;">Nobody talks and everyone taps ready in nine seconds. That is a legitimate outcome and the beat should not fight it &mdash; but if it happens every round, the events are not doing their job and the cards are too simple to argue about.</p>
+  </div>
+</section>
+
+<section style="margin-bottom: 30px;">
+  <div style="display: flex; align-items: baseline; gap: 12px; border-bottom: 1px solid rgba(242,238,248,.17); padding-bottom: 8px; margin-bottom: 6px;">
+    <div style="font: 900 34px 'Archivo', sans-serif; color: rgba(242,238,248,.28); letter-spacing: -.03em; line-height: 1;">4</div>
+    <h2 style="font: 900 22px 'Archivo', sans-serif; letter-spacing: -.02em; color: #ece8f5; margin: 0;">Lock &mdash; up to 60 seconds</h2>
+    <div style="font: 600 10px 'Space Grotesk', sans-serif; letter-spacing: .12em; color: #8d87a0; text-transform: uppercase; margin-left: auto;">Hidden &middot; simultaneous &middot; then everything flips</div>
+  </div>
+  <p style="font: 400 14px/1.55 'Space Grotesk', sans-serif; color: #ece8f5; margin: 12px 0 16px; max-width: 46em; text-wrap: pretty;">Arm cards, tap a face on the opponent rail to aim, hit LOCK. Nobody sees anything but a tick appearing next to each name, and the moment the last player locks it all flips at once. Cards you hold back stay in hand and cost nothing to keep &mdash; the price of holding is only ever the pull you did not spend.</p>
+
+  <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; break-inside: avoid; margin-bottom: 18px;">
+    <div style="background: #1d1929; border-radius: 11px; padding: 14px 15px;">
+      <div style="font: 800 14px 'Archivo', sans-serif; color: #ece8f5; margin-bottom: 8px;">SARA &rarr; BEN</div>
+      <p style="font: 400 12.5px/1.5 'Space Grotesk', sans-serif; color: #a79fbb; margin: 0 0 8px;">One 2&#8209;cost attack at the player on 9 HP. She keeps the coaster back deliberately: she has read the fresh measure as an incoming burst.</p>
+      <div style="font: 400 12px 'Space Grotesk', sans-serif; color: #8d87a0;">1 card &middot; <strong style="color:#ece8f5;">2 pulls</strong> &middot; holding 2</div>
+    </div>
+    <div style="background: #1d1929; border-radius: 11px; padding: 14px 15px;">
+      <div style="font: 800 14px 'Archivo', sans-serif; color: #ece8f5; margin-bottom: 8px;">BEN &rarr; SARA, twice</div>
+      <p style="font: 400 12.5px/1.5 'Space Grotesk', sans-serif; color: #a79fbb; margin: 0 0 8px;">He did not pour to sit on it. Two 2&#8209;costs at Sara &mdash; the whole fresh measure in one swing, 8 damage before any response. Burst is the entire Liquor identity.</p>
+      <div style="font: 400 12px 'Space Grotesk', sans-serif; color: #8d87a0;">2 cards &middot; <strong style="color:#ff6b5e;">4 pulls</strong> &middot; holding 4</div>
+    </div>
+    <div style="background: #1d1929; border-radius: 11px; padding: 14px 15px;">
+      <div style="font: 800 14px 'Archivo', sans-serif; color: #ece8f5; margin-bottom: 8px;">MO &rarr; BEN</div>
+      <p style="font: 400 12.5px/1.5 'Space Grotesk', sans-serif; color: #a79fbb; margin: 0 0 8px;">A 1&#8209;cost chip at Ben, and the 2&#8209;cost shield held back for the response window &mdash; the deal he struck out loud. Soft&rsquo;s whole game is spending late.</p>
+      <div style="font: 400 12px 'Space Grotesk', sans-serif; color: #8d87a0;">1 card &middot; <strong style="color:#ece8f5;">1 pull</strong> &middot; holding 3</div>
+    </div>
+  </div>
+
+  <div style="background: #1d1929; border-radius: 12px; padding: 18px 20px; break-inside: avoid;">
+    <div style="font: 600 10px 'Space Grotesk', sans-serif; letter-spacing: .14em; color: #8d87a0; text-transform: uppercase; margin-bottom: 12px;">Turn order &mdash; most cards played goes first</div>
+    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px;">
+      <div style="background: rgba(242,238,248,.055); border-radius: 10px; padding: 12px 14px;"><div style="font: 900 22px 'Archivo', sans-serif; color: #ffb570;">1st</div><div style="font: 700 12px 'Space Grotesk', sans-serif; color: #ece8f5; margin: 3px 0 4px;">Ben &mdash; 2 cards</div><p style="font: 400 12px/1.45 'Space Grotesk', sans-serif; color: #a79fbb; margin: 0;">Emptied a glass to get there. His burst lands into a board nobody has changed yet.</p></div>
+      <div style="background: rgba(242,238,248,.055); border-radius: 10px; padding: 12px 14px;"><div style="font: 900 22px 'Archivo', sans-serif; color: #cdc6dd;">2nd</div><div style="font: 700 12px 'Space Grotesk', sans-serif; color: #ece8f5; margin: 3px 0 4px;">Sara &mdash; 1 card</div><p style="font: 400 12px/1.45 'Space Grotesk', sans-serif; color: #a79fbb; margin: 0;">Tied with Mo on one card and won the roll. The app shows the die, so it reads as luck rather than a bug.</p></div>
+      <div style="background: rgba(242,238,248,.055); border-radius: 10px; padding: 12px 14px;"><div style="font: 900 22px 'Archivo', sans-serif; color: #6fb6ff;">3rd</div><div style="font: 700 12px 'Space Grotesk', sans-serif; color: #ece8f5; margin: 3px 0 4px;">Mo &mdash; 1 card</div><p style="font: 400 12px/1.45 'Space Grotesk', sans-serif; color: #a79fbb; margin: 0;">Acts last and knows it. If Sara&rsquo;s attack finishes Ben first, Mo&rsquo;s chip fizzles &mdash; the real risk of spending least.</p></div>
+    </div>
+    <p style="font: 400 12.5px/1.5 'Space Grotesk', sans-serif; color: #a79fbb; margin: 14px 0 0; max-width: 46em;">The player who acts first is the player who has drunk the most this round. That is the economy&rsquo;s pressure showing up a second time, in the turn order.</p>
+  </div>
+
+  <div style="background: #1d1929; border-radius: 12px; padding: 20px 22px; margin-top: 16px; break-inside: avoid;">
+    <div style="font: 600 10px 'Space Grotesk', sans-serif; letter-spacing: .14em; color: #8d87a0; text-transform: uppercase; margin-bottom: 14px;">In flight &mdash; provisional damage, before any response</div>
+    <div style="display: grid; gap: 10px;">
+      <div style="display: grid; grid-template-columns: 96px 1fr 96px 78px; align-items: center; gap: 12px; padding-bottom: 10px; border-bottom: 1px solid rgba(242,238,248,.14);">
+        <div style="font: 900 16px 'Archivo', sans-serif; color: #f7768e; text-align: right;">BEN</div>
+        <div style="position: relative; height: 26px; display: flex; align-items: center;">
+          <div style="position:absolute;left:0;right:0;height:2px;background:rgba(247,118,142,.5);"></div>
+          <div style="position:relative;background:#c4382c;color:#f7f3ea;font:800 11px 'Space Grotesk',sans-serif;letter-spacing:.06em;padding:4px 10px;border-radius:4px;margin:0 auto;">2&#8209;COST &times;2 &mdash; BURST &rarr;</div>
+        </div>
+        <div style="font: 900 16px 'Archivo', sans-serif; color: #ffb570;">SARA</div>
+        <div style="font: 900 20px 'Archivo', sans-serif; color: #ff6b5e; text-align: right;">8</div>
+      </div>
+      <div style="display: grid; grid-template-columns: 96px 1fr 96px 78px; align-items: center; gap: 12px;">
+        <div style="font: 900 16px 'Archivo', sans-serif; color: #ffb570; text-align: right;">SARA</div>
+        <div style="position: relative; height: 26px; display: flex; align-items: center;">
+          <div style="position:absolute;left:0;right:0;height:2px;background:rgba(242,238,248,.22);"></div>
+          <div style="position:relative;background:#d99a48;color:#191624;font:800 11px 'Space Grotesk',sans-serif;letter-spacing:.06em;padding:4px 10px;border-radius:4px;margin:0 auto;">2&#8209;COST ATTACK &rarr;</div>
+        </div>
+        <div style="font: 900 16px 'Archivo', sans-serif; color: #f7768e;">BEN</div>
+        <div style="font: 900 20px 'Archivo', sans-serif; color: #ece8f5; text-align: right;">4</div>
+      </div>
+      <div style="display: grid; grid-template-columns: 96px 1fr 96px 78px; align-items: center; gap: 12px;">
+        <div style="font: 900 16px 'Archivo', sans-serif; color: #6fb6ff; text-align: right;">MO</div>
+        <div style="position: relative; height: 26px; display: flex; align-items: center;">
+          <div style="position:absolute;left:0;right:0;height:2px;background:rgba(242,238,248,.22);"></div>
+          <div style="position:relative;background:#4a4363;color:#f7f3ea;font:800 11px 'Space Grotesk',sans-serif;letter-spacing:.06em;padding:4px 10px;border-radius:4px;margin:0 auto;">1&#8209;COST CHIP &rarr;</div>
+        </div>
+        <div style="font: 900 16px 'Archivo', sans-serif; color: #f7768e;">BEN</div>
+        <div style="font: 900 20px 'Archivo', sans-serif; color: #ece8f5; text-align: right;">2</div>
+      </div>
+    </div>
+    <p style="font: 400 12.5px/1.5 'Space Grotesk', sans-serif; color: #a79fbb; margin: 14px 0 0; max-width: 46em;">Six damage pointed at a player on 9, eight at a player on 14. Nothing has happened yet. This is the moment the table looks up, and the moment Sara realises she is about to eat eight.</p>
+  </div>
+</section>
+
+<section style="margin-bottom: 30px; break-before: page;">
+  <div style="display: flex; align-items: baseline; gap: 12px; border-bottom: 1px solid rgba(242,238,248,.17); padding-bottom: 8px; margin-bottom: 6px;">
+    <div style="font: 900 34px 'Archivo', sans-serif; color: rgba(242,238,248,.28); letter-spacing: -.03em; line-height: 1;">5</div>
+    <h2 style="font: 900 22px 'Archivo', sans-serif; letter-spacing: -.02em; color: #ece8f5; margin: 0;">Respond &mdash; 20 seconds</h2>
+    <div style="font: 600 10px 'Space Grotesk', sans-serif; letter-spacing: .12em; color: #8d87a0; text-transform: uppercase; margin-left: auto;">One layer only &middot; loud</div>
+  </div>
+  <p style="font: 400 14px/1.55 'Space Grotesk', sans-serif; color: #ece8f5; margin: 12px 0 16px; max-width: 46em; text-wrap: pretty;">Only response&#8209;flagged cards can be played, they cost pulls like anything else, and <strong>responses cannot be responded to</strong>. Twenty seconds, no stack, no priority argument. A response resolves before the thing it answers, so a countered card never happens at all.</p>
+
+  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; break-inside: avoid;">
+    <div style="border: 1px solid rgba(242,238,248,.18); border-radius: 11px; padding: 14px 16px;">
+      <div style="font: 800 14px 'Archivo', sans-serif; color: #ffb570; margin-bottom: 6px;">Sara spends the coaster she showed</div>
+      <p style="font: 400 12.5px/1.5 'Space Grotesk', sans-serif; color: #a79fbb; margin: 0;">The 1&#8209;cost she revealed during diplomacy: <strong style="color:#ece8f5;">absorb 3</strong>. One more pull down. Showing it earlier cost her the surprise and bought her the deal &mdash; on balance, worth it.</p>
+    </div>
+    <div style="border: 1px solid rgba(111,182,255,.4); background: rgba(111,182,255,.07); border-radius: 11px; padding: 14px 16px;">
+      <div style="font: 800 14px 'Archivo', sans-serif; color: #6fb6ff; margin-bottom: 6px;">Mo pays the debt he offered</div>
+      <p style="font: 400 12.5px/1.5 'Space Grotesk', sans-serif; color: #a79fbb; margin: 0;">The 2&#8209;cost shield absorbs <strong style="color:#ece8f5;">3 more</strong>. It costs him two mouthfuls of Coke and buys a favour he can call in later. This is the Soft deck playing to win, not spectating.</p>
+    </div>
+  </div>
+
+  <div style="border-left: 3px solid #b48ef7; padding-left: 13px; margin-top: 16px; break-inside: avoid;">
+    <div style="font: 600 10px 'Space Grotesk', sans-serif; letter-spacing: .12em; color: #b48ef7; text-transform: uppercase; margin-bottom: 4px;">What might happen instead</div>
+    <p style="font: 400 13px/1.5 'Space Grotesk', sans-serif; color: #a79fbb; margin: 0; max-width: 46em;">Mo quietly lets it through. Sara drops to 6, Ben&rsquo;s glass is empty, and Mo is the only player above 15 with a full cup &mdash; the strongest position at the table, reached by breaking a promise nobody can prove he made. Whether that line is boring or brilliant is the single most useful thing a paper test could tell you.</p>
+  </div>
+</section>
+
+<section style="margin-bottom: 30px;">
+  <div style="display: flex; align-items: baseline; gap: 12px; border-bottom: 1px solid rgba(242,238,248,.17); padding-bottom: 8px; margin-bottom: 6px;">
+    <div style="font: 900 34px 'Archivo', sans-serif; color: rgba(242,238,248,.28); letter-spacing: -.03em; line-height: 1;">6</div>
+    <h2 style="font: 900 22px 'Archivo', sans-serif; letter-spacing: -.02em; color: #ece8f5; margin: 0;">Resolve &mdash; about 15 seconds</h2>
+    <div style="font: 600 10px 'Space Grotesk', sans-serif; letter-spacing: .12em; color: #8d87a0; text-transform: uppercase; margin-left: auto;">Play order &middot; one drink instruction each</div>
+  </div>
+  <p style="font: 400 14px/1.55 'Space Grotesk', sans-serif; color: #ece8f5; margin: 12px 0 16px; max-width: 46em; text-wrap: pretty;">Everything left fires in turn order, top to bottom, one narrated line at a time. Then every player gets exactly one drink instruction &mdash; the total pulls they spent this round, in one line, so nobody is sipping on a timer. Cards left in hand stay there; there is nothing to bin.</p>
+
+  <table style="width: 100%; border-collapse: collapse; font: 400 13.5px/1.45 'Space Grotesk', sans-serif; color: #ece8f5; margin-bottom: 18px;">
+    <thead>
+      <tr style="border-bottom: 2px solid rgba(242,238,248,.32);">
+        <th style="text-align: left; padding: 0 10px 8px 0; font: 700 10px 'Space Grotesk', sans-serif; letter-spacing: .12em; text-transform: uppercase; color: #8d87a0;">Player</th>
+        <th style="text-align: left; padding: 0 10px 8px 0; font: 700 10px 'Space Grotesk', sans-serif; letter-spacing: .12em; text-transform: uppercase; color: #8d87a0;">Damage taken</th>
+        <th style="text-align: left; padding: 0 10px 8px 0; font: 700 10px 'Space Grotesk', sans-serif; letter-spacing: .12em; text-transform: uppercase; color: #8d87a0;">HP</th>
+        <th style="text-align: left; padding: 0 10px 8px 0; font: 700 10px 'Space Grotesk', sans-serif; letter-spacing: .12em; text-transform: uppercase; color: #8d87a0;">Drink instruction</th>
+        <th style="text-align: left; padding: 0 0 8px 0; font: 700 10px 'Space Grotesk', sans-serif; letter-spacing: .12em; text-transform: uppercase; color: #8d87a0;">Ends the round on</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr style="border-bottom: 1px solid rgba(242,238,248,.14);">
+        <td style="padding: 11px 10px 11px 0; vertical-align: top;"><span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:#ffb570;margin-right:7px;"></span><strong>Sara</strong></td>
+        <td style="padding: 11px 10px; vertical-align: top; color: #a79fbb;">8 in, &minus;3 coaster, &minus;3 Mo&rsquo;s shield = <strong style="color:#ece8f5;">2</strong></td>
+        <td style="padding: 11px 10px; vertical-align: top; color: #a79fbb;">14 &rarr; 12 &rarr; <strong style="color:#ece8f5;">14</strong> <span style="color:#4fd6a8;">(quest settled, +2)</span></td>
+        <td style="padding: 11px 10px; vertical-align: top; color: #a79fbb;">Drink <strong style="color:#ffb570;">3 pulls</strong> &mdash; level 5 &rarr; 2</td>
+        <td style="padding: 11px 0; vertical-align: top; color: #a79fbb;">Level 2, one card. Ben finished the round on 3, so her quest paid out.</td>
+      </tr>
+      <tr style="border-bottom: 1px solid rgba(242,238,248,.14);">
+        <td style="padding: 11px 10px 11px 0; vertical-align: top;"><span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:#f7768e;margin-right:7px;"></span><strong>Ben</strong></td>
+        <td style="padding: 11px 10px; vertical-align: top; color: #a79fbb;">4 from Sara + 2 from Mo = <strong style="color:#ece8f5;">6</strong></td>
+        <td style="padding: 11px 10px; vertical-align: top; color: #a79fbb;">9 &rarr; <strong style="color:#ff6b5e;">3</strong></td>
+        <td style="padding: 11px 10px; vertical-align: top; color: #a79fbb;">Drink <strong style="color:#ffb570;">4 pulls</strong> &mdash; the whole fresh measure. Level 0.</td>
+        <td style="padding: 11px 0; vertical-align: top; color: #a79fbb;"><strong style="color:#ff6b5e;">Level 0, holding four cards he cannot play.</strong> Pour again next round, or pass.</td>
+      </tr>
+      <tr>
+        <td style="padding: 11px 10px 11px 0; vertical-align: top;"><span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:#6fb6ff;margin-right:7px;"></span><strong>Mo</strong></td>
+        <td style="padding: 11px 10px; vertical-align: top; color: #a79fbb;">Untouched &mdash; <strong style="color:#ece8f5;">0</strong></td>
+        <td style="padding: 11px 10px; vertical-align: top; color: #a79fbb;">17 &rarr; <strong style="color:#ece8f5;">17</strong></td>
+        <td style="padding: 11px 10px; vertical-align: top; color: #a79fbb;">Drink <strong style="color:#6fb6ff;">3 pulls</strong> of Coke. Level 6 &rarr; 3.</td>
+        <td style="padding: 11px 0; vertical-align: top; color: #a79fbb;">Level 3, two cards, and a favour owed to him out loud.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; break-inside: avoid;">
+    <div style="background: #1d1929; border-radius: 12px; padding: 15px 16px; border-top: 4px solid #ffb570;">
+      <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 9px;"><div style="font: 900 18px 'Archivo', sans-serif; color: #ece8f5;">SARA</div><div style="font: 900 16px 'Archivo', sans-serif; color: #ece8f5;">14 HP</div></div>
+      <div style="display: flex; gap: 3px; margin-bottom: 8px;"><span style="flex:1;height:18px;border-radius:3px;background:#ffb570;"></span><span style="flex:1;height:18px;border-radius:3px;background:#ffb570;"></span><span style="flex:1;height:18px;border-radius:3px;background:rgba(242,238,248,.12);"></span><span style="flex:1;height:18px;border-radius:3px;background:rgba(242,238,248,.12);"></span><span style="flex:1;height:18px;border-radius:3px;background:rgba(242,238,248,.12);"></span><span style="flex:1;height:18px;border-radius:3px;background:rgba(242,238,248,.12);"></span><span style="flex:1;height:18px;border-radius:3px;background:rgba(242,238,248,.12);"></span><span style="flex:1;height:18px;border-radius:3px;background:rgba(242,238,248,.12);"></span></div>
+      <p style="font: 400 12.5px/1.5 'Space Grotesk', sans-serif; color: #a79fbb; margin: 0;">Took 2, settled a quest for +2, and ends exactly where she started on HP &mdash; but on two pulls and one card. Owes Mo something she agreed to out loud.</p>
+    </div>
+    <div style="background: #1d1929; border-radius: 12px; padding: 15px 16px; border-top: 4px solid #f7768e;">
+      <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 9px;"><div style="font: 900 18px 'Archivo', sans-serif; color: #ece8f5;">BEN</div><div style="font: 900 16px 'Archivo', sans-serif; color: #ff6b5e;">3 HP</div></div>
+      <div style="display: flex; gap: 3px; margin-bottom: 8px;"><span style="flex:1;height:18px;border-radius:3px;background:rgba(242,238,248,.12);"></span><span style="flex:1;height:18px;border-radius:3px;background:rgba(242,238,248,.12);"></span><span style="flex:1;height:18px;border-radius:3px;background:rgba(242,238,248,.12);"></span><span style="flex:1;height:18px;border-radius:3px;background:rgba(242,238,248,.12);"></span></div>
+      <p style="font: 400 12.5px/1.5 'Space Grotesk', sans-serif; color: #a79fbb; margin: 0;">Empty glass, four cards, 3 HP. He spent a whole measure to deal 2 net damage because two people responded &mdash; and now holds the best hand at the table with no way to pay for it.</p>
+    </div>
+    <div style="background: #1d1929; border-radius: 12px; padding: 15px 16px; border-top: 4px solid #6fb6ff;">
+      <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 9px;"><div style="font: 900 18px 'Archivo', sans-serif; color: #ece8f5;">MO</div><div style="font: 900 16px 'Archivo', sans-serif; color: #ece8f5;">17 HP</div></div>
+      <div style="display: flex; gap: 3px; margin-bottom: 8px;"><span style="flex:1;height:18px;border-radius:3px;background:#6fb6ff;"></span><span style="flex:1;height:18px;border-radius:3px;background:#6fb6ff;"></span><span style="flex:1;height:18px;border-radius:3px;background:#6fb6ff;"></span><span style="flex:1;height:18px;border-radius:3px;background:rgba(242,238,248,.12);"></span><span style="flex:1;height:18px;border-radius:3px;background:rgba(242,238,248,.12);"></span><span style="flex:1;height:18px;border-radius:3px;background:rgba(242,238,248,.12);"></span></div>
+      <p style="font: 400 12.5px/1.5 'Space Grotesk', sans-serif; color: #a79fbb; margin: 0;">Full HP, half a cup, and a free refill whenever he likes. On current rules the sober player is winning &mdash; flagged, not fixed.</p>
+    </div>
+  </div>
+</section>
+
+<section style="break-before: page;">
+  <h2 style="font: 900 13px 'Archivo', sans-serif; letter-spacing: .16em; text-transform: uppercase; color: #ece8f5; margin: 0 0 16px; padding-bottom: 8px; border-bottom: 1px solid rgba(242,238,248,.17);">What this round showed</h2>
+  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px 24px; margin-bottom: 26px;">
+    <div style="break-inside: avoid;">
+      <div style="font: 800 15px/1.2 'Archivo', sans-serif; color: #ece8f5; margin-bottom: 4px;">The economy did the balancing, not a rule</div>
+      <p style="font: 400 13.5px/1.5 'Space Grotesk', sans-serif; color: #a79fbb; margin: 0;">Ben was the most aggressive player and is now the drunkest and the closest to out. Nothing punished him &mdash; he paid for it himself, in pulls. That's the pillar working.</p>
+    </div>
+    <div style="break-inside: avoid;">
+      <div style="font: 800 15px/1.2 'Archivo', sans-serif; color: #ece8f5; margin-bottom: 4px;">The response window was the whole round</div>
+      <p style="font: 400 13.5px/1.5 'Space Grotesk', sans-serif; color: #a79fbb; margin: 0;">8 damage became 2 in twenty seconds. Without that beat the round is rock&#8209;paper&#8209;scissors; with it, it is the only twenty seconds all three players are looking at the same thing.</p>
+    </div>
+    <div style="break-inside: avoid;">
+      <div style="font: 800 15px/1.2 'Archivo', sans-serif; color: #ece8f5; margin-bottom: 4px;">Burst is currently too easy to blank</div>
+      <p style="font: 400 13.5px/1.5 'Space Grotesk', sans-serif; color: #a79fbb; margin: 0;">Two reactions cancelled a whole fresh measure. If the Liquor player can be no&#8209;sold this cheaply, its 3&#8209;costs need to be unreactable &mdash; which is exactly the &ldquo;wins on concentration&rdquo; rule, now with a reason.</p>
+    </div>
+    <div style="break-inside: avoid;">
+      <div style="font: 800 15px/1.2 'Archivo', sans-serif; color: #ece8f5; margin-bottom: 4px;">Soft needs a reason to be hittable</div>
+      <p style="font: 400 13.5px/1.5 'Space Grotesk', sans-serif; color: #a79fbb; margin: 0;">Mo took no damage because neither drinker had a reason to spend on him over each other. Free refills plus low threat is a strong turtle. Watch this before writing a single card.</p>
+    </div>
+    <div style="break-inside: avoid;">
+      <div style="font: 800 15px/1.2 'Archivo', sans-serif; color: #ece8f5; margin-bottom: 4px;">Cards outlive the can</div>
+      <p style="font: 400 13.5px/1.5 'Space Grotesk', sans-serif; color: #a79fbb; margin: 0;">Ben ends the round holding the best hand at the table and unable to play any of it. That is the shape the new draw rule creates, and it is a much more interesting failure state than running out of cards.</p>
+    </div>
+    <div style="break-inside: avoid;">
+      <div style="font: 800 15px/1.2 'Archivo', sans-serif; color: #ece8f5; margin-bottom: 4px;">Turn order paid Ben nothing</div>
+      <p style="font: 400 13.5px/1.5 'Space Grotesk', sans-serif; color: #a79fbb; margin: 0;">He acted first because he spent most, and it bought him nothing &mdash; the responses came after his cards and undid them anyway. Going first only matters if some cards can kill before a response lands. Another argument for unreactable 3&#8209;costs.</p>
+    </div>
+  </div>
+
+  <div style="border: 1px solid rgba(242,238,248,.18); border-radius: 12px; padding: 18px 20px; break-inside: avoid;">
+    <div style="font: 600 10px 'Space Grotesk', sans-serif; letter-spacing: .14em; color: #8d87a0; text-transform: uppercase; margin-bottom: 10px;">Everything above that the design hasn't actually decided</div>
+    <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px 22px; font: 400 13px/1.5 'Space Grotesk', sans-serif; color: #a79fbb;">
+      <div><strong style="color:#ece8f5;">Damage per cost.</strong> Invented here as 2 per pull.</div>
+      <div><strong style="color:#ece8f5;">What a coaster or shield absorbs.</strong> Invented as 3.</div>
+      <div><strong style="color:#ece8f5;">Two attacks on one target.</strong> Assumed legal (stacking allowed).</div>
+      <div><strong style="color:#ece8f5;">Reacting on someone else's behalf.</strong> Assumed legal &mdash; Mo shielded Sara.</div>
+      <div><strong style="color:#ece8f5;">Whether a 1&#8209;cost can be response&#8209;flagged.</strong> Assumed yes.</div>
+      <div><strong style="color:#ece8f5;">How many cards a fresh draw gives.</strong> Invented here as five.</div>
+      <div><strong style="color:#ece8f5;">Three&#8209;player support at all.</strong> Doc fallback says four minimum.</div>
+    </div>
+  </div>
+</section>
+
+</div>
+</doc-page>
+</x-dc>
+</body>
+</html>
