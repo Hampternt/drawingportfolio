@@ -146,6 +146,12 @@ check it. It matters most here because slice 2 and slice 3 build every fragment
 against whichever type this slice chooses, so retrofitting the projection later
 is a refactor across all of them.
 
+**The preview page renders public components from `PublicView` fixtures**, not
+from raw `LastCallState`. Otherwise Plan A can only prove the projection drops
+what it should, never that it carries enough to draw a plaque — and a projection
+that is missing a field is discovered in Plan A2, after every renderer is
+written. Rendering the preview through it turns that into a compile error now.
+
 ### 3.3 Hidden information is rendered per viewer, never broadcast
 
 **Decision:** private state is fetched by the viewer, not pushed to the room.
@@ -339,6 +345,147 @@ page with its own `<link>`, `game.css` is already 832 lines, and the nested
 sheets rather than one larger one. The existing nested-comment guard is extended
 to cover the new asset.
 
+## 7.5 · Text handling — designed here, absent from the bundle
+
+`CardFace` is fluid × **176px fixed**, so text cannot simply grow. The
+prototypes never exercise this: `Game UI.dc.html` contains no `line-clamp` and
+no `text-overflow` at all, and every card in it has short text. The Module Spec
+says CardMini's name is "clamped 2 lines" but no prototype implements it. These
+rules are therefore designed here rather than transcribed.
+
+**Title** — Archivo 900, −0.03em, on a three-step ramp chosen server-side from
+the character count, then clamped to 2 lines:
+
+| Title length | Size |
+| --- | --- |
+| ≤ 14 chars | 30px (the authored size) |
+| 15–24 chars | 24px |
+| > 24 chars | 20px |
+
+**Body** — Space Grotesk 400/15px/1.35, clamped to 3 lines.
+**Keyword chips** — at most 3 rendered, then a `+n` chip.
+**CardMini name** — Archivo 800/10px, 1.1 leading, clamped to 2 lines, as the
+Module Spec already specifies.
+
+**The expanded CardFace.** A 176px card cannot hold a long rules text, so
+clamping alone loses information. The renderer knows at build time whether it
+truncated, and marks any card it did with `data-expandable`. An `.lc-cardface-
+expanded` variant drops to `height: auto` with no clamps and full body text, for
+a detail view. This slice ships the variant and the marking; which gesture opens
+it belongs to the hand-group slice.
+
+Truncation is decided server-side, from the string, not by CSS reflow — so it is
+deterministic and unit-testable, which is why the ramp is expressed in
+characters rather than measured width.
+
+## 7.6 · Scene primitives
+
+The grounds and surfaces, separated from anything that positions players on
+them: page `#0B0910`, device `#0E0C14`, panel `#16121F`, panel-alt `#17141F`,
+raised `#251F35`, focused `#2E2742`, card back `#1B1628`. Hairlines
+`rgba(242,238,248,.10)`–`.28`. Deck-tinted borders are the ink hex with an alpha
+suffix: `59` subtle, `66` plaque, `80`–`99` card back.
+
+The **felt** ships here as a background primitive — the radial gradient
+`ellipse at 50% 44%, #272038 0%, #191430 52%, #100C1B 100%`, the 11px `#2A2340`
+rail, the inner hairline ellipse inset a further 56px, and the inset/drop shadow
+stack. Positioning seats on it (D.2's angle layout) is Plan B: the *scene* is a
+visual primitive, the *seating* is state-driven layout.
+
+**The component / positioning split.** The same rule decides every module. A
+*component* renders from its own data and ships in Plan A; its *placement*
+depends on table state and ships in Plan B. So `PlayerPlaque` (D.1),
+`HandStrip` (D.3), `DeckStack` and `DiscardSlot` (D.4) are Plan A components —
+including the plaque's five states, idle · locked · drawing · hit · eliminated
+— while the ellipse angle layout that positions plaques around the felt is Plan
+B.
+
+Drawing the boundary anywhere else breaks §7.7: `lc-shake`, `lc-hp-flash` and
+`lc-pulse` all target the plaque, so authoring those animations in Plan A while
+the plaque itself arrives in Plan B would leave a task animating a component
+that does not exist. The plaque's states are also precisely the hard cases the
+preview page exists to show.
+
+## 7.7 · Motion library
+
+Plug-and-play, because every later slice fires these rather than writing them.
+The contract is one class plus CSS custom properties; no animation logic lives
+in feature code.
+
+```html
+<div class="lc-flight" data-flight="draw"
+     style="--dx:120px; --dy:-80px; --deck-fill:#FFB570"></div>
+```
+
+A small helper computes `--dx`/`--dy` from two element bounding rects, fires the
+animation once, and removes the node on `animationend`. It binds on both
+`DOMContentLoaded` and `htmx:afterSwap` with a double-injection guard, per
+CLAUDE.md.
+
+| Keyframe | Source | Use |
+| --- | --- | --- |
+| `lc-fly` | bundle, verbatim | Big-screen card flight, 44×62 CardBack |
+| `lc-dot` | bundle, verbatim | Phone mini-table flight, 8×8 CardDot |
+| `lc-shake` | **designed here** | Plaque hit — 4px horizontal, 190ms |
+| `lc-hp-flash` | **designed here** | HP to rose `#F7768E` and back |
+| `lc-pulse` | **designed here** | Deck rule pulsing while a player draws |
+| `lc-banner` | **designed here** | Beat-name cross-fade, 280ms; hue does not animate |
+| `lc-timer` | **designed here** | Beat-timer rail filling down over the beat, rose under 5s |
+
+The bundle defines only `lc-fly` and `lc-dot`; the rest exist there as prose
+only. Directions are `draw` (deck → plaque), `play` (plaque → centre) and
+`discard` (plaque → discard slot) — the same track at different delays.
+
+In production these are **one-shot**, driven by events. The prototypes loop them
+infinitely to demonstrate motion in a static document; that is a demo artifact,
+not the design.
+
+`prefers-reduced-motion: reduce` must stop the flights and hold them at rest
+opacity, via an attribute selector on the animation name, as the bundle does.
+
+## 7.8 · Component contracts
+
+Building templates before wiring only pays off if the wiring knows what it is
+wiring *to*. Each component therefore declares a DOM contract — the same role
+the Interfaces block plays for a plan task. Without it, Plan A ships markup and
+Plan A2 invents selectors that markup does not have.
+
+The contract states **structure**, never **behaviour**. It says
+`[data-card-id]` exists and is the click target; it does not say that tapping
+arms the card. If an `hx-post` path appears in Plan A, the line has been crossed
+— that is slice 2 and 3 work.
+
+| Component | Root | Requires | Exposes | Motion anchor | Filled by |
+| --- | --- | --- | --- | --- | --- |
+| Hand region | `#lc-hand` | `data-seq` | `data-count` | `hand` | `GET …/lastcall/hand` (A2) |
+| CardFace | `.lc-cardface[data-card-id]` | `data-deck`, `data-cost` | `data-expandable` | — | within Hand region |
+| CardPip | `.lc-pip` | `data-deck`, `data-cost` | — | — | within CardFace |
+| CardMini | `.lc-mini[data-card-id]` | `data-deck`, `data-cost` | — | — | armed column (slice 2) |
+| CardBack | `.lc-back` | `data-deck`, `data-size` | — | — | hand strips, piles, flights |
+| CardDot | `.lc-dot` | `data-deck` | — | — | mini-table flights |
+| PlayerPlaque | `.lc-plaque[data-seat]` | `data-decks`, `data-hp`, `data-status` | `data-hand-size` | `plaque-seat-{n}` | `LcPublic` SSE (A2) |
+| HandStrip | `.lc-handstrip` | `data-hand-size`, `data-decks` | — | — | within PlayerPlaque |
+| DeckStack | `.lc-deckstack[data-deck]` | `data-count` | `data-low`, `data-empty` | `deck-{deck}` | `LcPublic` SSE (A2) |
+| DiscardSlot | `.lc-discard` | `data-count` | — | `discard` | `LcPublic` SSE (A2) |
+| PhaseBanner | `#lc-banner` | `data-beat`, `data-round` | — | — | `LcPublic` SSE (A2) |
+| BeatTimer | `#lc-beat-timer` | `data-duration-ms`, `data-elapsed-ms` | — | — | `LcPublic` SSE (A2) |
+| Felt scene | `#lc-felt` | — | — | `felt` | static |
+| Flight layer | `#lc-flights` | — | — | — | motion helper (§7.7) |
+
+### 7.8.1 Motion anchors are Plan A's responsibility
+
+The §7.7 helper computes `--dx`/`--dy` from two bounding rects, so **every
+flight source and destination needs a stable, resolvable name in Plan A's
+markup** — even though nothing fires a flight until slice 3. Anchors are
+`data-flight-anchor="<name>"`, using the names in the table above:
+`deck-beer`…`deck-soft`, `discard`, `plaque-seat-0`…`plaque-seat-7`, `hand`,
+`felt`.
+
+The preview page carries a test that resolves every anchor the motion library
+can target. If Plan A ships markup without anchors, slice 3 rewrites every
+template — which is the single most expensive thing this staging is meant to
+prevent.
+
 ## 8 · Testing
 
 `./scripts/verify.sh` is the acceptance gate for every task.
@@ -356,10 +503,12 @@ deck colours, from one object*. The hand-strip split (`n ≤ 8` → n backs;
 `n > 8` → 7 backs plus `+{n−7}`). The multi-deck plaque rule (one dot per
 vessel, 3px top rule split 50/50 between two deck fills).
 
-A `#[cfg(test)]` fixture builder covers the cases a plain setup form cannot
-reach by hand — seven seats, two-deck plaques, oversized hands. These are
-asserted in tests, not demonstrated in a browser; they are out of the browser
-acceptance criteria for this slice.
+A shared fixture builder, `preview_state()`, covers the cases a plain setup form
+cannot reach by hand — a full eight seats, two-deck plaques, oversized hands,
+every title band. It is **not** `#[cfg(test)]`: the preview route renders the
+same fixtures at runtime, and a test-only copy would drift from what the style
+guide displays. One builder, used by both, so a test failure and a visual
+regression cannot disagree about what the fixture is.
 
 **`tests/http.rs` — integration.** Route guards: non-member is refused; wrong
 game kind returns `WrongGameKind`. `/assets/lastcall.css` is served and free of
@@ -373,9 +522,16 @@ that would name one (§6.1) as well as by a live two-session test.
 but no card list, no card text and no damage numbers, anywhere in the bundle.
 DDv1 §11: *"No card exists yet… Nothing else can be balanced until this
 exists."* This slice ships a small placeholder catalog in `lc_cards.rs` — a few
-cards per deck at costs 1–3, plain text, no keywords — sufficient to render
-every primitive in every deck colour and nothing more. Real card lists and the
-damage scale are content work, and are the true blocker for playability.
+cards per deck at costs 1–3 — sufficient to render every primitive in every deck
+colour and nothing more. Real card lists and the damage scale are content work,
+and are the true blocker for playability.
+
+The catalog is **deliberately adversarial**, not tidy. It must contain at least
+one title in each band of the §7.5 ramp (≤14, 15–24, >24 characters), one body
+that overflows three lines, one card with no keywords and one with six. If every
+stub title is short, the 24px and 20px branches are exercised only by synthetic
+test fixtures and never by anything rendered — which is how the ramp reaches
+production untested.
 
 **Systems named but mechanically hollow**, each needing rules before it can be
 built: events (§10.1 — no list, no effect vocabulary), tabs (§10.2 — no list, no
@@ -402,25 +558,55 @@ this slice; all are wired as constants so a playtest can move them.
 ## 10 · Plans
 
 Per the `plan-economics` skill, a plan is 4–6 tasks ending in something
-deployable. This slice is ten tasks, so it is **two plans**, each its own
+deployable. This slice is twelve tasks, so it is **four plans**, each its own
 session:
 
-**Plan A — phone and infrastructure.** Game-kind wiring, setup form, entry
-redirect, `last_call.rs` types and `PublicView`, the placeholder card catalog,
-CSS tokens, the five card renderings, the F.1 shell with HAND as a plain list,
-the private hand route, the SSE contract. *Deployable:* a Last Call game can be
-started and a player sees their own hand on their phone.
+**Plan A — the component library.** `last_call.rs` types and `PublicView`; the
+adversarial placeholder catalog; `lastcall.css` tokens and the §7.6 scene
+primitives; and `lc_render.rs` building every component to the §7.8 contract —
+the five card renderings with the §7.5 text rules and the expanded variant, plus
+PlayerPlaque, HandStrip, DeckStack and DiscardSlot. *Deployable:* a tested
+component library, verified by unit tests rather than by eye.
 
-**Plan B — the felt surfaces.** `lc_screen.html`, seat ring, plaques, hand
-strips, deck stacks, discard slot, and the F.3 mini table — which shares D.2
-with the big screen at roughly 0.19 scale, so they are one piece of work.
-*Deployable:* the spectator big screen and the TABLE tab.
+**Plan A-vis — motion and the style guide.** The §7.7 motion library as
+plug-and-play classes and the flight helper, then `GET /lastcall/preview` — the
+route, the `PublicView` fixtures and the gallery itself. *Deployable:* a URL that
+shows the whole visual vocabulary, which is Module Spec G's step-1 done-when
+verbatim and then some.
 
-Class C tasks (task reviewer required): the session-gated private hand route,
-the SSE contract and its stale-drop rule, and the room entry redirect, which
-branches on active-game kind and must not disturb Ring of Fire or 3 Man.
-Everything else is A or B — Askama templates and CSS are compiler-gated, and the
-render and pull-table tests are their own spec.
+The preview page must exercise the hard cases, not the happy path — that is the
+point of it. A one-word title and a forty-character one. A one-line body and one
+that overflows. Zero, three and six keyword chips. Every cost 1–3 in every deck.
+Locked, eliminated, reshuffle, a two-deck player, an oversized hand. Each flight
+direction, replayable on demand, and the whole page under
+`prefers-reduced-motion`.
+
+It is kept permanently, not deleted after. It is the only way to see a variant
+without engineering the game situation that produces it, and the only thing that
+catches a design regression no test asserts and no player reports.
+
+**Plan A2 — the game wiring.** Game-kind registration, setup form, entry
+redirect, the F.1 phone shell with HAND as a plain list, the private hand route,
+the SSE contract. *Deployable:* a Last Call game can be started and a player
+sees their own hand on their phone.
+
+**Plan B — the felt surfaces.** `lc_screen.html`, the D.2 seat-ring angle layout
+positioning Plan A's plaques around the felt, the `/room/{code}/screen` kind
+branch, `GET …/lastcall/table`, and the F.3 mini table — which shares D.2 with
+the big screen at roughly 0.19 scale, so they are one piece of work.
+*Deployable:* the spectator big screen and the TABLE tab. Plan B **assembles**
+components; it authors none, because §7.6's component/positioning split puts the
+plaque, hand strip, deck stack and discard slot in Plan A.
+
+Plans A and A-vis are entirely Class A/B: CSS and Askama templates are
+compiler-gated, and the render and pull-table tests are their own spec. Every
+Class C task lives in Plan A2 — the session-gated private hand route, the SSE
+contract and its stale-drop rule, and the room entry redirect, which branches on
+active-game kind and must not disturb Ring of Fire or 3 Man.
+
+Order: A → A-vis → A2 → B. A-vis is where the design is first seen, and it comes
+before any wiring, so a token or a text rule can be corrected while the only
+consumer is a fixture page.
 
 ### Later slices
 
