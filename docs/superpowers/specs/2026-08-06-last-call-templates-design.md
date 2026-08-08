@@ -152,6 +152,30 @@ what it should, never that it carries enough to draw a plaque — and a projecti
 that is missing a field is discovered in Plan A2, after every renderer is
 written. Rendering the preview through it turns that into a compile error now.
 
+### 3.4.1 · Binding constraint on the slice that creates plays
+
+`public_view()` decides whether a `Play` is revealed **from the beat alone**.
+That is correct only while a second invariant holds: **nothing may enter
+`LastCallState::plays` before it is revealable.** Plan A's whole-plan review
+found this relied on and unenforced — `public_view()` cannot enforce it, because
+by the time it runs the play is already in the vector, and Plan A has no `arm()`
+or `lock()` to enforce it in.
+
+So it binds the slice that builds them (slice 3, arm / lock / reveal / resolve):
+
+- Locked-but-unrevealed plays MUST NOT be stored in `plays`. Hold them in a
+  separate field that `public_view()` cannot read — DDv2 §6.3 requires the
+  engine to *"hold plays secret; show only a lock tick per seat"*, so a lock tick
+  is the only thing the projection may see before beat 5.
+- Whichever slice-3 function moves a play into `plays` owns a test asserting a
+  locked play is absent from `public_view()` output during beats 1–4.
+- If a future change makes `plays` hold unrevealed entries, `public_view()`'s
+  beat gate silently becomes a leak while looking untouched. That is the failure
+  mode this constraint exists to prevent.
+
+This is the same principle as §6.1 and §3.4 — make the leak unrepresentable
+rather than checked — applied at the only layer that can honour it.
+
 ### 3.3 Hidden information is rendered per viewer, never broadcast
 
 **Decision:** private state is fetched by the viewer, not pushed to the room.
