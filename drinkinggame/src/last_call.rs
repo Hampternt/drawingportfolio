@@ -313,8 +313,10 @@ pub const DECK_LOW_THRESHOLD: u16 = 5;
 /// Handicap is a percentage (100 = no handicap). Rounds UP, per DDv2 §11.
 /// Integer maths on purpose: a float handicap would let a form field carry
 /// NaN/inf into the state blob and break both serde equality and `ceil()`.
+/// `u32::div_ceil` computes the same value as the brief's literal
+/// `(cost * pct + 99) / 100` without tripping clippy's `manual_div_ceil`.
 pub fn pull_cost(cost: u8, handicap_pct: u16) -> u8 {
-    ((cost as u32 * handicap_pct as u32 + 99) / 100) as u8
+    (cost as u32 * handicap_pct as u32).div_ceil(100) as u8
 }
 
 impl LastCallState {
