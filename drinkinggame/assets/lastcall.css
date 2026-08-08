@@ -161,6 +161,7 @@ button:active { transform: scale(.97); }
   font-family: var(--font-ui); font-weight: 400; font-size: 15px;
   line-height: 1.35; color: var(--lc-body);
 }
+.lc-cardface .lc-face-kws { display: flex; flex-wrap: wrap; gap: 6px; }
 .lc-kw {
   display: inline-block; padding: 2px 8px; border-radius: 999px;
   font-family: var(--font-ui); font-weight: 700; font-size: 9.5px;
@@ -188,13 +189,21 @@ button:active { transform: scale(.97); }
   -webkit-box-orient: vertical; overflow: hidden;
 }
 
-/* The grid IS the card back — keep it at every size. */
+/* The grid IS the card back — keep it at every size. Both custom properties
+   carry a fallback because DiscardSlot's back (lc_render.rs discard_slot())
+   is deliberately deckless — no ancestor supplies --lc-ink-80/--lc-grid, and
+   an unresolved var() in the border shorthand invalidates the whole
+   declaration at computed-value time (a bare border: 1px solid var(--x)
+   with no fallback becomes border: medium none currentColor when --x is
+   unset), which is how the discard hairline once rendered as a 3px dashed
+   near-white border instead of a 1px hairline. */
 .lc-back {
-  background-color: var(--lc-back); border: 1px solid var(--lc-ink-80);
+  background-color: var(--lc-back);
+  border: 1px solid var(--lc-ink-80, var(--lc-hair-strong));
   border-radius: 3px;
   background-image:
-    linear-gradient(var(--lc-grid) 1px, transparent 1px),
-    linear-gradient(90deg, var(--lc-grid) 1px, transparent 1px);
+    linear-gradient(var(--lc-grid, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, var(--lc-grid, transparent) 1px, transparent 1px);
   background-size: 10px 10px;
   background-origin: content-box; padding: 5px;
 }
@@ -238,13 +247,23 @@ button:active { transform: scale(.97); }
    §7.6's component/positioning split puts all four here; their placement on
    the felt ellipse is Plan B, their anatomy is not. */
 
-/* PlayerPlaque (D.1) — 204px, three stacked rows. Plan B positions it. */
+/* PlayerPlaque (D.1) — 204px, three stacked rows. Plan B positions it.
+   padding-top: 0 plus overflow: hidden lets .lc-rule (the first flex child)
+   sit flush at the very top, full width, clipped by the r10 radius, per the
+   README/brief — overflow: hidden clips the rule's corners to the plaque's
+   own radius but does not clip box-shadow: var(--lc-lift-sm), which is
+   painted outside the border box. */
 .lc-plaque {
-  width: 204px; padding: 11px 14px 12px; border-radius: 10px;
+  width: 204px; padding: 0 14px 12px; border-radius: 10px; overflow: hidden;
   background: var(--lc-panel); border: 1px solid var(--lc-ink-66);
   box-shadow: var(--lc-lift-sm);
   display: flex; flex-direction: column; gap: 9px;
 }
+/* .lc-rule is a standalone builder (deck_rule() also renders outside a
+   plaque, e.g. Plan A-vis's preview page) — the negative side margins that
+   pull it flush to the plaque's edges live here, scoped to the plaque
+   context, not on .lc-rule itself. */
+.lc-plaque > .lc-rule { margin: 0 -14px; }
 .lc-plaque .lc-identity { display: flex; align-items: baseline; justify-content: space-between; }
 .lc-plaque .lc-name { font-family: var(--font-display); font-weight: 900; font-size: 22px;
                       letter-spacing: -.025em; color: var(--lc-text); }
@@ -252,6 +271,13 @@ button:active { transform: scale(.97); }
                       letter-spacing: -.03em; color: var(--lc-text); }
 .lc-plaque .lc-drinks { display: flex; align-items: center; gap: 3px; }
 .lc-plaque .lc-decknames { font-family: var(--font-mono); font-size: 11px; color: var(--lc-label); }
+/* deck-tinted via --lc-ink-59, not the README's <fill>22: fill-22 is
+   invisible on Wine (#8B2F4A at 13% over #16121F composites to ~#1D1522,
+   indistinguishable from the panel), which is why the README needed a
+   Wine-only solid-fill exception. Ink at the ladder's 59-subtle rung reads
+   on all five decks — Wine's ink is the light rose #D4657F for exactly this
+   reason — with one rule and no exception. Do not "restore" the README
+   value; it reintroduces an invisible badge on Wine. */
 .lc-plaque .lc-draws { margin-left: auto; border-radius: 4px; padding: 1px 6px;
                        background: var(--lc-ink-59);
                        font-family: var(--font-display); font-weight: 900; font-size: 13px;
@@ -276,7 +302,12 @@ button:active { transform: scale(.97); }
   position: relative; display: inline-flex; flex-direction: column;
   align-items: center; gap: 6px;
 }
-/* the offset shadow card behind the stack, at +3px */
+/* the offset shadow card behind the stack, at +3px. .lc-back is
+   position: static by default, so without this the ::before's
+   position: absolute; inset: 0 resolves against .lc-deckstack (the nearest
+   positioned ancestor) instead of the 68x92 back, painting a full-column
+   slab behind the count and name text too. */
+.lc-deckstack .lc-back { position: relative; }
 .lc-deckstack .lc-back::before {
   content: ""; position: absolute; inset: 0; transform: translate(3px, 3px);
   border-radius: 3px; background: var(--lc-back); z-index: -1;
@@ -316,6 +347,11 @@ body.lc { margin: 0; min-height: 100vh; display: flex; flex-direction: column;
                   color: var(--lc-beat, var(--lc-text)); }
 .lc-banner-meta { font-family: var(--font-ui); font-weight: 700; font-size: 10px;
                   letter-spacing: .13em; text-transform: uppercase; color: var(--lc-label); }
+/* #lc-beat-timer / .lc-timer: this slice's beat_timer() emits the id, class,
+   data-duration-ms/data-elapsed-ms and the --lc-beat-ms custom property, but
+   deliberately no rule here — height, transform-origin, background and the
+   `animation: lc-timer var(--lc-beat-ms, 60s) …` keyframe are authored in
+   Plan A-vis, same deferral as is-hit/is-drawing above. */
 .lc-tabs { padding: 0 18px; display: flex; border-bottom: 1px solid var(--lc-hair); }
 .lc-tab { background: none; border: 0; padding: 9px 14px 8px; cursor: pointer;
           font-family: var(--font-display); font-weight: 800; font-size: 11px;

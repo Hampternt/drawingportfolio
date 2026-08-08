@@ -161,10 +161,53 @@ async fn test_lastcall_css_has_base_reset() {
     assert!(css.contains("appearance: none"));
 }
 
+/// findings 1 and 6: CSS geometry/computed-value bugs aren't testable from
+/// this suite by rendering — the honest covering test is a sheet assertion
+/// pinning the corrected declaration, not a claim that the render was
+/// verified in a browser.
+#[tokio::test]
+async fn test_lastcall_css_pins_deckless_back_and_deckstack_shadow_fixes() {
+    let app = test_app().await;
+    let css = body_string(get(&app, "/assets/lastcall.css").await).await;
+    // finding 1: .lc-back's border must fall back when no ancestor
+    // .lc-deck-* supplies --lc-ink-80 (DiscardSlot's back is deliberately
+    // deckless) — without the fallback, the border shorthand is invalid at
+    // computed-value time and renders 3px dashed currentColor instead of a
+    // 1px hairline.
+    assert!(
+        css.contains("border: 1px solid var(--lc-ink-80, var(--lc-hair-strong))"),
+        "deckless .lc-back border has no fallback for --lc-ink-80"
+    );
+    // finding 6: .lc-back needs its own positioned containing block inside
+    // .lc-deckstack, or the offset-shadow ::before's `inset: 0` resolves
+    // against the whole (unpositioned) .lc-back falls through to
+    // .lc-deckstack, painting a full-column slab instead of a 68x92 shadow
+    // card.
+    assert!(
+        css.contains(".lc-deckstack .lc-back { position: relative; }"),
+        "DeckStack's card back is not a positioned containing block for its offset-shadow ::before"
+    );
+    // finding 7: the plaque's 3px deck rule must sit flush at the top
+    // (border-top-equivalent), not floating inset inside the padding box —
+    // padding-top: 0 on .lc-plaque plus negative side margins on its .lc-rule
+    // child pull the rule to the plaque's very edges.
+    assert!(
+        css.contains("padding: 0 14px 12px; border-radius: 10px; overflow: hidden;"),
+        ".lc-plaque no longer has padding-top: 0 (the deck rule would float inset again)"
+    );
+    assert!(
+        css.contains(".lc-plaque > .lc-rule { margin: 0 -14px; }"),
+        "the plaque's deck rule is missing its flush-to-edge negative margins"
+    );
+}
+
 #[tokio::test]
 async fn test_lastcall_css_has_every_component_root() {
     let app = test_app().await;
     let css = body_string(get(&app, "/assets/lastcall.css").await).await;
+    // Roots/classes assembled from Task 2's Produces set (task-2-brief.md) —
+    // not from what the sheet happens to contain — each must carry an
+    // actual CSS rule in this slice.
     for needle in [
         ".lc-cardface",
         ".lc-pip",
@@ -175,6 +218,7 @@ async fn test_lastcall_css_has_every_component_root() {
         ".lc-handstrip",
         ".lc-deckstack",
         ".lc-discard",
+        ".lc-face-kws",
         "#lc-banner",
         "#lc-felt",
         "#lc-flights",
@@ -182,6 +226,18 @@ async fn test_lastcall_css_has_every_component_root() {
     ] {
         assert!(css.contains(needle), "missing {needle}");
     }
+    // Also in Task 2's Produces set, but a deliberate Plan A-vis deferral
+    // (motion/animation), not a miss — kept in a separate array so this test
+    // still fails on a real, undocumented miss instead of passing on the
+    // presence of the deferral comment's own token text. Each entry must be
+    // named AND its deferral documented, so the next reader doesn't file it
+    // as a bug and a later slice doesn't silently drop the comment.
+    let (needle, deferral_marker) = ("#lc-beat-timer", "Plan A-vis");
+    assert!(css.contains(needle), "missing {needle}");
+    assert!(
+        css.contains(deferral_marker),
+        "{needle} present but no comment documents its Plan A-vis deferral"
+    );
 }
 
 #[tokio::test]

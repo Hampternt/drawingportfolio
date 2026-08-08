@@ -151,6 +151,13 @@ pub fn card_face(card: &Card) -> String {
 
 /// The expanded detail variant of `card_face`: height auto, no clamps, no
 /// chip cap.
+///
+/// Deliberately drops `data-expandable` (the brief's prose reads as "keep
+/// it," but the shipped behaviour is judged better and is recorded here so
+/// Plan A2 does not "restore" it from the brief): an already-expanded card
+/// has nothing left to expand, and if Plan A2 binds the expand gesture to
+/// `[data-expandable]`, leaving the attribute on would make the detail view
+/// re-trigger itself.
 pub fn card_face_expanded(card: &Card) -> String {
     face(card, true)
 }
@@ -203,21 +210,27 @@ pub fn hand_strip(decks: &[Deck], n: usize) -> String {
     } else {
         String::new()
     };
+    // data-decks is the comma-joined slugs, empty string for an empty slice —
+    // matching player_plaque's data-decks exactly, so a vessel-less seat's
+    // plaque and its nested hand strip never disagree about the seat's deck
+    // set. The Beer-ramp fallback above is visual only; it has no attribute
+    // counterpart.
     let decks_csv = decks.iter().map(|d| d.slug()).collect::<Vec<_>>().join(",");
-    let decks_attr = if decks.is_empty() {
-        Deck::Beer.slug().to_string()
-    } else {
-        decks_csv
-    };
     format!(
-        r#"<div class="lc-handstrip" data-hand-size="{n}" data-decks="{decks_attr}">{backs}{more}<span class="lc-handstrip-count">{n}</span></div>"#
+        r#"<div class="lc-handstrip" data-hand-size="{n}" data-decks="{decks_csv}">{backs}{more}<span class="lc-handstrip-count">{n}</span></div>"#
     )
 }
 
 /// The 3px plaque top rule. One deck fills it solid; two or more split it
 /// into equal parts via `<i>` halves, because Task 2's CSS owns colour and a
-/// gradient would need hex in the renderer. An empty slice renders a neutral
-/// rule rather than panicking.
+/// gradient would need hex in the renderer. An empty slice renders without
+/// panicking, via `.lc-rule-1`'s own hairline fallback (`var(--lc-fill,
+/// var(--lc-hair))`) — but that fallback only actually shows through when
+/// `deck_rule` is rendered standalone (e.g. Plan A-vis's preview page).
+/// Inside `player_plaque`, the root always carries `lc-deck-{first_slug}`
+/// (defaulting to Beer), so an empty-decks rule resolves through inheritance
+/// to that deck's fill, not the hairline — this case is documented, not
+/// "neutral" in a plaque context.
 pub fn deck_rule(decks: &[Deck]) -> String {
     match decks {
         [] => r#"<div class="lc-rule lc-rule-1"></div>"#.to_string(),
@@ -378,8 +391,51 @@ mod tests {
     use crate::last_call::{preview_state, Beat, LastCallState};
     use crate::lc_cards::{self, CATALOG};
 
+    /// Flags a hex-colour shape (`#` followed by 3/4/6/8 hex digits) rather
+    /// than a bare `#`, so it can run over every builder including
+    /// `beat_timer` (the one builder that emits an inline `style`) without
+    /// tripping on the lock tick's `&#9679;` numeric character reference —
+    /// distinguished by the `&` immediately before the `#`.
     fn no_hex(s: &str) {
-        assert!(!s.contains('#'), "unexpected hex colour in output: {s}");
+        let bytes = s.as_bytes();
+        for (i, &b) in bytes.iter().enumerate() {
+            if b != b'#' {
+                continue;
+            }
+            if i > 0 && bytes[i - 1] == b'&' {
+                continue; // HTML numeric character reference, e.g. &#9679;
+            }
+            let hex_len = bytes[i + 1..]
+                .iter()
+                .take_while(|c| c.is_ascii_hexdigit())
+                .count();
+            assert!(
+                !matches!(hex_len, 3 | 4 | 6 | 8),
+                "unexpected hex colour in output: {s}"
+            );
+        }
+    }
+
+    /// finding 8's guard is a nontrivial byte scanner; pin that it actually
+    /// fires, so a future edit that breaks `matches!(hex_len, 3|4|6|8)` (or
+    /// the entity-skip branch) can't make all fourteen `no_hex` call sites
+    /// pass vacuously — the exact defect class finding 4 was filed for,
+    /// reintroduced here if left untested.
+    #[test]
+    fn test_no_hex_fires_on_hex_colours_but_not_numeric_entities() {
+        no_hex(r#"<span class="lc-lock-tick">&#9679;</span>"#); // must not panic
+    }
+
+    #[test]
+    #[should_panic(expected = "unexpected hex colour")]
+    fn test_no_hex_panics_on_six_digit_hex() {
+        no_hex(r#"<div style="color:#F2EEF8">"#);
+    }
+
+    #[test]
+    #[should_panic(expected = "unexpected hex colour")]
+    fn test_no_hex_panics_on_three_digit_hex() {
+        no_hex(r#"<div style="color:#abc">"#);
     }
 
     #[test]
@@ -468,6 +524,11 @@ mod tests {
 
         let discard = discard_slot(2);
         assert!(discard.contains("data-count"));
+        // finding 1: DiscardSlot's back is deliberately deckless (a
+        // destination, not a deck) — pins the Rust-side half of the fix:
+        // the CSS side (assets/lastcall.css's fallback) is pinned by
+        // tests/http.rs::test_lastcall_css_pins_deckless_back_and_deckstack_shadow_fixes.
+        assert!(!discard.contains("lc-deck-"));
 
         let banner = lc_banner(&view);
         assert!(banner.contains("data-beat"));
@@ -498,13 +559,18 @@ mod tests {
             beat_timer(30_000, 5_000),
             lc_public_panel(&view),
         ];
-        for out in outputs {
+        for out in &outputs {
             for banned in ["hx-post", "hx-get", "hx-swap", "onclick", "href"] {
                 assert!(
                     !out.contains(banned),
                     "found forbidden `{banned}` in: {out}"
                 );
             }
+            // finding 8: the mechanical no-hex guard used to cover only 6 of
+            // 14 builders (the ones a bare `#` check happened to work on);
+            // run it over the same fourteen-builder array this test already
+            // assembles, so beat_timer's inline `style` is covered too.
+            no_hex(out);
         }
     }
 
@@ -662,6 +728,10 @@ mod tests {
             assert!(expanded.contains(kw));
         }
         assert!(!expanded.contains("lc-kw-more"));
+        // finding 10: data-expandable is deliberately dropped on the
+        // expanded variant — an already-expanded card has nothing left to
+        // expand.
+        assert!(!expanded.contains("data-expandable"));
 
         let normal = card_face(&cider04);
         assert!(normal.contains("data-expandable"));
@@ -717,6 +787,36 @@ mod tests {
 
         let empty = hand_strip(&[], 3);
         assert_eq!(empty.matches("lc-deck-beer").count(), 3);
+        // finding 5: the ramp fallback (Beer-coloured backs) is visual only —
+        // the attribute must still read the true, empty deck set.
+        assert!(empty.contains(r#"data-decks="""#));
+    }
+
+    /// finding 5: a vessel-less seat (reachable in Plan A2 between joining
+    /// and registering a drink) must not have its plaque and its nested hand
+    /// strip disagree about the seat's deck set — both read `data-decks=""`,
+    /// even though the hand strip still ramps its backs to Beer visually.
+    #[test]
+    fn test_vessel_less_seat_plaque_and_strip_agree_on_decks() {
+        let seat = PublicSeat {
+            seat: 0,
+            player_id: 1,
+            name: "alice".to_string(),
+            hp: 15,
+            status: Status::Alive,
+            vessels: Vec::new(),
+            hand_len: 2,
+            locked: false,
+            drawing: false,
+            draws: 0,
+        };
+        let plaque = player_plaque(&seat);
+        // both the plaque's own data-decks and the nested strip's must read
+        // "" — two occurrences of the same empty attribute, not one.
+        assert_eq!(plaque.matches(r#"data-decks="""#).count(), 2);
+        let strip = hand_strip(&seat.decks(), seat.hand_len);
+        assert!(strip.contains(r#"data-decks="""#));
+        assert_eq!(strip.matches("lc-deck-beer").count(), 2);
     }
 
     #[test]

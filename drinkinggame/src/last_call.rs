@@ -239,7 +239,17 @@ pub struct Effect {
     pub expires_round: u32,
 }
 
+/// `#[serde(default)]` at the container level: a slice-3 field addition to
+/// `LastCallState` (never mind `LcPlayer`/`Card`/`Play` themselves, which
+/// stay strict — see `from_json`) makes an in-flight room's stored blob,
+/// written by the previous binary, best-effort load with the new field at
+/// its `Default` value instead of a permanent panic. Nested structs
+/// (`LcPlayer`, `Card`, `Play`, `Vessel`, `Effect`) deliberately do NOT get
+/// the same treatment: `Deck`/`CardKind`/`Status` have no sensible default
+/// variant to fall back to, so a field missing *inside* one of those is
+/// correctly still a hard error — that is a corrupt blob, not version skew.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+#[serde(default)]
 pub struct LastCallState {
     pub players: Vec<LcPlayer>,
     pub round: u32,
@@ -364,7 +374,14 @@ impl LastCallState {
     }
 
     /// Deserializes a snapshot produced by `to_json`. Only ever called on
-    /// this engine's own output, so a parse failure is a programming error.
+    /// this engine's own output, so a malformed-JSON parse failure (`""`,
+    /// truncated, wrong shape entirely) is still a programming error and
+    /// still panics. What no longer panics: a *missing field* at the
+    /// `LastCallState` container level, e.g. a slice-3 addition to this
+    /// struct read against a blob an older binary wrote — `#[serde(default)]`
+    /// on the struct backfills it from `Default` instead. Fields missing
+    /// inside a nested `LcPlayer`/`Card`/`Play` still panic; see the comment
+    /// on the struct's `#[serde(default)]`.
     ///
     /// INVARIANT this creates: every writer must pass `Some(&st.to_json())`
     /// to `db::start_game` (Plan A2), because every reader does
@@ -457,6 +474,22 @@ impl LastCallState {
     /// unrevealed card by construction. `armed` is never projected as a list
     /// or a count: DDv2 §6.3 is "show only a lock tick per seat", which is
     /// `locked`.
+    ///
+    /// INVARIANT this method depends on and does NOT itself enforce: nothing
+    /// may enter `plays` before it is publicly revealable. This gate is a
+    /// beat check only — `revealed` clones the whole of `self.plays` the
+    /// instant `beat` becomes `Reveal`, with no per-play revealed flag. That
+    /// is safe today only because `arm()`/`lock_in()`/`advance_beat()` are
+    /// still `NotImplemented` stubs, so nothing pushes to `plays` at all. A
+    /// slice-3 implementation that stages an armed card into `plays` early
+    /// (e.g. at `arm()` time, so `resolve()` can order by `order_key`) would
+    /// publish every armed card the instant the beat flips — the exact leak
+    /// constraint 1 (`PublicView` as a confidentiality boundary) exists to
+    /// prevent — while leaving this method's code untouched. Armed-but-not-
+    /// yet-revealed plays belong in `LcPlayer::armed`, not `plays`; only move
+    /// a `Play` into `plays` at or after the point it becomes revealable. See
+    /// `test_public_view_never_reveals_before_the_reveal_beat` below, which
+    /// pins the projection side of this invariant.
     pub fn public_view(&self) -> PublicView {
         PublicView {
             seats: self
@@ -499,6 +532,12 @@ impl LastCallState {
     // Slice 1 defines the shape; slice 3 (the loop) fills these in. The
     // object model is expensive to change later; transitions are not.
 
+    /// INVARIANT for whoever implements this: an armed card is staged
+    /// identity, not revealed identity — push it onto `LcPlayer::armed`,
+    /// never onto `self.plays`. `public_view()`'s `revealed` field clones the
+    /// whole of `self.plays` the moment `beat` becomes `Reveal`, with no
+    /// per-play flag; a `Play` may only enter `plays` at or after the point
+    /// it is publicly revealable (see the doc comment on `public_view`).
     pub fn arm(&mut self, _player_id: i64, _card_id: &str) -> Result<(), LcError> {
         Err(LcError::NotImplemented)
     }
@@ -646,6 +685,14 @@ mod tests {
         assert_eq!(st.set_handicap(999, 150), Err(LcError::NotSeated));
     }
 
+    /// finding 9: a missing top-level field (the shape of a slice-3 addition
+    /// read against an older blob) backfills from `Default` instead of
+    /// panicking.
+    #[test]
+    fn test_from_json_backfills_missing_top_level_fields() {
+        assert_eq!(LastCallState::from_json("{}"), LastCallState::default());
+    }
+
     #[test]
     fn test_serde_round_trip() {
         let mut st = seated();
@@ -707,6 +754,38 @@ mod tests {
         assert!(!json.contains("beer-01"));
         assert!(!json.contains("cider-01"));
         assert!(!json.contains("wine-01"));
+    }
+
+    /// finding 3: pins the projection side of the `plays`/`revealed`
+    /// invariant across every beat, so a future change to the beat gate (or
+    /// to what feeds `plays`) trips this rather than a party. Does not test
+    /// the invariant itself — "nothing enters `plays` before it is
+    /// revealable" is a contract on callers of `plays.push`, documented on
+    /// `arm()` and `public_view()`, not something this projection can
+    /// enforce from the outside.
+    #[test]
+    fn test_public_view_never_reveals_before_the_reveal_beat() {
+        let mut st = seated();
+        st.set_vessel(1, Deck::Beer, "can").unwrap();
+        st.plays.push(Play {
+            card: crate::lc_cards::card_by_id("beer-01").unwrap(),
+            source_seat: 0,
+            target: None,
+            paid_from: Deck::Beer,
+            order_key: 1,
+        });
+        for beat in Beat::ORDER {
+            st.beat = beat;
+            let view = st.public_view();
+            match beat {
+                Beat::Reveal | Beat::Resolve => {
+                    assert_eq!(view.revealed.len(), 1, "beat={beat:?}");
+                }
+                _ => {
+                    assert!(view.revealed.is_empty(), "beat={beat:?}");
+                }
+            }
+        }
     }
 
     #[test]
