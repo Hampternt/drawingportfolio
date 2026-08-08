@@ -1,0 +1,360 @@
+/* Last Call — its own sheet, not an extension of game.css: the shell is its
+   own page with its own <link>, game.css is already 832 lines, and one
+   nested comment-open marker once silently dropped .card-big. Smaller
+   sheets, not one larger one. */
+
+/* tokens */
+:root {
+  color-scheme: dark;
+  --lc-page: #0B0910;
+  --lc-device: #0E0C14;
+  --lc-panel: #16121F;
+  --lc-panel-alt: #17141F;
+  --lc-raised: #251F35;
+  --lc-focused: #2E2742;
+  --lc-back: #1B1628;
+  --lc-rail: #2A2340;
+  --lc-text: #F2EEF8;
+  --lc-body: #CDC6DD;
+  --lc-secondary: #A79FBB;
+  --lc-label: #8D87A0;
+  --lc-faint: #6A6480;
+  --lc-mint: #4FD6A8;
+  --lc-amber: #FFB570;
+  --lc-rose: #F7768E;
+  --lc-azure: #6FB6FF;
+  --lc-violet: #B48EF7;
+  --lc-hair: rgba(242, 238, 248, .10);
+  --lc-hair-strong: rgba(242, 238, 248, .22);
+  --lc-hair-max: rgba(242, 238, 248, .28);
+  --lc-lift-sm: 0 3px 0 rgba(5, 3, 10, .5), 0 8px 16px rgba(5, 3, 10, .42);
+  --lc-lift-lg: 0 6px 0 rgba(5, 3, 10, .6), 0 22px 40px rgba(5, 3, 10, .55);
+  --lc-ease: cubic-bezier(.2, .8, .3, 1);
+  --font-display: 'Archivo', system-ui, sans-serif;
+  --font-ui: 'Space Grotesk', system-ui, sans-serif;
+  --font-mono: ui-monospace, 'IBM Plex Mono', SFMono-Regular, Menlo, monospace;
+}
+
+/* deck ramps — the only taxonomy. fill for solid areas, ink on the dark
+   ground; they differ for Wine only, which is too dark to read as text on
+   near-black. Renderers emit these class names and never a hex value.
+   The four --lc-ink-NN entries are §7.6's deck-tinted border alphas: 59
+   subtle, 66 plaque, 80/99 card back. Written out per deck rather than
+   composed with color-mix() so they resolve everywhere, and so a reader can
+   see which hue each alpha applies to — Wine's is the INK (#D4657F), not the
+   fill, which is the one place a copy-paste goes wrong. Soft's --lc-on-fill
+   is #0D1620, not #14101D, for the same reason. */
+.lc-deck-beer {
+  --lc-fill: #FFB570; --lc-ink: #FFB570; --lc-on-fill: #14101D; --lc-grid: #FFB5701a;
+  --lc-ink-59: #FFB57059; --lc-ink-66: #FFB57066; --lc-ink-80: #FFB57080; --lc-ink-99: #FFB57099;
+}
+.lc-deck-cider {
+  --lc-fill: #B48EF7; --lc-ink: #B48EF7; --lc-on-fill: #14101D; --lc-grid: #B48EF71a;
+  --lc-ink-59: #B48EF759; --lc-ink-66: #B48EF766; --lc-ink-80: #B48EF780; --lc-ink-99: #B48EF799;
+}
+.lc-deck-wine {
+  --lc-fill: #8B2F4A; --lc-ink: #D4657F; --lc-on-fill: #F2EEF8; --lc-grid: #8B2F4A1a;
+  --lc-ink-59: #D4657F59; --lc-ink-66: #D4657F66; --lc-ink-80: #D4657F80; --lc-ink-99: #D4657F99;
+}
+.lc-deck-liquor {
+  --lc-fill: #F7768E; --lc-ink: #F7768E; --lc-on-fill: #14101D; --lc-grid: #F7768E1a;
+  --lc-ink-59: #F7768E59; --lc-ink-66: #F7768E66; --lc-ink-80: #F7768E80; --lc-ink-99: #F7768E99;
+}
+.lc-deck-soft {
+  --lc-fill: #6FB6FF; --lc-ink: #6FB6FF; --lc-on-fill: #0D1620; --lc-grid: #6FB6FF1a;
+  --lc-ink-59: #6FB6FF59; --lc-ink-66: #6FB6FF66; --lc-ink-80: #6FB6FF80; --lc-ink-99: #6FB6FF99;
+}
+
+/* beat hues — Deal has no hue in the bundle and inherits Draw's amber */
+.lc-beat-amber  { --lc-beat: #FFB570; }
+.lc-beat-mint   { --lc-beat: #4FD6A8; }
+.lc-beat-violet { --lc-beat: #B48EF7; }
+.lc-beat-azure  { --lc-beat: #6FB6FF; }
+.lc-beat-rose   { --lc-beat: #F7768E; }
+
+/* fonts — a Last Call page links only this sheet, so it needs its own
+   declarations (copied verbatim from game.css:38-46); the relative
+   url("fonts/…") paths resolve because /assets/lastcall.css is served from
+   the same URL directory as /assets/fonts/{name}. */
+@font-face { font-family: 'Archivo'; font-weight: 500; font-style: normal; font-display: swap; src: url("fonts/archivo-500.woff2") format("woff2"); }
+@font-face { font-family: 'Archivo'; font-weight: 600; font-style: normal; font-display: swap; src: url("fonts/archivo-600.woff2") format("woff2"); }
+@font-face { font-family: 'Archivo'; font-weight: 700; font-style: normal; font-display: swap; src: url("fonts/archivo-700.woff2") format("woff2"); }
+@font-face { font-family: 'Archivo'; font-weight: 800; font-style: normal; font-display: swap; src: url("fonts/archivo-800.woff2") format("woff2"); }
+@font-face { font-family: 'Archivo'; font-weight: 900; font-style: normal; font-display: swap; src: url("fonts/archivo-900.woff2") format("woff2"); }
+@font-face { font-family: 'Space Grotesk'; font-weight: 400; font-style: normal; font-display: swap; src: url("fonts/space-grotesk-400.woff2") format("woff2"); }
+@font-face { font-family: 'Space Grotesk'; font-weight: 500; font-style: normal; font-display: swap; src: url("fonts/space-grotesk-500.woff2") format("woff2"); }
+@font-face { font-family: 'Space Grotesk'; font-weight: 600; font-style: normal; font-display: swap; src: url("fonts/space-grotesk-600.woff2") format("woff2"); }
+@font-face { font-family: 'Space Grotesk'; font-weight: 700; font-style: normal; font-display: swap; src: url("fonts/space-grotesk-700.woff2") format("woff2"); }
+
+/* base — lastcall.css is standalone: a Last Call page links only this file,
+   so it inherits nothing from game.css. Without box-sizing: border-box every
+   authored size in §7.1 is wrong (.lc-cardface would render 208px tall
+   instead of 176px); without the appearance reset, color-scheme: dark makes
+   the OS paint native controls over .lc-setup select/input/button. */
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+p, h1, h2, h3 { margin: 0; }
+ul, ol { margin: 0; padding: 0; list-style: none; }
+/* Reset native widget painting so author background/color always win —
+   without this, OS/browser dark-mode theming (color-scheme: dark) paints
+   buttons and inputs with a native dark control instead of our palette. */
+button, input, select, textarea { font-family: inherit; color: inherit;
+                                  -webkit-appearance: none; appearance: none; }
+button { cursor: pointer; }
+button:active { transform: scale(.97); }
+
+/* scene primitives — grounds, panels, hairlines */
+.lc-ground     { background: var(--lc-page); }
+.lc-device     { background: var(--lc-device); }
+.lc-panel      { background: var(--lc-panel); border-radius: 8px; }
+.lc-panel-alt  { background: var(--lc-panel-alt); border-radius: 6px; }
+.lc-raised     { background: var(--lc-raised); }
+.lc-focused    { background: var(--lc-focused); }
+.lc-hairline   { border: 1px solid var(--lc-hair); }
+.lc-hairline-strong { border: 1px solid var(--lc-hair-strong); }
+/* deck-tinted borders — §7.6's alpha ladder, bound in the ramp blocks above */
+.lc-edge-subtle { border: 1px solid var(--lc-ink-59); }
+.lc-edge-plaque { border: 1px solid var(--lc-ink-66); }
+.lc-edge-back   { border: 1px solid var(--lc-ink-80); }
+
+/* the felt — a background primitive. Seat positioning is Plan B. */
+#lc-felt {
+  position: relative;
+  border-radius: 280px;
+  border: 11px solid var(--lc-rail);
+  background: radial-gradient(ellipse at 50% 44%, #272038 0%, #191430 52%, #100C1B 100%);
+  box-shadow:
+    inset 0 0 0 2px rgba(242, 238, 248, .14),
+    inset 0 50px 110px rgba(5, 3, 10, .5),
+    0 26px 80px rgba(5, 3, 10, .75);
+}
+/* the second hairline ellipse, inset a further 56px */
+#lc-felt::after {
+  content: ""; position: absolute; inset: 56px;
+  border-radius: 280px;
+  border: 1px solid var(--lc-hair);
+  pointer-events: none;
+}
+/* the flight layer sits above the felt and eats no pointer events */
+#lc-flights { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+
+/* card primitives (spec §7.1, module spec B) — note the §7.8 roots:
+   .lc-cardface, not .lc-card-face; CardBack selects its size from
+   [data-size], not a modifier class, because the contract makes data-size
+   a required attribute. */
+.lc-cardface {
+  position: relative; height: 176px; padding: 16px 18px; border-radius: 14px;
+  background: var(--lc-raised); border: 1px solid var(--lc-hair-strong);
+  box-shadow: var(--lc-lift-sm); display: flex; flex-direction: column; gap: 8px;
+  transition: background 190ms var(--lc-ease), border-color 190ms var(--lc-ease);
+}
+.lc-cardface .lc-face-top { display: flex; align-items: center; justify-content: space-between; }
+.lc-cardface .lc-face-deck {
+  font-family: var(--font-ui); font-weight: 700; font-size: 10px;
+  letter-spacing: .13em; text-transform: uppercase; color: var(--lc-ink);
+}
+.lc-cardface .lc-face-title {
+  font-family: var(--font-display); font-weight: 900; letter-spacing: -.03em;
+  color: var(--lc-text); line-height: 1.02;
+}
+.lc-cardface .lc-face-body {
+  font-family: var(--font-ui); font-weight: 400; font-size: 15px;
+  line-height: 1.35; color: var(--lc-body);
+}
+.lc-kw {
+  display: inline-block; padding: 2px 8px; border-radius: 999px;
+  font-family: var(--font-ui); font-weight: 700; font-size: 9.5px;
+  letter-spacing: .12em; text-transform: uppercase;
+  color: var(--lc-ink); border: 1px solid var(--lc-hair);
+}
+
+.lc-pip {
+  display: inline-block; padding: 2px 11px; border-radius: 5px;
+  background: var(--lc-fill); color: var(--lc-on-fill);
+  font-family: var(--font-display); font-weight: 900; font-size: 17px;
+}
+
+.lc-mini {
+  width: 62px; padding: 7px 5px; border-radius: 6px;
+  background: var(--lc-panel-alt); border: 1.5px solid var(--lc-ink);
+  box-shadow: var(--lc-lift-sm); text-align: left;
+}
+.lc-mini .lc-mini-cost {
+  font-family: var(--font-display); font-weight: 800; font-size: 9px; color: var(--lc-ink);
+}
+.lc-mini .lc-mini-title {
+  font-family: var(--font-display); font-weight: 800; font-size: 10px; line-height: 1.1;
+  color: var(--lc-text); display: -webkit-box; -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical; overflow: hidden;
+}
+
+/* The grid IS the card back — keep it at every size. */
+.lc-back {
+  background-color: var(--lc-back); border: 1px solid var(--lc-ink-80);
+  border-radius: 3px;
+  background-image:
+    linear-gradient(var(--lc-grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--lc-grid) 1px, transparent 1px);
+  background-size: 10px 10px;
+  background-origin: content-box; padding: 5px;
+}
+.lc-back[data-size="strip"]  { width: 16px; height: 24px; background-size: 9px 9px; padding: 4px; }
+.lc-back[data-size="flight"] { width: 44px; height: 62px; background-size: 9px 9px; padding: 4px; }
+.lc-back[data-size="pile"]   { width: 46px; height: 62px; }
+.lc-back[data-size="stack"]  { width: 68px; height: 92px; }
+
+.lc-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--lc-fill); box-shadow: 0 0 8px var(--lc-fill);
+}
+
+/* text handling (spec §7.5) — CardFace is fluid x 176px FIXED, so text
+   cannot grow. The bundle has no line-clamp and no text-overflow anywhere
+   (every prototype card has short text); these ramp rules are designed,
+   not transcribed — Task 3 picks the ramp class server-side. */
+.lc-title-lg { font-size: 30px; }   /* title <= 14 chars — the authored size */
+.lc-title-md { font-size: 24px; }   /* 15-24 chars */
+.lc-title-sm { font-size: 20px; }   /* > 24 chars */
+
+.lc-cardface .lc-face-title {
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.lc-cardface .lc-face-body {
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.lc-kw-more { border-style: dashed; }
+
+/* the expanded variant — a detail view. This slice ships the variant and the
+   data-expandable marking; which gesture opens it is the hand-group slice. */
+.lc-cardface-expanded { height: auto; min-height: 176px; }
+.lc-cardface-expanded .lc-face-title,
+.lc-cardface-expanded .lc-face-body {
+  display: block; -webkit-line-clamp: none; overflow: visible;
+}
+
+/* table components — plaque, hand strip, deck stack, discard (spec §7.6).
+   §7.6's component/positioning split puts all four here; their placement on
+   the felt ellipse is Plan B, their anatomy is not. */
+
+/* PlayerPlaque (D.1) — 204px, three stacked rows. Plan B positions it. */
+.lc-plaque {
+  width: 204px; padding: 11px 14px 12px; border-radius: 10px;
+  background: var(--lc-panel); border: 1px solid var(--lc-ink-66);
+  box-shadow: var(--lc-lift-sm);
+  display: flex; flex-direction: column; gap: 9px;
+}
+.lc-plaque .lc-identity { display: flex; align-items: baseline; justify-content: space-between; }
+.lc-plaque .lc-name { font-family: var(--font-display); font-weight: 900; font-size: 22px;
+                      letter-spacing: -.025em; color: var(--lc-text); }
+.lc-plaque .lc-hp   { font-family: var(--font-display); font-weight: 900; font-size: 28px;
+                      letter-spacing: -.03em; color: var(--lc-text); }
+.lc-plaque .lc-drinks { display: flex; align-items: center; gap: 3px; }
+.lc-plaque .lc-decknames { font-family: var(--font-mono); font-size: 11px; color: var(--lc-label); }
+.lc-plaque .lc-draws { margin-left: auto; border-radius: 4px; padding: 1px 6px;
+                       background: var(--lc-ink-59);
+                       font-family: var(--font-display); font-weight: 900; font-size: 13px;
+                       color: var(--lc-text); }
+.lc-plaque .lc-handstrip { border-top: 1px solid var(--lc-hair); padding-top: 9px; }
+
+/* the 3px top rule — one deck fills it, two split it 50/50 */
+.lc-rule { height: 3px; border-radius: 3px 3px 0 0; overflow: hidden; display: flex; }
+.lc-rule-1 { background: var(--lc-fill, var(--lc-hair)); }
+.lc-rule-2 i { flex: 1; background: var(--lc-fill); }
+
+/* HandStrip (D.3) — overlapping backs, exact count right-aligned */
+.lc-handstrip { display: flex; align-items: center; gap: 0; }
+.lc-handstrip .lc-back + .lc-back { margin-left: -4px; }
+.lc-handstrip-more  { font-family: var(--font-display); font-weight: 900; font-size: 13px;
+                      color: var(--lc-body); margin-left: 5px; }
+.lc-handstrip-count { margin-left: auto; font-family: var(--font-mono); font-size: 10px;
+                      color: var(--lc-label); }
+
+/* DeckStack + DiscardSlot (D.4) */
+.lc-deckstack, .lc-discard {
+  position: relative; display: inline-flex; flex-direction: column;
+  align-items: center; gap: 6px;
+}
+/* the offset shadow card behind the stack, at +3px */
+.lc-deckstack .lc-back::before {
+  content: ""; position: absolute; inset: 0; transform: translate(3px, 3px);
+  border-radius: 3px; background: var(--lc-back); z-index: -1;
+}
+.lc-deckstack-count { font-family: var(--font-display); font-weight: 900; font-size: 22px;
+                      color: var(--lc-ink); }
+.lc-deckstack-name  { font-family: var(--font-ui); font-weight: 700; font-size: 9px;
+                      letter-spacing: .13em; text-transform: uppercase; color: var(--lc-label); }
+/* a destination, not a deck: dashed, no grid, neutral count */
+.lc-discard .lc-back { background-image: none; border-style: dashed; }
+.lc-discard .lc-deckstack-count { color: var(--lc-body); }
+
+/* deck-stack states, driven by the contract's exposed attributes */
+.lc-deckstack[data-low]   .lc-deckstack-count { color: var(--lc-amber); }
+.lc-deckstack[data-empty] .lc-deckstack-count { font-size: 11px; letter-spacing: .1em;
+                                                color: var(--lc-amber); }
+
+/* plaque states — idle is the base. locked/drawing/hit/eliminated layer on.
+   The animations for is-hit and is-drawing are authored in Plan A-vis. */
+.lc-lock-tick { color: var(--lc-violet); font-size: 13px; margin-left: 6px; }
+.lc-plaque:not(.is-locked) .lc-lock-tick { display: none; }
+.lc-plaque.is-eliminated { opacity: .4; }
+.lc-plaque.is-eliminated .lc-hp { font-size: 15px; letter-spacing: .1em; color: var(--lc-label); }
+
+/* F.1 phone shell (spec §7.3) — fixed vertical order, no screen may reorder
+   it: status row -> phase banner -> tab row -> view -> action bar. The view
+   flexes to fill; the action bar is the thumb zone. */
+body.lc { margin: 0; min-height: 100vh; display: flex; flex-direction: column;
+          background: var(--lc-device); color: var(--lc-text); font-family: var(--font-ui); }
+.lc-status { height: 40px; padding: 0 20px; display: flex; align-items: center;
+             justify-content: space-between; font-family: var(--font-mono);
+             font-size: 12px; color: var(--lc-label); }
+#lc-banner { padding: 0 18px 12px; display: flex; align-items: baseline;
+             justify-content: space-between; gap: 12px; }
+.lc-banner-beat { font-family: var(--font-display); font-weight: 900; font-size: 26px;
+                  letter-spacing: -.02em; text-transform: uppercase;
+                  color: var(--lc-beat, var(--lc-text)); }
+.lc-banner-meta { font-family: var(--font-ui); font-weight: 700; font-size: 10px;
+                  letter-spacing: .13em; text-transform: uppercase; color: var(--lc-label); }
+.lc-tabs { padding: 0 18px; display: flex; border-bottom: 1px solid var(--lc-hair); }
+.lc-tab { background: none; border: 0; padding: 9px 14px 8px; cursor: pointer;
+          font-family: var(--font-display); font-weight: 800; font-size: 11px;
+          letter-spacing: .1em; color: var(--lc-label);
+          border-bottom: 2px solid transparent; }
+.lc-tab[aria-selected="true"] { color: var(--lc-text); }
+.lc-tab[data-lc-tab="hand"][aria-selected="true"]  { border-bottom-color: #B48EF7; }
+.lc-tab[data-lc-tab="table"][aria-selected="true"] { border-bottom-color: #6FB6FF; }
+.lc-tab[data-lc-tab="log"][aria-selected="true"]   { border-bottom-color: #8D87A0; }
+.lc-view { flex: 1; overflow-y: auto; padding: 14px 12px 0; }
+.lc-pane[hidden] { display: none; }
+.lc-empty { padding: 40px 8px; text-align: center; font-size: 13px; line-height: 1.5;
+            color: var(--lc-faint); }
+.lc-actions { padding: 12px 14px 18px; display: flex; gap: 10px; }
+.lc-btn { flex: 1; height: 64px; border: 0; border-radius: 8px; cursor: pointer;
+          background: var(--lc-fill, var(--lc-amber)); color: #14101D;
+          font-family: var(--font-display); font-weight: 900; font-size: 20px;
+          letter-spacing: .02em; transition: transform 130ms var(--lc-ease); }
+.lc-btn:active { transform: scale(.97); }
+.lc-btn-secondary { flex: 0 0 92px; background: transparent; color: var(--lc-body);
+                    border: 1px solid var(--lc-hair-strong); }
+/* the option that involves drinking is always the amber one */
+.lc-btn-drink { background: var(--lc-amber); }
+
+/* hand region — deliberately throwaway. Slice 2's HandWheel replaces this
+   container, not the CardFace inside it. */
+#lc-hand { display: flex; flex-direction: column; gap: 12px; padding-bottom: 14px; }
+
+/* setup — plain and undesigned on purpose (spec §2, item 2). Plan A2 fills it. */
+.lc-setup { background: var(--lc-panel); border-radius: 8px; padding: 14px;
+            margin-bottom: 14px; display: flex; flex-direction: column; gap: 10px; }
+.lc-setup h2 { font-family: var(--font-display); font-weight: 900; font-size: 15px;
+               letter-spacing: .04em; text-transform: uppercase; color: var(--lc-text); }
+.lc-setup form { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.lc-setup select, .lc-setup input { background: var(--lc-panel-alt); color: var(--lc-text);
+            border: 1px solid var(--lc-hair); border-radius: 6px; padding: 8px 10px;
+            font-size: 14px; }
+.lc-setup button { background: var(--lc-panel-alt); color: var(--lc-text);
+            border: 1px solid var(--lc-hair-strong); border-radius: 6px;
+            padding: 8px 14px; font-size: 13px; cursor: pointer; }
+.lc-setup-row { display: flex; align-items: center; gap: 8px; font-size: 13px;
+                color: var(--lc-body); }

@@ -604,6 +604,13 @@ async fn game_css() -> impl IntoResponse {
     )
 }
 
+async fn lastcall_css() -> impl IntoResponse {
+    (
+        [(header::CONTENT_TYPE, "text/css")],
+        include_str!("../assets/lastcall.css"),
+    )
+}
+
 /// Single htmx copy for the whole repo: embed the portfolio's vendored file.
 async fn htmx_js() -> impl IntoResponse {
     (
@@ -731,6 +738,7 @@ pub fn router() -> Router<GameState> {
         .route("/room/{code}/sse", get(sse_stream))
         .route("/room/{code}/screen", get(screen_page))
         .route("/assets/game.css", get(game_css))
+        .route("/assets/lastcall.css", get(lastcall_css))
         .route("/assets/htmx.min.js", get(htmx_js))
         .route("/assets/fonts/{name}", get(font_asset))
         .route("/assets/sounds/{name}", get(sound_asset))

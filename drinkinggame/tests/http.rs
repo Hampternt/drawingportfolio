@@ -68,6 +68,7 @@ async fn test_assets_are_served() {
     let app = test_app().await;
     for (path, ct) in [
         ("/assets/game.css", "text/css"),
+        ("/assets/lastcall.css", "text/css"),
         ("/assets/htmx.min.js", "application/javascript"),
     ] {
         let res = app
@@ -85,15 +86,10 @@ async fn test_assets_are_served() {
 /// which the browser silently drops (this broke `.card-big` once — the card
 /// face lost its size/background/position and the corner ranks escaped to
 /// the page corners).
-#[tokio::test]
-async fn test_game_css_has_no_nested_comment_markers() {
-    let app = test_app().await;
+async fn assert_no_nested_comments(app: &Router, path: &str) {
     let res = app
-        .oneshot(
-            Request::get("/assets/game.css")
-                .body(Body::empty())
-                .unwrap(),
-        )
+        .clone()
+        .oneshot(Request::get(path).body(Body::empty()).unwrap())
         .await
         .unwrap();
     let css = body_string(res).await;
@@ -110,7 +106,7 @@ async fn test_game_css_has_no_nested_comment_markers() {
                 continue;
             }
             (b"/*", true) => {
-                panic!("nested /* inside a CSS comment at line {line} — the comment closes early and the following rule gets dropped by the browser")
+                panic!("nested /* inside a CSS comment at line {line} in {path} — the comment closes early and the following rule gets dropped by the browser")
             }
             (b"*/", true) => {
                 in_comment = false;
@@ -124,7 +120,68 @@ async fn test_game_css_has_no_nested_comment_markers() {
         }
         i += 1;
     }
-    assert!(!in_comment, "unterminated CSS comment");
+    assert!(!in_comment, "unterminated CSS comment in {path}");
+}
+
+#[tokio::test]
+async fn test_game_css_has_no_nested_comment_markers() {
+    let app = test_app().await;
+    assert_no_nested_comments(&app, "/assets/game.css").await;
+}
+
+#[tokio::test]
+async fn test_lastcall_css_has_no_nested_comment_markers() {
+    let app = test_app().await;
+    assert_no_nested_comments(&app, "/assets/lastcall.css").await;
+}
+
+#[tokio::test]
+async fn test_lastcall_css_has_deck_ramps() {
+    let app = test_app().await;
+    let css = body_string(get(&app, "/assets/lastcall.css").await).await;
+    for needle in [
+        ".lc-deck-beer",
+        ".lc-deck-cider",
+        ".lc-deck-wine",
+        ".lc-deck-liquor",
+        ".lc-deck-soft",
+        "#D4657F",
+        "--lc-ink-66: #D4657F66",
+        "#0D1620",
+    ] {
+        assert!(css.contains(needle), "missing {needle}");
+    }
+}
+
+#[tokio::test]
+async fn test_lastcall_css_has_base_reset() {
+    let app = test_app().await;
+    let css = body_string(get(&app, "/assets/lastcall.css").await).await;
+    assert!(css.contains("box-sizing: border-box"));
+    assert!(css.contains("appearance: none"));
+}
+
+#[tokio::test]
+async fn test_lastcall_css_has_every_component_root() {
+    let app = test_app().await;
+    let css = body_string(get(&app, "/assets/lastcall.css").await).await;
+    for needle in [
+        ".lc-cardface",
+        ".lc-pip",
+        ".lc-mini",
+        ".lc-back",
+        ".lc-dot",
+        ".lc-plaque",
+        ".lc-handstrip",
+        ".lc-deckstack",
+        ".lc-discard",
+        "#lc-banner",
+        "#lc-felt",
+        "#lc-flights",
+        "#lc-hand",
+    ] {
+        assert!(css.contains(needle), "missing {needle}");
+    }
 }
 
 #[tokio::test]
