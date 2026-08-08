@@ -3128,3 +3128,171 @@ async fn test_preview_has_no_style_element_and_no_behaviour() {
         );
     }
 }
+
+// ---------------------------------------------------------------------
+// Last Call — Plan A-vis Task 3: scene, components, states, flights
+// ---------------------------------------------------------------------
+
+/// The §7.8.1 test. Every `data-flight-anchor` name must resolve on the
+/// preview page — the only place in the series the whole set is provable at
+/// once. Markup without an anchor means slice 3 rewrites a template.
+#[tokio::test]
+async fn test_preview_resolves_every_motion_anchor() {
+    let app = test_app().await;
+    let html = body_string(get(&app, "/lastcall/preview").await).await;
+
+    let names = [
+        "deck-beer",
+        "deck-cider",
+        "deck-wine",
+        "deck-liquor",
+        "deck-soft",
+        "discard",
+        "plaque-seat-0",
+        "plaque-seat-1",
+        "plaque-seat-2",
+        "plaque-seat-3",
+        "plaque-seat-4",
+        "plaque-seat-5",
+        "plaque-seat-6",
+        "plaque-seat-7",
+        "hand",
+        "felt",
+    ];
+    for name in names {
+        let needle = format!(r#"data-flight-anchor="{name}""#);
+        assert!(html.contains(&needle), "missing anchor {name}");
+    }
+}
+
+#[tokio::test]
+async fn test_preview_shows_all_six_beat_hues() {
+    let app = test_app().await;
+    let html = body_string(get(&app, "/lastcall/preview").await).await;
+
+    for hue in [
+        "lc-beat-mint",
+        "lc-beat-violet",
+        "lc-beat-azure",
+        "lc-beat-rose",
+    ] {
+        assert!(html.contains(hue), "missing {hue}");
+    }
+    assert!(
+        html.matches("lc-beat-amber").count() >= 2,
+        "expected lc-beat-amber at least twice (Draw and Deal)"
+    );
+}
+
+#[tokio::test]
+async fn test_preview_shows_every_plaque_state() {
+    let app = test_app().await;
+    let html = body_string(get(&app, "/lastcall/preview").await).await;
+
+    for needle in [
+        "is-locked",
+        "is-drawing",
+        "is-hit",
+        "is-eliminated",
+        "GHOST",
+        "lc-lock-tick",
+    ] {
+        assert!(html.contains(needle), "missing {needle}");
+    }
+
+    // The locked plaque's own markup — computed the same way the preview
+    // does — must never carry a card identity. seats[2] (cara) is locked in
+    // preview_state(); see the task report for the seat-index mapping.
+    let view = drinkinggame::last_call::preview_state().public_view();
+    let locked_html = drinkinggame::lc_render::player_plaque(&view.seats[2]);
+    assert!(locked_html.contains("is-locked"));
+    assert!(!locked_html.contains("data-card-id"));
+    assert!(
+        html.contains(&locked_html),
+        "locked swatch not found on page"
+    );
+}
+
+#[tokio::test]
+async fn test_preview_shows_deck_stack_states() {
+    let app = test_app().await;
+    let html = body_string(get(&app, "/lastcall/preview").await).await;
+
+    assert!(html.contains("data-low"));
+    assert!(html.contains("data-empty"));
+    assert!(html.contains("RESHUFFLE"));
+
+    // A .lc-discard WITH data-count — not two independent substring checks,
+    // which would pass even if discard_slot stopped emitting data-count
+    // (every deck stack and #lc-hand also carry that attribute).
+    let view = drinkinggame::last_call::preview_state().public_view();
+    let discard = drinkinggame::lc_render::discard_slot(view.discard_count);
+    assert!(discard.contains("lc-discard"));
+    assert!(discard.contains("data-count"));
+    assert!(html.contains(&discard), "discard slot not found on page");
+}
+
+#[tokio::test]
+async fn test_preview_shows_oversized_hand_split() {
+    let app = test_app().await;
+    let html = body_string(get(&app, "/lastcall/preview").await).await;
+
+    // Bob's 12-card plaque hand (n - 7 = 5) and the isolated 30-card
+    // hand_strip sample (n - 7 = 23).
+    assert!(html.contains("+5"), "missing bob's +5 (12-card hand)");
+    assert!(html.contains("+23"), "missing the 30-card sample's +23");
+
+    // The isolated n = 8 sample sits exactly on the split boundary: 8
+    // backs, no +n chip. Computed directly rather than scraped from the
+    // whole page, since the page also renders plaques whose own hand
+    // strips carry unrelated data-size="strip" backs.
+    let n8 = drinkinggame::lc_render::hand_strip(&[drinkinggame::last_call::Deck::Beer], 8);
+    assert_eq!(n8.matches(r#"data-size="strip""#).count(), 8);
+    assert!(!n8.contains("lc-handstrip-more"));
+    assert!(html.contains(&n8), "n=8 sample not found on page");
+}
+
+#[tokio::test]
+async fn test_preview_tab_order_is_fixed() {
+    let app = test_app().await;
+    let html = body_string(get(&app, "/lastcall/preview").await).await;
+
+    // At least the two dedicated side-by-side copies (HAND active, TABLE
+    // active); the F.1 frame swatch embeds a third. Every occurrence must
+    // keep the fixed order — a stronger check than "the two copies", not a
+    // weaker one.
+    let blocks: Vec<&str> = html.split(r#"class="lc-tabs""#).skip(1).collect();
+    assert!(blocks.len() >= 2, "expected at least two tab-row copies");
+    for block in blocks {
+        let end = block.find("</div>").unwrap_or(block.len());
+        let window = &block[..end];
+        let hand = window.find("HAND").expect("HAND missing in tab row");
+        let table = window.find("TABLE").expect("TABLE missing in tab row");
+        let log = window.find("LOG").expect("LOG missing in tab row");
+        assert!(hand < table, "HAND must come before TABLE");
+        assert!(table < log, "TABLE must come before LOG");
+    }
+}
+
+#[tokio::test]
+async fn test_preview_has_the_felt_and_all_three_flight_directions() {
+    let app = test_app().await;
+    let html = body_string(get(&app, "/lastcall/preview").await).await;
+
+    assert!(html.contains(r#"id="lc-felt""#));
+    assert!(html.contains(r#"data-replay="draw""#));
+    assert!(html.contains(r#"data-replay="play""#));
+    assert!(html.contains(r#"data-replay="discard""#));
+}
+
+#[tokio::test]
+async fn test_preview_script_delegates_to_the_motion_library() {
+    let app = test_app().await;
+    let html = body_string(get(&app, "/lastcall/preview").await).await;
+
+    for needle in ["DOMContentLoaded", "htmx:afterSwap", "lcFlight", "lcAnchor"] {
+        assert!(html.contains(needle), "missing {needle}");
+    }
+    assert!(!html.contains("@keyframes"));
+    assert!(!html.contains("getBoundingClientRect"));
+}

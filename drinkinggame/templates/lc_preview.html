@@ -24,5 +24,49 @@
     <div class="lc-preview-body">{{ g.body|safe }}</div>
   </section>
   {% endfor %}
+  <script>
+  // Preview-only: wire the REPLAY buttons to the shared helper. No animation
+  // logic here — that is the point of the library (spec §7.7).
+  function lcPreviewInit() {
+    document.querySelectorAll("[data-replay]").forEach(function (btn) {
+      if (btn.dataset.lcBound) return;         // double-injection guard
+      btn.dataset.lcBound = "1";
+      btn.addEventListener("click", function () {
+        var from = window.lcAnchor(btn.dataset.from);
+        var to = window.lcAnchor(btn.dataset.to);
+        var n = Number(btn.dataset.count || 1);
+        for (var i = 0; i < n; i++) {
+          window.lcFlight(from, to, {
+            direction: btn.dataset.replay,
+            deck: btn.dataset.deck,
+            scale: btn.dataset.scale,
+            delay: i * 250,
+          });
+        }
+      });
+    });
+    document.querySelectorAll("[data-anchor-check]").forEach(function (el) {
+      el.textContent = window.lcAnchor(el.dataset.anchorCheck) ? "✓" : "✗";
+    });
+    // The hit plaque's is-hit state (shake + HP flash) is CSS-driven, not a
+    // flight: no from/to anchors, so it does not go through lcFlight. This
+    // toggle carries no timing or position logic of its own — restarting a
+    // CSS animation by removing and re-adding its class is the standard
+    // technique, not a reimplementation of anything in lc_motion.js.
+    document.querySelectorAll("[data-replay-state]").forEach(function (btn) {
+      if (btn.dataset.lcBound) return;         // double-injection guard
+      btn.dataset.lcBound = "1";
+      btn.addEventListener("click", function () {
+        var target = document.querySelector(btn.dataset.target);
+        if (!target) return;
+        target.classList.remove(btn.dataset.replayState);
+        void target.offsetWidth;               // force reflow to restart it
+        target.classList.add(btn.dataset.replayState);
+      });
+    });
+  }
+  document.addEventListener("DOMContentLoaded", lcPreviewInit);
+  document.addEventListener("htmx:afterSwap", lcPreviewInit);
+  </script>
 </body>
 </html>

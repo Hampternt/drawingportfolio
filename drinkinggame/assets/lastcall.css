@@ -502,7 +502,12 @@ body.lc { margin: 0; min-height: 100vh; display: flex; flex-direction: column;
 .lc-preview-row { display: flex; flex-direction: column; gap: 12px; }
 .lc-preview-subhead { font-family: var(--font-ui); font-weight: 700; font-size: 11px;
                        letter-spacing: .1em; text-transform: uppercase; color: var(--lc-label); }
-.lc-preview-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+/* Plan A-vis Task 3: 200px (not Task 2's 220px) so the card-primitive matrix
+   reads as five clean columns at the group's 1060px content width (1100px
+   max-width minus 20px side padding) — floor((1060+14)/(200+14)) = 5,
+   whereas 220 gave 4-and-a-wrapped-one. Page layout only: .lc-cardface
+   itself is untouched, still fluid-width x 176px fixed height per Plan A. */
+.lc-preview-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
                     gap: 14px; }
 
 .lc-preview-swatch { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
@@ -512,3 +517,52 @@ body.lc { margin: 0; min-height: 100vh; display: flex; flex-direction: column;
 /* Step 4's clamped/expanded pairing — the clamped card_face beside its
    card_face_expanded twin, so what the clamp lost is visible, not asserted. */
 .lc-preview-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; align-items: start; }
+
+/* preview page (Plan A-vis Task 3) — page layout only, same rule as the
+   section above: everything here is composed from the tokens/classes
+   already shipped (grounds, panels, edges, decks), no new colours. */
+
+/* a plain sized box for primitives that carry no width/height of their own
+   (.lc-ground/.lc-device/.lc-panel/… only set colour) */
+.lc-preview-swatchbox { width: 96px; height: 64px; }
+
+/* the felt has no size of its own in the scene-primitives section above —
+   sizing it is this consuming page's call; Plan B will size it again for
+   its own seat-ring layout. Scoped to body.lc-preview (this page's own
+   class, set in lc_preview.html) so it cannot land on Plan B's real felt
+   through the bare #lc-felt id. */
+body.lc-preview #lc-felt { width: 640px; height: 360px; margin: 0 auto; }
+
+/* Group 5's 390x844 static F.1 frame — mirrors body.lc's scaffolding
+   (background/colour/font/flex column) for a page section rather than the
+   real <body>. */
+.lc-preview-shell {
+  width: 390px; height: 844px; margin: 0 auto; overflow: hidden;
+  border-radius: 34px; border: 1px solid var(--lc-hair-strong);
+  background: var(--lc-device); color: var(--lc-text); font-family: var(--font-ui);
+  display: flex; flex-direction: column;
+}
+
+/* Group 6's at-rest flight-node swatch — .lc-flight is position: absolute
+   with no ancestor of its own, so it needs a positioned, sized box to sit
+   inside rather than escaping to the nearest positioned ancestor up the
+   page. */
+.lc-preview-flight-box { position: relative; width: 44px; height: 62px; }
+.lc-preview-flight-box-dot { width: 8px; height: 8px; }
+
+/* Group 6's anchor board */
+.lc-preview-anchors { display: flex; flex-direction: column; gap: 6px;
+                       font-family: var(--font-mono); font-size: 12px; color: var(--lc-body); }
+.lc-preview-anchors li { display: flex; justify-content: space-between; gap: 16px;
+                          max-width: 280px; }
+
+/* Group 7's deck ramp reference chips — .lc-preview-ramp-ink is combined
+   with .lc-panel in markup for its background; the other two set their own. */
+.lc-preview-ramp-fill, .lc-preview-ramp-ink, .lc-preview-ramp-onfill {
+  width: 96px; height: 64px; border-radius: 6px; display: flex;
+  align-items: center; justify-content: center;
+  font-family: var(--font-mono); font-size: 11px;
+}
+.lc-preview-ramp-fill   { background: var(--lc-fill); }
+.lc-preview-ramp-ink    { color: var(--lc-ink); }
+.lc-preview-ramp-onfill { background: var(--lc-fill); color: var(--lc-on-fill); }
