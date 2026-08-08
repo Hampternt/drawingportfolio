@@ -699,7 +699,11 @@ pub fn preview_state() -> LastCallState {
     // it bypasses set_vessel's dedupe so the n > 8 hand-strip split has a
     // hand to split, and the strip only ever reads a COUNT. Slice 2's
     // HandWheel indexes by card id, so vary the ids before building it.
-    st.players[1].hand = lc_cards::deck_cards(Deck::Cider).repeat(3);
+    // NOTE: not `.repeat(3)` — `[T]::repeat` requires `T: Copy`, and `Card`
+    // owns String/Vec<String> fields, so that form does not compile.
+    st.players[1].hand = std::iter::repeat_n(lc_cards::deck_cards(Deck::Cider), 3)
+        .flatten()
+        .collect();
     st.players[0].draws_this_round = 3;            // the plaque's draw badge
     st.set_vessel(8, Deck::Soft, "any").unwrap();  // 8th seat: MAX_SEATS ceiling
     st.deck_counts = vec![
