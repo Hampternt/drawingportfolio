@@ -232,6 +232,17 @@ fn setup_rows(st: &LastCallState) -> Vec<SetupRow> {
         .collect()
 }
 
+// NOTE: the brief's Produces section lists a `seq: u64` field on this struct,
+// but its own literal `lc_room.html` markup never consumes it (`#lc-hand`,
+// embedded inside `hand_pane`, already carries the §7.8-required `data-seq`).
+// An unused field is a hard `dead_code` warning under this crate's
+// zero-warnings gate, and the two ways to silence it disagree with each
+// other: adding a second `data-seq` (e.g. on `<body>`) would leave two
+// `[data-seq]` nodes in one document, which breaks a naive
+// `document.querySelector("[data-seq]")` in Task 3's SSE client by document
+// order. Dropping the unused field has no observable effect today, so that's
+// the resolution here — flagged for whoever writes Task 3's reconnect
+// tracking to decide where the page-level seq should live.
 #[derive(Template)]
 #[template(path = "lc_room.html")]
 struct LcRoomTemplate {
@@ -240,7 +251,6 @@ struct LcRoomTemplate {
     player_id: i64,
     banner: String,    // lc_render::lc_banner(&view)
     hand_pane: String, // lc_render::lc_hand_pane(...)
-    seq: u64,
 }
 
 /// `GET /room/{code}/lastcall` — the F.1 phone shell. `load_lc` already gates
@@ -271,7 +281,6 @@ pub async fn lc_page(
         player_id: player.id,
         banner: lc_render::lc_banner(&ctx.st.public_view()),
         hand_pane,
-        seq: ctx.st.seq,
     };
     Html(tpl.render().unwrap()).into_response()
 }
