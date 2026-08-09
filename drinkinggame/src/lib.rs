@@ -9,6 +9,7 @@ pub mod game;
 pub mod hub;
 pub mod last_call;
 pub mod lc_cards;
+pub mod lc_layout;
 pub mod lc_preview;
 pub mod lc_render;
 pub mod lc_routes;
