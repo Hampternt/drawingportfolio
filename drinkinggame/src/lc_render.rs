@@ -373,16 +373,22 @@ pub fn beat_timer(duration_ms: u32, elapsed_ms: u32) -> String {
     )
 }
 
-/// The payload of the `LcPublic` SSE message (Plan A2). Plan A's body is the
-/// banner plus the seq marker; Plan A2 and Plan B extend the body, never the
-/// signature. The `<template data-lc-banner>` wrapper mirrors the existing
-/// `room` event's `<template data-topbar>` convention in `room.html` — one
-/// SSE message carrying several destinations.
+/// The payload of the `LcPublic` SSE message (Plan A2/Plan B). Plan A's body
+/// is the banner plus the seq marker; Plan A2 added the banner template,
+/// Plan B (Task 4) adds a second `<template data-lc-screen>` carrying the
+/// big-screen felt so `lc_screen.html` can repaint from the same message —
+/// no new SSE event, no new publish, the frame count is unchanged. Both
+/// `<template>` wrappers mirror the existing `room` event's
+/// `<template data-topbar>` convention in `room.html` — one SSE message
+/// carrying several destinations. `lc_screen_panel` is a pure string build
+/// (no I/O, no `.await`), so this stays safe to call from `broadcast_lc`,
+/// which must remain awaitless (`1e742d4`).
 pub fn lc_public_panel(view: &PublicView) -> String {
     format!(
-        r#"<div data-lc-public data-seq="{seq}"><template data-lc-banner>{banner}</template></div>"#,
+        r#"<div data-lc-public data-seq="{seq}"><template data-lc-banner>{banner}</template><template data-lc-screen>{screen}</template></div>"#,
         seq = view.seq,
         banner = lc_banner(view),
+        screen = lc_screen_panel(view),
     )
 }
 

@@ -57,7 +57,14 @@ function swapPanel(id, evName, html) {
   }
 }
 const es = new EventSource(BP + "/room/" + CODE + "/sse");
-es.addEventListener("screen", e => swapPanel("screen-panel", "screen", e.data));
+es.addEventListener("screen", e => {
+  // Last Call just started: the generic screen has nothing that can render
+  // its felt, so hand off to lc_screen.html by reloading — the next GET
+  // to this same URL routes to the Last Call template instead. Inert for
+  // Ring of Fire and 3 Man, which never publish this marker.
+  if (e.data.includes("data-lc-live")) { window.location.reload(); return; }
+  swapPanel("screen-panel", "screen", e.data);
+});
 es.addEventListener("leaderboard", e => { document.getElementById("standings-list").innerHTML = e.data; });
 es.addEventListener("emote", e => {
   const s = document.createElement("span");

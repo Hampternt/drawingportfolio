@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Last Call — Room {{ code }} — Big Screen</title>
+  <link rel="stylesheet" href="{{ base_path }}/assets/lastcall.css">
+  <script src="{{ base_path }}/assets/lc_motion.js" defer></script>
+</head>
+<body class="lc-screen">
+  <div class="lc-screen-head">
+    <span class="lc-screen-mark">last call<span>.</span></span>
+    <div class="lc-screen-meta"><span class="lc-kicker">ROOM</span><span class="lc-screen-code">{{ code }}</span></div>
+    <div class="lc-screen-meta"><span class="lc-kicker">ROUND</span><span class="lc-screen-round">{{ round }}</span></div>
+    {{ banner|safe }}
+  </div>
+  <div id="lc-screen-panel" data-seq="{{ seq }}">{{ panel|safe }}</div>
+  <script>
+const BP = "{{ base_path }}", CODE = "{{ code }}";
+
+// The server-rendered panel's data-seq is the seq floor, exactly as
+// lc_room.html seeds lcSeq from #lc-hand.
+let lcSeq = Number(document.getElementById("lc-screen-panel")?.dataset.seq || 0);
+
+const es = new EventSource(BP + "/room/" + CODE + "/sse");
+es.addEventListener("lcpublic", e => {
+  const box = document.createElement("div");
+  box.innerHTML = e.data;
+  const root = box.querySelector("[data-lc-public]");
+  // Stale-drop, the same rule the phone uses: a frame older than the
+  // newest seq we have seen would repaint an out-of-date table. Equal seq
+  // is fine — a duplicate repaint is harmless.
+  const seq = Number(root?.dataset.seq || 0);
+  if (!root || seq < lcSeq) return;
+  lcSeq = seq;
+  const banner = box.querySelector("template[data-lc-banner]");
+  if (banner) document.getElementById("lc-banner").outerHTML = banner.innerHTML;
+  const panel = box.querySelector("template[data-lc-screen]");
+  if (panel) document.getElementById("lc-screen-panel").innerHTML = panel.innerHTML;
+});
+es.addEventListener("screen", e => {
+  // The Last Call game ended but the room did not: fall back to the
+  // generic spectator screen.
+  if (!e.data.includes("data-lc-live")) window.location.reload();
+});
+es.addEventListener("ended", () => { es.close(); window.location = BP + "/"; });
+  </script>
+</body>
+</html>

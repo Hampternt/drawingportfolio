@@ -392,10 +392,22 @@ pub fn lc_placeholder_panel(base_path: &str, code: &str) -> String {
     )
 }
 
-/// Last Call big-screen placeholder (Task 1 only). Plan B replaces this with
-/// the `lc_screen.html` branch.
+/// Last Call big-screen placeholder — the `Screen` frame published while a
+/// Last Call game is active (Task 1 shipped the text; Plan B/Task 4 adds the
+/// `data-lc-live` marker). It is no longer what a spectator's *page* renders
+/// — `screen_page` now branches to `lc_screen.html` for a `last_call` room —
+/// but it is still published on every `broadcast_game` call, and it is the
+/// ONLY signal a spectator already sitting on `screen.html` or `lc_screen.html`
+/// gets that the active kind changed: `screen.html` reloads when it SEES this
+/// marker (moving off the generic page to the felt), and `lc_screen.html`
+/// reloads when it does NOT (falling back once the game ends). Exactly one
+/// screen-panel builder may carry this marker — `screen_panel_idle`,
+/// `screen_panel_over`, `tm_screen_over` and every Ring of Fire screen panel
+/// must never gain it, or the handoff inverts (guarded by
+/// `test_exactly_one_screen_panel_builder_marks_itself_live` in
+/// `tests/http.rs`).
 pub fn lc_screen_placeholder(_code: &str) -> String {
-    r#"<div class="screen-panel"><p>LAST CALL &mdash; the big screen lands next slice.</p></div>"#
+    r#"<div class="screen-panel" data-lc-live><p>LAST CALL &mdash; the big screen lands next slice.</p></div>"#
         .to_string()
 }
 

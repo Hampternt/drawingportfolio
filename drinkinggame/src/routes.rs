@@ -641,6 +641,25 @@ struct ScreenTemplate {
     qr_svg: String,
 }
 
+/// The Last Call big-screen shell (Task 4). Public, like `ScreenTemplate` —
+/// a TV in the corner has no cookie — so `screen_page` builds this straight
+/// from `db::get_active_game` + `LastCallState::from_json`, never through
+/// `lc_routes::load_lc`, which requires a `PlayerSession`.
+#[derive(Template)]
+#[template(path = "lc_screen.html")]
+struct LcScreenTemplate {
+    base_path: String,
+    code: String,
+    round: u32,
+    /// Seeds the page's `lcSeq`, exactly as `lc_room.html` seeds from
+    /// `#lc-hand`'s `data-seq` — not in the brief's literal field list, but
+    /// without it the page has no seq floor to stale-drop against on its
+    /// first `lcpublic` frame.
+    seq: u64,
+    banner: String, // lc_render::lc_banner(&view)
+    panel: String,  // lc_render::lc_screen_panel(&view)
+}
+
 async fn screen_page(
     State(state): State<GameState>,
     Path(code): Path<String>,
@@ -654,6 +673,26 @@ async fn screen_page(
             "Room not found or already ended",
         );
     };
+    // Last Call gets its own template — the generic screen.html has nowhere
+    // to put a felt. Ring of Fire and 3 Man fall through to the existing
+    // path below completely unchanged.
+    if let Some(game) = db::get_active_game(&state.pool, room.id).await {
+        if game.kind == "last_call" {
+            let st = crate::last_call::LastCallState::from_json(
+                game.state_json.as_deref().unwrap_or_default(),
+            );
+            let view = st.public_view();
+            let tpl = LcScreenTemplate {
+                base_path: state.base_path.to_string(),
+                code,
+                round: view.round,
+                seq: view.seq,
+                banner: crate::lc_render::lc_banner(&view),
+                panel: crate::lc_render::lc_screen_panel(&view),
+            };
+            return Html(tpl.render().unwrap()).into_response();
+        }
+    }
     let leaderboard_items = render_leaderboard(&state, room.id).await;
     // The screen-scale panel builder, not the phone one — the phone idle
     // panel carries a navigable "Edit rule presets" link that has no

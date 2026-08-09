@@ -4488,3 +4488,203 @@ fn test_new_scene_roots_are_positioned() {
         );
     }
 }
+
+// -------------------------------------------------------------
+// Last Call (Task 4): the big screen — lc_screen.html, the kind branch in
+// screen_page, and the data-lc-live handoff between it and screen.html.
+// -------------------------------------------------------------
+
+#[tokio::test]
+async fn test_screen_serves_the_last_call_felt_when_last_call_is_active() {
+    let app = test_app().await;
+    let alice = login(&app, "alice", "1234").await;
+    let bob = login(&app, "bob", "5678").await;
+    let code = create_room(&app, &alice).await;
+    room_page_html(&app, &bob, &code).await;
+    post_form(&app, &alice, &format!("/room/{code}/lastcall/start"), "").await;
+
+    let res = get(&app, &format!("/room/{code}/screen")).await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let html = body_string(res).await;
+    assert!(html.contains(r#"<body class="lc-screen">"#), "{html}");
+    assert_eq!(
+        html.matches(r#"class="lc-seat""#).count(),
+        2,
+        "expected one seat per seated player: {html}"
+    );
+}
+
+/// The regression this task's Class C exists for: two games that already
+/// worked must render exactly what they rendered before the kind branch
+/// landed. `screen_page`'s new `if` must fall through to the untouched path
+/// for every kind but `last_call`.
+#[tokio::test]
+async fn test_screen_is_unchanged_for_ring_of_fire_and_three_man() {
+    let app = test_app().await;
+    let alice = login(&app, "alice", "1234").await;
+    let bob = login(&app, "bob", "5678").await;
+    let code = create_room(&app, &alice).await;
+    room_page_html(&app, &bob, &code).await;
+
+    // Idle: no game running yet.
+    //
+    // `data-lc-live>` (with the trailing `>`), not the bare substring
+    // "data-lc-live": screen.html's own inline script now carries that
+    // literal in its `e.data.includes("data-lc-live")` check on every
+    // render, regardless of game kind, so a bare substring search would
+    // always "find" it and the assertion would be meaningless. The marker
+    // as an actual rendered boolean attribute (`lc_screen_placeholder`'s
+    // output) always has a `>` immediately after it; the JS string literal
+    // never does.
+    let idle_html = body_string(get(&app, &format!("/room/{code}/screen")).await).await;
+    assert!(
+        idle_html.contains(r#"<body class="screen">"#),
+        "{idle_html}"
+    );
+    assert!(idle_html.contains("screen-idle"), "{idle_html}");
+    assert!(!idle_html.contains("data-lc-live>"), "{idle_html}");
+    assert!(!idle_html.contains(r#"class="lc-screen""#), "{idle_html}");
+
+    // Ring of Fire, running.
+    let res = post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/game/start"),
+        "preset_id=1",
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+    let rof_html = body_string(get(&app, &format!("/room/{code}/screen")).await).await;
+    assert!(rof_html.contains(r#"<body class="screen">"#), "{rof_html}");
+    assert!(rof_html.contains("52 of 52 left"), "{rof_html}");
+    assert!(!rof_html.contains("data-lc-live>"), "{rof_html}");
+    let res = post_form(&app, &alice, &format!("/room/{code}/game/end"), "").await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+
+    // 3 Man, running.
+    let res = post_form(&app, &alice, &format!("/room/{code}/tm/start"), "").await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+    let tm_html = body_string(get(&app, &format!("/room/{code}/screen")).await).await;
+    assert!(tm_html.contains(r#"<body class="screen">"#), "{tm_html}");
+    assert!(tm_html.contains("3 MAN"), "{tm_html}");
+    assert!(!tm_html.contains("data-lc-live>"), "{tm_html}");
+}
+
+/// A TV in the corner has no cookie. `get()` never attaches a Cookie header
+/// at all — the spectator screen must still render.
+#[tokio::test]
+async fn test_the_last_call_screen_needs_no_session() {
+    let app = test_app().await;
+    let alice = login(&app, "alice", "1234").await;
+    let bob = login(&app, "bob", "5678").await;
+    let code = create_room(&app, &alice).await;
+    room_page_html(&app, &bob, &code).await;
+    post_form(&app, &alice, &format!("/room/{code}/lastcall/start"), "").await;
+
+    let res = get(&app, &format!("/room/{code}/screen")).await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let html = body_string(res).await;
+    assert!(html.contains(r#"class="lc-seat""#), "{html}");
+}
+
+/// The handoff (`screen.html` <-> `lc_screen.html`) inverts the instant a
+/// second screen-panel builder gains the `data-lc-live` marker. Direct
+/// construction, not an HTTP round trip: this is a static property of the
+/// builders themselves, independent of any particular room's state.
+#[test]
+fn test_exactly_one_screen_panel_builder_marks_itself_live() {
+    let idle = drinkinggame::render::screen_panel_idle("QK4M");
+    let active = drinkinggame::render::screen_panel_active(
+        &drinkinggame::render::GameView {
+            base_path: "",
+            code: "QK4M",
+            current: None,
+            remaining: 52,
+            held: vec![],
+            counts: &[],
+            announcement: None,
+            anim_key: String::new(),
+        },
+        &[],
+        0,
+    );
+    let over = drinkinggame::render::screen_panel_over(&drinkinggame::render::GameSummary {
+        hardest: None,
+        most_shots: None,
+        room_total: 0,
+        kings_cup: None,
+        counts: vec![],
+        house_rules: vec![],
+    });
+    let tm_over = drinkinggame::render::tm_screen_over(&drinkinggame::render::TmOverView {
+        hardest: None,
+        most_shots: None,
+        room_total: 0,
+    });
+    let lc_live = drinkinggame::render::lc_screen_placeholder("QK4M");
+
+    let marked: Vec<&str> = [
+        ("screen_panel_idle", idle.as_str()),
+        ("screen_panel_active", active.as_str()),
+        ("screen_panel_over", over.as_str()),
+        ("tm_screen_over", tm_over.as_str()),
+        ("lc_screen_placeholder", lc_live.as_str()),
+    ]
+    .into_iter()
+    .filter(|(_, html)| html.contains("data-lc-live"))
+    .map(|(name, _)| name)
+    .collect();
+
+    assert_eq!(
+        marked,
+        vec!["lc_screen_placeholder"],
+        "exactly one screen-panel builder may carry data-lc-live or the \
+         screen.html <-> lc_screen.html handoff inverts"
+    );
+}
+
+/// `lc_public_panel` now carries two `<template>` destinations, but it is
+/// still ONE frame on ONE event — `broadcast_lc`'s two publishes, and the
+/// SSE snapshot's chain, are unchanged. Filtered by event name, never
+/// positionally: publish order is room -> lcpublic -> lctick, and the
+/// connect-time snapshot is leaderboard -> game -> screen -> room ->
+/// lcpublic, so counting `next()` calls would be fragile to how the
+/// underlying stream happens to chunk bytes, not to a real frame count.
+#[tokio::test]
+async fn test_lcpublic_carries_both_templates_and_the_frame_count_is_unchanged() {
+    use futures::StreamExt;
+    let app = test_app().await;
+    let alice = login(&app, "alice", "1234").await;
+    let bob = login(&app, "bob", "5678").await;
+    let code = create_room(&app, &alice).await;
+    room_page_html(&app, &bob, &code).await;
+    post_form(&app, &alice, &format!("/room/{code}/lastcall/start"), "").await;
+
+    let res = get(&app, &format!("/room/{code}/sse")).await;
+    let mut body = res.into_body().into_data_stream();
+    let seen = read_sse_until(&mut body, "event: lcpublic").await;
+
+    for name in ["leaderboard", "game", "screen", "room", "lcpublic"] {
+        let marker = format!("event: {name}");
+        assert_eq!(
+            seen.matches(&marker).count(),
+            1,
+            "expected exactly one `{marker}` frame in the snapshot: {seen}"
+        );
+    }
+
+    let frame = &seen[seen.find("event: lcpublic").unwrap()..];
+    assert!(frame.contains("data-lc-banner"), "{frame}");
+    assert!(frame.contains("data-lc-screen"), "{frame}");
+
+    // Bounded wait: nothing more should arrive unprompted. A sixth frame
+    // here would mean an extra publish snuck into the snapshot chain.
+    match tokio::time::timeout(std::time::Duration::from_millis(200), body.next()).await {
+        Err(_) => {}   // timed out waiting: correct, nothing more was sent.
+        Ok(None) => {} // stream ended: also fine.
+        Ok(Some(chunk)) => {
+            let extra = String::from_utf8(chunk.unwrap().to_vec()).unwrap();
+            panic!("unexpected extra frame after the five-frame snapshot: {extra}");
+        }
+    }
+}
