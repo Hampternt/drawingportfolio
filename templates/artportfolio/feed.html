@@ -20,10 +20,10 @@
 
   <div class="art-head">
     <div class="art-head__inner">
-      {#- Counts the first page only. The real total needs count_posts(), which
-          arrives with search in the next slice — the phrasing changes then to
-          carry the active query. -#}
-      <div class="hm-eyebrow art-head__label">{{ post_count }} drawings · newest first</div>
+      {#- Pre-computed in head_label(): page 0 caps at 20 posts, so a count can
+          only be stated when there is no second page. The real total needs
+          count_posts(), which arrives with search in the next slice. -#}
+      <div class="hm-eyebrow art-head__label">{{ head_label }}</div>
       <h1>Drawing Portfolio</h1>
       <p class="art-head__intro">Mostly practice — studies, drills, and the odd finished piece.</p>
     </div>

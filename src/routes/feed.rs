@@ -13,12 +13,26 @@ use std::sync::Arc;
 #[template(path = "artportfolio/feed.html")]
 struct FeedTemplate {
     is_admin: bool,
-    /// Number of posts on the first page. A placeholder for the real total,
-    /// which needs a COUNT — that arrives with caption search in the next slice.
-    post_count: usize,
+    /// The page head's micro-label, pre-computed because it is only sometimes
+    /// possible to state a total honestly — see `head_label()`.
+    head_label: String,
     /// First page of posts rendered as HTML, injected directly into the page.
     /// Eliminates the extra HTMX round trip that would otherwise happen on load.
     initial_posts_html: String,
+}
+
+/// Builds the page head's micro-label.
+///
+/// Page 0 holds at most 20 posts, so `posts.len()` is the real total only when
+/// there is no second page. With more, saying "20 drawings" would be plainly
+/// false rather than merely approximate, so the count is omitted until a real
+/// `COUNT` lands with caption search in the next slice.
+fn head_label(page_len: usize, has_more: bool) -> String {
+    if has_more {
+        "newest first".to_string()
+    } else {
+        format!("{page_len} drawings · newest first")
+    }
 }
 
 /// One drawing card — the single source of card markup in the app.
@@ -52,13 +66,13 @@ pub struct PageQuery {
     pub page: Option<i64>,
 }
 
-/// Fetches one page and renders the grid, returning the HTML and the number of
-/// posts it holds.
+/// Fetches one page and renders the grid, also returning how many posts it holds
+/// and whether another page follows.
 ///
 /// `get_posts` asks for 21 rows to answer "is there another page?" without a
-/// COUNT; the 21st is dropped before rendering. Returning the count lets
-/// `feed_page` fill the page head without a second query.
-async fn render_page(state: &Arc<AppState>, page: i64) -> (String, usize) {
+/// COUNT; the 21st is dropped before rendering. Returning both lets `feed_page`
+/// build the page head without a second query.
+async fn render_page(state: &Arc<AppState>, page: i64) -> (String, usize, bool) {
     let mut posts = crate::db::get_posts(&state.pool, page).await;
     let has_more = posts.len() > 20;
     if has_more {
@@ -72,7 +86,7 @@ async fn render_page(state: &Arc<AppState>, page: i64) -> (String, usize) {
     }
     .render()
     .unwrap();
-    (html, posts.len())
+    (html, posts.len(), has_more)
 }
 
 async fn feed_page(
@@ -82,12 +96,12 @@ async fn feed_page(
     // Fetch first page here so posts arrive in the very first HTTP response.
     // Without this, the browser would load the page and then fire a second
     // request to /artportfolio/htmx/posts?page=0 before anything was visible.
-    let (initial_posts_html, post_count) = render_page(&state, 0).await;
+    let (initial_posts_html, page_len, has_more) = render_page(&state, 0).await;
 
     Html(
         FeedTemplate {
             is_admin,
-            post_count,
+            head_label: head_label(page_len, has_more),
             initial_posts_html,
         }
         .render()
@@ -99,7 +113,7 @@ async fn htmx_posts(
     State(state): State<Arc<AppState>>,
     Query(q): Query<PageQuery>,
 ) -> impl IntoResponse {
-    let (html, _) = render_page(&state, q.page.unwrap_or(0)).await;
+    let (html, _, _) = render_page(&state, q.page.unwrap_or(0)).await;
     Html(html)
 }
 
@@ -328,6 +342,21 @@ mod tests {
         );
         assert!(!html.contains("image/avif"), "no avif source for empty url");
         assert!(!html.contains("image/webp"), "no webp source for empty url");
+    }
+
+    #[test]
+    fn test_head_label_states_a_total_only_when_it_knows_one() {
+        // No second page: page 0 IS the whole feed, so the count is the truth.
+        assert_eq!(head_label(8, false), "8 drawings · newest first");
+        assert_eq!(head_label(0, false), "0 drawings · newest first");
+
+        // A second page exists, so page 0 was truncated to 20. Saying "20
+        // drawings" here would be false, not merely approximate.
+        assert_eq!(head_label(20, true), "newest first");
+        assert!(
+            !head_label(20, true).contains("20"),
+            "must not report the page size as the total"
+        );
     }
 
     #[test]
