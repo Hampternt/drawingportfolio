@@ -7,7 +7,9 @@ Fire and 3 Man. Players join a room on their phones, register what they are
 drinking (which picks their deck), and spend *pulls* — sips — to play cards.
 Six beats to a round, out at 0 HP.
 
-**Branch:** `master-3`, based on `origin/master` @ `8931ed0`.
+**Branch:** `feat/last-call`, based on `origin/master` @ `8931ed0`. Renamed from
+`master-3` on 2026-08-09 along with its worktree directory; commit messages and
+plan-end notes written before that date still say `master-3`.
 
 ## Read these, in this order
 
@@ -177,7 +179,11 @@ Two lessons worth keeping:
 
 ## Working rules
 
-- `./scripts/verify.sh` is the only gate. Baseline: green, 19 clippy warnings.
+- `./scripts/verify.sh` is the only gate. Baseline: green, 327 tests, and
+  **17 distinct** clippy warnings. `cargo clippy --workspace --all-targets`
+  prints **19** `warning:` lines — two are per-target rollup summaries. Compare
+  against 17, per CLAUDE.md; an earlier version of this line said "19 clippy
+  warnings" and pointed at the raw count.
 - Invoke `plan-economics` before writing or executing a plan. Class A/B tasks
   get **no** per-task reviewer — one whole-plan review at the end. Class C
   always gets one.
@@ -188,9 +194,9 @@ Two lessons worth keeping:
 ## Resume
 
 ```
-cd /home/hampter/projects/drawingportfolio.worktrees/master-3
+cd /home/hampter/projects/drawingportfolio.worktrees/last-call
 git log --oneline -8
-./scripts/verify.sh
+./scripts/verify.sh          # NOT bare `cargo test` — that runs 52 of 327
 cargo run -p drinkinggame   # standalone on :3001
 
 # the style guide — no login:
