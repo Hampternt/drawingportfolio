@@ -5,6 +5,7 @@
 //! a breaking change for Plan A2 and Plan B.
 
 use crate::last_call::{Card, Deck, PublicSeat, PublicView, Status, DECK_LOW_THRESHOLD};
+use crate::lc_layout::{seat_positions, view_index, SeatPos};
 use crate::render::html_escape;
 
 /// The four `CardBack` sizes and their `data-size` slugs (§7.8): 16x24 for
@@ -447,6 +448,158 @@ pub fn lc_hand_pane(
     )
 }
 
+// ---------------------------------------------------------------------
+// Plan B additions — Task 3. Two assemblers over Task 1's ring geometry
+// and Plan A's component builders. Neither authors a new `.lc-*`
+// component; both only lay Plan A's plaque/deck-stack/discard-slot/
+// card-back out on Task 1's ring.
+// ---------------------------------------------------------------------
+
+/// Where seat `seat` sits on an `n`-seat ring, from `me`'s point of view.
+/// `me: None` is identity (the big screen; a mini-table spectator).
+///
+/// `.get()`, never `[]`: until Task 6 lands the `MAX_SEATS` ceiling, a
+/// stale oversized state can hand this more seats than `seat_positions`
+/// has rows for at that count. Render short rather than panic — this is
+/// the one formula both `lc_screen_panel` and `lc_mini_table` share, one
+/// argument different.
+fn seat_pos(n: usize, seat: usize, me: Option<usize>) -> Option<SeatPos> {
+    seat_positions(n).get(view_index(seat, me, n)).copied()
+}
+
+/// F.2 big-screen body — the three-column grid plus the flight layer.
+/// Header meta (mark, code, round, banner) is the template's (Task 4);
+/// this is `.lc-screen-grid` (seat-order rail, felt ring, deck rail)
+/// followed by `#lc-flights` as a sibling, not nested inside it — see the
+/// comment at its call site below. Absolute seat order throughout — a
+/// spectator has no seat, so nothing here rotates.
+pub fn lc_screen_panel(view: &PublicView) -> String {
+    let n = view.seats.len();
+
+    let seatorder_rows: String = view
+        .seats
+        .iter()
+        .map(|seat| {
+            let first_attr = if seat.seat == view.first_seat {
+                " data-first"
+            } else {
+                ""
+            };
+            // "the live one" is Status::Alive; compared as enums, never as
+            // a hardcoded "alive" string.
+            let out_attr = if seat.status != Status::Alive {
+                " data-out"
+            } else {
+                ""
+            };
+            format!(
+                r#"<div class="lc-seatorder-row"{first_attr}{out_attr}><span class="lc-seatorder-n">{n}</span><span class="lc-seatorder-name">{name}</span></div>"#,
+                n = seat.seat + 1,
+                name = html_escape(&seat.name.to_uppercase()),
+            )
+        })
+        .collect();
+    let left_rail = format!(
+        r#"<div class="lc-rail lc-rail-left"><div class="lc-rail-kicker">SEAT ORDER</div><div class="lc-seatorder">{seatorder_rows}</div></div>"#
+    );
+
+    let seats_html: String = view
+        .seats
+        .iter()
+        .filter_map(|seat| {
+            seat_pos(n, seat.seat, None).map(|(l, t)| {
+                format!(
+                    r#"<div class="lc-seat" style="left:{l}%;top:{t}%" data-seat="{s}" data-flight-anchor="seat-{s}">{plaque}</div>"#,
+                    s = seat.seat,
+                    plaque = player_plaque(seat),
+                )
+            })
+        })
+        .collect();
+    let stage = format!(
+        r#"<div class="lc-stage"><div id="lc-felt"></div><div class="lc-ring">{seats_html}</div></div>"#
+    );
+
+    let deck_stacks: String = view
+        .deck_counts
+        .iter()
+        .map(|&(deck, count)| deck_stack(deck, count))
+        .collect();
+    let right_rail = format!(
+        r#"<div class="lc-rail lc-rail-right"><div class="lc-rail-kicker">DECKS LEFT</div><div class="lc-rail-decks">{deck_stacks}{discard}</div></div>"#,
+        discard = discard_slot(view.discard_count),
+    );
+
+    // #lc-flights is a SIBLING of .lc-screen-grid, not nested inside it and
+    // not inside .lc-stage: a flight travels from a deck-stack anchor in
+    // the RIGHT RAIL to a seat anchor in the STAGE, so it must not be
+    // confined to .lc-stage's box (overflow:hidden, only the grid's middle
+    // column) — and .lc-screen-grid itself also carries overflow:hidden,
+    // so nesting it there would only escape the clip by relying on
+    // clip-escape-via-containing-block rather than avoiding the clipping
+    // ancestor outright. Task 2's CSS gives body.lc-screen (the template's
+    // root, wrapping this grid — Task 4's territory) `position: relative`
+    // expressly "so #lc-flights needs it": that is its containing block,
+    // and returning #lc-flights as the last sibling here makes it the last
+    // child of that root once Task 4 wraps it. The brief's Step 1.2 places
+    // it inside `.lc-stage`; this deviates from the literal text to match
+    // the CSS Task 2 actually shipped. See the task report.
+    format!(
+        r#"<div class="lc-screen-grid">{left_rail}{stage}{right_rail}</div><div id="lc-flights"></div>"#
+    )
+}
+
+/// F.3 phone mini table, rotated so `me` sits at bottom-centre — the whole
+/// point of the route in Task 5. `me` is the viewer's own seat, or `None`
+/// for a member who is not seated.
+///
+/// The centre column's event/quest/discard rows (`.lc-minitable-rows`
+/// etc.) are deliberately not filled here: no Plan A builder renders a
+/// dot+label+count row, so doing so would be authoring a new component,
+/// which this plan does not do. See the task report for the full
+/// adjudication.
+pub fn lc_mini_table(view: &PublicView, me: Option<usize>) -> String {
+    let n = view.seats.len();
+
+    let chips: String = view
+        .seats
+        .iter()
+        .filter_map(|seat| {
+            seat_pos(n, seat.seat, me).map(|(l, t)| {
+                let locked_attr = if seat.locked { " data-locked" } else { "" };
+                let out_attr = if seat.status != Status::Alive {
+                    " data-out"
+                } else {
+                    ""
+                };
+                let me_attr = if Some(seat.seat) == me { " data-me" } else { "" };
+                format!(
+                    r#"<div class="lc-minitable-chip" style="left:{l}%;top:{t}%" data-seat="{s}" data-flight-anchor="seat-{s}"{locked_attr}{out_attr}{me_attr}><span class="lc-minitable-name">{name}</span><span class="lc-minitable-hp">{hp}</span></div>"#,
+                    s = seat.seat,
+                    name = html_escape(&seat.name.to_uppercase()),
+                    hp = seat.hp,
+                )
+            })
+        })
+        .collect();
+
+    // The pile's deck: the first deck still in the shoe, defaulting to
+    // Beer — same convention as player_plaque's first_slug.
+    let pile_deck = view
+        .deck_counts
+        .first()
+        .map(|&(deck, _)| deck)
+        .unwrap_or(Deck::Beer);
+    let centre = format!(
+        r#"<div class="lc-minitable-centre">{pile}</div>"#,
+        pile = card_back(pile_deck, BackSize::Pile),
+    );
+
+    format!(
+        r#"<div class="lc-minitable"><div id="lc-felt"></div><div class="lc-minitable-ring">{chips}</div>{centre}<div id="lc-flights"></div></div>"#
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -620,6 +773,8 @@ mod tests {
             lc_banner(&view),
             beat_timer(30_000, 5_000),
             lc_public_panel(&view),
+            lc_screen_panel(&view),
+            lc_mini_table(&view, Some(0)),
         ];
         for out in &outputs {
             for banned in ["hx-post", "hx-get", "hx-swap", "onclick", "href"] {
@@ -630,8 +785,10 @@ mod tests {
             }
             // finding 8: the mechanical no-hex guard used to cover only 6 of
             // 14 builders (the ones a bare `#` check happened to work on);
-            // run it over the same fourteen-builder array this test already
-            // assembles, so beat_timer's inline `style` is covered too.
+            // run it over the same array this test already assembles — now
+            // sixteen builders, extended by Task 3 to add lc_screen_panel
+            // and lc_mini_table (each emits an inline `left/top%` style) —
+            // so beat_timer's and these two's inline `style` are covered.
             no_hex(out);
         }
     }
@@ -1137,5 +1294,170 @@ mod tests {
         assert!(html.contains("lc-empty"));
         assert!(!html.contains("lc-cardface"));
         assert!(html.contains(r#"data-count="0""#));
+    }
+
+    // -------------------------------------------------------------------
+    // Task 3 — the two table assemblers.
+    // -------------------------------------------------------------------
+
+    /// `n` seats, `player_id` 1..=n, everyone alive at 15 HP, no locks, no
+    /// draws — the fixture Task 3's tests are written against.
+    fn ring_fixture(n: usize) -> PublicView {
+        let seats = (0..n)
+            .map(|seat| PublicSeat {
+                seat,
+                player_id: seat as i64 + 1,
+                name: format!("player{}", seat + 1),
+                hp: 15,
+                status: Status::Alive,
+                vessels: Vec::new(),
+                hand_len: 0,
+                locked: false,
+                drawing: false,
+                draws: 0,
+            })
+            .collect();
+        PublicView {
+            seats,
+            round: 1,
+            beat: Beat::Draw,
+            first_seat: 0,
+            deck_counts: Deck::ALL.iter().map(|&d| (d, 0)).collect(),
+            discard_count: 0,
+            revealed: Vec::new(),
+            seq: 0,
+        }
+    }
+
+    #[test]
+    fn test_screen_panel_places_every_seat_once() {
+        for n in 2..=crate::last_call::MAX_SEATS {
+            let html = lc_screen_panel(&ring_fixture(n));
+            assert_eq!(html.matches("class=\"lc-seat\"").count(), n);
+            for seat in 0..n {
+                assert!(html.contains(&format!(r#"data-flight-anchor="seat-{seat}""#)));
+            }
+        }
+    }
+
+    #[test]
+    fn test_screen_panel_uses_absolute_seat_order() {
+        // A spectator has no seat, so the big screen never rotates: seat 0 is
+        // at the bottom of the ring for everyone watching.
+        let html = lc_screen_panel(&ring_fixture(5));
+        let bottom = crate::lc_layout::seat_positions(5)[0];
+        assert!(html.contains(&format!(
+            r#"style="left:{}%;top:{}%" data-seat="0""#,
+            bottom.0, bottom.1
+        )));
+    }
+
+    #[test]
+    fn test_screen_panel_flights_are_a_sibling_of_the_grid_not_the_stage() {
+        // Deviation from the brief's Step 1.2, pinned: the flight layer is
+        // a sibling of .lc-screen-grid, never inside .lc-stage — the stage
+        // is overflow:hidden and only the grid's middle column, so a
+        // deck-to-seat flight (deck anchors live in .lc-rail-right) would
+        // be clipped and mis-anchored if nested there. Its containing
+        // block is body.lc-screen (Task 2's CSS says so in as many words).
+        // See the task report.
+        let html = lc_screen_panel(&ring_fixture(4));
+        let flights = html.find(r#"id="lc-flights""#).unwrap();
+        assert!(flights > html.find("lc-rail-right").unwrap());
+        assert!(flights > html.find("class=\"lc-stage\"").unwrap());
+    }
+
+    #[test]
+    fn test_mini_table_puts_the_viewer_at_the_bottom() {
+        // D.2: "the local player is always nearest the viewer". This is the
+        // property that makes the table per-viewer data and therefore a fetch
+        // rather than a broadcast.
+        let view = ring_fixture(5);
+        let bottom = crate::lc_layout::seat_positions(5)[0];
+        for me in 0..5 {
+            let html = lc_mini_table(&view, Some(me));
+            assert!(
+                html.contains(&format!(
+                    r#"style="left:{}%;top:{}%" data-seat="{me}""#,
+                    bottom.0, bottom.1
+                )),
+                "seat {me} should hold the bottom slot in its own view"
+            );
+        }
+    }
+
+    #[test]
+    fn test_mini_table_for_a_spectator_is_unrotated() {
+        // Deviation from the brief, pinned: the brief's literal
+        // `assert_eq!(lc_mini_table(&view, None), lc_mini_table(&view, Some(0)))`
+        // cannot hold — Some(0) legitimately marks seat 0 `data-me` (test
+        // below requires exactly that rule) while a spectator (None) marks
+        // nobody, so the two strings differ by that one attribute. The
+        // property actually worth pinning is geometry: a spectator's ring
+        // is identical to seat 0's own view once `data-me` is discounted,
+        // and a spectator never carries `data-me` at all.
+        let view = ring_fixture(4);
+        let spectator = lc_mini_table(&view, None);
+        assert_eq!(
+            spectator,
+            lc_mini_table(&view, Some(0)).replace(" data-me", "")
+        );
+        assert!(!spectator.contains("data-me"));
+    }
+
+    #[test]
+    fn test_only_the_viewer_is_marked_me() {
+        let html = lc_mini_table(&ring_fixture(6), Some(2));
+        assert_eq!(html.matches("data-me").count(), 1);
+        assert!(html.contains(r#"data-seat="2""#));
+    }
+
+    #[test]
+    fn test_no_duplicate_anchors_or_ids_on_either_surface() {
+        // lcAnchor returns the FIRST match. Plan A-vis's preview page has
+        // duplicate anchors by design (a gallery shows one component in many
+        // states); a real table must not inherit that — a flight would land on
+        // the wrong seat and nobody would see why.
+        for html in [
+            lc_screen_panel(&ring_fixture(7)),
+            lc_mini_table(&ring_fixture(7), Some(3)),
+        ] {
+            for needle in ["id=\"lc-felt\"", "id=\"lc-flights\""] {
+                assert_eq!(html.matches(needle).count(), 1, "duplicate {needle}");
+            }
+            let mut anchors: Vec<&str> = html
+                .match_indices("data-flight-anchor=\"")
+                .map(|(i, m)| {
+                    let rest = &html[i + m.len()..];
+                    &rest[..rest.find('"').unwrap()]
+                })
+                .collect();
+            let before = anchors.len();
+            anchors.sort_unstable();
+            anchors.dedup();
+            assert_eq!(anchors.len(), before, "duplicate flight anchor");
+        }
+    }
+
+    #[test]
+    fn test_the_big_screen_is_a_display_never_an_input() {
+        // F.2: no hover states, no focus rings, no controls — every affordance
+        // belongs to a phone.
+        let html = lc_screen_panel(&ring_fixture(6));
+        for banned in [
+            "hx-post", "hx-get", "hx-swap", "onclick", "href", "<button", "<form", "<input",
+        ] {
+            assert!(!html.contains(banned), "found `{banned}` on the big screen");
+        }
+    }
+
+    #[test]
+    fn test_the_felt_centre_holds_no_plays() {
+        // Spec 3.4.1 binds slice 3, not this one: nothing may enter `plays`
+        // before it is revealable, and this plan renders no plays at all.
+        // If this test starts failing, someone has begun slice 3 inside Plan B.
+        let mut view = ring_fixture(4);
+        view.revealed.clear();
+        assert!(!lc_screen_panel(&view).contains("lc-cardface"));
     }
 }
