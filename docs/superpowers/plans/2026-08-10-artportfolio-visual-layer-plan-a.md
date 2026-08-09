@@ -912,6 +912,31 @@ and `MonthGroup`, month `<section>` dividers, `filter_rail.html`, `artfeed.js`
 **Not in either plan** (slices 2–5): visibility model, collections, tags,
 multi-upload tray, select mode, batch actions, `?` overlay.
 
+## Open item: the wordmark
+
+The spec's decided rules say the wordmark is `hampter.` with a violet full stop,
+"scoped to `.art-page`". The design brief separately says of the header: *"This is
+`base.html` — restyle in place, keep markup."* Those two cannot both hold.
+
+`base.html:36` is `<a href="/" class="site-title">Portfolio</a>`. Turning that into
+`hampter.` on one section only needs one of:
+
+1. **A conditional in `base.html`** — markup change in the shared shell, so every
+   page pays for it and the "keep markup" instruction is broken.
+2. **CSS `content` replacement** — hide the text node and inject `hampter.` via
+   `::after`. Cheap, and wrong: screen readers and the accessibility tree see the
+   injected string inconsistently across engines, and the link's accessible name
+   silently diverges from what is painted.
+3. **Leave it.**
+
+**Plan A does 3.** The header is restyled — sticky 56px, translucent with a 10px
+blur, Archivo 800 17px at −0.035em tracking, muted nav links — but the word still
+reads `Portfolio`. This is the one visible deviation from the spec in this plan.
+
+It is a one-line change under option 1 whenever the wordmark question is settled
+site-wide, which is the right scope for it: a wordmark that differs per section is
+a decision about the site, not about `/artportfolio`.
+
 ## Two spec corrections this plan makes
 
 Both found by reading the code, both binding:
