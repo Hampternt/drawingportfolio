@@ -14,8 +14,8 @@ Six beats to a round, out at 0 HP.
 | Path | What it is |
 | --- | --- |
 | `docs/superpowers/specs/2026-08-06-last-call-templates-design.md` | **The spec.** Every decision and why. Start here. |
-| `docs/superpowers/plans/2026-08-06-last-call-plan-a-vis.md` | **Next plan to execute.** |
-| `docs/superpowers/plans/2026-08-06-last-call-plan-a2.md` | The one after. |
+| `docs/superpowers/plans/2026-08-06-last-call-plan-a2.md` | **Next plan to execute.** |
+| `docs/superpowers/plans/2026-08-06-last-call-plan-a-vis.md` | Done. Read only if you need what the preview page proves. |
 | `docs/design/last-call/README.md` | Design handoff — exact token values, plain markdown. |
 | `docs/design/last-call/*.dc.html` | The prototypes. Open in a browser; big HTML, strip tags to read as text. |
 
@@ -31,10 +31,12 @@ Slice 1 is four plans: **A → A-vis → A2 → B**.
 - **Plan A — component library. DONE.** `85f2552..f80615a`, 7 commits,
   `verify.sh` green, 275 tests. Object model + `PublicView`, `lastcall.css`,
   `lc_render.rs` components to the §7.8 DOM contract.
-- **Plan A-vis — motion + preview. NEXT.** 3 tasks, all Class A. Seven keyframes
-  and the flight helper, then `GET /lastcall/preview`. **Ends at the browser
-  checkpoint — the first time any of this is visible.**
-- **Plan A2 — game wiring.** 3 tasks, all Class C, so every one gets a task
+- **Plan A-vis — motion + preview. DONE.** `b5f4472..42e24c8`, 4 commits,
+  `verify.sh` green, 296 tests. Seven keyframes + `lc_motion.js`'s
+  `lcFlight`/`lcAnchor`, and `GET /drinks/lastcall/preview` — seven groups,
+  permanent, public, no session. **There is now a URL you can open.**
+  `verify.sh` also now runs `node --check` over `drinkinggame/assets/*.js`.
+- **Plan A2 — game wiring. NEXT.** 3 tasks, all Class C, so every one gets a task
   reviewer. Game kind, setup form, entry redirect, phone shell, private hand
   route, SSE contract.
 - **Plan B — felt surfaces.** Not written yet; write it fresh from the spec
@@ -69,6 +71,38 @@ Slice 1 is four plans: **A → A-vis → A2 → B**.
   plays in a field the projection cannot read; that slice owns the test.
 - **Parked minor:** `.lc-face-kws` gap is fixed but not pinned by a test. Plan
   A-vis looks at the chips, which is better evidence.
+
+### Carried out of Plan A-vis's review — read before Plan B
+
+Its three tasks were all Class A, so one whole-plan review on the strongest model
+was the only review. It returned CHANGES_REQUIRED; everything was fixed in one
+wave (`42e24c8`) and a scoped re-review verdicted **all addressed, no new
+breakage**. Three findings were deliberately *not* fixed:
+
+- **Duplicate ids / flight anchors on the preview page.** Mostly plan-mandated —
+  the page shows the same component in several states, and each carries its
+  anchor. `lcAnchor` returns the first match, which is fine for a gallery and
+  would not be on a real table. **Plan B must not inherit the pattern.**
+- **The at-rest flight swatches go `opacity: 0` under reduced motion.** The fix
+  needs a second `@media (prefers-reduced-motion: reduce)` block, which the plan
+  forbids for a good reason (the second silently overrides half the first). If
+  this ever needs fixing, fix it *inside* the one block.
+- **`.lc-preview-grid` went 220px → 200px** after the checkpoint that validated
+  the layout, so the clamped/expanded boundary pairs have not been re-eyeballed
+  at the new width.
+
+Two lessons worth keeping:
+
+- **`#lc-flights` needs a positioned ancestor.** It is `position:absolute;
+  inset:0; overflow:hidden`, so without one it forms its containing block against
+  the viewport and clips every flight beyond the first screenful — the nodes are
+  created with correct deltas and never rendered. `body.lc-preview` carries
+  `position: relative` and a test now guards it. **Plan B's real felt scene needs
+  the same thing**, and it is invisible in every synthetic test that only checks
+  the flight lifecycle.
+- **`lastcall.css` has no width media query at all.** Oversized samples are held
+  by `.lc-preview-scroll` wrappers plus a `min-width: 0` chain rather than by
+  breakpoints. Fine for a style guide; decide deliberately for real surfaces.
 - **No cards exist.** Five decks have bands, pulls, cost spreads and roles, but
   no real card list, text or damage numbers anywhere in the bundle. The current
   catalog is deliberately adversarial placeholder data. This is the true blocker
@@ -93,6 +127,15 @@ Slice 1 is four plans: **A → A-vis → A2 → B**.
 cd /home/hampter/projects/drawingportfolio.worktrees/master-3
 git log --oneline -8
 ./scripts/verify.sh
+cargo run -p drinkinggame   # then open http://localhost:3001/lastcall/preview
 ```
 
-Then: execute `docs/superpowers/plans/2026-08-06-last-call-plan-a-vis.md`.
+Then: execute `docs/superpowers/plans/2026-08-06-last-call-plan-a2.md`.
+
+**One thing still owed on Plan A-vis:** browser checkpoint 2 items 6–7 — press
+every REPLAY and watch a flight actually travel, then turn on devtools'
+"Emulate CSS prefers-reduced-motion: reduce" and press them all again. Both were
+verified structurally (nodes created with correct deltas and stagger, layer
+drains to empty on `animationend`, zero nodes and `onArrive` still firing under a
+stubbed `matchMedia`) but never watched by a human eye — the automation tab stays
+backgrounded, which freezes animations. Five minutes in a real browser.
