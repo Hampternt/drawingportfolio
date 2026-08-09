@@ -34,7 +34,15 @@ es.addEventListener("lcpublic", e => {
   if (!root || seq < lcSeq) return;
   lcSeq = seq;
   const banner = box.querySelector("template[data-lc-banner]");
-  if (banner) document.getElementById("lc-banner").outerHTML = banner.innerHTML;
+  if (banner) {
+    document.getElementById("lc-banner").outerHTML = banner.innerHTML;
+    // The header's own ROUND number is a separate element from the banner's
+    // "ROUND n · BEAT i OF 6" text — kept in sync from the same data-round
+    // the fresh banner just carried in, or the header would freeze at the
+    // page's load-time round while the banner kept advancing.
+    const round = document.getElementById("lc-banner")?.dataset.round;
+    if (round) document.querySelector(".lc-screen-round").textContent = round;
+  }
   const panel = box.querySelector("template[data-lc-screen]");
   if (panel) document.getElementById("lc-screen-panel").innerHTML = panel.innerHTML;
 });

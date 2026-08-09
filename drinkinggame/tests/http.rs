@@ -4494,6 +4494,44 @@ fn test_new_scene_roots_are_positioned() {
 // screen_page, and the data-lc-live handoff between it and screen.html.
 // -------------------------------------------------------------
 
+/// The half of the handoff a code-read can't stand in for: a spectator
+/// already parked on `screen.html` when Last Call starts must actually
+/// receive `data-lc-live` on the wire, in the `screen` frame `broadcast_game`
+/// publishes as part of `persist_and_broadcast_lc`. Mirrors
+/// `test_lastcall_start_broadcasts_game_panel`, which proves the sibling
+/// `game` frame on that same broadcast reaches an already-subscribed client
+/// — this is the same call, checking the other frame it publishes.
+#[tokio::test]
+async fn test_lastcall_start_broadcasts_the_live_marker_on_the_screen_frame() {
+    let app = test_app().await;
+    let alice = login(&app, "alice", "1234").await;
+    let bob = login(&app, "bob", "5678").await;
+    let code = create_room(&app, &alice).await;
+    room_page_html(&app, &bob, &code).await;
+
+    // Subscribe before the game starts, and drain the four-frame idle
+    // snapshot (leaderboard, game, screen, room), so the `screen` frame this
+    // test cares about is unambiguously the one START triggers.
+    let res = get(&app, &format!("/room/{code}/sse")).await;
+    let mut body = res.into_body().into_data_stream();
+    read_sse_until(&mut body, "event: room").await;
+
+    let res = post_form(&app, &alice, &format!("/room/{code}/lastcall/start"), "").await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+
+    // Publish order after START is game -> screen -> room -> lcpublic ->
+    // lctick; `read_sse_until` returns only newly-read bytes, so this can't
+    // be satisfied by the drained snapshot above.
+    let seen = read_sse_until(&mut body, "event: screen").await;
+    let frame = &seen[seen.find("event: screen").unwrap()..];
+    assert!(
+        frame.contains("data-lc-live"),
+        "a spectator already on screen.html when Last Call starts must see \
+         the live marker on the `screen` frame or it can never reload onto \
+         the felt: {frame}"
+    );
+}
+
 #[tokio::test]
 async fn test_screen_serves_the_last_call_felt_when_last_call_is_active() {
     let app = test_app().await;
