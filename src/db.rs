@@ -77,12 +77,27 @@ pub async fn run_migrations(pool: &DbPool) {
     let _ = sqlx::query(include_str!("../migrations/011_weights_recipes.sql"))
         .execute(pool)
         .await;
+
+    // Migration 012: intrinsic image dimensions.
+    //
+    // The art feed lays cards out in a CSS multi-column masonry. Without
+    // width/height on the <img>, each image reserves no height until it loads
+    // and the column reflows under it. Storing the real ratio lets the browser
+    // reserve the box up front.
+    //
+    // Existing rows keep 0 — no backfill. The originals are in object storage
+    // and re-fetching them at startup would stall the boot for a layout
+    // optimisation; post_card.html omits both attributes when either is 0, so
+    // legacy rows render exactly as they did before.
+    let _ = sqlx::query(include_str!("../migrations/012_image_dimensions.sql"))
+        .execute(pool)
+        .await;
 }
 
 pub async fn get_posts(pool: &DbPool, page: i64) -> Vec<Post> {
     let offset = page * 20;
     sqlx::query_as!(Post,
-        "SELECT id, caption, image_url, webp_url, avif_url, format, file_size_bytes, created_at FROM posts ORDER BY created_at DESC LIMIT 21 OFFSET ?",
+        "SELECT id, caption, image_url, webp_url, avif_url, format, file_size_bytes, created_at, image_width, image_height FROM posts ORDER BY created_at DESC LIMIT 21 OFFSET ?",
         offset
     )
     .fetch_all(pool)
@@ -90,6 +105,7 @@ pub async fn get_posts(pool: &DbPool, page: i64) -> Vec<Post> {
     .unwrap_or_default()
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn insert_post(
     pool: &DbPool,
     caption: &str,
@@ -98,10 +114,12 @@ pub async fn insert_post(
     avif_url: &str,
     format: &str,
     file_size_bytes: i64,
+    image_width: i64,
+    image_height: i64,
 ) -> Post {
     let id = sqlx::query!(
-        "INSERT INTO posts (caption, image_url, webp_url, avif_url, format, file_size_bytes) VALUES (?, ?, ?, ?, ?, ?) RETURNING id",
-        caption, image_url, webp_url, avif_url, format, file_size_bytes
+        "INSERT INTO posts (caption, image_url, webp_url, avif_url, format, file_size_bytes, image_width, image_height) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
+        caption, image_url, webp_url, avif_url, format, file_size_bytes, image_width, image_height
     )
     .fetch_one(pool)
     .await
@@ -109,7 +127,7 @@ pub async fn insert_post(
     .id;
 
     sqlx::query_as!(Post,
-        "SELECT id, caption, image_url, webp_url, avif_url, format, file_size_bytes, created_at FROM posts WHERE id = ?", id
+        "SELECT id, caption, image_url, webp_url, avif_url, format, file_size_bytes, created_at, image_width, image_height FROM posts WHERE id = ?", id
     )
     .fetch_one(pool)
     .await
@@ -991,6 +1009,8 @@ mod tests {
             "",
             crate::models::PostFormat::Single.as_str(),
             0,
+            0,
+            0,
         )
         .await;
         assert_eq!(post.caption, "test caption");
@@ -1009,6 +1029,8 @@ mod tests {
             "https://example.com/img-webp.webp",
             "https://example.com/img-avif.avif",
             crate::models::PostFormat::Single.as_str(),
+            0,
+            0,
             0,
         )
         .await;
@@ -1067,6 +1089,8 @@ mod tests {
             "",
             fmt,
             12345,
+            0,
+            0,
         )
         .await;
         assert_eq!(post.format, "single");
@@ -1077,8 +1101,75 @@ mod tests {
     async fn test_insert_post_empty_caption() {
         let pool = test_pool().await;
         let fmt = crate::models::PostFormat::Single.as_str();
-        let post = insert_post(&pool, "", "https://example.com/img.jpg", "", "", fmt, 0).await;
+        let post = insert_post(
+            &pool,
+            "",
+            "https://example.com/img.jpg",
+            "",
+            "",
+            fmt,
+            0,
+            0,
+            0,
+        )
+        .await;
         assert_eq!(post.caption, "");
+    }
+
+    #[tokio::test]
+    async fn test_migrations_are_idempotent() {
+        let pool = test_pool().await;
+        // test_pool() has already run them once; a second pass must not panic.
+        // SQLite has no ADD COLUMN IF NOT EXISTS, so every re-run returns a
+        // duplicate-column error that the `let _ =` in run_migrations discards.
+        run_migrations(&pool).await;
+        assert!(get_posts(&pool, 0).await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_insert_post_persists_dimensions() {
+        let pool = test_pool().await;
+        let post = insert_post(
+            &pool,
+            "dimensioned",
+            "https://example.com/img.jpg",
+            "",
+            "",
+            crate::models::PostFormat::Single.as_str(),
+            0,
+            1600,
+            900,
+        )
+        .await;
+        assert_eq!(post.image_width, 1600);
+        assert_eq!(post.image_height, 900);
+
+        let fetched = &get_posts(&pool, 0).await[0];
+        assert_eq!(
+            fetched.image_width, 1600,
+            "dimensions survive the insert/select round trip"
+        );
+        assert_eq!(fetched.image_height, 900);
+    }
+
+    #[tokio::test]
+    async fn test_legacy_rows_read_back_as_zero_dimensions() {
+        let pool = test_pool().await;
+        // A pre-012 row: inserted without touching the new columns, exactly as
+        // the old insert_post would have. NOT NULL DEFAULT 0 on an ALTER over an
+        // existing table is worth pinning down — a NULL here would make Post's
+        // i64 fail to decode at runtime rather than at compile time.
+        sqlx::query(
+            "INSERT INTO posts (caption, image_url, webp_url, avif_url, format, file_size_bytes) \
+             VALUES ('old', 'https://example.com/old.jpg', '', '', 'single', 0)",
+        )
+        .execute(&pool)
+        .await
+        .expect("legacy-shaped insert succeeds");
+
+        let post = &get_posts(&pool, 0).await[0];
+        assert_eq!(post.image_width, 0, "legacy rows read back as 0, not NULL");
+        assert_eq!(post.image_height, 0);
     }
 
     #[tokio::test]

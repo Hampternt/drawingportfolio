@@ -147,6 +147,25 @@ async fn upload_post(
     // response is sent. Failure is non-fatal: avif_url stays empty, <picture> falls back to WebP.
     let bytes_for_avif = bytes.clone();
     let file_size_bytes = bytes.len() as i64;
+
+    // Intrinsic dimensions for the feed's masonry, read from the image header.
+    //
+    // Header-only on purpose: `into_dimensions()` parses just enough to get the
+    // size and never touches pixel data. A full `load_from_memory` here would
+    // add seconds of latency to every upload — up to 35 MB — to obtain two
+    // integers. (The only full decode in this file is in `encode_as_avif`,
+    // which runs detached after the response is sent, so its dimensions are
+    // not available to us here.)
+    //
+    // `(0, 0)` on an unparseable header is the deliberate degradation: the card
+    // then renders without width/height, exactly as it did before migration 012.
+    // Dimensions are a layout optimisation, not grounds to reject a drawing.
+    let (image_width, image_height) = image::ImageReader::new(std::io::Cursor::new(&bytes))
+        .with_guessed_format()
+        .ok()
+        .and_then(|reader| reader.into_dimensions().ok())
+        .map(|(w, h)| (w as i64, h as i64))
+        .unwrap_or((0, 0));
     let uuid = uuid::Uuid::new_v4().to_string();
     let original_key = format!("{uuid}.{ext}");
     let avif_key = format!("{uuid}-avif.avif");
@@ -176,6 +195,8 @@ async fn upload_post(
         "",
         &post_format,
         file_size_bytes,
+        image_width,
+        image_height,
     )
     .await;
     tracing::info!("post created: id={}, key={original_key}, size={file_size_bytes} bytes, format={post_format}", post.id);

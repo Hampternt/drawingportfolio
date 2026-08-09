@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT id, caption, image_url, webp_url, avif_url, format, file_size_bytes, created_at FROM posts WHERE id = ?",
+  "query": "SELECT id, caption, image_url, webp_url, avif_url, format, file_size_bytes, created_at, image_width, image_height FROM posts WHERE id = ?",
   "describe": {
     "columns": [
       {
@@ -42,6 +42,16 @@
         "name": "created_at",
         "ordinal": 7,
         "type_info": "Text"
+      },
+      {
+        "name": "image_width",
+        "ordinal": 8,
+        "type_info": "Integer"
+      },
+      {
+        "name": "image_height",
+        "ordinal": 9,
+        "type_info": "Integer"
       }
     ],
     "parameters": {
@@ -55,8 +65,10 @@
       false,
       false,
       false,
+      false,
+      false,
       false
     ]
   },
-  "hash": "2aa733ba656b4206fe59dfd0cf7349a981133dae20cec29c55444bc50e79cae4"
+  "hash": "7b2b43db0bd03eee0f10983b32c85073440c905aa3e6c93b9f6eb11e91691c0b"
 }

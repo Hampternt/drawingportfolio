@@ -256,19 +256,52 @@ signature; add both to the `INSERT` column list and one `?` each to `VALUES`.
 and `src/routes/admin.rs`. The compiler enumerates them all — pass `0, 0` at every
 test call site, and real values only at the one in `admin.rs` (Step 6).
 
-- [ ] **Step 6: Pass real dimensions from the upload handler**
+- [ ] **Step 6: Read dimensions from the image header in the upload handler**
 
-In `src/routes/admin.rs`, the upload handler already decodes the image with the
-`image` crate to generate the WebP variant. `.dimensions()` on that already-decoded
-`DynamicImage` returns `(u32, u32)` — free at that point, no second decode. Cast to
-`i64` and pass to `insert_post`.
+> **Spec correction — the spec's premise here is false.** It says "the upload
+> handler already decodes the image with the `image` crate to generate the WebP
+> variant, so `.dimensions()` is free at that point." It is not. The server does not
+> generate a WebP variant at all: `src/routes/admin.rs:169` is
+> `let webp_url = image_url.clone(); // already WebP from client` — the browser
+> converts via canvas before upload. The *only* use of the `image` crate anywhere in
+> `src/` is `admin.rs:16`, inside `encode_as_avif`, which runs in a detached
+> `tokio::spawn` **after** the response is sent and whose `dimensions()` never
+> returns to the handler. There is no decoded image in scope at `insert_post`.
+>
+> CLAUDE.md carries the same stale claim ("On upload, WebP and AVIF variants are
+> generated concurrently via `tokio::join!`"). Logged under Known debts.
+
+Do **not** add a full decode to the request path to fix this — `image::load_from_memory`
+on a 35 MB upload costs seconds of latency on every post, to obtain two integers.
+
+Read the header only. `image` is pinned at `0.25.10`; `ImageReader::into_dimensions()`
+parses just enough of the header to return `(u32, u32)` and never touches pixel data:
+
+```rust
+use std::io::Cursor;
+
+let (image_width, image_height) = image::ImageReader::new(Cursor::new(&bytes))
+    .with_guessed_format()
+    .ok()
+    .and_then(|r| r.into_dimensions().ok())
+    .map(|(w, h)| (w as i64, h as i64))
+    .unwrap_or((0, 0));
+```
+
+Placed **before** the `state.storage.upload(...)` call that consumes `bytes`.
+
+The `unwrap_or((0, 0))` is the degradation path and is deliberate: a header the
+crate cannot parse gives exactly today's behaviour — a card with no `width`/`height`
+attributes — rather than a failed upload. Dimensions are a layout optimisation, not
+data worth rejecting a drawing over.
+
+Note `Cargo.toml` builds `image` with `default-features = false, features =
+["webp", "jpeg", "png"]`, which matches the three types
+`validate_magic_bytes` accepts. A format outside that set cannot reach this line.
 
 Nothing else in this file changes: `admin_post_card_html()` and the three-layer
 35 MB limit (nginx `client_max_body_size`, Axum `DefaultBodyLimit`,
 `MAX_IMAGE_BYTES`) are untouched.
-
-If the decode path ever changes and dimensions are unavailable, passing `0, 0`
-degrades to exactly today's behaviour — cards render without `width`/`height`.
 
 - [ ] **Step 7: Write the tests**
 
@@ -325,11 +358,41 @@ DATABASE_URL=sqlite:portfolio.db cargo sqlx prepare
 git status --short .sqlx/
 ```
 
-`portfolio.db` is present in this worktree and gitignored. `cargo sqlx prepare`
-rewrites the whole directory, so the six `posts`-shaped entries are regenerated
-automatically — but confirm `git status` actually shows them modified. An empty
-`.sqlx/` diff after a column change means the command did not run against the
-migrated DB.
+> **The dev DB must be fully migrated first, and a copied one may not be.** The
+> `portfolio.db` in this worktree was copied from the main checkout and was dated
+> months back — it predated migrations 007–011 entirely, so `prepare` failed with
+> `no such table: drawing_tasks` on 37 unrelated queries. There is no `sqlite3` CLI
+> on this machine, and the binary cannot migrate the DB itself because `prepare`
+> runs `cargo check`, which needs the columns to already exist. Apply
+> `migrations/*.sql` in order with Python's bundled `sqlite3` module, tolerating
+> duplicate-column errors exactly as `run_migrations()`'s `let _ =` does. Confirm
+> `PRAGMA table_info(posts)` lists `image_width` and `image_height`, and that all
+> twelve tables exist, before re-running `prepare`.
+
+**Expected `.sqlx/` diff: 3 deleted, 3 added — not 6 modified.**
+
+> **Spec correction.** The spec says "six of the 60 `.sqlx` entries reference
+> `posts`; adding two columns changes the row shape every one of them describes."
+> It does not. A cache entry records *the columns its query selects*, not the
+> table's shape, so only the three queries whose SQL text actually changed are
+> affected — `get_posts`'s SELECT, `insert_post`'s INSERT and `insert_post`'s
+> SELECT. The other three (`SELECT image_url, webp_url, avif_url FROM posts …`,
+> `DELETE FROM posts …`, `UPDATE posts SET avif_url …`) select explicit subsets and
+> are correctly untouched.
+>
+> And they appear as **delete + add, never modify**: `.sqlx` filenames are
+> content-addressed by a hash of the query string, so changing a query's text
+> renames its cache file. Looking for ` M` in `git status` would read a correct
+> regeneration as a failure.
+
+Verify the three new entries actually carry the columns:
+
+```bash
+grep -l "image_width" .sqlx/*.json | wc -l   # expect 3
+```
+
+An empty `.sqlx/` diff after a column change means the command did not run against
+the migrated DB.
 
 - [ ] **Step 9: Commit**
 
@@ -810,8 +873,9 @@ One review of the whole plan's diff, on the most capable model — per
 `plan-economics` §4, Class A and B tasks get no per-task reviewer, and Task 2 (Class
 C) gets one at the time it lands.
 
-Reviewer's first question for Task 2: *does `git show --stat` for the migration
-commit list all six `posts`-shaped `.sqlx` entries as modified?*
+Reviewer's first question for Task 2: *does the migration commit show exactly three
+`.sqlx` entries deleted and three added, and do all three new ones contain
+`image_width`?* Not "six modified" — see the correction in Task 2 Step 8.
 
 ---
 

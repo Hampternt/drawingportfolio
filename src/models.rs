@@ -10,6 +10,12 @@ pub struct Post {
     pub format: String,
     pub file_size_bytes: i64,
     pub created_at: String,
+    /// Intrinsic pixel dimensions, from migration 012. `0` means unknown —
+    /// either a pre-012 row or a header the `image` crate could not parse.
+    /// `post_card.html` emits width/height only when both are non-zero, since
+    /// `width="0"` would collapse the image.
+    pub image_width: i64,
+    pub image_height: i64,
 }
 
 /// Extensibility hook: add new variants here as post formats are implemented.

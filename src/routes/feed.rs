@@ -222,6 +222,8 @@ mod tests {
                     "",
                     crate::models::PostFormat::Single.as_str(),
                     0,
+                    0,
+                    0,
                 )
                 .await;
             }
@@ -242,6 +244,8 @@ mod tests {
             format: "single".to_string(),
             file_size_bytes: 0,
             created_at: "2024-01-01T00:00:00".to_string(),
+            image_width: 0,
+            image_height: 0,
         };
         let html = post_card_html(&post, false);
         assert!(
@@ -261,6 +265,8 @@ mod tests {
             format: crate::models::PostFormat::Single.as_str().to_string(),
             file_size_bytes: 0,
             created_at: "2024-01-01T00:00:00".to_string(),
+            image_width: 0,
+            image_height: 0,
         };
         let html = post_card_html(&post, false);
         assert!(
@@ -281,6 +287,8 @@ mod tests {
             format: "single".to_string(),
             file_size_bytes: 0,
             created_at: "2024-01-01T00:00:00".to_string(),
+            image_width: 0,
+            image_height: 0,
         };
         let html = post_card_html(&post, false);
         assert!(html.contains("<picture>"), "should contain picture element");
@@ -307,6 +315,8 @@ mod tests {
             format: "single".to_string(),
             file_size_bytes: 0,
             created_at: "2024-01-01T00:00:00".to_string(),
+            image_width: 0,
+            image_height: 0,
         };
         let html = post_card_html(&post, false);
         assert!(
