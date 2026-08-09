@@ -9,7 +9,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 cargo build            # debug build
 cargo build --release  # release build
 cargo run              # run dev server on :3000
-cargo test             # run all tests
+cargo test --workspace # run all tests — the --workspace flag is NOT optional, see below
 cargo test <name>      # run a single test, e.g. cargo test test_insert_and_get_post
 cargo clippy           # lint
 cargo fmt              # format
@@ -18,7 +18,9 @@ cargo fmt --check      # check formatting without modifying
 
 When building without a live database (e.g. on the server): `SQLX_OFFLINE=true cargo build --release`. The `drinkinggame` crate uses runtime-checked sqlx queries — it has no `.sqlx` cache entries, and `cargo sqlx prepare` remains portfolio-only.
 
-The repo is a cargo workspace — `cargo build` / `cargo test` at the root cover both the `drawingportfolio` binary and the `drinkinggame` crate. `cargo run -p drinkinggame` serves the drinking game standalone on `:3001` (no portfolio, no nginx).
+The repo is a cargo workspace, but the root `Cargo.toml` is *also* a package — so bare `cargo test` runs the current package only and silently skips `drinkinggame`'s 177 tests (**52 of 229 run**). Always pass `--workspace`, or just run `./scripts/verify.sh`, which does. `cargo run -p drinkinggame` serves the drinking game standalone on `:3001` (no portfolio, no nginx).
+
+**Which worktree/branch am I in, and what else is in flight?** See `docs/WORKTREES.md` — the live index of work streams, worktree layout and branch conventions. Read it before creating a branch or worktree.
 
 `./scripts/verify.sh` is the single acceptance gate — `cargo fmt --check`, `cargo clippy`, the workspace test suite, and `node --check` over `static/*.js` (a nested palette entry broke `palette.js` once; nothing else catches JS syntax). It runs clippy *without* `-D warnings` because the tree carries 19 pre-existing warnings; promote it once that reaches zero.
 
