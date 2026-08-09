@@ -865,6 +865,59 @@ backgrounded, which freezes animations and makes screenshots unreliable. Measure
 with `getComputedStyle` / `getAnimations` rather than screenshots, or use human
 eyes.
 
+### Checkpoint result — run 2026-08-10
+
+Run against `cargo run` on `:3000` with eight seeded posts of varied aspect ratio
+(including one with `0/0` dimensions to stand in for a pre-012 row).
+
+**Three defects found that the build and the whole test suite could not see.** All
+three are fixed in `03a73f4`; they are recorded because each is a *class* of thing
+this checkpoint exists to catch:
+
+1. **The masonry never engaged.** `style.css:68` already sets
+   `#feed { display: flex; flex-direction: column }` for the old feed. A flex
+   container ignores `columns` entirely — so winning the cascade on `columns` (which
+   `body.art-page #feed` did) achieved nothing while `display` stayed `flex`. Every
+   card stacked in one column; the feed measured **8914px** tall. With
+   `display: block` restored it is **1303px** over three columns, 3/3/2. *Lesson:
+   when overriding a layout, check the property that selects the layout algorithm,
+   not just the properties that configure it.*
+2. **Nav links ran together.** The shared stylesheet never gives `nav` a `display`
+   or `gap`; the links are inline elements separated by one whitespace character,
+   which at 14px Space Grotesk reads as one run-on string.
+3. **The Ctrl-K palette hint** rendered as a default light-mode button.
+
+Verified good:
+
+| Check | Result |
+|---|---|
+| 3-column masonry at the ≥1180 band | 3 rendered columns, 3/3/2 split, feed 1303px |
+| `width`/`height` emitted | 7 of 8 cards; the `0/0` row correctly has neither |
+| `loading` / `fetchpriority` | exactly 1 `eager` + `fetchpriority="high"`, 7 `lazy` |
+| Faces actually loading | Archivo 800, Space Grotesk 400/500, IBM Plex Mono 400/500 |
+| `art-page` on boosted nav | attaches on `/artportfolio`, detaches on `/tasks`, re-attaches on the way back — **and the CSS re-applies**, not just the class name |
+| `history.back()` | class correctly removed |
+| Blast radius | `<body class="">` on `/` and `/tasks`; the only `art-page` occurrence there is the sync script's own source |
+| `/fitness` accent | `--noc-accent: #9184d9` untouched; the section declares zero `--noc-*` |
+| Media queries | all three blocks parse and are correctly scoped |
+
+**Two things this run could NOT verify, and why:**
+
+- **The 900px and 390px bands were not rendered.** `resize_window` reports success
+  but `innerWidth` does not change in this environment — the window manager does not
+  honour the request. The breakpoint *rules* were verified through the CSSOM
+  (present, correctly scoped, correct declarations) and the ≥1180 band was verified
+  as actually rendered, but **the 2-column and 1-column layouts have not been seen**.
+  Worth five minutes of human eyes at a real narrow window.
+- **Colour fidelity.** The browser has Dark Reader active, which repaints the page —
+  `body` measured `rgb(24,26,27)` where the token says `#0B0910`. Layout, fonts and
+  geometry are unaffected by it and were measured normally. Exact hues need a
+  browser without the extension.
+
+`/fitness` and `/admin` are session-gated and returned 303, so neither was rendered.
+For `/fitness` the stronger guarantee stands in: `git diff master -- static/style.css`
+is **736 insertions, 0 deletions**, so no pre-existing rule changed at all.
+
 ---
 
 ## Final review
