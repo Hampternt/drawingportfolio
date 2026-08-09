@@ -2,7 +2,33 @@
 
 {% block title %}Drawing Portfolio{% endblock %}
 
+{% block body_class %}art-page{% endblock %}
+
+{% block head %}
+{#- Preloaded here rather than in base.html: these two faces are above the fold
+    on this page only, and putting them in the shell would make every other
+    section pay for fonts it never uses. -#}
+<link rel="preload" href="/static/fonts/archivo-800.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/static/fonts/space-grotesk-400.woff2" as="font" type="font/woff2" crossorigin>
+{% endblock %}
+
 {% block content %}
+{#- .art-feed must stay the outermost element in this block. The theme script in
+    base.html/admin.html keys off `main .art-feed` to re-apply the art-page body
+    class after a boosted navigation, which drops body attributes. -#}
+<div class="art-feed">
+
+  <div class="art-head">
+    <div class="art-head__inner">
+      {#- Counts the first page only. The real total needs count_posts(), which
+          arrives with search in the next slice — the phrasing changes then to
+          carry the active query. -#}
+      <div class="hm-eyebrow art-head__label">{{ post_count }} drawings · newest first</div>
+      <h1>Drawing Portfolio</h1>
+      <p class="art-head__intro">Mostly practice — studies, drills, and the odd finished piece.</p>
+    </div>
+  </div>
+
 {% if is_admin %}
 <div id="composer-wrap">
   <button id="new-post-btn" onclick="toggleComposer()" type="button" aria-expanded="false">+ New Post</button>
@@ -64,7 +90,14 @@ function onComposerResponse(evt) {
 </script>
 {% endif %}
 
-<div id="feed">
-  {{ initial_posts_html|safe }}
+  <div class="art-body">
+    {#- The first page is inlined so posts arrive in the very first HTTP
+        response; without it the browser would paint, then fire a second
+        request for page 0 before anything was visible. -#}
+    <div id="feed">
+      {{ initial_posts_html|safe }}
+    </div>
+  </div>
+
 </div>
 {% endblock %}

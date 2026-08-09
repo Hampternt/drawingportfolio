@@ -228,8 +228,18 @@ async fn upload_post(
         }
     });
 
+    // Third caller of the feed's card template, and the easy one to miss: the
+    // composer on /artportfolio posts here with source=gallery and swaps the
+    // response into #feed. Render the same template the feed uses, or a fresh
+    // upload lands as legacy .post-card markup among hm-post cards and looks
+    // broken until reload — with the build still green.
     let card_html = if source == "gallery" {
-        crate::routes::feed::post_card_html(&post, false)
+        crate::routes::feed::PostCardTemplate {
+            post: &post,
+            is_first: false,
+        }
+        .render()
+        .unwrap()
     } else {
         admin_post_card_html(&post)
     };

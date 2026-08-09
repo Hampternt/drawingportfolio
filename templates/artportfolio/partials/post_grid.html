@@ -1,0 +1,27 @@
+{#
+  A page of cards plus the Load more control. This is the HTMX swap target's
+  payload, and the same markup feed_page inlines for page 0 — the two paths
+  render one template so they cannot drift.
+
+  Flat by design. Month sections and dividers belong to the next slice, which
+  wraps each month in its own `columns` block; building them here against a
+  MonthGroup that does not exist yet would only be a compile error.
+#}
+{% if posts.is_empty() && is_first_page %}
+{% include "artportfolio/partials/empty_state.html" %}
+{% else %}
+{% for post in posts %}
+{% let is_first = is_first_page && loop.index0 == 0 %}
+{% include "partials/post_card.html" %}
+{% endfor %}
+{% if has_more %}
+<div class="load-more" id="load-more">
+  <button class="hm-btn hm-btn--secondary hm-btn--sm"
+          hx-get="/artportfolio/htmx/posts?page={{ next_page }}"
+          hx-target="#load-more"
+          hx-swap="outerHTML">
+    Load more <span class="hm-icon hm-icon--chevron-down"></span>
+  </button>
+</div>
+{% endif %}
+{% endif %}

@@ -1,5 +1,35 @@
-<article class="post-card" id="post-{{ post.id }}">
-  <img src="{{ post.image_url }}" alt="{{ post.caption }}" loading="lazy">
-  <p class="caption">{{ post.caption }}</p>
-  <small class="date">{{ post.created_at }}</small>
+{#
+  One drawing card. The single source of card markup for the whole app.
+
+  Rendered three ways, which is why it lives in a file rather than a format
+  string: inlined into the first page by feed_page, returned by the HTMX
+  pagination route, and returned by the upload handler in admin.rs so a new
+  post arrives styled like every other card.
+
+  Consumes `post` (a &Post) and `is_first` (bool) from the caller's scope —
+  either PostCardTemplate's fields or, when included from post_grid.html, a
+  loop variable and a `{% let %}` binding.
+
+  Askama auto-escapes every {{ }}, so this replaces the hand-rolled
+  html_escape() the old format string needed.
+#}
+<article class="hm-post" id="post-{{ post.id }}">
+  <div class="hm-post__media">
+    <picture>
+      {#- An empty variant URL means that encode failed or has not finished.
+          AVIF in particular is produced by a detached task after the response
+          is sent, so a freshly uploaded post genuinely has none for a moment. -#}
+      {% if !post.avif_url.is_empty() %}<source srcset="{{ post.avif_url }}" type="image/avif">{% endif %}
+      {% if !post.webp_url.is_empty() %}<source srcset="{{ post.webp_url }}" type="image/webp">{% endif %}
+      <img src="{{ post.image_url }}" alt="{{ post.caption }}"
+           {#- Both dimensions or neither: width="0" would collapse the image.
+               Pre-012 rows carry 0 and simply render as they always did. -#}
+           {% if post.image_width > 0 && post.image_height > 0 %} width="{{ post.image_width }}" height="{{ post.image_height }}"{% endif %}
+           {% if is_first %} loading="eager" fetchpriority="high"{% else %} loading="lazy"{% endif %}>
+    </picture>
+  </div>
+  <div class="hm-post__body">
+    {% if !post.caption.is_empty() %}<p class="hm-post__caption">{{ post.caption }}</p>{% endif %}
+    <div class="hm-post__meta"><time datetime="{{ post.created_at }}">{{ post.created_at }}</time></div>
+  </div>
 </article>

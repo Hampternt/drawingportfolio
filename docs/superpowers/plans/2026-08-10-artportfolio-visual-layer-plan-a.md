@@ -937,7 +937,7 @@ It is a one-line change under option 1 whenever the wordmark question is settled
 site-wide, which is the right scope for it: a wordmark that differs per section is
 a decision about the site, not about `/artportfolio`.
 
-## Two spec corrections this plan makes
+## Spec corrections this plan makes
 
 Both found by reading the code, both binding:
 
@@ -950,3 +950,26 @@ Both found by reading the code, both binding:
    `{% if is_admin %}` composer block. Since the multi-upload tray that replaces it
    is slice 4, deleting it here would strip upload from the page for two slices. It
    survives unchanged in markup and gets scoped CSS. Task 3 Step 7, Task 5 Step 3.
+
+3. **`feed::html_escape()` had no remaining caller and is deleted.** The spec says
+   "`html_escape()` stays — `admin.rs` still uses it." It does not:
+   `src/routes/admin.rs:329` defines its **own private** `html_escape`, as do
+   `src/routes/tasks.rs:28` and `src/routes/nutrition.rs:15`. Four independent
+   copies of the same four-line function exist, and `feed.rs`'s was the only one
+   with an external consumer — the card renderer that this plan replaced with
+   Askama. Keeping it would have added a `never used` warning to a tree that is
+   trying to get its warning count to zero. Deleted; the other three are untouched.
+   (Consolidating those three is a tidy-up for whoever migrates `/admin`, not this
+   plan's business.)
+
+4. **The upload handler decodes nothing — see Task 2 Step 6.** Recorded there in
+   full because it changes that task's implementation, not just its prose.
+
+5. **Askama escapes to numeric character references.** The ported escaping test
+   asserted `&lt;script&gt;`, the named form the hand-rolled `html_escape`
+   produced. Askama 0.15 emits `&#60;script&#62;`. Both are valid HTML and render
+   identically, and the escaping is genuinely happening — but a test pinned to one
+   engine's entity spelling fails for no security reason. The test now asserts the
+   property that matters (no raw `<script>` or `</script>` survives, in the caption
+   or the `alt`) and accepts either entity form. The spec anticipated this in its
+   risk table; it is recorded here as the resolution.
