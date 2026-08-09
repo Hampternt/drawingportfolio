@@ -161,30 +161,19 @@ git stash show -p 'stash@{0}' | less    # inspect before deciding
   It says 229 workspace / 100 drinkinggame / 77 http; `master` measures exactly
   48 + 4 + 100 + 77 = 229. On `feat/last-call` the numbers are **327 / 145 /
   130**, so whoever merges Last Call owns that update.
-- **`…-last-call-STATUS.md:180` says "19 clippy warnings"** where CLAUDE.md says
-  17 distinct. Both numbers are real and measure different things — 19 raw lines
-  = 17 distinct + 2 rollup summaries — but as written it points the next session
-  at the wrong baseline.
+- ~~`…-last-call-STATUS.md` says "19 clippy warnings" where CLAUDE.md says 17
+  distinct.~~ **Fixed 2026-08-09** (`d8b0a9a`). Both numbers were real and
+  measured different things; the STATUS card now states **17 distinct** and
+  explains that the raw 19 includes two per-target rollup summaries. Confirmed
+  by measurement: `cargo clippy --workspace --all-targets` prints 19 lines.
 - **No SDD ledger for Plan A-vis or Plan A2.** `.superpowers/sdd/` holds only
   `2026-08-06-last-call-plan-a/`. The working rules point a session at
   `<plan-basename>/progress.md` to learn which tasks are done; for two of the
   three finished plans that file does not exist.
-- **Stale `master-3` references on `feat/last-call`.** The 2026-08-09 rename
-  changed both the branch *and* the worktree directory, so three of these are
-  broken paths, not just stale names. Fix in one pass on that branch:
-
-  | File | Lines | |
-  | --- | --- | --- |
-  | `docs/HANDOFF-2026-08-09.md` | 49, 170 | **broken paths** — `worktrees/master-3` → `worktrees/last-call` |
-  | `docs/HANDOFF-2026-08-09.md` | 65, 87 | stale branch name |
-  | `docs/HANDOFF-2026-08-09.md` | 53 | the §2 worktree-location paragraph now states the **opposite** of the policy — rewrite, don't patch |
-  | `docs/superpowers/plans/2026-08-06-last-call-STATUS.md` | 191 | **broken path** |
-  | `docs/superpowers/plans/2026-08-06-last-call-STATUS.md` | 10 | stale branch name |
-
-  **Leave `HANDOFF` lines 14, 16 and 110 saying `master-3`** — they describe
-  what happened on the day and rewriting them would make the doc lie about the
-  past.
-
+- ~~Stale `master-3` references on `feat/last-call`.~~ **Fixed 2026-08-09**
+  (`d8b0a9a`). The rename changed the worktree directory as well as the branch,
+  so three were broken `cd` paths rather than stale names. The `HANDOFF` §1/§5
+  mentions were deliberately kept — they record what happened on the day.
 - **One manual browser check is owed** (Plan A-vis checkpoint 2, items 6–7):
   open `/lastcall/preview`, press every REPLAY and watch a flight actually
   travel, then repeat under devtools' *Emulate CSS `prefers-reduced-motion:
