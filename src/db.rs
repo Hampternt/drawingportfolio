@@ -828,8 +828,10 @@ pub async fn get_task_images(pool: &DbPool) -> Vec<TaskImage> {
 
 /// Deletes a reference image and all tasks attached to it, returning the
 /// image URL so the caller can remove the object from S3.
-/// (Tasks are deleted explicitly — SQLite only honours ON DELETE CASCADE
-/// when the foreign_keys pragma is enabled, which we don't rely on.)
+/// Returns Some only after the transaction has committed — the caller
+/// deletes the S3 object, which must never happen if the rows survived.
+/// (Tasks are deleted explicitly rather than via ON DELETE CASCADE so the
+/// behavior doesn't depend on the connection's foreign_keys pragma.)
 pub async fn delete_task_image(pool: &DbPool, id: i64) -> Option<String> {
     let mut tx = pool.begin().await.ok()?;
 
@@ -837,25 +839,22 @@ pub async fn delete_task_image(pool: &DbPool, id: i64) -> Option<String> {
         .fetch_optional(&mut *tx)
         .await
         .ok()
-        .flatten();
+        .flatten()?;
 
-    if let Some(r) = row {
-        sqlx::query!("DELETE FROM drawing_tasks WHERE image_id = ?", id)
-            .execute(&mut *tx)
-            .await
-            .ok();
-        sqlx::query!("DELETE FROM task_images WHERE id = ?", id)
-            .execute(&mut *tx)
-            .await
-            .ok();
-        tx.commit().await.ok();
-        Some(r.image_url)
-    } else {
-        tx.rollback().await.ok();
-        None
-    }
+    sqlx::query!("DELETE FROM drawing_tasks WHERE image_id = ?", id)
+        .execute(&mut *tx)
+        .await
+        .ok()?;
+    sqlx::query!("DELETE FROM task_images WHERE id = ?", id)
+        .execute(&mut *tx)
+        .await
+        .ok()?;
+    tx.commit().await.ok()?;
+    Some(row.image_url)
 }
 
+/// Returns false if the insert is rejected — e.g. the FK on image_id fails
+/// because the reference image was deleted after the form was rendered.
 pub async fn insert_drawing_task(
     pool: &DbPool,
     image_id: i64,
@@ -864,14 +863,14 @@ pub async fn insert_drawing_task(
     subject: &str,
     difficulty: &str,
     task_type: &str,
-) {
+) -> bool {
     sqlx::query!(
         "INSERT INTO drawing_tasks (image_id, title, prompt, subject, difficulty, task_type) VALUES (?, ?, ?, ?, ?, ?)",
         image_id, title, prompt, subject, difficulty, task_type
     )
     .execute(pool)
     .await
-    .expect("failed to insert drawing task");
+    .is_ok()
 }
 
 pub async fn delete_drawing_task(pool: &DbPool, id: i64) {
@@ -1359,6 +1358,15 @@ mod tests {
         assert!(get_tasks_filtered(&pool, &no_filters()).await[0].completed);
         toggle_task_completed(&pool, id).await;
         assert!(!get_tasks_filtered(&pool, &no_filters()).await[0].completed);
+    }
+
+    #[tokio::test]
+    async fn test_insert_task_with_missing_image_fails_cleanly() {
+        let pool = test_pool().await;
+        // No task_images row with id 999 — the FK (enforced: sqlx enables
+        // PRAGMA foreign_keys by default) must reject this without panicking.
+        assert!(!insert_drawing_task(&pool, 999, "orphan", "", "", "medium", "").await);
+        assert!(get_tasks_filtered(&pool, &no_filters()).await.is_empty());
     }
 
     #[tokio::test]

@@ -488,7 +488,7 @@ async fn add_task(
             .into_response();
     }
 
-    crate::db::insert_drawing_task(
+    if !crate::db::insert_drawing_task(
         &state.pool,
         image_id,
         &title,
@@ -497,7 +497,14 @@ async fn add_task(
         difficulty,
         &task_type,
     )
-    .await;
+    .await
+    {
+        return (
+            StatusCode::BAD_REQUEST,
+            Html("<p>Reference image no longer exists</p>".to_string()),
+        )
+            .into_response();
+    }
     (
         [("HX-Trigger", "refresh-board")],
         Html(render_admin(&state).await),
