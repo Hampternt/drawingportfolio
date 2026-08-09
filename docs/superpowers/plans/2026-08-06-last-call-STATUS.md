@@ -16,7 +16,8 @@ plan-end notes written before that date still say `master-3`.
 | Path | What it is |
 | --- | --- |
 | `docs/superpowers/specs/2026-08-06-last-call-templates-design.md` | **The spec.** Every decision and why. Start here. |
-| `docs/superpowers/plans/2026-08-06-last-call-plan-a2.md` | **Next plan to execute.** |
+| `docs/superpowers/plans/2026-08-06-last-call-plan-b.md` | **Next plan to execute.** |
+| `docs/superpowers/plans/2026-08-06-last-call-plan-a2.md` | Done. The wiring Plan B builds on — SSE contract, private-fetch pattern. |
 | `docs/superpowers/plans/2026-08-06-last-call-plan-a-vis.md` | Done. Read only if you need what the preview page proves. |
 | `docs/design/last-call/README.md` | Design handoff — exact token values, plain markdown. |
 | `docs/design/last-call/*.dc.html` | The prototypes. Open in a browser; big HTML, strip tags to read as text. |
@@ -44,9 +45,31 @@ Slice 1 is four plans: **A → A-vis → A2 → B**.
   shell; each viewer fetches **its own** hand over a route that takes no player
   identifier; and an `lcpublic`/`lctick` SSE pair repaints every phone with a
   highest-seq-wins stale-drop rule. **Slice 1 is playable up to the setup form.**
-- **Plan B — felt surfaces. NEXT.** Not written yet; write it fresh from the spec,
-  per `plan-economics`. Read "Carried out of Plan A2" below before you do — two
-  items are Plan B's to own.
+- **Plan B — felt surfaces. WRITTEN, NOT EXECUTED.**
+  `docs/superpowers/plans/2026-08-06-last-call-plan-b.md`, six tasks — seat-ring
+  geometry (B), felt/ring/mini-table CSS (A), the two table assemblers (B), the
+  spectator big screen + kind branch (C), the per-viewer TABLE tab (C), and the
+  seat ceiling + end route (C). Two browser checkpoints. It owns both items
+  carried out of Plan A2, and takes the `add_player`-does-not-bump-`seq` fix
+  early because Task 6 is already inside that function.
+
+  Three findings from writing it, so they are not re-derived:
+
+  - **The phone's mini table is viewer-relative.** D.2's "the local player is
+    always nearest the viewer" is a per-viewer *rotation*, which a `RoomHub`
+    broadcast structurally cannot carry and `personalize()` cannot fake — it
+    hides elements, it does not re-position seven plaques. That is why spec §10
+    listed a `…/lastcall/table` route at all. So the big screen rides `lcpublic`
+    (one absolute layout, no viewer) and the phone fetches (one layout each).
+  - **The big screen needs no new SSE event.** `lc_public_panel` gains a second
+    `<template data-lc-screen>` block: same event, same frame count, and
+    `broadcast_lc` stays await-free under the room guard.
+  - **The bundle's seat ring is parametric after all.** Six of the seven authored
+    seats sit within 4% of the felt's inner hairline ellipse (semi-axes 568×408
+    about (660, 496) in the 1320×992 centre column); only the bottom seat is
+    pulled in to r ≈ 0.85, which is D.2's local-player rule showing up as
+    geometry. The angles are authored rather than evenly stepped, leaving
+    top-centre empty. The plan transcribes the n = 7 row and generates the rest.
 
 ## Decisions not to re-litigate
 
@@ -206,10 +229,13 @@ cargo run -p drinkinggame   # standalone on :3001
 #   http://localhost:3001/room/{CODE}
 ```
 
-Then: **write Plan B**, fresh from the spec, per `plan-economics`. Read "Carried
-out of Plan A2" above first.
+Then: **execute Plan B** — `docs/superpowers/plans/2026-08-06-last-call-plan-b.md`
+— per `plan-economics` and superpowers:subagent-driven-development. Read "Carried
+out of Plan A2" above first; the plan already folds both of its items in. Its
+ledger goes at `.superpowers/sdd/2026-08-06-last-call-plan-b/progress.md`.
 
-**One thing still owed on Plan A-vis:** browser checkpoint 2 items 6–7 — press
+**One thing still owed on Plan A-vis** (Plan B's browser checkpoint 1 folds it in,
+since a human is in a browser there anyway)**:** browser checkpoint 2 items 6–7 — press
 every REPLAY and watch a flight actually travel, then turn on devtools'
 "Emulate CSS prefers-reduced-motion: reduce" and press them all again. Both were
 verified structurally (nodes created with correct deltas and stagger, layer
