@@ -169,6 +169,22 @@ git stash show -p 'stash@{0}' | less    # inspect before deciding
   `2026-08-06-last-call-plan-a/`. The working rules point a session at
   `<plan-basename>/progress.md` to learn which tasks are done; for two of the
   three finished plans that file does not exist.
+- **Stale `master-3` references on `feat/last-call`.** The 2026-08-09 rename
+  changed both the branch *and* the worktree directory, so three of these are
+  broken paths, not just stale names. Fix in one pass on that branch:
+
+  | File | Lines | |
+  | --- | --- | --- |
+  | `docs/HANDOFF-2026-08-09.md` | 49, 170 | **broken paths** — `worktrees/master-3` → `worktrees/last-call` |
+  | `docs/HANDOFF-2026-08-09.md` | 65, 87 | stale branch name |
+  | `docs/HANDOFF-2026-08-09.md` | 53 | the §2 worktree-location paragraph now states the **opposite** of the policy — rewrite, don't patch |
+  | `docs/superpowers/plans/2026-08-06-last-call-STATUS.md` | 191 | **broken path** |
+  | `docs/superpowers/plans/2026-08-06-last-call-STATUS.md` | 10 | stale branch name |
+
+  **Leave `HANDOFF` lines 14, 16 and 110 saying `master-3`** — they describe
+  what happened on the day and rewriting them would make the doc lie about the
+  past.
+
 - **One manual browser check is owed** (Plan A-vis checkpoint 2, items 6–7):
   open `/lastcall/preview`, press every REPLAY and watch a flight actually
   travel, then repeat under devtools' *Emulate CSS `prefers-reduced-motion:
