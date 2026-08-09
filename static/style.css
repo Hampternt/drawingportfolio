@@ -1142,11 +1142,46 @@ body.art-page header .site-title {
   letter-spacing: -0.035em;
   color: var(--text-strong);
 }
+/* The shared stylesheet never gives `nav` a display or a gap, so its links are
+   inline elements separated by one space of whitespace. At this type size they
+   read as one run-on string; lay them out explicitly. */
+body.art-page header nav {
+  display: flex;
+  align-items: center;
+  gap: var(--space-7);
+}
 body.art-page header nav a {
   font: var(--weight-medium) var(--text-14)/1.2 var(--font-sans);
   color: var(--text-muted);
 }
 body.art-page header nav a:hover { color: var(--text-strong); text-decoration: none; }
+
+/* The Ctrl-K affordance, which base.html renders as a bare <button> of <kbd>s. */
+body.art-page header .palette-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-left: auto;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+}
+body.art-page header .palette-hint kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 var(--space-3);
+  border: var(--border-width) solid var(--border-default);
+  border-bottom-width: 2px;
+  border-radius: var(--radius-xs);
+  background: var(--ink-800);
+  color: var(--text-muted);
+  font: var(--type-label);
+  text-transform: uppercase;
+}
 
 /* Icons — Lucide as CSS masks, so a glyph inherits currentColor and needs no
    recolouring per context. */
@@ -1362,7 +1397,18 @@ body.art-page .art-body {
 /* Masonry. CSS multi-column, so cards flow top-to-bottom within a column.
    The next slice wraps each month in its own section with its own column
    block, which is what makes a full-bleed month divider composable with this. */
-body.art-page #feed { columns: 3; column-gap: var(--space-6); }
+/* `display: block` is not redundant. The pre-existing `#feed` rule earlier in
+   this file sets `display: flex; flex-direction: column`, and a flex container
+   ignores `columns` entirely — every card lands in one column and the masonry
+   silently does nothing. Winning on `columns` alone is not enough; the display
+   type has to be reset too. `gap` is dropped with it, since column-gap and the
+   per-card margin-bottom below own the spacing now. */
+body.art-page #feed {
+  display: block;
+  gap: normal;
+  columns: 3;
+  column-gap: var(--space-6);
+}
 body.art-page #feed .hm-post {
   break-inside: avoid;
   -webkit-column-break-inside: avoid;
