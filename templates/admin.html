@@ -22,17 +22,26 @@
   <script>const IS_ADMIN = true;</script>
   <script src="/static/palette.js" defer></script>
   <script>
-    // hx-boost swaps body children, not body attributes — re-derive the
-    // fitness theme class from the incoming content on every swap/restore.
+    // hx-boost swaps body children, not body attributes — so the body_class
+    // block is lost on every boosted navigation. Re-derive each theme class
+    // from a marker element in the incoming content instead of trusting it.
+    //
+    // The markers are the section wrappers: .fitness-page for the nutrition
+    // tracker, .art-feed for the drawing portfolio. Each section's template
+    // must keep its marker as the outermost element inside its content block.
     (function () {
-      function syncFitnessTheme() {
+      function syncBodyTheme() {
         document.body.classList.toggle('fitness-dark',
           !!document.querySelector('main .fitness-page'));
+        document.body.classList.toggle('art-page',
+          !!document.querySelector('main .art-feed'));
       }
+      // The target guard matters: without it every fragment swap — Load more,
+      // an HTMX partial — re-runs this against a half-updated DOM.
       document.addEventListener('htmx:afterSwap', function (e) {
-        if (e.target === document.body) syncFitnessTheme();
+        if (e.target === document.body) syncBodyTheme();
       });
-      document.addEventListener('htmx:historyRestore', syncFitnessTheme);
+      document.addEventListener('htmx:historyRestore', syncBodyTheme);
     })();
   </script>
 </head>
