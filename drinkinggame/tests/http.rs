@@ -300,48 +300,66 @@ async fn test_lastcall_css_reduced_motion_is_one_block() {
     );
 }
 
-/// Plan-end review finding C1: `#lc-flights` is `position: absolute; inset:
-/// 0; overflow: hidden` (Plan A), appended by `lc_motion.js` to
-/// `body.lc-preview`. Without a positioned ancestor, that layer resolves
-/// `inset: 0` against the viewport-sized initial containing block instead of
-/// the full (12000px+) document, and every REPLAY flight is created,
-/// positioned and animated correctly, then clipped away the moment it
-/// scrolls past the first screenful — a silent, un-renderable failure no
-/// other test can see, because the DOM and the CSS are each correct in
-/// isolation; only the composition is wrong.
-///
-/// This can't be asserted by rendering (this suite has no browser), so the
-/// honest covering test is at the CSS level: `body.lc-preview` must carry a
-/// `position` that is not `static`, because `#lc-flights` depends on it for
-/// its containing block. If a future edit deletes this rule as "unused" —
-/// nothing on the page visibly depends on it — this test is what catches it.
-#[tokio::test]
-async fn test_lastcall_css_preview_body_is_positioned() {
-    let app = test_app().await;
-    let css = body_string(get(&app, "/assets/lastcall.css").await).await;
-
-    // Anchored on the literal selector-then-brace text, not just
-    // "body.lc-preview" — that substring also appears in this rule's own
-    // explanatory comment above it, which would otherwise be matched first.
-    let needle = "body.lc-preview {";
+/// Shared by `test_lastcall_css_preview_body_is_positioned` and
+/// `test_lastcall_css_shell_body_is_positioned` (plan-end review finding M4):
+/// `#lc-flights` is `position: absolute; inset: 0; overflow: hidden` (Plan
+/// A). Without a positioned ancestor, that layer resolves `inset: 0` against
+/// the viewport-sized initial containing block instead of the full document,
+/// and every flight is created, positioned and animated correctly, then
+/// clipped away the moment it scrolls past the first screenful — a silent,
+/// un-renderable failure no other test can see, because the DOM and the CSS
+/// are each correct in isolation; only the composition is wrong. This can't
+/// be asserted by rendering (this suite has no browser), so the honest
+/// covering test is at the CSS level: `selector` must carry a `position`
+/// that is not `static`. If a future edit deletes the rule as "unused" —
+/// nothing on the page visibly depends on it yet — this is what catches it.
+fn assert_body_selector_is_positioned(css: &str, selector: &str, finding: &str) {
+    // Anchored on the literal selector-then-brace text, not just the bare
+    // selector — `body.lc` is also a substring of `body.lc-preview`, and
+    // both selectors appear inside this file's own explanatory comments.
+    let needle = format!("{selector} {{");
     let start = css
-        .find(needle)
+        .find(&needle)
         .unwrap_or_else(|| panic!("missing `{needle}` rule"));
     let open = start + needle.len() - 1; // index of the rule's own '{'
     let close = css[open..]
         .find('}')
         .map(|i| open + i)
-        .expect("body.lc-preview block closes");
+        .unwrap_or_else(|| panic!("{selector} block closes"));
     let block = &css[open..close];
 
     assert!(
         !block.contains("position: static") && block.contains("position:"),
-        "body.lc-preview must declare a non-static position — #lc-flights \
-         (Plan A: position: absolute; inset: 0; overflow: hidden) has no \
-         other positioned ancestor and needs this rule for its containing \
-         block, or every REPLAY flight renders off-document and invisible \
-         (plan-end review finding C1). Block was: {block:?}"
+        "{selector} must declare a non-static position — #lc-flights (Plan \
+         A: position: absolute; inset: 0; overflow: hidden) has no other \
+         positioned ancestor and needs this rule for its containing block, \
+         or every flight renders off-document and invisible ({finding}). \
+         Block was: {block:?}"
     );
+}
+
+/// Plan-end review finding C1: see `assert_body_selector_is_positioned` for
+/// the mechanism. `body.lc-preview` is the gallery page's own containing
+/// block for `#lc-flights`.
+#[tokio::test]
+async fn test_lastcall_css_preview_body_is_positioned() {
+    let app = test_app().await;
+    let css = body_string(get(&app, "/assets/lastcall.css").await).await;
+    assert_body_selector_is_positioned(&css, "body.lc-preview", "plan-end review finding C1");
+}
+
+/// Plan-end review finding M4: `body.lc` (the F.1 phone shell) carries the
+/// identical `position: relative` rule for the identical reason — nothing
+/// fires a flight on the shell yet, so nothing visibly depends on it either,
+/// which is exactly why `body.lc-preview`'s test alone wasn't enough: this
+/// rule could be deleted as "unused" and every other test would stay green
+/// until a later slice starts firing flights into `#lc-flights` on the
+/// shell and finds them silently clipped away.
+#[tokio::test]
+async fn test_lastcall_css_shell_body_is_positioned() {
+    let app = test_app().await;
+    let css = body_string(get(&app, "/assets/lastcall.css").await).await;
+    assert_body_selector_is_positioned(&css, "body.lc", "plan-end review finding M4");
 }
 
 /// Plan-end review finding I3, human ruling: the plan's Global Constraints
@@ -4110,6 +4128,14 @@ async fn test_lastcall_sse_snapshot_includes_lcpublic() {
 /// checking their contents catches that without awaiting a fifth `next()`
 /// (no fifth frame is ever sent for this room, so that would hang until the
 /// harness times out).
+///
+/// Plan-end review finding M1: that alone only catches a *misplaced* chain
+/// — it does not assert-catch a fifth frame emitted *unconditionally*
+/// (regardless of game kind), because nothing here ever reads a fifth
+/// `next()`. Bound the wait instead: give the stream 200ms after the four
+/// known frames to produce anything else, and require that if it does, it
+/// still isn't `lcpublic`. A timeout (no frame at all) is the expected,
+/// passing outcome for this room.
 #[tokio::test]
 async fn test_rof_sse_snapshot_has_no_lcpublic() {
     use futures::StreamExt;
@@ -4136,6 +4162,22 @@ async fn test_rof_sse_snapshot_has_no_lcpublic() {
         assert!(!frame.contains("lcpublic"), "{frame}");
     }
     assert!(frames[3].contains("event: room"), "{:?}", frames[3]);
+
+    // No fifth frame is ever sent for a Ring of Fire room, so a bounded
+    // timeout — not an unbounded `next()` — is what makes this assertion
+    // safe to run at all.
+    match tokio::time::timeout(std::time::Duration::from_millis(200), body.next()).await {
+        Err(_) => {}   // timed out waiting: correct, nothing more was sent.
+        Ok(None) => {} // stream ended: also fine.
+        Ok(Some(chunk)) => {
+            let frame = String::from_utf8(chunk.unwrap().to_vec()).unwrap();
+            assert!(
+                !frame.contains("lcpublic"),
+                "an unconditionally emitted fifth frame must still not be \
+                 lcpublic on a Ring of Fire room: {frame}"
+            );
+        }
+    }
 }
 
 /// `persist_and_broadcast_lc` fires `broadcast_room` before `broadcast_lc`,
@@ -4333,4 +4375,89 @@ async fn test_lastcall_shell_ships_form_state_preservation() {
     // ...and refocuses the restored element rather than leaving focus on
     // <body>, which is exactly what the live-browser repro observed.
     assert!(html.contains("el.focus("), "{html}");
+}
+
+// -------------------------------------------------------------
+// Plan-end review fix wave (2026-08-09): findings I1 and M3.
+// -------------------------------------------------------------
+
+/// Plan-end review finding I1: pressing START must publish the phone GAME
+/// tab, not just the room/public/tick messages. `LcPublic`/`LcTick` reach
+/// only clients already on the Last Call shell, and at the instant START is
+/// pressed nobody is there yet — without `broadcast_game` in
+/// `persist_and_broadcast_lc`, starting Last Call was a complete visual
+/// no-op on every phone, including the starter's, until a manual reload.
+/// `render::lc_placeholder_panel` already renders "Last Call is running.
+/// Open the table →"; this asserts that text actually reaches the `game`
+/// SSE frame the moment the game starts.
+#[tokio::test]
+async fn test_lastcall_start_broadcasts_game_panel() {
+    let app = test_app().await;
+    let alice = login(&app, "alice", "1234").await;
+    let bob = login(&app, "bob", "5678").await;
+    let code = create_room(&app, &alice).await;
+    room_page_html(&app, &bob, &code).await;
+
+    // Subscribe before the game starts, and drain the four-frame idle
+    // snapshot (leaderboard, game, screen, room), so the `game` frame this
+    // test cares about is unambiguously the one START triggers.
+    let res = get(&app, &format!("/room/{code}/sse")).await;
+    let mut body = res.into_body().into_data_stream();
+    read_sse_until(&mut body, "event: room").await;
+
+    let res = post_form(&app, &alice, &format!("/room/{code}/lastcall/start"), "").await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+
+    let seen = read_sse_until(&mut body, "event: game").await;
+    let frame = &seen[seen.find("event: game").unwrap()..];
+    assert!(
+        frame.contains("Last Call is running"),
+        "starting Last Call must broadcast the GAME panel so a phone still \
+         sitting on the idle start cards sees the game begin without a \
+         reload: {frame}"
+    );
+}
+
+/// Plan-end review finding M3: the late-join `broadcast_lc` call in
+/// `room_page`'s `last_call` block (`routes.rs`) had zero coverage —
+/// `test_room_page_seats_late_joiner_in_lastcall` only asserts the DB row,
+/// never subscribes to the stream, so deleting the broadcast, or moving it
+/// outside the `lc_joined` guard or the lock, would ship silently green.
+/// This subscribes as an already-seated player (bob) before cara's late
+/// join and asserts bob's open stream actually receives the resulting
+/// `lcpublic`/`lctick` pair.
+#[tokio::test]
+async fn test_room_page_late_join_broadcasts_lc() {
+    let app = test_app().await;
+    let alice = login(&app, "alice", "1234").await;
+    let bob = login(&app, "bob", "5678").await;
+    let cara = login(&app, "cara", "1234").await;
+    let code = create_room(&app, &alice).await;
+    room_page_html(&app, &bob, &code).await;
+    post_form(&app, &alice, &format!("/room/{code}/lastcall/start"), "").await;
+
+    // bob is already seated and stays on the open SSE stream; only cara is
+    // late-joining.
+    let res = get(&app, &format!("/room/{code}/sse")).await;
+    let mut body = res.into_body().into_data_stream();
+    read_sse_until(&mut body, "event: lcpublic").await; // drain the snapshot
+
+    let res = app
+        .clone()
+        .oneshot(
+            Request::get(format!("/room/{code}"))
+                .header(header::COOKIE, &cara)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+
+    let seen = read_sse_until(&mut body, "event: lctick").await;
+    assert!(
+        seen.contains("event: lcpublic"),
+        "cara's late join must broadcast the public panel to every phone \
+         already on the stream: {seen}"
+    );
 }

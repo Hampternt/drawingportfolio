@@ -48,17 +48,25 @@ pub(crate) async fn load_lc(
 }
 
 /// Persists the mutated state back to the DB, then re-renders and publishes
-/// the ROOM/TABLE panel — mode = "last_call" for as long as this game's
-/// phone panel is still the Task 1 placeholder (Step 1) — followed by the
-/// LcPublic / LcTick publishes. `broadcast_lc` runs after `set_game_state`
-/// (so a phone that fetches on the tick reads the persisted state) and,
-/// like `broadcast_room` above, while the caller's room lock is still held
-/// — every caller takes the guard around this whole call, and releasing it
-/// first would let a concurrent handler's broadcast land after this one and
-/// leave this request's stale render as the last word (`1e742d4`).
+/// every surface that reflects it: the phone GAME tab (`broadcast_game`),
+/// the ROOM/TABLE panel (`broadcast_room` — mode = "last_call" for as long
+/// as this game's phone panel is still the Task 1 placeholder), and finally
+/// the LcPublic / LcTick publishes. `broadcast_game` must run: without it,
+/// pressing START is a complete visual no-op on every phone (plan-end
+/// review finding I1) — `LcPublic`/`LcTick` only reach clients already on
+/// the Last Call shell, and nobody is there yet at the instant a game
+/// starts. Order mirrors `tm_routes::persist_and_broadcast` (game, then
+/// room, then the game-specific publish). `broadcast_lc` runs after
+/// `set_game_state` (so a phone that fetches on the tick reads the
+/// persisted state) and, like the other two, while the caller's room lock
+/// is still held — every caller takes the guard around this whole call, and
+/// releasing it first would let a concurrent handler's broadcast land after
+/// this one and leave this request's stale render as the last word
+/// (`1e742d4`).
 pub(crate) async fn persist_and_broadcast_lc(state: &GameState, ctx: &LcCtx) {
     db::set_game_state(&state.pool, ctx.game.id, &ctx.st.to_json()).await;
     db::touch_room(&state.pool, ctx.room.id).await;
+    crate::game::broadcast_game(state, ctx.room.id, &ctx.room.code, None).await;
     crate::game::broadcast_room(state, ctx.room.id, &ctx.room.code).await;
     broadcast_lc(state, ctx.room.id, &ctx.st).await;
 }

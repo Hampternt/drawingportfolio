@@ -229,6 +229,15 @@ async fn room_page(
         }
         if let Some(st) = &lc_state {
             if lc_joined {
+                // No `broadcast_game` call here (unlike `tm_joined` above,
+                // and unlike `persist_and_broadcast_lc`, which the plan-end
+                // review's finding I1 fixed to call it): `lc_placeholder_panel`
+                // and `lc_screen_placeholder` are static text plus
+                // `base_path`/`code`, so a late join changes nothing they
+                // render. What DOES change — the member list — is exactly
+                // what `broadcast_room` above already covers. Revisit this
+                // if Plan B's GAME-tab content ever starts depending on
+                // seating/roster.
                 crate::lc_routes::broadcast_lc(&state, room.id, st).await;
             }
             return Redirect::to(&format!("{}/room/{}/lastcall", state.base_path, code))
@@ -601,7 +610,15 @@ async fn sse_stream(
             // above: a `data:` field must be present or EventSource drops
             // the event silently and clients never learn the room ended.
             Ok(RoomMessage::Ended) => Some(Ok(Event::default().event("ended").data("gone"))),
-            // Lagged receiver: skip — the next update carries full state anyway.
+            // Lagged receiver: skip. True for every *other* variant here —
+            // each carries a freshly rendered fragment, so the next one that
+            // arrives is a complete replacement. NOT true for `LcTick`: it
+            // carries no state, only a seq number, so a lagged receiver that
+            // drops a tick simply never re-fetches its hand for that change
+            // and can stay stale until some unrelated later change ticks
+            // again (plan-end review finding M5; harmless today at 128
+            // buffered messages and three publishes per change — ~43
+            // unacknowledged changes to trigger — but worth knowing).
             Err(_) => None,
         }
     }));
