@@ -112,10 +112,14 @@ button:active { transform: scale(.97); }
 .lc-focused    { background: var(--lc-focused); }
 .lc-hairline   { border: 1px solid var(--lc-hair); }
 .lc-hairline-strong { border: 1px solid var(--lc-hair-strong); }
-/* deck-tinted borders — §7.6's alpha ladder, bound in the ramp blocks above */
+/* deck-tinted borders — §7.6's alpha ladder, bound in the ramp blocks above.
+   Four rungs (59/66/80/99) per the plan's Global Constraints and Task 3
+   Step 1 — .lc-edge-strong was the missing fourth, added by Plan A-vis's
+   fix wave to close the gap Task 3 correctly reported rather than inventing. */
 .lc-edge-subtle { border: 1px solid var(--lc-ink-59); }
 .lc-edge-plaque { border: 1px solid var(--lc-ink-66); }
 .lc-edge-back   { border: 1px solid var(--lc-ink-80); }
+.lc-edge-strong { border: 1px solid var(--lc-ink-99); }
 
 /* the felt — a background primitive. Seat positioning is Plan B. */
 #lc-felt {
@@ -510,17 +514,51 @@ body.lc { margin: 0; min-height: 100vh; display: flex; flex-direction: column;
 .lc-preview-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
                     gap: 14px; }
 
-.lc-preview-swatch { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
-.lc-preview-sample { display: flex; align-items: center; }
+/* min-width: 0 / width: 100% (I4): flex items default to min-width: auto, a
+   content-based floor — without overriding it at every flex/grid level
+   between the oversized sample and .lc-preview-scroll's own overflow-x:
+   auto, .lc-preview-swatch (a .lc-preview-grid item) and .lc-preview-sample
+   (its flex child) both refuse to shrink below the 640px felt / 390px
+   frame's content width, so the scroller never gets anything narrower than
+   its content to actually scroll. .lc-preview-sample also needs an explicit
+   width: 100% — as a flex_start-aligned flex item it is otherwise sized by
+   shrink-to-fit from its own content (still ~640px) rather than clamped to
+   its resolved track width. Verified live at a 390px viewport: without
+   these three rules the group's samples measure 660px wide against a
+   390px body; with them, only the felt/shell scroll internally and the
+   page itself does not. Harmless for ordinary swatches — none of them
+   approach their track's width in the first place. */
+.lc-preview-swatch { display: flex; flex-direction: column; gap: 8px; align-items: flex-start;
+                      min-width: 0; }
+.lc-preview-sample { display: flex; align-items: center; min-width: 0; width: 100%; }
 .lc-preview-caption { font-family: var(--font-mono); font-size: 11px; color: var(--lc-label); }
 
 /* Step 4's clamped/expanded pairing — the clamped card_face beside its
-   card_face_expanded twin, so what the clamp lost is visible, not asserted. */
-.lc-preview-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; align-items: start; }
+   card_face_expanded twin, so what the clamp lost is visible, not asserted.
+   minmax(0, 1fr), not bare 1fr (I4): a plain `1fr` track's implicit minimum
+   is `auto` — content-based — so at a narrow viewport an unclamped
+   card_face_expanded (no line-clamp, long boundary-case body text) refuses
+   to shrink below its own min-content width and the pair pushes past the
+   page's edge exactly like the felt and shell did. minmax(0, 1fr) removes
+   that floor the same way min-width: 0 does on a flex item. */
+.lc-preview-pair { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; align-items: start; }
 
 /* preview page (Plan A-vis Task 3) — page layout only, same rule as the
    section above: everything here is composed from the tokens/classes
    already shipped (grounds, panels, edges, decks), no new colours. */
+
+/* Plan A's #lc-flights is `position: absolute; inset: 0; overflow: hidden`
+   (motion section above), and lc_motion.js's ensureLayer appends it to
+   body.lc-preview (this page's [data-lc-scene]). Nothing else in the
+   ancestor chain — html, body, body.lc — is positioned, so without this
+   rule #lc-flights has no containing block of its own and resolves inset:0
+   against the viewport-sized initial containing block instead of the full
+   document: every REPLAY flight is created and animated correctly and then
+   clipped away by overflow: hidden the moment it scrolls past the first
+   screenful. Do not remove this as "unused" — nothing here visibly depends
+   on it; #lc-flights depends on it for its containing block, and that is
+   the whole bug (see test_lastcall_css_preview_body_is_positioned). */
+body.lc-preview { position: relative; }
 
 /* a plain sized box for primitives that carry no width/height of their own
    (.lc-ground/.lc-device/.lc-panel/… only set colour) */
@@ -542,6 +580,19 @@ body.lc-preview #lc-felt { width: 640px; height: 360px; margin: 0 auto; }
   background: var(--lc-device); color: var(--lc-text); font-family: var(--font-ui);
   display: flex; flex-direction: column;
 }
+
+/* Checkpoint-2-item-8 fix: the felt (640x360) and the F.1 frame (390x844)
+   are reference dimensions the plan specifies — resizing them defeats the
+   point of those samples — so instead of shrinking the boxes, this wraps
+   each in its own horizontally-scrollable container. `overflow-x: auto`
+   here (rather than on an ancestor) also resets this element's own
+   automatic flex/grid minimum size to 0 per the flexbox/grid sizing spec
+   ("if the item's overflow is not visible, its content-based automatic
+   minimum size does not apply"), which is what lets .lc-preview-sample and
+   .lc-preview-swatch shrink to the viewport instead of forcing the whole
+   page to grow to 640/390px and scroll sideways. An individual sample may
+   still scroll internally at narrow widths — the page itself must not. */
+.lc-preview-scroll { overflow-x: auto; max-width: 100%; min-width: 0; }
 
 /* Group 6's at-rest flight-node swatch — .lc-flight is position: absolute
    with no ancestor of its own, so it needs a positioned, sized box to sit

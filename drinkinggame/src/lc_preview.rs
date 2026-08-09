@@ -325,6 +325,7 @@ fn scene_group() -> PreviewGroup {
             ("59", "lc-edge-subtle"),
             ("66", "lc-edge-plaque"),
             ("80", "lc-edge-back"),
+            ("99", "lc-edge-strong"),
         ] {
             alpha_cells.push(swatch(
                 &format!("{} — {label}", deck.label()),
@@ -333,17 +334,16 @@ fn scene_group() -> PreviewGroup {
                 ),
             ));
         }
-        alpha_cells.push(swatch(
-            &format!("{} — 99", deck.label()),
-            r#"<span class="lc-preview-caption">no bound class in Plan A</span>"#,
-        ));
     }
     body.push_str(&row(
         "Deck-tinted border alphas — invisible anywhere else",
         &alpha_cells,
     ));
 
-    let felt = r#"<div id="lc-felt" data-flight-anchor="felt"></div>"#;
+    // Wrapped in .lc-preview-scroll (not resized) — the felt is a fixed
+    // 640x360 reference dimension; on a narrow viewport the wrapper scrolls
+    // instead of the whole page (checkpoint 2 item 8 / I4).
+    let felt = r#"<div class="lc-preview-scroll"><div id="lc-felt" data-flight-anchor="felt"></div></div>"#;
     body.push_str(&row(
         "The felt — a background primitive",
         &[swatch(
@@ -357,12 +357,9 @@ fn scene_group() -> PreviewGroup {
         title: "Scene — grounds, panels and the felt".to_string(),
         note: "Seat positioning is not here: the felt ships as a bare background \
                primitive with nothing on it, and D.2's angle seat-ring layout is \
-               Plan B's to add. Concern against Plan A: --lc-ink-99, the fourth \
-               deck-tinted border-alpha rung named by spec §7.6, is defined in \
-               every .lc-deck-* block but has no bound utility class (only 59/66/80 \
-               do, via .lc-edge-subtle/-plaque/-back) — called out as text above \
-               rather than invented, since authoring a new selector is out of this \
-               plan's scope."
+               Plan B's to add. The four-rung alpha ladder (59/66/80/99) is now \
+               fully bound in Plan A's scene-primitives section — .lc-edge-strong \
+               closed the gap Task 3 correctly reported rather than inventing."
             .to_string(),
         body,
     }
@@ -562,8 +559,11 @@ fn shell_group(view: &PublicView) -> PreviewGroup {
     ));
 
     let status_row = r#"<div class="lc-status"><span>9:41</span><span>LAST CALL</span></div>"#;
+    // Wrapped in .lc-preview-scroll (not resized) — the frame is a fixed
+    // 390x844 F.1 reference dimension; on a narrow viewport the wrapper
+    // scrolls instead of the whole page (checkpoint 2 item 8 / I4).
     let frame = format!(
-        r#"<div class="lc-preview-shell">{status_row}{banner}{tabs_hand_active}<div class="lc-view">{setup}{hand_region}</div>{actions_two_primary}</div>"#,
+        r#"<div class="lc-preview-scroll"><div class="lc-preview-shell">{status_row}{banner}{tabs_hand_active}<div class="lc-view">{setup}{hand_region}</div>{actions_two_primary}</div></div>"#,
         banner = lc_render::lc_banner(view),
     );
     body.push_str(&row(
@@ -724,7 +724,9 @@ fn deck_ramp_group() -> PreviewGroup {
         );
         let a99 = swatch(
             "alpha 99",
-            r#"<span class="lc-preview-caption">no bound class in Plan A</span>"#,
+            &format!(
+                r#"<div class="lc-panel lc-deck-{slug} lc-edge-strong lc-preview-swatchbox"></div>"#
+            ),
         );
         body.push_str(&row(
             deck.label(),
@@ -737,10 +739,8 @@ fn deck_ramp_group() -> PreviewGroup {
         title: "Deck colour ramp reference".to_string(),
         note: "Wine is the row that matters: it is the only deck where fill and \
                ink differ, which is invisible in every other swatch on this page. \
-               Concern against Plan A: --lc-ink-99, the fourth deck-tinted \
-               border-alpha rung, is defined in every .lc-deck-* block but has no \
-               bound utility class (only 59/66/80 do), so it is called out as text \
-               here rather than rendered as a swatch."
+               All four deck-tinted border-alpha rungs (59/66/80/99) are shown \
+               side by side per deck, now that .lc-edge-strong binds the fourth."
             .to_string(),
         body,
     }

@@ -300,6 +300,89 @@ async fn test_lastcall_css_reduced_motion_is_one_block() {
     );
 }
 
+/// Plan-end review finding C1: `#lc-flights` is `position: absolute; inset:
+/// 0; overflow: hidden` (Plan A), appended by `lc_motion.js` to
+/// `body.lc-preview`. Without a positioned ancestor, that layer resolves
+/// `inset: 0` against the viewport-sized initial containing block instead of
+/// the full (12000px+) document, and every REPLAY flight is created,
+/// positioned and animated correctly, then clipped away the moment it
+/// scrolls past the first screenful — a silent, un-renderable failure no
+/// other test can see, because the DOM and the CSS are each correct in
+/// isolation; only the composition is wrong.
+///
+/// This can't be asserted by rendering (this suite has no browser), so the
+/// honest covering test is at the CSS level: `body.lc-preview` must carry a
+/// `position` that is not `static`, because `#lc-flights` depends on it for
+/// its containing block. If a future edit deletes this rule as "unused" —
+/// nothing on the page visibly depends on it — this test is what catches it.
+#[tokio::test]
+async fn test_lastcall_css_preview_body_is_positioned() {
+    let app = test_app().await;
+    let css = body_string(get(&app, "/assets/lastcall.css").await).await;
+
+    // Anchored on the literal selector-then-brace text, not just
+    // "body.lc-preview" — that substring also appears in this rule's own
+    // explanatory comment above it, which would otherwise be matched first.
+    let needle = "body.lc-preview {";
+    let start = css
+        .find(needle)
+        .unwrap_or_else(|| panic!("missing `{needle}` rule"));
+    let open = start + needle.len() - 1; // index of the rule's own '{'
+    let close = css[open..]
+        .find('}')
+        .map(|i| open + i)
+        .expect("body.lc-preview block closes");
+    let block = &css[open..close];
+
+    assert!(
+        !block.contains("position: static") && block.contains("position:"),
+        "body.lc-preview must declare a non-static position — #lc-flights \
+         (Plan A: position: absolute; inset: 0; overflow: hidden) has no \
+         other positioned ancestor and needs this rule for its containing \
+         block, or every REPLAY flight renders off-document and invisible \
+         (plan-end review finding C1). Block was: {block:?}"
+    );
+}
+
+/// Plan-end review finding I3, human ruling: the plan's Global Constraints
+/// and Task 3 Step 1 both specify a four-rung deck-tinted border alpha
+/// ladder (59/66/80/99); Plan A's stylesheet originally bound only three.
+/// Pins all four bound utility classes and the --lc-ink-99 token itself for
+/// every deck, so the ladder cannot silently regress back to three.
+#[tokio::test]
+async fn test_lastcall_css_ink_alpha_ladder_has_four_rungs() {
+    let app = test_app().await;
+    let css = body_string(get(&app, "/assets/lastcall.css").await).await;
+
+    for class_rule in [
+        ".lc-edge-subtle { border: 1px solid var(--lc-ink-59); }",
+        ".lc-edge-plaque { border: 1px solid var(--lc-ink-66); }",
+        ".lc-edge-back   { border: 1px solid var(--lc-ink-80); }",
+        ".lc-edge-strong { border: 1px solid var(--lc-ink-99); }",
+    ] {
+        assert!(
+            css.contains(class_rule),
+            "missing bound alpha rung: {class_rule}"
+        );
+    }
+
+    // The --lc-ink-NN token itself, for every one of the five decks. Wine's
+    // ink hue (#D4657F) differs from its fill (#8B2F4A); the other four
+    // decks' ink equals their fill.
+    for (slug, ink_hex) in [
+        ("beer", "FFB570"),
+        ("cider", "B48EF7"),
+        ("wine", "D4657F"),
+        ("liquor", "F7768E"),
+        ("soft", "6FB6FF"),
+    ] {
+        for alpha in ["59", "66", "80", "99"] {
+            let needle = format!("--lc-ink-{alpha}: #{ink_hex}{alpha}");
+            assert!(css.contains(&needle), "deck {slug} missing {needle}");
+        }
+    }
+}
+
 #[tokio::test]
 async fn test_lc_motion_js_binds_both_lifecycle_events() {
     let app = test_app().await;
@@ -3080,9 +3163,15 @@ async fn test_preview_renders_five_primitives_in_five_decks() {
 async fn test_preview_shows_every_title_ramp_step() {
     let app = test_app().await;
     let html = body_string(get(&app, "/lastcall/preview").await).await;
-    assert!(html.contains("lc-title-lg"));
-    assert!(html.contains("lc-title-md"));
-    assert!(html.contains("lc-title-sm"));
+    // Asserted on the title element itself (`lc_render::face` emits
+    // `class="lc-face-title {ramp}"`), not the swatch caption — the caption
+    // is built as `format!("{} — {ramp}", card.title)` and also contains
+    // these literal strings, so `html.contains("lc-title-lg")` alone would
+    // pass even if card_face emitted no ramp class at all (plan-end review
+    // finding I2).
+    assert!(html.contains("lc-face-title lc-title-lg"));
+    assert!(html.contains("lc-face-title lc-title-md"));
+    assert!(html.contains("lc-face-title lc-title-sm"));
 }
 
 #[tokio::test]
@@ -3192,13 +3281,26 @@ async fn test_preview_shows_every_plaque_state() {
     for needle in [
         "is-locked",
         "is-drawing",
-        "is-hit",
         "is-eliminated",
         "GHOST",
         "lc-lock-tick",
     ] {
         assert!(html.contains(needle), "missing {needle}");
     }
+
+    // is-hit asserted on the plaque itself, not as a bare substring: the
+    // literal text "is-hit" also appears on the page as the REPLAY button's
+    // own `data-replay-state="is-hit"` attribute and in this group's note
+    // prose, so `html.contains("is-hit")` would still pass even if the
+    // `replacen` splice that actually adds the class to the plaque
+    // (lc_preview.rs's plaque_with_is_hit) silently failed to match and
+    // returned its input unchanged (plan-end review finding I1). This is
+    // the spliced form's own prefix, so it can only be present if the
+    // splice actually landed.
+    assert!(
+        html.contains(r#"class="lc-plaque is-hit "#),
+        "is-hit did not land on a plaque's class attribute"
+    );
 
     // The locked plaque's own markup — computed the same way the preview
     // does — must never carry a card identity. seats[2] (cara) is locked in
@@ -3211,6 +3313,14 @@ async fn test_preview_shows_every_plaque_state() {
         html.contains(&locked_html),
         "locked swatch not found on page"
     );
+
+    // is-urgent (M3): beat_timer never emits it either — timer_with_is_urgent
+    // splices it on the same way plaque_with_is_hit does for is-hit. Was
+    // rendered but had no test at all before this fix.
+    assert!(
+        html.contains(r#"class="lc-timer is-urgent""#),
+        "is-urgent did not land on the beat timer's class attribute"
+    );
 }
 
 #[tokio::test]
@@ -3218,18 +3328,61 @@ async fn test_preview_shows_deck_stack_states() {
     let app = test_app().await;
     let html = body_string(get(&app, "/lastcall/preview").await).await;
 
-    assert!(html.contains("data-low"));
-    assert!(html.contains("data-empty"));
-    assert!(html.contains("RESHUFFLE"));
+    // The low/empty stacks — computed via deck_stack(...) the same way the
+    // discard half below already does (M2), not bare substrings: `data-low`
+    // and `data-empty` are also emitted, unrelated, on every deck stack's
+    // sibling attributes, so a page-wide `html.contains("data-low")` would
+    // still pass even if deck_stack stopped setting it for Wine specifically.
+    // preview_state()'s fixture: Wine sits at 4 (< DECK_LOW_THRESHOLD, > 0),
+    // Liquor at 0.
+    let view = drinkinggame::last_call::preview_state().public_view();
+    let low = drinkinggame::lc_render::deck_stack(drinkinggame::last_call::Deck::Wine, 4);
+    assert!(low.contains("data-low"));
+    assert!(html.contains(&low), "low deck stack not found on page");
+
+    let empty = drinkinggame::lc_render::deck_stack(drinkinggame::last_call::Deck::Liquor, 0);
+    assert!(empty.contains("data-empty"));
+    assert!(empty.contains("RESHUFFLE"));
+    assert!(html.contains(&empty), "empty deck stack not found on page");
 
     // A .lc-discard WITH data-count — not two independent substring checks,
     // which would pass even if discard_slot stopped emitting data-count
     // (every deck stack and #lc-hand also carry that attribute).
-    let view = drinkinggame::last_call::preview_state().public_view();
     let discard = drinkinggame::lc_render::discard_slot(view.discard_count);
     assert!(discard.contains("lc-discard"));
     assert!(discard.contains("data-count"));
     assert!(html.contains(&discard), "discard slot not found on page");
+}
+
+/// Plan-end review finding I3 (production side, human ruling): Groups 3 and
+/// 7 must render the fourth alpha rung (`.lc-edge-strong`, `--lc-ink-99`)
+/// side by side with the other three, for every deck — not the
+/// `<span class="lc-preview-caption">no bound class in Plan A</span>`
+/// placeholder Task 3 shipped instead when it correctly reported the gap
+/// rather than inventing a class. `test_lastcall_css_ink_alpha_ladder_has_four_rungs`
+/// pins the CSS binding; this pins that the preview page actually uses it.
+#[tokio::test]
+async fn test_preview_shows_all_four_ink_alpha_rungs() {
+    let app = test_app().await;
+    let html = body_string(get(&app, "/lastcall/preview").await).await;
+
+    assert!(
+        !html.contains("no bound class in Plan A"),
+        "the fourth alpha rung's placeholder caption is still on the page"
+    );
+
+    for (class, min_count) in [
+        ("lc-edge-subtle", 5),
+        ("lc-edge-plaque", 5),
+        ("lc-edge-back", 5),
+        ("lc-edge-strong", 5),
+    ] {
+        let count = html.matches(class).count();
+        assert!(
+            count >= min_count,
+            "expected {class} at least {min_count} times (once per deck), got {count}"
+        );
+    }
 }
 
 #[tokio::test]

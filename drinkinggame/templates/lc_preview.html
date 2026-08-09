@@ -54,8 +54,13 @@
     // CSS animation by removing and re-adding its class is the standard
     // technique, not a reimplementation of anything in lc_motion.js.
     document.querySelectorAll("[data-replay-state]").forEach(function (btn) {
-      if (btn.dataset.lcBound) return;         // double-injection guard
-      btn.dataset.lcBound = "1";
+      // Own flag, distinct from the [data-replay] loop's lcBound above: an
+      // element carrying both data-replay and data-replay-state would be
+      // claimed by the first loop and skipped by the second if they shared
+      // one flag (M5). No such element exists today, but nothing prevents
+      // one tomorrow.
+      if (btn.dataset.lcBoundState) return;    // double-injection guard
+      btn.dataset.lcBoundState = "1";
       btn.addEventListener("click", function () {
         var target = document.querySelector(btn.dataset.target);
         if (!target) return;
