@@ -50,6 +50,52 @@ function lcClock() {
     d.getHours() + ":" + String(d.getMinutes()).padStart(2, "0");
 }
 lcClock(); setInterval(lcClock, 20000);
+
+// The server-rendered pane is the seq floor; every later repaint must be at
+// least this fresh.
+let lcSeq = Number(document.getElementById("lc-hand")?.dataset.seq || 0);
+let lcPending = null;
+
+function lcApply(html) {
+  const tpl = document.createElement("div");
+  tpl.innerHTML = html;
+  const frag = tpl.querySelector("#lc-hand");
+  // Stale-drop: a response older than the newest seq we've seen would
+  // repaint an out-of-date hand. Equal seq is fine (a duplicate repaint).
+  const seq = Number(frag?.dataset.seq || 0);
+  if (!frag || seq < lcSeq) return;
+  lcSeq = seq;
+  document.querySelector('[data-lc-pane="hand"]').innerHTML = html;
+}
+
+// Coalesce: LcPublic and LcTick arrive as a pair for the same change, so a
+// naive fetch-per-message doubles every request for no new information.
+function lcFetchHand() {
+  if (lcPending) return;
+  lcPending = setTimeout(() => {
+    lcPending = null;
+    fetch(BP + "/room/" + CODE + "/lastcall/hand", { credentials: "same-origin" })
+      .then(r => r.ok ? r.text() : null)
+      .then(html => { if (html !== null) lcApply(html); })
+      .catch(() => {});
+  }, 60);
+}
+
+const es = new EventSource(BP + "/room/" + CODE + "/sse");
+es.addEventListener("lcpublic", e => {
+  const tpl = document.createElement("div");
+  tpl.innerHTML = e.data;
+  const root = tpl.querySelector("[data-lc-public]");
+  if (root) lcSeq = Math.max(lcSeq, Number(root.dataset.seq || 0));
+  const banner = tpl.querySelector("template[data-lc-banner]");
+  if (banner) document.getElementById("lc-banner").outerHTML = banner.innerHTML;
+  lcFetchHand();
+});
+es.addEventListener("lctick", e => {
+  lcSeq = Math.max(lcSeq, Number(e.data || 0));
+  lcFetchHand();
+});
+es.addEventListener("ended", () => { es.close(); window.location = BP + "/"; });
   </script>
 </body>
 </html>

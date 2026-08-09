@@ -184,6 +184,10 @@ async fn room_page(
         // for Task 3's `broadcast_lc(&state, room.id, &st).await` call,
         // which needs the freshly (maybe-)seated state, not a re-read.
         let mut lc_state: Option<crate::last_call::LastCallState> = None;
+        // Set alongside `lc_state` only when `add_player` actually ran below
+        // — a revisit by an already-seated player mutates nothing, so it
+        // must not trigger a broadcast either.
+        let mut lc_joined = false;
         if let Some(game) = db::get_active_game(&state.pool, room.id).await {
             if game.kind == "three_man" {
                 let mut st = crate::three_man::ThreeManState::from_json(
@@ -212,6 +216,7 @@ async fn room_page(
                 if st.seat_of(player.id).is_none() {
                     st.add_player(player.id, &player.name);
                     db::set_game_state(&state.pool, game.id, &st.to_json()).await;
+                    lc_joined = true;
                 }
                 lc_state = Some(st);
             }
@@ -222,9 +227,10 @@ async fn room_page(
         if tm_joined {
             crate::game::broadcast_game(&state, room.id, &code, None).await;
         }
-        if let Some(_st) = &lc_state {
-            // TODO(Task 3): broadcast_lc(&state, room.id, _st).await; — here,
-            // still inside this guard.
+        if let Some(st) = &lc_state {
+            if lc_joined {
+                crate::lc_routes::broadcast_lc(&state, room.id, st).await;
+            }
             return Redirect::to(&format!("{}/room/{}/lastcall", state.base_path, code))
                 .into_response();
         }
@@ -551,6 +557,17 @@ async fn sse_stream(
     let initial_game = crate::game::current_panel(&state, room.id, &room.code, None).await;
     let initial_screen = crate::game::current_screen_panel(&state, room.id, &room.code).await;
     let initial_room = crate::game::current_room_panel(&state, room.id, &room.code).await;
+    // A fifth snapshot frame, sent only for a Last Call room — Ring of Fire
+    // and 3 Man rooms must still emit exactly the four frames above.
+    let lc_initial = match db::get_active_game(&state.pool, room.id).await {
+        Some(game) if game.kind == "last_call" => {
+            let st = crate::last_call::LastCallState::from_json(
+                game.state_json.as_deref().unwrap_or_default(),
+            );
+            Some(crate::lc_render::lc_public_panel(&st.public_view()))
+        }
+        _ => None,
+    };
 
     let stream = futures::stream::iter([
         Ok::<_, Infallible>(Event::default().event("leaderboard").data(initial)),
@@ -558,6 +575,9 @@ async fn sse_stream(
         Ok::<_, Infallible>(Event::default().event("screen").data(initial_screen)),
         Ok::<_, Infallible>(Event::default().event("room").data(initial_room)),
     ])
+    .chain(futures::stream::iter(lc_initial.into_iter().map(|html| {
+        Ok::<_, Infallible>(Event::default().event("lcpublic").data(html))
+    })))
     .chain(BroadcastStream::new(rx).filter_map(|msg| async move {
         match msg {
             Ok(RoomMessage::Leaderboard(html)) => {
@@ -567,6 +587,16 @@ async fn sse_stream(
             Ok(RoomMessage::Screen(html)) => Some(Ok(Event::default().event("screen").data(html))),
             Ok(RoomMessage::Room(html)) => Some(Ok(Event::default().event("room").data(html))),
             Ok(RoomMessage::Emote(glyph)) => Some(Ok(Event::default().event("emote").data(glyph))),
+            Ok(RoomMessage::LcPublic(html)) => {
+                Some(Ok(Event::default().event("lcpublic").data(html)))
+            }
+            // seq is a u64, so `seq.to_string()` is never empty — unlike
+            // Emote/LcPublic above, there's no user-controllable value here
+            // that could shrink to "", so this arm never hits the
+            // empty-data-buffer pitfall the two `Ended` branches carry.
+            Ok(RoomMessage::LcTick(seq)) => {
+                Some(Ok(Event::default().event("lctick").data(seq.to_string())))
+            }
             // Same empty-data-buffer pitfall as the zombie-reconnect branch
             // above: a `data:` field must be present or EventSource drops
             // the event silently and clients never learn the room ended.

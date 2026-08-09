@@ -341,7 +341,8 @@ button:active { transform: scale(.97); }
    it: status row -> phase banner -> tab row -> view -> action bar. The view
    flexes to fill; the action bar is the thumb zone. */
 body.lc { margin: 0; min-height: 100vh; display: flex; flex-direction: column;
-          background: var(--lc-device); color: var(--lc-text); font-family: var(--font-ui); }
+          position: relative; background: var(--lc-device); color: var(--lc-text);
+          font-family: var(--font-ui); }
 .lc-status { height: 40px; padding: 0 20px; display: flex; align-items: center;
              justify-content: space-between; font-family: var(--font-mono);
              font-size: 12px; color: var(--lc-label); }
@@ -549,15 +550,19 @@ body.lc { margin: 0; min-height: 100vh; display: flex; flex-direction: column;
 
 /* Plan A's #lc-flights is `position: absolute; inset: 0; overflow: hidden`
    (motion section above), and lc_motion.js's ensureLayer appends it to
-   body.lc-preview (this page's [data-lc-scene]). Nothing else in the
-   ancestor chain — html, body, body.lc — is positioned, so without this
-   rule #lc-flights has no containing block of its own and resolves inset:0
-   against the viewport-sized initial containing block instead of the full
-   document: every REPLAY flight is created and animated correctly and then
-   clipped away by overflow: hidden the moment it scrolls past the first
-   screenful. Do not remove this as "unused" — nothing here visibly depends
-   on it; #lc-flights depends on it for its containing block, and that is
-   the whole bug (see test_lastcall_css_preview_body_is_positioned). */
+   body.lc-preview (this page's [data-lc-scene]). Without a positioned
+   ancestor, #lc-flights has no containing block of its own and resolves
+   inset:0 against the viewport-sized initial containing block instead of
+   the full document: every REPLAY flight is created and animated correctly
+   and then clipped away by overflow: hidden the moment it scrolls past the
+   first screenful. Plan A2 (Task 3) gave body.lc its own `position:
+   relative` for the same reason on the F.1 shell (#lc-flights isn't fired
+   there yet, but nothing here should rely on that staying true) — this
+   body.lc-preview rule is kept as the preview page's own, explicit
+   containing block rather than leaning on that cascade. Do not remove this
+   as "unused" — nothing here visibly depends on it; #lc-flights depends on
+   it for its containing block, and that is the whole bug (see
+   test_lastcall_css_preview_body_is_positioned). */
 body.lc-preview { position: relative; }
 
 /* a plain sized box for primitives that carry no width/height of their own

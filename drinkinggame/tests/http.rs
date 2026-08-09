@@ -4069,3 +4069,228 @@ async fn test_lastcall_shell_shows_all_handicap_rows() {
     assert!(html.contains(&format!(r#"value="{}""#, alice_player.id)));
     assert!(html.contains(&format!(r#"value="{}""#, bob_player.id)));
 }
+
+// -------------------------------------------------------------
+// Last Call (Task 3): the SSE contract (`lcpublic`/`lctick`) and the
+// client-side stale-drop rule. The privacy invariant this task exists to
+// protect — a broadcast fragment can never carry unrevealed card identity,
+// because it's rendered from `PublicView` — is asserted at the transport
+// layer by test_lcpublic_never_carries_hand_cards.
+// -------------------------------------------------------------
+
+/// With a Last Call game active, the connect-time snapshot carries a fifth
+/// `lcpublic` frame (after the usual leaderboard/game/screen/room four),
+/// rendered from `PublicView` and carrying the §7.8 hand-region seq floor.
+/// Reads by content (`read_sse_until`), not by counting `next()` calls — its
+/// own doc comment warns that a body chunk is not guaranteed to be one SSE
+/// event, only that the last_call `game`/`screen` panels are still Task 1's
+/// tiny placeholders today, which happens to make a fixed-count drain safe.
+#[tokio::test]
+async fn test_lastcall_sse_snapshot_includes_lcpublic() {
+    let app = test_app().await;
+    let alice = login(&app, "alice", "1234").await;
+    let bob = login(&app, "bob", "5678").await;
+    let code = create_room(&app, &alice).await;
+    room_page_html(&app, &bob, &code).await;
+    post_form(&app, &alice, &format!("/room/{code}/lastcall/start"), "").await;
+
+    let res = get(&app, &format!("/room/{code}/sse")).await;
+    let mut body = res.into_body().into_data_stream();
+    let seen = read_sse_until(&mut body, "event: lcpublic").await;
+    let lcpublic_at = seen.find("event: lcpublic").unwrap();
+    let frame = &seen[lcpublic_at..];
+    assert!(frame.contains("data-lc-public"), "{frame}");
+    assert!(frame.contains("data-seq="), "{frame}");
+}
+
+/// The regression a misplaced `.chain` would cause: landing the `lcpublic`
+/// frame inside the existing four rather than after them. A Ring of Fire
+/// room must still emit exactly the same four frames it always has, in the
+/// same order, with none of them carrying `lcpublic`. Draining four and
+/// checking their contents catches that without awaiting a fifth `next()`
+/// (no fifth frame is ever sent for this room, so that would hang until the
+/// harness times out).
+#[tokio::test]
+async fn test_rof_sse_snapshot_has_no_lcpublic() {
+    use futures::StreamExt;
+    let app = test_app().await;
+    let alice = login(&app, "alice", "1234").await;
+    let bob = login(&app, "bob", "5678").await;
+    let code = create_room(&app, &alice).await;
+    room_page_html(&app, &bob, &code).await;
+    post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/game/start"),
+        "preset_id=1",
+    )
+    .await;
+
+    let res = get(&app, &format!("/room/{code}/sse")).await;
+    let mut body = res.into_body().into_data_stream();
+    let mut frames = Vec::new();
+    for _ in 0..4 {
+        frames.push(String::from_utf8(body.next().await.unwrap().unwrap().to_vec()).unwrap());
+    }
+    for frame in &frames {
+        assert!(!frame.contains("lcpublic"), "{frame}");
+    }
+    assert!(frames[3].contains("event: room"), "{:?}", frames[3]);
+}
+
+/// `persist_and_broadcast_lc` fires `broadcast_room` before `broadcast_lc`,
+/// so the very next frame after a vessel POST is `room`, not `lcpublic` —
+/// reading by content up to the `lctick` marker (rather than asserting
+/// positionally, or counting `next()` calls) is what makes this test robust
+/// to that ordering and to however the chunks happen to split.
+#[tokio::test]
+async fn test_lastcall_vessel_broadcasts_public_and_tick() {
+    let app = test_app().await;
+    let alice = login(&app, "alice", "1234").await;
+    let bob = login(&app, "bob", "5678").await;
+    let code = create_room(&app, &alice).await;
+    room_page_html(&app, &bob, &code).await;
+    post_form(&app, &alice, &format!("/room/{code}/lastcall/start"), "").await;
+
+    let res = get(&app, &format!("/room/{code}/sse")).await;
+    let mut body = res.into_body().into_data_stream();
+    let snapshot = read_sse_until(&mut body, "event: lcpublic").await;
+    let snapshot_frame = &snapshot[snapshot.find("event: lcpublic").unwrap()..];
+    let after = snapshot_frame.split("data-seq=\"").nth(1).unwrap();
+    let snapshot_seq: u64 = after
+        .chars()
+        .take_while(|c| c.is_ascii_digit())
+        .collect::<String>()
+        .parse()
+        .unwrap();
+
+    post_form(
+        &app,
+        &bob,
+        &format!("/room/{code}/lastcall/vessel"),
+        "deck=liquor&container=pint%20glass",
+    )
+    .await;
+
+    let seen = read_sse_until(&mut body, "event: lctick").await;
+    let lcpublic_at = seen.find("event: lcpublic").expect("lcpublic must arrive");
+    let lctick_at = seen.find("event: lctick").expect("lctick must arrive");
+    assert!(
+        lcpublic_at < lctick_at,
+        "lcpublic must arrive before lctick: {seen}"
+    );
+
+    let tick_frame = &seen[lctick_at..];
+    let seq: u64 = tick_frame
+        .split("data: ")
+        .nth(1)
+        .unwrap()
+        .lines()
+        .next()
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap();
+    assert!(
+        seq > snapshot_seq,
+        "tick seq {seq} must exceed snapshot seq {snapshot_seq}"
+    );
+}
+
+/// The privacy assertion at the transport layer: `LcPublic` is built from
+/// `PublicView`, which by construction cannot carry unrevealed card
+/// identity (spec §3.4) — this checks the wire, not just the type, so a
+/// future change that widens the broadcast to raw `LastCallState` would
+/// fail here even if it still compiled. Checks every frame on the stream
+/// (not just `lcpublic` ones) — the spectator screen subscribes to the
+/// whole thing, so a leak via `room`/`game`/`screen` would be just as real.
+///
+/// `set_vessel` (`last_call.rs`) pushes the *entire* chosen deck into the
+/// player's hand — `crate::lc_cards::deck_cards(deck)` — so registering
+/// `beer` deterministically puts `beer-01`..`beer-04` in alice's hand with
+/// no dependence on the rng seed. That's what makes `beer-01` etc. a real
+/// needle rather than an assumed one: the positive control below fetches
+/// alice's own hand fragment and confirms `beer-01` is actually there
+/// before trusting its absence from the broadcast frames as meaningful.
+#[tokio::test]
+async fn test_lcpublic_never_carries_hand_cards() {
+    let app = test_app().await;
+    let alice = login(&app, "alice", "1234").await;
+    let bob = login(&app, "bob", "5678").await;
+    let code = create_room(&app, &alice).await;
+    room_page_html(&app, &bob, &code).await;
+    post_form(&app, &alice, &format!("/room/{code}/lastcall/start"), "").await;
+
+    let res = get(&app, &format!("/room/{code}/sse")).await;
+    let mut body = res.into_body().into_data_stream();
+    let mut seen = read_sse_until(&mut body, "event: lcpublic").await;
+
+    post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/lastcall/vessel"),
+        "deck=beer&container=pint",
+    )
+    .await;
+    seen.push_str(&read_sse_until(&mut body, "event: lctick").await);
+
+    post_form(
+        &app,
+        &bob,
+        &format!("/room/{code}/lastcall/vessel"),
+        "deck=wine&container=glass",
+    )
+    .await;
+    seen.push_str(&read_sse_until(&mut body, "event: lctick").await);
+
+    // Positive control: prove the needle is real before trusting its
+    // absence. alice registered "beer", so her own hand fragment must
+    // contain beer-01 — if it didn't, the absence check below would be
+    // vacuous.
+    let hand_html = body_string(get_hand(&app, &alice, &code).await).await;
+    assert!(
+        hand_html.contains("beer-01"),
+        "sanity check failed: alice's own hand should contain beer-01 — {hand_html}"
+    );
+
+    for id in ["beer-01", "cider-01", "wine-01", "liquor-01", "soft-01"] {
+        assert!(!seen.contains(id), "broadcast stream leaked {id}: {seen}");
+    }
+}
+
+/// The EventSource empty-data-buffer pitfall (WHATWG SSE spec): a named
+/// event with an empty `data:` field is silently dropped by the browser
+/// parser. `seq` is a `u64`, so `seq.to_string()` can never be empty — this
+/// asserts that holds on the actual wire frame, not just by inspection.
+#[tokio::test]
+async fn test_lctick_payload_is_never_empty() {
+    let app = test_app().await;
+    let alice = login(&app, "alice", "1234").await;
+    let bob = login(&app, "bob", "5678").await;
+    let code = create_room(&app, &alice).await;
+    room_page_html(&app, &bob, &code).await;
+    post_form(&app, &alice, &format!("/room/{code}/lastcall/start"), "").await;
+
+    let res = get(&app, &format!("/room/{code}/sse")).await;
+    let mut body = res.into_body().into_data_stream();
+    read_sse_until(&mut body, "event: lcpublic").await; // drain the snapshot
+
+    post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/lastcall/vessel"),
+        "deck=liquor&container=pint%20glass",
+    )
+    .await;
+
+    let seen = read_sse_until(&mut body, "event: lctick").await;
+    let tick_frame = &seen[seen.find("event: lctick").unwrap()..];
+    let data = tick_frame
+        .split("data: ")
+        .nth(1)
+        .unwrap()
+        .lines()
+        .next()
+        .unwrap();
+    assert!(!data.trim().is_empty(), "{tick_frame}");
+}
