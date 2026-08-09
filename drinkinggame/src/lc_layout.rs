@@ -77,11 +77,13 @@ pub fn seat_positions(n: usize) -> &'static [SeatPos] {
 
 /// Which ring slot a seat occupies for a given viewer. `me` is the
 /// viewer's own seat; `None` (a spectator, or a member who is not seated)
-/// is identity. Rotates so the viewer always lands on slot 0 —
+/// is identity. An out-of-range `me` (`me >= n`, e.g. a stale seat index
+/// left over after the table shrank) is also treated as identity, same
+/// as `None`. Rotates so the viewer always lands on slot 0 —
 /// bottom-centre.
 pub fn view_index(seat: usize, me: Option<usize>, n: usize) -> usize {
     match me {
-        Some(me) if n > 0 => (seat + n - me) % n,
+        Some(me) if n > 0 && me < n => (seat + n - me) % n,
         _ => seat,
     }
 }
@@ -158,6 +160,17 @@ mod tests {
         // The big screen and an unseated member both pass None.
         for seat in 0..6 {
             assert_eq!(view_index(seat, None, 6), seat);
+        }
+    }
+
+    #[test]
+    fn test_view_index_is_identity_for_an_out_of_range_seat() {
+        // A stale `me` outliving a table that shrank (Task 6's seat
+        // ceiling enforcement) must not underflow/panic; treat it as
+        // identity, same as None.
+        for seat in [0, 1, 3] {
+            assert_eq!(view_index(seat, Some(4), 4), seat);
+            assert_eq!(view_index(seat, Some(9), 4), seat);
         }
     }
 
