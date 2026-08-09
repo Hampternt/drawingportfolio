@@ -177,6 +177,13 @@ async fn room_page(
         let lock = state.locks.for_room(room.id);
         let _guard = lock.lock().await;
         let mut tm_joined = false;
+        // Hoisted out of the `if game.kind == "last_call"` arm below, and
+        // doubling as the "was this a Last Call game" flag (`Some` iff the
+        // arm ran) so there's one variable to keep in sync, not two: stays
+        // reachable at the redirect's `return`, inside this same lock guard,
+        // for Task 3's `broadcast_lc(&state, room.id, &st).await` call,
+        // which needs the freshly (maybe-)seated state, not a re-read.
+        let mut lc_state: Option<crate::last_call::LastCallState> = None;
         if let Some(game) = db::get_active_game(&state.pool, room.id).await {
             if game.kind == "three_man" {
                 let mut st = crate::three_man::ThreeManState::from_json(
@@ -191,12 +198,35 @@ async fn room_page(
                     tm_joined = true;
                 }
             }
+            if game.kind == "last_call" {
+                // Same mid-game-join problem 3 Man has above: LastCallState
+                // seats players in its own `players[]`, so a newcomer who
+                // opens the room link needs seating there too or they have
+                // no hand and no plaque. Same lock discipline — releasing
+                // the lock before the broadcast would let a concurrent
+                // handler's broadcast land first and leave this request's
+                // stale render as the last word.
+                let mut st = crate::last_call::LastCallState::from_json(
+                    game.state_json.as_deref().unwrap_or_default(),
+                );
+                if st.seat_of(player.id).is_none() {
+                    st.add_player(player.id, &player.name);
+                    db::set_game_state(&state.pool, game.id, &st.to_json()).await;
+                }
+                lc_state = Some(st);
+            }
         }
         // New members appear on everyone's ROOM tab without waiting for the
         // next unrelated event.
         crate::game::broadcast_room(&state, room.id, &code).await;
         if tm_joined {
             crate::game::broadcast_game(&state, room.id, &code, None).await;
+        }
+        if let Some(_st) = &lc_state {
+            // TODO(Task 3): broadcast_lc(&state, room.id, _st).await; — here,
+            // still inside this guard.
+            return Redirect::to(&format!("{}/room/{}/lastcall", state.base_path, code))
+                .into_response();
         }
     }
     let leaderboard_items = render_leaderboard(&state, room.id).await;
@@ -741,6 +771,18 @@ pub fn router() -> Router<GameState> {
         .route(
             "/room/{code}/tm/seat",
             post(crate::tm_routes::tm_seat_handler),
+        )
+        .route(
+            "/room/{code}/lastcall/start",
+            post(crate::lc_routes::lc_start_handler),
+        )
+        .route(
+            "/room/{code}/lastcall/vessel",
+            post(crate::lc_routes::lc_vessel_handler),
+        )
+        .route(
+            "/room/{code}/lastcall/handicap",
+            post(crate::lc_routes::lc_handicap_handler),
         )
         .route("/room/{code}/sse", get(sse_stream))
         .route("/room/{code}/screen", get(screen_page))

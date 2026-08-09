@@ -3449,3 +3449,397 @@ async fn test_preview_script_delegates_to_the_motion_library() {
     assert!(!html.contains("@keyframes"));
     assert!(!html.contains("getBoundingClientRect"));
 }
+
+// -------------------------------------------------------------
+// Last Call (Task 1): the cross-game arms, /lastcall/{start,vessel,handicap},
+// and the entry redirect in room_page. Ring of Fire and 3 Man must come out
+// of this untouched — test_room_page_unchanged_for_rof_and_three_man is the
+// invariant this task exists to protect.
+// -------------------------------------------------------------
+
+use drinkinggame::last_call::LastCallState;
+
+async fn lc_state_json(pool: &sqlx::SqlitePool, code: &str) -> String {
+    let room = drinkinggame::db::get_open_room(pool, code).await.unwrap();
+    drinkinggame::db::get_active_game(pool, room.id)
+        .await
+        .unwrap()
+        .state_json
+        .unwrap()
+}
+
+async fn lc_state(pool: &sqlx::SqlitePool, code: &str) -> LastCallState {
+    LastCallState::from_json(&lc_state_json(pool, code).await)
+}
+
+/// The Step 1 regression: without the `last_call` arms in `game.rs`'s three
+/// panel builders, `current_panel`/`current_screen_panel`/
+/// `current_room_panel` fall through to the Ring of Fire branch, and
+/// `cards::parse_deck("")` (a Last Call game's `deck_order` is always "")
+/// panics before a single SSE frame goes out.
+#[tokio::test]
+async fn test_lastcall_sse_snapshot_does_not_panic() {
+    use futures::StreamExt;
+    let app = test_app().await;
+    let alice = login(&app, "alice", "1234").await;
+    let bob = login(&app, "bob", "5678").await;
+    let code = create_room(&app, &alice).await;
+    room_page_html(&app, &bob, &code).await;
+    let res = post_form(&app, &alice, &format!("/room/{code}/lastcall/start"), "").await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+
+    let res = app
+        .oneshot(
+            Request::get(format!("/room/{code}/sse"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let mut body = res.into_body().into_data_stream();
+    let frame = body.next().await.unwrap().unwrap();
+    assert!(!frame.is_empty());
+}
+
+#[tokio::test]
+async fn test_lastcall_start_requires_two_players() {
+    let app = test_app().await;
+    let alice = login(&app, "alice", "1234").await;
+    let code = create_room(&app, &alice).await;
+
+    let res = post_form(&app, &alice, &format!("/room/{code}/lastcall/start"), "").await;
+    assert_eq!(res.status(), StatusCode::CONFLICT);
+    assert!(body_string(res).await.contains("at least 2 players"));
+}
+
+#[tokio::test]
+async fn test_lastcall_start_rejects_non_member() {
+    let app = test_app().await;
+    let alice = login(&app, "alice", "1234").await;
+    let cara = login(&app, "cara", "1234").await;
+    let code = create_room(&app, &alice).await;
+
+    // cara never opened the room, so she isn't a member.
+    let res = post_form(&app, &cara, &format!("/room/{code}/lastcall/start"), "").await;
+    assert_eq!(res.status(), StatusCode::FORBIDDEN);
+}
+
+/// Mirrors `test_tm_routes_reject_rof_games`: `/lastcall/vessel` posted
+/// against an active Ring of Fire game must fail through `load_lc`'s
+/// `WrongGameKind` path, not the form's own validation.
+#[tokio::test]
+async fn test_lastcall_routes_reject_rof_games() {
+    let app = test_app().await;
+    let alice = login(&app, "alice", "1234").await;
+    let bob = login(&app, "bob", "5678").await;
+    let code = create_room(&app, &alice).await;
+    room_page_html(&app, &bob, &code).await;
+    post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/game/start"),
+        "preset_id=1",
+    )
+    .await;
+
+    let res = post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/lastcall/vessel"),
+        "deck=liquor&container=pint%20glass",
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::CONFLICT);
+    assert!(body_string(res).await.contains("belongs to the other game"));
+}
+
+#[tokio::test]
+async fn test_lastcall_vessel_sets_deck_constant_pulls() {
+    let (app, pool) = test_app_with_pool().await;
+    let alice = login(&app, "alice", "1234").await;
+    let bob = login(&app, "bob", "5678").await;
+    let code = create_room(&app, &alice).await;
+    room_page_html(&app, &bob, &code).await;
+    post_form(&app, &alice, &format!("/room/{code}/lastcall/start"), "").await;
+
+    let res = post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/lastcall/vessel"),
+        "deck=liquor&container=pint%20glass",
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+
+    let alice_player = drinkinggame::db::get_player_by_name(&pool, "alice")
+        .await
+        .unwrap();
+    let st = lc_state(&pool, &code).await;
+    let seat = st.seat_of(alice_player.id).unwrap();
+    // pulls_max is the deck constant (liquor = 4), never anything derived
+    // from the deliberately contradictory "pint glass" container label.
+    assert_eq!(st.players[seat].vessels[0].pulls_max, 4);
+    assert_eq!(st.players[seat].hand.len(), 4);
+}
+
+#[tokio::test]
+async fn test_lastcall_vessel_rejects_unknown_deck() {
+    let (app, pool) = test_app_with_pool().await;
+    let alice = login(&app, "alice", "1234").await;
+    let bob = login(&app, "bob", "5678").await;
+    let code = create_room(&app, &alice).await;
+    room_page_html(&app, &bob, &code).await;
+    post_form(&app, &alice, &format!("/room/{code}/lastcall/start"), "").await;
+    let before = lc_state_json(&pool, &code).await;
+
+    let res = post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/lastcall/vessel"),
+        "deck=absinthe&container=glass",
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(lc_state_json(&pool, &code).await, before);
+}
+
+/// Spec §2, item 2: handicaps are set by the table, not the player they
+/// belong to. bob setting alice's handicap (not his own) must succeed — a
+/// future "only you may set yours" regression would fail this test.
+#[tokio::test]
+async fn test_lastcall_handicap_is_not_owner_scoped() {
+    let (app, pool) = test_app_with_pool().await;
+    let alice = login(&app, "alice", "1234").await;
+    let bob = login(&app, "bob", "5678").await;
+    let code = create_room(&app, &alice).await;
+    room_page_html(&app, &bob, &code).await;
+    post_form(&app, &alice, &format!("/room/{code}/lastcall/start"), "").await;
+
+    let alice_player = drinkinggame::db::get_player_by_name(&pool, "alice")
+        .await
+        .unwrap();
+    let res = post_form(
+        &app,
+        &bob,
+        &format!("/room/{code}/lastcall/handicap"),
+        &format!("target={}&handicap_pct=150", alice_player.id),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+
+    let st = lc_state(&pool, &code).await;
+    let seat = st.seat_of(alice_player.id).unwrap();
+    assert_eq!(st.players[seat].handicap_pct, 150);
+}
+
+/// `handicap_pct=301`/`=24` extract fine into `u16` and fail `set_handicap`'s
+/// own range check (422 via `LcError::BadHandicap`); `=-5`/`=abc` never reach
+/// that check at all — axum's `Form<HandicapForm>` extractor rejects them
+/// while parsing `u16` and returns 422 on its own (verified against the real
+/// extractor, not assumed from the brief's "422 at extraction" wording).
+/// Either way, no case ever calls `set_handicap`, so state is unchanged
+/// throughout.
+#[tokio::test]
+async fn test_lastcall_handicap_rejects_out_of_range() {
+    let (app, pool) = test_app_with_pool().await;
+    let alice = login(&app, "alice", "1234").await;
+    let bob = login(&app, "bob", "5678").await;
+    let code = create_room(&app, &alice).await;
+    room_page_html(&app, &bob, &code).await;
+    post_form(&app, &alice, &format!("/room/{code}/lastcall/start"), "").await;
+    let alice_player = drinkinggame::db::get_player_by_name(&pool, "alice")
+        .await
+        .unwrap();
+    let before = lc_state_json(&pool, &code).await;
+
+    for pct in ["301", "24", "-5", "abc"] {
+        let res = post_form(
+            &app,
+            &alice,
+            &format!("/room/{code}/lastcall/handicap"),
+            &format!("target={}&handicap_pct={pct}", alice_player.id),
+        )
+        .await;
+        assert_eq!(
+            res.status(),
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "handicap_pct={pct}"
+        );
+    }
+    assert_eq!(lc_state_json(&pool, &code).await, before);
+}
+
+#[tokio::test]
+async fn test_room_page_redirects_to_lastcall_shell() {
+    let app = test_app().await;
+    let alice = login(&app, "alice", "1234").await;
+    let bob = login(&app, "bob", "5678").await;
+    let code = create_room(&app, &alice).await;
+    room_page_html(&app, &bob, &code).await;
+    post_form(&app, &alice, &format!("/room/{code}/lastcall/start"), "").await;
+
+    let res = app
+        .oneshot(
+            Request::get(format!("/room/{code}"))
+                .header(header::COOKIE, &alice)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+    assert_eq!(
+        res.headers()[header::LOCATION],
+        format!("/room/{code}/lastcall")
+    );
+
+    // Same redirect, mounted at a non-empty base path — the generated
+    // Location must carry the base_path prefix.
+    let app = test_app_with_base("/drinks").await;
+    let alice = login(&app, "alice", "1234").await;
+    let bob = login(&app, "bob", "5678").await;
+    let code = create_room(&app, &alice).await;
+    room_page_html(&app, &bob, &code).await;
+    post_form(&app, &alice, &format!("/room/{code}/lastcall/start"), "").await;
+
+    let res = app
+        .oneshot(
+            Request::get(format!("/room/{code}"))
+                .header(header::COOKIE, &alice)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+    assert_eq!(
+        res.headers()[header::LOCATION],
+        format!("/drinks/room/{code}/lastcall")
+    );
+}
+
+/// The invariant this whole task exists to protect: a room with Ring of Fire
+/// or 3 Man active — or nothing active at all — must render the room page
+/// exactly as before, with no redirect and the game panel in place.
+#[tokio::test]
+async fn test_room_page_unchanged_for_rof_and_three_man() {
+    let app = test_app().await;
+    let alice = login(&app, "alice", "1234").await;
+    let bob = login(&app, "bob", "5678").await;
+    let code = create_room(&app, &alice).await;
+    room_page_html(&app, &bob, &code).await;
+
+    // No active game: 200, all three start cards, no redirect.
+    let res = app
+        .clone()
+        .oneshot(
+            Request::get(format!("/room/{code}"))
+                .header(header::COOKIE, &alice)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let html = body_string(res).await;
+    assert!(html.contains(r#"data-pane="game""#));
+    assert!(html.contains("Ring of Fire"));
+    assert!(html.contains("3 Man"));
+    assert!(html.contains("Last Call"));
+
+    // Ring of Fire active: 200, game panel present, no redirect.
+    post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/game/start"),
+        "preset_id=1",
+    )
+    .await;
+    let res = app
+        .clone()
+        .oneshot(
+            Request::get(format!("/room/{code}"))
+                .header(header::COOKIE, &alice)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    assert!(body_string(res).await.contains(r#"data-pane="game""#));
+    post_form(&app, &alice, &format!("/room/{code}/game/end"), "").await;
+
+    // 3 Man active: 200, game panel present, no redirect.
+    post_form(&app, &alice, &format!("/room/{code}/tm/start"), "").await;
+    let res = app
+        .oneshot(
+            Request::get(format!("/room/{code}"))
+                .header(header::COOKIE, &alice)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    assert!(body_string(res).await.contains(r#"data-pane="game""#));
+}
+
+#[tokio::test]
+async fn test_room_page_seats_late_joiner_in_lastcall() {
+    let (app, pool) = test_app_with_pool().await;
+    let alice = login(&app, "alice", "1234").await;
+    let bob = login(&app, "bob", "5678").await;
+    let cara = login(&app, "cara", "1234").await;
+    let code = create_room(&app, &alice).await;
+    room_page_html(&app, &bob, &code).await;
+    post_form(&app, &alice, &format!("/room/{code}/lastcall/start"), "").await;
+
+    // cara never visited this room before: opening it seats her in
+    // LastCallState too, not just room_players, and redirects her straight
+    // to the shell.
+    let res = app
+        .oneshot(
+            Request::get(format!("/room/{code}"))
+                .header(header::COOKIE, &cara)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+    assert_eq!(
+        res.headers()[header::LOCATION],
+        format!("/room/{code}/lastcall")
+    );
+
+    let cara_player = drinkinggame::db::get_player_by_name(&pool, "cara")
+        .await
+        .unwrap();
+    let st = lc_state(&pool, &code).await;
+    assert_eq!(st.players.len(), 3);
+    let seat = st.seat_of(cara_player.id).unwrap();
+    assert_eq!(seat, 2);
+    assert_eq!(st.players[seat].hp, 15);
+    assert_eq!(st.players[seat].handicap_pct, 100);
+}
+
+#[tokio::test]
+async fn test_lastcall_start_rejects_second_game() {
+    let app = test_app().await;
+    let alice = login(&app, "alice", "1234").await;
+    let bob = login(&app, "bob", "5678").await;
+    let code = create_room(&app, &alice).await;
+    room_page_html(&app, &bob, &code).await;
+    post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/game/start"),
+        "preset_id=1",
+    )
+    .await;
+
+    let res = post_form(&app, &alice, &format!("/room/{code}/lastcall/start"), "").await;
+    assert_eq!(res.status(), StatusCode::CONFLICT);
+    assert!(body_string(res).await.contains("already running"));
+}

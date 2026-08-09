@@ -178,8 +178,9 @@ pub fn preset_edit_rows(rules: &[crate::rules::RuleEntry]) -> String {
 
 /// Idle state: "your night so far" stat card (drinks/shots placeholders
 /// filled client-side from the leaderboard's [data-my-drinks]/[data-my-shots]
-/// contract) + the Ring of Fire start card. `.start-card-amber` is an
-/// unused-in-Phase-1 modifier reserved for the 3 Man start card (Task 11).
+/// contract) + the Ring of Fire, 3 Man and Last Call start cards.
+/// `.start-card-amber` marks the 3 Man card; Last Call's card carries no
+/// modifier class of its own.
 pub fn game_idle_panel(base_path: &str, code: &str, presets: &[RulePreset]) -> String {
     let options = preset_options(presets);
     format!(
@@ -204,6 +205,13 @@ pub fn game_idle_panel(base_path: &str, code: &str, presets: &[RulePreset]) -> S
 <h2 class="start-title">3 Man</h2>
 <p class="start-sub">Two dice. 3s hit the 3 Man. Doubles hand out dice.</p>
 <form hx-post="{base_path}/room/{code}/tm/start" hx-swap="none">
+<button type="submit" class="btn-primary">START</button>
+</form>
+</div>
+<div class="start-card">
+<h2 class="start-title">Last Call</h2>
+<p class="start-sub">Register what you're drinking. Cards cost pulls of it. Six beats a round, out at 0 HP.</p>
+<form hx-post="{base_path}/room/{code}/lastcall/start" hx-swap="none">
 <button type="submit" class="btn-primary">START</button>
 </form>
 </div>
@@ -369,6 +377,26 @@ pub fn game_over_panel(s: &GameSummary) -> String {
     format!(
         r#"<div class="game-over"><span class="over-kicker">DECK EMPTY &middot; NIGHT LOGGED</span><h2 class="over-title">GAME OVER</h2>{hero}{grid}{rules}</div>"#
     )
+}
+
+/// Last Call phone GAME tab placeholder (Task 1 only). Nobody should
+/// normally see this — `room_page`'s redirect (Task 1, Step 4) sends every
+/// entry straight to `/room/{code}/lastcall` — but the SSE snapshot renders
+/// whatever `current_panel` returns on every connection regardless of the
+/// redirect, so a phone that connects to `/room/{code}/sse` directly (or
+/// reconnects mid-navigation) still needs a non-panicking fragment here.
+/// Plan B replaces this with the real shell fragment.
+pub fn lc_placeholder_panel(base_path: &str, code: &str) -> String {
+    format!(
+        r#"<div class="game-active"><p>Last Call is running. <a href="{base_path}/room/{code}/lastcall">Open the table &rarr;</a></p></div>"#
+    )
+}
+
+/// Last Call big-screen placeholder (Task 1 only). Plan B replaces this with
+/// the `lc_screen.html` branch.
+pub fn lc_screen_placeholder(_code: &str) -> String {
+    r#"<div class="screen-panel"><p>LAST CALL &mdash; the big screen lands next slice.</p></div>"#
+        .to_string()
 }
 
 /// Big-screen left pane, no game running.
@@ -1887,8 +1915,10 @@ mod tests {
         assert!(html.contains("3 Man"));
         assert!(html.contains("Two dice. 3s hit the 3 Man. Doubles hand out dice."));
         assert!(html.contains("/drinks/room/QK4M/tm/start"));
-        // Two START buttons now: Ring of Fire's and 3 Man's.
-        assert_eq!(html.matches(">START<").count(), 2);
+        assert!(html.contains("Last Call"));
+        assert!(html.contains("/drinks/room/QK4M/lastcall/start"));
+        // Three START buttons now: Ring of Fire's, 3 Man's, Last Call's.
+        assert_eq!(html.matches(">START<").count(), 3);
     }
 
     // -------------------------------------------------------------
