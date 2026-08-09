@@ -18,13 +18,13 @@ cargo fmt --check      # check formatting without modifying
 
 When building without a live database (e.g. on the server): `SQLX_OFFLINE=true cargo build --release`. The `drinkinggame` crate uses runtime-checked sqlx queries — it has no `.sqlx` cache entries, and `cargo sqlx prepare` remains portfolio-only.
 
-The repo is a cargo workspace, but the root `Cargo.toml` is *also* a package — so bare `cargo test` runs the current package only and silently skips `drinkinggame`'s 177 tests (**52 of 229 run**). Always pass `--workspace`, or just run `./scripts/verify.sh`, which does. `cargo run -p drinkinggame` serves the drinking game standalone on `:3001` (no portfolio, no nginx).
+The repo is a cargo workspace, but the root `Cargo.toml` is *also* a package — so bare `cargo test` runs the current package only and silently skips `drinkinggame`'s 177 tests (**53 of 230 run**). Always pass `--workspace`, or just run `./scripts/verify.sh`, which does. `cargo run -p drinkinggame` serves the drinking game standalone on `:3001` (no portfolio, no nginx).
 
 **Which worktree/branch am I in, and what else is in flight?** See `docs/WORKTREES.md` — the live index of work streams, worktree layout and branch conventions. Read it before creating a branch or worktree.
 
 `./scripts/verify.sh` is the single acceptance gate — `cargo fmt --check`, `cargo clippy`, the workspace test suite, and `node --check` over `static/*.js` (a nested palette entry broke `palette.js` once; nothing else catches JS syntax). It runs clippy *without* `-D warnings` because the tree carries 19 pre-existing warnings; promote it once that reaches zero.
 
-Tests live in `src/db.rs`, `src/routes/feed.rs`, `src/routes/admin.rs`, and `src/routes/nutrition.rs` (portfolio, 48 tests) plus `tests/static_assets.rs` (4 tests — guards `static/*.css` against nested `/* */` comment markers, which browsers resolve by silently dropping the next rule). The `drinkinggame` crate has its own, larger suite: unit tests across `drinkinggame/src/*.rs` (rooms, db, rules, hub, render, `three_man.rs` state machine — 100 tests) plus integration tests in `drinkinggame/tests/http.rs` (77 tests) covering both games' routes end to end.
+Tests live in `src/db.rs`, `src/routes/feed.rs`, `src/routes/admin.rs`, and `src/routes/nutrition.rs` (portfolio, 49 tests) plus `tests/static_assets.rs` (4 tests — guards `static/*.css` against nested `/* */` comment markers, which browsers resolve by silently dropping the next rule). The `drinkinggame` crate has its own, larger suite: unit tests across `drinkinggame/src/*.rs` (rooms, db, rules, hub, render, `three_man.rs` state machine — 100 tests) plus integration tests in `drinkinggame/tests/http.rs` (77 tests) covering both games' routes end to end.
 
 ## Environment
 
