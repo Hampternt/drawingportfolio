@@ -385,6 +385,68 @@ pub fn lc_public_panel(view: &PublicView) -> String {
     )
 }
 
+// ---------------------------------------------------------------------
+// Plan A2 additions — Task 2. Plan A shipped the contract; this plan owns
+// the builder because it posts to routes only this plan owns.
+// ---------------------------------------------------------------------
+
+/// One row of the plain setup form: who, their handicap, their registered
+/// decks.
+#[derive(Clone, Debug)]
+pub struct SetupRow {
+    pub player_id: i64,
+    pub name: String,
+    pub handicap_pct: u16,
+    pub decks: Vec<Deck>,
+}
+
+/// The private hand fragment's body — the §7.8 "Hand region" component.
+/// Not broadcast: served only to its own viewer by
+/// `GET /room/{code}/lastcall/hand`.
+///
+/// Handicap rows are **not** gated on `player_id == me` — spec §2, item 2:
+/// any room member may set any player's handicap, because the table sets
+/// handicaps rather than each player declaring themselves a lightweight.
+/// `me` is used only to append " (you)" to the viewer's own row.
+pub fn lc_hand_pane(
+    base_path: &str,
+    code: &str,
+    me: i64,
+    hand: &[Card],
+    rows: &[SetupRow],
+    seq: u64,
+) -> String {
+    let deck_options: String = Deck::ALL
+        .iter()
+        .map(|d| format!(r#"<option value="{}">{}</option>"#, d.slug(), d.label()))
+        .collect();
+
+    let handicap_rows: String = rows
+        .iter()
+        .map(|row| {
+            let you = if row.player_id == me { " (you)" } else { "" };
+            let dots: String = row.decks.iter().map(|&d| card_dot(d)).collect();
+            format!(
+                r#"<form class="lc-setup-row" method="post" action="{base_path}/room/{code}/lastcall/handicap"><input type="hidden" name="target" value="{player_id}"><span>{name}{you}</span><span class="lc-setup-decks">{dots}</span><input type="number" name="handicap_pct" min="25" max="300" step="5" value="{handicap_pct}"><button type="submit">SET</button></form>"#,
+                player_id = row.player_id,
+                name = html_escape(&row.name),
+                handicap_pct = row.handicap_pct,
+            )
+        })
+        .collect();
+
+    let cards: String = if hand.is_empty() {
+        r#"<p class="lc-empty">Register your drink to be dealt a hand.</p>"#.to_string()
+    } else {
+        hand.iter().map(card_face).collect()
+    };
+
+    format!(
+        r#"<div id="lc-hand" data-seq="{seq}" data-count="{count}" data-flight-anchor="hand"><section class="lc-setup"><h2>Your drink</h2><form method="post" action="{base_path}/room/{code}/lastcall/vessel"><select name="deck">{deck_options}</select><input name="container" maxlength="24" placeholder="50cl can"><button type="submit">REGISTER</button></form><h2>Handicaps</h2>{handicap_rows}</section>{cards}</div>"#,
+        count = hand.len(),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1012,5 +1074,68 @@ mod tests {
         ] {
             assert!(!html.contains(banned), "leaked {banned}");
         }
+    }
+
+    fn setup_row(player_id: i64, name: &str, handicap_pct: u16, decks: &[Deck]) -> SetupRow {
+        SetupRow {
+            player_id,
+            name: name.to_string(),
+            handicap_pct,
+            decks: decks.to_vec(),
+        }
+    }
+
+    #[test]
+    fn test_lc_hand_pane_satisfies_the_contract() {
+        let hand = lc_cards::deck_cards(Deck::Beer);
+        let rows = [setup_row(1, "alice", 100, &[Deck::Beer])];
+        let html = lc_hand_pane("", "QK4M", 1, &hand, &rows, 7);
+        assert!(html.contains(r#"id="lc-hand""#));
+        assert!(html.contains(r#"data-seq="7""#));
+        assert!(html.contains(&format!(r#"data-count="{}""#, hand.len())));
+        assert!(html.contains(r#"data-flight-anchor="hand""#));
+    }
+
+    #[test]
+    fn test_lc_hand_pane_posts_to_prefixed_urls() {
+        let hand = lc_cards::deck_cards(Deck::Beer);
+        let rows = [
+            setup_row(1, "alice", 100, &[Deck::Beer]),
+            setup_row(2, "bob", 150, &[Deck::Wine]),
+        ];
+        let html = lc_hand_pane("/drinks", "QK4M", 1, &hand, &rows, 1);
+        assert!(html.contains(r#"action="/drinks/room/QK4M/lastcall/vessel""#));
+        assert!(html.contains(r#"action="/drinks/room/QK4M/lastcall/handicap""#));
+        assert_eq!(
+            html.matches(r#"<input type="hidden" name="target" value=""#)
+                .count(),
+            rows.len()
+        );
+    }
+
+    /// The regression this guards is gating the control on ownership, which
+    /// spec §2 explicitly rejects: any room member may set any player's
+    /// handicap, not just their own.
+    #[test]
+    fn test_lc_hand_pane_handicap_rows_are_not_self_gated() {
+        let hand: Vec<Card> = Vec::new();
+        let rows = [
+            setup_row(1, "alice", 100, &[Deck::Beer]),
+            setup_row(2, "bob", 100, &[Deck::Wine]),
+            setup_row(3, "cara", 100, &[Deck::Soft]),
+        ];
+        let html = lc_hand_pane("", "QK4M", 2, &hand, &rows, 1);
+        assert_eq!(html.matches(">SET<").count(), 3);
+        assert_eq!(html.matches("(you)").count(), 1);
+        assert!(html.contains("bob (you)"));
+    }
+
+    #[test]
+    fn test_lc_hand_pane_empty_hand() {
+        let rows = [setup_row(1, "alice", 100, &[])];
+        let html = lc_hand_pane("", "QK4M", 1, &[], &rows, 0);
+        assert!(html.contains("lc-empty"));
+        assert!(!html.contains("lc-cardface"));
+        assert!(html.contains(r#"data-count="0""#));
     }
 }

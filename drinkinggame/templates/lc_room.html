@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Last Call — Room {{ code }}</title>
+  <link rel="stylesheet" href="{{ base_path }}/assets/lastcall.css">
+  <script src="{{ base_path }}/assets/lc_motion.js" defer></script>
+</head>
+<body class="lc" data-player-id="{{ player_id }}" data-seq="{{ seq }}">
+  <div class="lc-status">
+    <span id="lc-clock"></span>
+    <span>ROOM {{ code }}</span>
+  </div>
+
+  {{ banner|safe }}
+
+  <nav class="lc-tabs" role="tablist">
+    <button type="button" class="lc-tab" data-lc-tab="hand"  role="tab" aria-selected="true">HAND</button>
+    <button type="button" class="lc-tab" data-lc-tab="table" role="tab" aria-selected="false">TABLE</button>
+    <button type="button" class="lc-tab" data-lc-tab="log"   role="tab" aria-selected="false">LOG</button>
+  </nav>
+
+  <main class="lc-view">
+    <section class="lc-pane" data-lc-pane="hand">{{ hand_pane|safe }}</section>
+    <section class="lc-pane" data-lc-pane="table" hidden>
+      <p class="lc-empty">The table lands in the next slice.</p>
+    </section>
+    <section class="lc-pane" data-lc-pane="log" hidden>
+      <p class="lc-empty">Nothing logged yet.</p>
+    </section>
+  </main>
+
+  <div class="lc-actions">
+    <button type="button" class="lc-btn lc-btn-drink" disabled>DRINK</button>
+    <button type="button" class="lc-btn lc-btn-secondary" disabled>PASS</button>
+  </div>
+
+  <script>
+const BP = "{{ base_path }}", CODE = "{{ code }}";
+document.querySelectorAll("[data-lc-tab]").forEach(b => b.addEventListener("click", () => {
+  document.querySelectorAll("[data-lc-tab]").forEach(x =>
+    x.setAttribute("aria-selected", String(x === b)));
+  document.querySelectorAll("[data-lc-pane]").forEach(p =>
+    p.hidden = p.dataset.lcPane !== b.dataset.lcTab);
+}));
+function lcClock() {
+  const d = new Date();
+  document.getElementById("lc-clock").textContent =
+    d.getHours() + ":" + String(d.getMinutes()).padStart(2, "0");
+}
+lcClock(); setInterval(lcClock, 20000);
+  </script>
+</body>
+</html>

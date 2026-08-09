@@ -3843,3 +3843,229 @@ async fn test_lastcall_start_rejects_second_game() {
     assert_eq!(res.status(), StatusCode::CONFLICT);
     assert!(body_string(res).await.contains("already running"));
 }
+
+// -------------------------------------------------------------
+// Last Call (Task 2): the F.1 phone shell (`GET /room/{code}/lastcall`) and
+// the private hand fragment (`GET /room/{code}/lastcall/hand`). spec §6.1's
+// constraint — the hand route takes no player identifier of any kind, so
+// identity comes from the session cookie alone — is the property this task
+// exists to establish; test_lastcall_hand_is_private and
+// test_lastcall_hand_route_takes_no_player_input assert it behaviourally.
+// -------------------------------------------------------------
+
+async fn get_hand(app: &Router, cookie: &str, code: &str) -> axum::response::Response {
+    app.clone()
+        .oneshot(
+            Request::get(format!("/room/{code}/lastcall/hand"))
+                .header(header::COOKIE, cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap()
+}
+
+async fn get_shell(app: &Router, cookie: &str, code: &str) -> axum::response::Response {
+    app.clone()
+        .oneshot(
+            Request::get(format!("/room/{code}/lastcall"))
+                .header(header::COOKIE, cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap()
+}
+
+#[tokio::test]
+async fn test_lastcall_shell_renders_fixed_tab_order() {
+    let app = test_app().await;
+    let alice = login(&app, "alice", "1234").await;
+    let bob = login(&app, "bob", "5678").await;
+    let code = create_room(&app, &alice).await;
+    room_page_html(&app, &bob, &code).await;
+    post_form(&app, &alice, &format!("/room/{code}/lastcall/start"), "").await;
+
+    let res = get_shell(&app, &alice, &code).await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let html = body_string(res).await;
+
+    let hand_i = html.find(r#"data-lc-tab="hand""#).unwrap();
+    let table_i = html.find(r#"data-lc-tab="table""#).unwrap();
+    let log_i = html.find(r#"data-lc-tab="log""#).unwrap();
+    assert!(hand_i < table_i, "hand must precede table");
+    assert!(table_i < log_i, "table must precede log");
+
+    assert!(html.contains(r#"href="/assets/lastcall.css""#));
+    assert!(!html.contains("game.css"));
+}
+
+#[tokio::test]
+async fn test_lastcall_shell_requires_membership() {
+    let app = test_app().await;
+    let alice = login(&app, "alice", "1234").await;
+    let cara = login(&app, "cara", "1234").await; // never opens the room: not a member
+    let code = create_room(&app, &alice).await;
+
+    let res = get_shell(&app, &cara, &code).await;
+    assert_eq!(res.status(), StatusCode::FORBIDDEN);
+
+    // No cookie at all: the same PlayerSession redirect/rejection the crate
+    // already produces for a bare /room/{code} GET.
+    let res = app
+        .oneshot(
+            Request::get(format!("/room/{code}/lastcall"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+}
+
+/// The one that matters (spec §8). A live two-session test, alongside the
+/// structural guarantee (the handler signature itself) that there is no
+/// input naming a player.
+#[tokio::test]
+async fn test_lastcall_hand_is_private() {
+    let app = test_app().await;
+    let alice = login(&app, "alice", "1234").await;
+    let bob = login(&app, "bob", "5678").await;
+    let code = create_room(&app, &alice).await;
+    room_page_html(&app, &bob, &code).await;
+    post_form(&app, &alice, &format!("/room/{code}/lastcall/start"), "").await;
+    post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/lastcall/vessel"),
+        "deck=beer&container=50cl%20can",
+    )
+    .await;
+    post_form(
+        &app,
+        &bob,
+        &format!("/room/{code}/lastcall/vessel"),
+        "deck=wine&container=15cl%20glass",
+    )
+    .await;
+
+    let alice_hand = body_string(get_hand(&app, &alice, &code).await).await;
+    assert!(alice_hand.contains("beer-01"));
+    assert!(!alice_hand.contains("wine-01"));
+
+    let bob_hand = body_string(get_hand(&app, &bob, &code).await).await;
+    assert!(bob_hand.contains("wine-01"));
+    assert!(!bob_hand.contains("beer-01"));
+
+    let res = app
+        .oneshot(
+            Request::get(format!("/room/{code}/lastcall/hand"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_ne!(res.status(), StatusCode::OK);
+}
+
+/// Asserts the §6.1 constraint behaviourally, not just by signature:
+/// appending a caller-supplied player identifier to the query string must
+/// change nothing about the response.
+#[tokio::test]
+async fn test_lastcall_hand_route_takes_no_player_input() {
+    let (app, pool) = test_app_with_pool().await;
+    let alice = login(&app, "alice", "1234").await;
+    let bob = login(&app, "bob", "5678").await;
+    let code = create_room(&app, &alice).await;
+    room_page_html(&app, &bob, &code).await;
+    post_form(&app, &alice, &format!("/room/{code}/lastcall/start"), "").await;
+    post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/lastcall/vessel"),
+        "deck=beer&container=50cl%20can",
+    )
+    .await;
+    let bob_player = drinkinggame::db::get_player_by_name(&pool, "bob")
+        .await
+        .unwrap();
+
+    let baseline = body_string(get_hand(&app, &alice, &code).await).await;
+
+    let with_player_id = body_string(
+        app.clone()
+            .oneshot(
+                Request::get(format!(
+                    "/room/{code}/lastcall/hand?player_id={}",
+                    bob_player.id
+                ))
+                .header(header::COOKIE, &alice)
+                .body(Body::empty())
+                .unwrap(),
+            )
+            .await
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(baseline, with_player_id);
+
+    let with_target = body_string(
+        app.oneshot(
+            Request::get(format!(
+                "/room/{code}/lastcall/hand?target={}",
+                bob_player.id
+            ))
+            .header(header::COOKIE, &alice)
+            .body(Body::empty())
+            .unwrap(),
+        )
+        .await
+        .unwrap(),
+    )
+    .await;
+    assert_eq!(baseline, with_target);
+}
+
+#[tokio::test]
+async fn test_lastcall_hand_rejects_wrong_game_kind() {
+    let app = test_app().await;
+    let alice = login(&app, "alice", "1234").await;
+    let bob = login(&app, "bob", "5678").await;
+    let code = create_room(&app, &alice).await;
+    room_page_html(&app, &bob, &code).await;
+    post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/game/start"),
+        "preset_id=1",
+    )
+    .await;
+
+    let res = get_hand(&app, &alice, &code).await;
+    assert_eq!(res.status(), StatusCode::CONFLICT);
+    assert!(body_string(res).await.contains("belongs to the other game"));
+}
+
+/// Spec §2, item 2, at the page level: alice's shell shows a settable
+/// handicap row for bob as well as for herself, not just her own.
+#[tokio::test]
+async fn test_lastcall_shell_shows_all_handicap_rows() {
+    let (app, pool) = test_app_with_pool().await;
+    let alice = login(&app, "alice", "1234").await;
+    let bob = login(&app, "bob", "5678").await;
+    let code = create_room(&app, &alice).await;
+    room_page_html(&app, &bob, &code).await;
+    post_form(&app, &alice, &format!("/room/{code}/lastcall/start"), "").await;
+
+    let alice_player = drinkinggame::db::get_player_by_name(&pool, "alice")
+        .await
+        .unwrap();
+    let bob_player = drinkinggame::db::get_player_by_name(&pool, "bob")
+        .await
+        .unwrap();
+
+    let html = body_string(get_shell(&app, &alice, &code).await).await;
+    assert_eq!(html.matches("lc-setup-row").count(), 2);
+    assert!(html.contains(&format!(r#"value="{}""#, alice_player.id)));
+    assert!(html.contains(&format!(r#"value="{}""#, bob_player.id)));
+}

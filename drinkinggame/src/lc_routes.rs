@@ -3,9 +3,10 @@
 //! and the beat-loop action routes are later tasks. SQL stays in db.rs; HTML
 //! fragments stay in lc_render.rs.
 
+use askama::Template;
 use axum::extract::{Form, Path, State};
 use axum::http::StatusCode;
-use axum::response::{IntoResponse, Redirect};
+use axum::response::{Html, IntoResponse, Redirect};
 use rand::Rng;
 use serde::Deserialize;
 
@@ -13,6 +14,7 @@ use crate::auth::PlayerSession;
 use crate::db;
 use crate::error::GameError;
 use crate::last_call::{Deck, LastCallState, LcError};
+use crate::lc_render::{self, SetupRow};
 use crate::models::{Game, Player, Room};
 use crate::GameState;
 
@@ -213,4 +215,97 @@ pub async fn lc_handicap_handler(
     }
     persist_and_broadcast_lc(&state, &ctx).await;
     Redirect::to(&format!("{}/room/{}/lastcall", state.base_path, code)).into_response()
+}
+
+/// The rows come from the state itself, not a second `room_members` query —
+/// `LastCallState.players` already carries name, handicap and vessels, and
+/// using it keeps the shell and the hand fragment reading one source.
+fn setup_rows(st: &LastCallState) -> Vec<SetupRow> {
+    st.players
+        .iter()
+        .map(|p| SetupRow {
+            player_id: p.player_id,
+            name: p.name.clone(),
+            handicap_pct: p.handicap_pct,
+            decks: p.vessels.iter().map(|v| v.deck).collect(),
+        })
+        .collect()
+}
+
+#[derive(Template)]
+#[template(path = "lc_room.html")]
+struct LcRoomTemplate {
+    base_path: String,
+    code: String,
+    player_id: i64,
+    banner: String,    // lc_render::lc_banner(&view)
+    hand_pane: String, // lc_render::lc_hand_pane(...)
+    seq: u64,
+}
+
+/// `GET /room/{code}/lastcall` — the F.1 phone shell. `load_lc` already gates
+/// member -> active game -> kind, so a non-member gets 403 and a Ring of Fire
+/// room gets `WrongGameKind` for free. A logged-in member who is somehow not
+/// seated (a race with the late-join hook in `routes.rs::room_page`) gets an
+/// empty hand rather than an error.
+pub async fn lc_page(
+    State(state): State<GameState>,
+    PlayerSession(player): PlayerSession,
+    Path(code): Path<String>,
+) -> axum::response::Response {
+    let ctx = match load_lc(&state, &code, &player).await {
+        Ok(c) => c,
+        Err(r) => return r,
+    };
+    let rows = setup_rows(&ctx.st);
+    let hand = ctx
+        .st
+        .seat_of(player.id)
+        .map(|seat| ctx.st.players[seat].hand.as_slice())
+        .unwrap_or(&[]);
+    let hand_pane =
+        lc_render::lc_hand_pane(&state.base_path, &code, player.id, hand, &rows, ctx.st.seq);
+    let tpl = LcRoomTemplate {
+        base_path: state.base_path.to_string(),
+        code,
+        player_id: player.id,
+        banner: lc_render::lc_banner(&ctx.st.public_view()),
+        hand_pane,
+        seq: ctx.st.seq,
+    };
+    Html(tpl.render().unwrap()).into_response()
+}
+
+/// `GET /room/{code}/lastcall/hand` — PRIVATE.
+///
+/// Takes no player identifier of any kind: no path segment, no query
+/// parameter, no form field. The viewer's identity comes from the session
+/// cookie alone, via `PlayerSession`. Written this way, "can player A fetch
+/// player B's hand?" is unanswerable rather than merely guarded, and a
+/// reviewer can verify it from this signature. Binding on every future
+/// private fragment (spec §6.1).
+pub async fn lc_hand_handler(
+    State(state): State<GameState>,
+    PlayerSession(player): PlayerSession,
+    Path(code): Path<String>,
+) -> axum::response::Response {
+    let ctx = match load_lc(&state, &code, &player).await {
+        Ok(c) => c,
+        Err(r) => return r,
+    };
+    let rows = setup_rows(&ctx.st);
+    let hand = ctx
+        .st
+        .seat_of(player.id)
+        .map(|seat| ctx.st.players[seat].hand.as_slice())
+        .unwrap_or(&[]);
+    Html(lc_render::lc_hand_pane(
+        &state.base_path,
+        &code,
+        player.id,
+        hand,
+        &rows,
+        ctx.st.seq,
+    ))
+    .into_response()
 }
