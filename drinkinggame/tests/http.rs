@@ -4461,3 +4461,30 @@ async fn test_room_page_late_join_broadcasts_lc() {
          already on the stream: {seen}"
     );
 }
+
+#[test]
+fn test_new_scene_roots_are_positioned() {
+    // #lc-flights is position:absolute; inset:0; overflow:hidden. Without a
+    // positioned ancestor it forms its containing block against the viewport
+    // and clips every flight past the first screenful — nodes created with
+    // correct deltas and never rendered. Invisible to any test that only
+    // checks the flight lifecycle, which is why it is asserted here.
+    //
+    // Selectors are brace-anchored ("body.lc-screen {", not "body.lc-screen")
+    // because split_once is substring matching: a bare ".lc-minitable" would
+    // also match the prefix of ".lc-minitable-ring", silently inspecting the
+    // wrong CSS block (the same latent flaw the brief's original ".lc-mini"
+    // had against ".lc-mini-cost").
+    let css = include_str!("../assets/lastcall.css");
+    for root in ["body.lc-screen {", ".lc-minitable {"] {
+        let block = css
+            .split_once(root)
+            .and_then(|(_, rest)| rest.split_once('}'))
+            .map(|(b, _)| b)
+            .unwrap_or_else(|| panic!("{root} not found in lastcall.css"));
+        assert!(
+            block.contains("position: relative"),
+            "{root} must be positioned — it is a scene root for #lc-flights"
+        );
+    }
+}

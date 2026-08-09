@@ -622,3 +622,188 @@ body.lc-preview #lc-felt { width: 640px; height: 360px; margin: 0 auto; }
 .lc-preview-ramp-fill   { background: var(--lc-fill); }
 .lc-preview-ramp-ink    { color: var(--lc-ink); }
 .lc-preview-ramp-onfill { background: var(--lc-fill); color: var(--lc-on-fill); }
+
+/* Plan B — felt surfaces: F.2 big screen, D.2 seat ring, F.3 mini table */
+
+/* F.2 BigScreenShell — 1920x1080, a display and never an input. Fixed
+   88px header, then the felt filling everything below (Module Spec F.2).
+   No hover states, no focus rings, no controls: every affordance belongs
+   to a phone. */
+body.lc-screen {
+  position: relative;          /* third scene root — #lc-flights needs it */
+  margin: 0;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--lc-page);
+  color: var(--lc-text);
+  font-family: 'Space Grotesk', sans-serif;
+  cursor: none;                /* it is a display */
+}
+.lc-screen-head {
+  height: 88px;
+  display: flex;
+  align-items: center;
+  padding: 0 40px;
+  gap: 36px;
+  border-bottom: 1px solid var(--lc-hair);
+  flex: 0 0 88px;
+}
+.lc-screen-mark {
+  font: 900 28px 'Archivo', sans-serif;
+  letter-spacing: -.035em;
+  color: var(--lc-text);
+  text-transform: lowercase;
+}
+.lc-screen-mark span { color: #B48EF7; }
+.lc-screen-meta { display: flex; align-items: baseline; gap: 10px; }
+.lc-screen-meta .lc-kicker {
+  font: 600 11px 'Space Grotesk', sans-serif;
+  letter-spacing: .16em;
+  color: var(--lc-label);
+  text-transform: uppercase;
+}
+.lc-screen-code {
+  font: 500 22px 'IBM Plex Mono', ui-monospace, monospace;
+  color: var(--lc-text);
+  letter-spacing: .06em;
+}
+.lc-screen-round { font: 900 26px 'Archivo', sans-serif; color: var(--lc-text); }
+
+/* The banner is Plan A's component, scaled up for a 3-4 metre read.
+   Scoping a shipped component is assembling; forking it would be
+   authoring, which this plan may not do. */
+body.lc-screen .lc-banner { flex: 1; text-align: center; }
+body.lc-screen .lc-banner-beat { font-size: 46px; line-height: 1; }
+body.lc-screen .lc-banner-meta { font-size: 12px; letter-spacing: .2em; }
+body.lc-screen .lc-timer { height: 3px; }
+
+/* 300px | felt | 300px, per the bundle's big-screen v2. The felt keeps the
+   authored proportions the seat ring was measured against only if the
+   centre column keeps roughly this width. */
+.lc-screen-grid {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 300px 1fr 300px;
+  overflow: hidden;
+}
+.lc-rail { padding: 24px; display: flex; flex-direction: column; gap: 20px; }
+.lc-rail-left  { border-right: 1px solid var(--lc-hair); }
+.lc-rail-right { border-left: 1px solid var(--lc-hair); }
+.lc-rail-kicker {
+  font: 600 12px 'Space Grotesk', sans-serif;
+  letter-spacing: .18em;
+  color: var(--lc-label);
+  text-transform: uppercase;
+  margin-bottom: 11px;
+}
+.lc-seatorder { display: flex; flex-direction: column; gap: 6px; }
+.lc-seatorder-row { display: flex; align-items: center; gap: 9px; }
+.lc-seatorder-n {
+  font: 500 12px 'IBM Plex Mono', ui-monospace, monospace;
+  color: var(--lc-label);
+  width: 16px;
+}
+.lc-seatorder-name {
+  font: 800 18px 'Archivo', sans-serif;   /* F.2 floor: nothing under 18px */
+  color: var(--lc-body);
+  white-space: nowrap;
+}
+.lc-seatorder-row[data-first] .lc-seatorder-name { color: #4FD6A8; }
+.lc-seatorder-row[data-out] { opacity: .4; }
+
+/* Five deck stacks and the discard, two across. Plan A's D.4 components. */
+.lc-rail-decks {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 14px;
+  justify-items: center;
+}
+
+/* The stage is the felt's positioning context and the ring box the
+   percentages in lc_layout are relative to. Felt inset 40 x 36 from the
+   stage, per D.2. */
+.lc-stage { position: relative; overflow: hidden; }
+.lc-stage > #lc-felt {
+  position: absolute;
+  left: 40px; top: 36px; right: 40px; bottom: 36px;
+}
+/* The ring box is the felt's inner hairline ellipse — 92px / 88px in from
+   the stage on a 1320x992 centre column. Expressed as a fraction, not those
+   pixels: the seat table is percentages OF THIS BOX, so a pixel inset would
+   silently change the ring's proportions at any width but 1920, and the
+   mini table (which uses the same fractions) would stop matching. */
+.lc-ring { position: absolute; inset: 8.9% 7.0%; }
+/* A seat is centred on its own midpoint, so a plaque of any width lands
+   with its centre on the ellipse (D.2). */
+.lc-seat {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+/* F.3 MiniTable — the same felt at 466px tall for a room with no TV.
+   Same state, same events, one order of magnitude less detail: seats
+   become name/HP chips and flights become CardDots. It is its own scene
+   root (it hosts CardDot flights), so it carries position: relative too.
+   Named .lc-minitable*, not the brief's .lc-mini* — .lc-mini is already a
+   shipped Plan A card component (card_mini(), above, with .lc-mini-cost /
+   .lc-mini-title) and reusing the name would make this table inherit that
+   card's 62px width and padding. */
+.lc-minitable {
+  position: relative;
+  height: 466px;
+  margin: 0 0 14px;
+}
+.lc-minitable > #lc-felt { position: absolute; inset: 0; }
+/* Proportional, not pixel: the seat table is percentages OF THE RING BOX,
+   so the two surfaces only place seats at the same proportional distance
+   from the felt edge if both ring boxes are inset by the same fraction.
+   8.9% / 7.0% is the big screen's 88px / 92px over its 992 x 1320 stage. */
+.lc-minitable-ring { position: absolute; inset: 8.9% 7.0%; }
+.lc-minitable-chip {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 5px 9px;
+  border-radius: 7px;
+  background: var(--lc-panel);
+  border: 1px solid var(--lc-hair);
+  white-space: nowrap;
+}
+.lc-minitable-name { font: 800 12px 'Archivo', sans-serif; color: var(--lc-body); }
+.lc-minitable-hp   { font: 900 15px 'Archivo', sans-serif; color: var(--lc-text); }
+.lc-minitable-chip[data-locked] { border-color: #B48EF7; }
+.lc-minitable-chip[data-out] { opacity: .4; }
+.lc-minitable-chip[data-me] { border-color: var(--lc-hair-strong); }
+/* Centre column: a 46x62 draw pile above the event / quest / discard rows
+   (Module Spec F.3). Only the discard row carries a real count in this
+   slice; event and quest are content-systems work and render as a dash. */
+.lc-minitable-centre {
+  position: absolute;
+  left: 50%; top: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 9px;
+}
+.lc-minitable-rows { display: flex; flex-direction: column; gap: 5px; }
+.lc-minitable-row { display: flex; align-items: center; gap: 7px; }
+.lc-minitable-row-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--lc-hair-strong); }
+.lc-minitable-row-label {
+  font: 700 9px 'Space Grotesk', sans-serif;
+  letter-spacing: .14em;
+  color: var(--lc-label);
+  text-transform: uppercase;
+}
+.lc-minitable-row-n { font: 900 13px 'Archivo', sans-serif; color: var(--lc-body); }
+
+/* Do not add a second reduced-motion @media block — one already exists
+   above. Nothing in this section animates; if that changes, extend the
+   existing block instead. */
