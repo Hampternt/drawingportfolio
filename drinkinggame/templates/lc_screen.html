@@ -49,7 +49,16 @@ es.addEventListener("lcpublic", e => {
 es.addEventListener("screen", e => {
   // The Last Call game ended but the room did not: fall back to the
   // generic spectator screen.
-  if (!e.data.includes("data-lc-live")) window.location.reload();
+  //
+  // Structural check, not a substring test — mirrors screen.html's own
+  // listener. This frame can carry user-controlled text (a player name, a
+  // house rule), so a raw `e.data.includes("data-lc-live")` could be spoofed
+  // by a display name and would also suppress the marker while it IS
+  // legitimately present but escaped inside other content. Parse into a
+  // detached element and require the marker as a real attribute.
+  const box = document.createElement("div");
+  box.innerHTML = e.data;
+  if (!box.querySelector("[data-lc-live]")) window.location.reload();
 });
 es.addEventListener("ended", () => { es.close(); window.location = BP + "/"; });
   </script>

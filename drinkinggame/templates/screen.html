@@ -62,7 +62,15 @@ es.addEventListener("screen", e => {
   // its felt, so hand off to lc_screen.html by reloading — the next GET
   // to this same URL routes to the Last Call template instead. Inert for
   // Ring of Fire and 3 Man, which never publish this marker.
-  if (e.data.includes("data-lc-live")) { window.location.reload(); return; }
+  //
+  // Structural check, not a substring test: this frame can carry
+  // user-controlled text (a player name, a house rule) escaped only against
+  // `< > & "`, so a player named e.g. "data-lc-live" must not falsely trip
+  // the reload. Parse into a detached element and look for the marker as a
+  // real attribute on a real element, never as text anywhere in the payload.
+  const box = document.createElement("div");
+  box.innerHTML = e.data;
+  if (box.querySelector("[data-lc-live]")) { window.location.reload(); return; }
   swapPanel("screen-panel", "screen", e.data);
 });
 es.addEventListener("leaderboard", e => { document.getElementById("standings-list").innerHTML = e.data; });

@@ -4124,18 +4124,21 @@ async fn test_lastcall_sse_snapshot_includes_lcpublic() {
 /// The regression a misplaced `.chain` would cause: landing the `lcpublic`
 /// frame inside the existing four rather than after them. A Ring of Fire
 /// room must still emit exactly the same four frames it always has, in the
-/// same order, with none of them carrying `lcpublic`. Draining four and
-/// checking their contents catches that without awaiting a fifth `next()`
-/// (no fifth frame is ever sent for this room, so that would hang until the
-/// harness times out).
+/// same order, with none of them carrying `lcpublic`.
 ///
-/// Plan-end review finding M1: that alone only catches a *misplaced* chain
-/// — it does not assert-catch a fifth frame emitted *unconditionally*
-/// (regardless of game kind), because nothing here ever reads a fifth
-/// `next()`. Bound the wait instead: give the stream 200ms after the four
-/// known frames to produce anything else, and require that if it does, it
-/// still isn't `lcpublic`. A timeout (no frame at all) is the expected,
-/// passing outcome for this room.
+/// Filtered entirely by event NAME via `read_sse_until` (content search),
+/// never by counting `next()` chunks or indexing into them — a body chunk is
+/// not guaranteed to be one SSE event, and the brief's own constraint is
+/// "filter by event name, never index positionally" (fix round 1, Important
+/// 3: this test used to read exactly four `next()` chunks and assert
+/// `frames[3].contains("event: room")`).
+///
+/// Plan-end review finding M1: content-matching for `room` alone only
+/// catches a *misplaced* chain — it does not assert-catch a fifth frame
+/// emitted *unconditionally* (regardless of game kind). Bound the wait
+/// instead: give the stream 200ms after the four known frames to produce
+/// anything else, and require that if it does, it still isn't `lcpublic`. A
+/// timeout (no frame at all) is the expected, passing outcome for this room.
 #[tokio::test]
 async fn test_rof_sse_snapshot_has_no_lcpublic() {
     use futures::StreamExt;
@@ -4154,14 +4157,21 @@ async fn test_rof_sse_snapshot_has_no_lcpublic() {
 
     let res = get(&app, &format!("/room/{code}/sse")).await;
     let mut body = res.into_body().into_data_stream();
-    let mut frames = Vec::new();
-    for _ in 0..4 {
-        frames.push(String::from_utf8(body.next().await.unwrap().unwrap().to_vec()).unwrap());
+    let seen = read_sse_until(&mut body, "event: room").await;
+    assert!(!seen.contains("lcpublic"), "{seen}");
+    for name in ["leaderboard", "game", "screen", "room"] {
+        let marker = format!("event: {name}");
+        assert_eq!(
+            seen.matches(&marker).count(),
+            1,
+            "expected exactly one `{marker}` frame in the snapshot: {seen}"
+        );
     }
-    for frame in &frames {
-        assert!(!frame.contains("lcpublic"), "{frame}");
-    }
-    assert!(frames[3].contains("event: room"), "{:?}", frames[3]);
+    assert_eq!(
+        seen.matches("event: ").count(),
+        4,
+        "Ring of Fire's connect-time snapshot must stay four frames total: {seen}"
+    );
 
     // No fifth frame is ever sent for a Ring of Fire room, so a bounded
     // timeout — not an unbounded `next()` — is what makes this assertion
@@ -4532,6 +4542,68 @@ async fn test_lastcall_start_broadcasts_the_live_marker_on_the_screen_frame() {
     );
 }
 
+/// A real occurrence of the marker: whitespace, the literal, then an
+/// immediate `>` with no `=` and no quote in between — the exact shape
+/// `lc_screen_placeholder` emits (`<div class="screen-panel" data-lc-live>`)
+/// and the only shape `document.querySelector("[data-lc-live]")` (what
+/// `screen.html`/`lc_screen.html` now actually run against a parsed
+/// fragment) would match as a real boolean attribute on a real element. Text
+/// content and quoted attribute values — the only places `html_escape`d user
+/// input can land — never take this shape.
+fn contains_the_live_marker_as_a_real_attribute(html: &str) -> bool {
+    html.contains(" data-lc-live>")
+}
+
+/// Fix round 1, Important 1: `auth::validate_name` accepts any non-empty
+/// name up to 20 chars, no charset restriction, and `data-lc-live` (12
+/// chars) is a legal name. `screen_panel_active`'s hero attributes the draw
+/// to `html_escape(&c.drawer)` — none of `< > & "` appear in the literal, so
+/// it survives escaping unchanged and lands in the `screen` frame as plain
+/// text. Before this fix, `screen.html`/`lc_screen.html` substring-tested
+/// the raw payload, so a player named exactly this string would trip the
+/// Last Call handoff (or suppress it) on every Ring of Fire broadcast — a
+/// display name bricking the room's big screen. This proves the attack
+/// surface is real (the literal DOES reach the frame) and that it is not
+/// mistaken for the marker (it never takes the real attribute's shape).
+#[tokio::test]
+async fn test_a_player_named_data_lc_live_does_not_masquerade_as_the_marker() {
+    let app = test_app().await;
+    let alice = login(&app, "alice", "1234").await;
+    let mallory = login(&app, "data-lc-live", "6666").await;
+    let code = create_room(&app, &alice).await;
+    room_page_html(&app, &mallory, &code).await;
+    post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/game/start"),
+        "preset_id=1",
+    )
+    .await;
+
+    let res = get(&app, &format!("/room/{code}/sse")).await;
+    let mut body = res.into_body().into_data_stream();
+    read_sse_until(&mut body, "event: room").await; // drain the idle snapshot
+
+    // mallory (name "data-lc-live") draws — her name becomes the hero's
+    // drawer attribution, which flows into the `screen` frame.
+    let res = post_form(&app, &mallory, &format!("/room/{code}/game/draw"), "").await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+
+    let seen = read_sse_until(&mut body, "event: screen").await;
+    let frame = &seen[seen.find("event: screen").unwrap()..];
+    assert!(
+        frame.contains("data-lc-live"),
+        "test precondition: the player's name must actually reach the \
+         screen frame, or this test proves nothing: {frame}"
+    );
+    assert!(
+        !contains_the_live_marker_as_a_real_attribute(frame),
+        "a display name must never render as the real data-lc-live boolean \
+         attribute — a Ring of Fire spectator must not be sent into a \
+         reload loop by a player's name: {frame}"
+    );
+}
+
 #[tokio::test]
 async fn test_screen_serves_the_last_call_felt_when_last_call_is_active() {
     let app = test_app().await;
@@ -4710,6 +4782,17 @@ async fn test_lcpublic_carries_both_templates_and_the_frame_count_is_unchanged()
             "expected exactly one `{marker}` frame in the snapshot: {seen}"
         );
     }
+    // The five per-name checks above only prove each of those five names
+    // occurs exactly once — they don't bound the TOTAL. A sixth frame
+    // carrying a brand-new event name, published anywhere before `lcpublic`
+    // in the chain, would land inside `seen` and slip past every check above
+    // silently. This is what the test's own name promises to catch.
+    assert_eq!(
+        seen.matches("event: ").count(),
+        5,
+        "connect-time snapshot for a Last Call room must stay five frames \
+         total, no more: {seen}"
+    );
 
     let frame = &seen[seen.find("event: lcpublic").unwrap()..];
     assert!(frame.contains("data-lc-banner"), "{frame}");
