@@ -60,7 +60,7 @@ cargo run -p drinkinggame          # standalone on :3001
 #   the game:               http://localhost:3001/room/{CODE}
 ```
 
-### B · Artportfolio visual layer — awaiting spec approval
+### B · Artportfolio visual layer — active
 
 A design-system-driven redesign of `/artportfolio`.
 
@@ -68,58 +68,89 @@ A design-system-driven redesign of `/artportfolio`.
 | --- | --- |
 | Worktree | `~/projects/drawingportfolio.worktrees/artportfolio-visual-layer` |
 | Branch | `feat/artportfolio-visual-layer` (tracks `origin/feat/artportfolio-visual-layer`) |
-| Touches | `docs/` only so far |
-| Status | **Docs only** — 2 commits, ~6800 lines, all under `docs/`. The design-system bundle in `docs/design/artportfolio-redesign/` plus `docs/superpowers/specs/2026-08-09-artportfolio-visual-layer-design.md` (marked *pending user approval*). No implementation started. |
-| Next | Approve or revise the spec, then plan slice 1. |
+| Touches | `docs/`, `src/`, `static/`, `templates/`, `.sqlx/` |
+| Status | **Implementing.** Spec approved 2026-08-09. Slice 1 did not fit one plan under `plan-economics` sizing, so it was split: **Plan A is written and executing**, Plan B is not yet written. Head `e67cf49` (2026-08-10 02:33). |
+| Next | Finish Plan A — its browser checkpoint is still owed — then write Plan B. |
 
-Independent of Last Call — different crates, no overlap.
+Slice 1's split, so the next session does not re-derive it:
 
-### C · Portfolio drawing tasks — dormant, being wound up
-
-| | |
+| Plan | Scope |
 | --- | --- |
-| Worktree | none |
-| Branch | `fix/stale-image-id` → **PR #6, open** |
-| Status | One rescued commit. `./scripts/verify.sh` green. |
+| **A** — `docs/superpowers/plans/2026-08-10-artportfolio-visual-layer-plan-a.md` | Self-hosted fonts + icons · migration 012 (`image_width`/`image_height`) + sqlx regen · the `style.css` section under `body.art-page` · `art-page` derivation in **both** `base.html` and `admin.html` · the Askama templates that replace `post_card_html()` |
+| **B** — not written | `get_posts_page(q)` + `count_posts` + LIKE escaping · `feed.rs` `q`/`last_month` + month grouping · `filter_rail.html` + `artfeed.js` · page-head counts |
 
-`fix/stale-image-id` carries commit `82e0053` (2026-07-04), which guards
+B is **not** safely parallel with A — both rewrite the same `feed.rs`, the same
+templates and the same `style.css` section. Run them in sequence.
+
+Two places execution contradicted the spec. Both are load-bearing:
+
+- **`post_card_html()` has three callers, not the two the spec names.**
+  `src/routes/admin.rs:211` returns it as the upload response when
+  `source == "gallery"`. Converting only the two in `feed.rs` still compiles —
+  the symptom is a legacy `.post-card` appearing in a feed of `hm-post` cards
+  after a real upload, which no test and no build catches.
+- **`feed.html`'s `{% if is_admin %}` admin composer must survive this slice.**
+  The spec's template description omits it; the multi-upload tray that replaces
+  it is slice 4, so removing it now strips upload from the page for two slices.
+
+Independent of Last Call — different crates, no overlap. Slices 2–5 (visibility
+model, collections + tags, multi-upload tray, select mode + batch actions) are
+queued behind slice 1 and scoped in the spec.
+
+### C · Portfolio drawing tasks — **closed 2026-08-09**
+
+Landed as **PR #6** (`be7cfdc`). Commit `82e0053` (2026-07-04) guards
 `insert_drawing_task` against a stale `image_id` and stops the S3 object being
-deleted when the transaction fails. It was stranded for five weeks on
-`claude/portfolio-drawing-tasks-9sazgl` and never reached `master`.
-
-Once PR #6 merges, `claude/portfolio-drawing-tasks-9sazgl` has nothing unique
-left and can go — see the cleanup queue.
+deleted when the transaction fails. It sat unmerged for five weeks on
+`claude/portfolio-drawing-tasks-9sazgl` and existed only on one machine until
+the day it landed. Both branches are gone; nothing is owed.
 
 ---
 
 ## 3 · Cleanup queue
 
-Deliberately manual: remote deletion is not recoverable from the reflog. Each
-tip below is an ancestor of `master`, so any ref can be recreated locally with
-`git branch <name> <sha>` — the SHAs are recorded for exactly that reason.
-
-**Merged, verified 0 commits ahead of `master` with an empty file-level diff:**
+**Open — `docs/index-refresh`, merged 2026-08-10.** Its one commit `e8610b3`
+fast-forwarded into `master`, so the branch and its worktree have nothing
+unique left:
 
 ```bash
-git push origin --delete claude/add-portion-sizes-SnZ3a               # e0b806a
-git push origin --delete claude/fitness-barcode-camera-reload-bj3i88  # 7b9cf9e
-git push origin --delete claude/claude-md-docs-cfwpf6                 # f153acb
+git worktree remove .claude/worktrees/index-refresh
+git branch -d docs/index-refresh
+git push origin --delete docs/index-refresh
 ```
 
-**After PR #6 merges** — and not before, it is the only copy of `82e0053`
-outside the PR:
+That worktree also sits in `.claude/worktrees/`, which §1 reserves for
+short-lived session worktrees — correct for what it was, and the reason it is
+safe to remove now rather than something to preserve.
 
-```bash
-git branch -D claude/portfolio-drawing-tasks-9sazgl                   # 66f8485
-git push origin --delete claude/portfolio-drawing-tasks-9sazgl
-```
+Everything below was executed on 2026-08-09. Kept as a record of what was
+checked, because the *method* is the reusable part.
+
+Six remote branches deleted, each verified before removal:
+
+| Branch | Tip | Why it was safe |
+| --- | --- | --- |
+| `claude/add-portion-sizes-SnZ3a` | `e0b806a` | 0 ahead, empty file diff |
+| `claude/fitness-barcode-camera-reload-bj3i88` | `7b9cf9e` | 0 ahead, empty file diff |
+| `claude/claude-md-docs-cfwpf6` | `f153acb` | 0 ahead, empty file diff |
+| `claude/portfolio-drawing-tasks-9sazgl` | `66f8485` | see below |
+| `fix/stale-image-id` | `53882c7` | merged, PR #6 |
+| `docs/worktree-index` | `89ebdec` | merged, PR #7 |
 
 > **Before deleting any branch that merely looks stale, run
-> `git diff master...<branch>`.** Ahead/behind counts cannot tell *superseded*
-> from *pending*. `9sazgl` read as 4 commits unmerged and looked live, but
-> three were content-identical to work already on `master` by another path and
-> only one was real. A file-level diff is the only check that distinguishes
-> them.
+> `git diff master...<branch>` — and then check the files it names actually
+> exist on `master`.** Ahead/behind counts cannot tell *superseded* from
+> *pending*.
+>
+> `9sazgl` is the worked example. It read as **4 commits ahead** with a
+> non-empty diff naming ~3000 lines of plan and spec documents — which looks
+> like unmerged work. Every one of those documents was already on `master`,
+> having landed via PR #4 by a different path. The only object unique to the
+> branch was a stray `160000` gitlink from someone `git add`-ing a worktree
+> directory. Its one piece of real value, `82e0053`, had been rescued onto
+> `fix/stale-image-id` first — the branch was only deleted after that merged.
+>
+> Commit counts measure divergence. Only content measures loss.
 
 ### Two orphaned stashes
 
@@ -151,16 +182,22 @@ git stash show -p 'stash@{0}' | less    # inspect before deciding
 
 ## 4 · Known debts
 
-- **`cargo test` runs 52 of 229 tests.** The root `Cargo.toml` is both a package
+- **`cargo test` runs 53 of 230 tests.** The root `Cargo.toml` is both a package
   and the workspace root, and in that layout cargo defaults to the *current
-  package* — so `drinkinggame`'s 177 tests are silently skipped. CLAUDE.md's
-  "`cargo build` / `cargo test` at the root cover both" is wrong for `test`.
-  **`./scripts/verify.sh` is the gate precisely because it passes
-  `--workspace`.** Never accept a bare `cargo test` as evidence.
-- **CLAUDE.md's test counts are correct for `master` and will break on merge.**
-  It says 229 workspace / 100 drinkinggame / 77 http; `master` measures exactly
-  48 + 4 + 100 + 77 = 229. On `feat/last-call` the numbers are **327 / 145 /
+  package* — so `drinkinggame`'s 177 tests are silently skipped. **
+  `./scripts/verify.sh` is the gate precisely because it passes `--workspace`.**
+  Never accept a bare `cargo test` as evidence.
+- **Test counts, measured on `master` at `0eb05b0`:** 49 + 4 + 100 + 77 =
+  **230**. PR #6 added one. On `feat/last-call` the numbers are **327 / 145 /
   130**, so whoever merges Last Call owns that update.
+
+  `feat/artportfolio-visual-layer` moves them too, and **already carries its
+  own CLAUDE.md correction** (`e67cf49`). Two branches now edit the same
+  counts, so whichever merges second will conflict on that line — resolve it by
+  re-measuring, not by taking either side.
+
+  Counts in prose go stale on almost every merge. If you touch this line, get
+  the number from `cargo test --workspace`, never from another document.
 - ~~`…-last-call-STATUS.md` says "19 clippy warnings" where CLAUDE.md says 17
   distinct.~~ **Fixed 2026-08-09** (`d8b0a9a`). Both numbers were real and
   measured different things; the STATUS card now states **17 distinct** and
