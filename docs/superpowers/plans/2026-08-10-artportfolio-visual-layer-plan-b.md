@@ -894,6 +894,63 @@ success but never changes `innerWidth`, so the 900px and 390px bands cannot be r
 Dark Reader repaints colours, so computed colours are not the site's; layout, geometry
 and fonts are reliable.
 
+### Checkpoint result — run 2026-08-10
+
+Run against `SQLX_OFFLINE=true cargo run` on `:3000` with 32 seeded posts —
+8 × `2026-08`, 18 × `2026-07`, 6 × `2026-06`, so July straddles the 20-post page
+boundary and `last_month` is genuinely exercised. Seed rows were deleted afterwards;
+`posts` is back to 0, as found.
+
+**Two defects the whole test suite could not see.** Both fixed in `4c786a2`:
+
+1. **The page head lied during a live search.** A search swaps `#feed` only, so the
+   micro-label kept reading `32 drawings · newest first` above a single result — the
+   spec's `12 drawings · matching "loomis"` only ever appeared on a full page load.
+   The fragment now carries the label as an `hx-swap-oob` element on page 0, and never
+   on Load more. *Lesson: a partial swap leaves everything outside the target stale, and
+   "stale" is indistinguishable from "wrong" when the stale thing is a count.*
+2. **`2026-07 · 1 drawings`.** The divider had no pluralisation, unlike `head_label`.
+
+Verified good:
+
+| Check | Result |
+|---|---|
+| Per-month masonry engaged | every `.art-month__grid` computes `display: block`, `column-count: 3`, `column-gap: 16px` |
+| Cards actually in 3 columns | 3 distinct left offsets (979 / 1272 / 1564) |
+| Dividers full-bleed | 862px, identical to the grid and the main column — not one column's width |
+| Rail | 238px, `position: sticky`, `top: 80px`; `.art-main` `min-width: 0`; `.art-body` flex, 32px gap |
+| No horizontal overflow | `scrollWidth` 2550 < `innerWidth` 2560 |
+| `#load-more` placement | parent is `#feed` — a sibling of the sections, before and after Load more |
+| Load more | 20 → 32 cards, 4 sections, **3 dividers** — the continuation July section correctly has none |
+| Search | `1 drawing · matching "loomis"`, 1 card, address bar `/artportfolio?q=loomis` (the page URL, not the fragment endpoint) |
+| Reload of `?q=` | filtered feed returns with the query still in the field |
+| `100%` / `study_0` | match only the literal captions, not every row |
+| Filtered empty state | `> no drawings match "zzznothing".` |
+| Clearing the search | full feed, head back to `32 drawings · newest first`, URL back to `/artportfolio`, exactly one `#art-head-label` (OOB swaps do not accumulate) |
+| Caption escaping | `&#60;script&#62;` in the rendered card |
+| `/` `Esc` `J` `K` | `/` focuses and is `preventDefault`ed; `Esc` blurs; `J` walks `post-9 → post-10`, `K` back; `J` inside the field moves nothing; `Ctrl+K` falls through to the palette |
+| Boosted nav | `art-page` attaches → detaches on `/tasks` → re-attaches, and the keyboard layer still works after the return (no duplicate listener) |
+| Breakpoint rules | all six present in the CSSOM and scoped to `body.art-page` |
+| Blast radius | `<body class="">` on `/` and `/tasks`; every changed line of `style.css` is at line ≥ 1391, inside the Drawing Portfolio section |
+
+**What this run could NOT verify:**
+
+- **The 900px and 390px bands were not rendered.** `resize_window` reports success but
+  `innerWidth` never changes in this environment. The rules were verified through the
+  CSSOM; the 2-column, 1-column and collapsed-rail layouts **have not been seen**.
+- **Real key injection failed** (`computer` returned "Cannot access a chrome-extension://
+  URL"), so `/` `Esc` `J` `K` were driven with synthetic `KeyboardEvent`s. That exercises
+  the handler, the guards and the focus calls, but not the browser's native delivery of
+  those keys.
+- **The admin upload path was not re-exercised** — it is session-gated behind a passkey.
+  Plan A verified it; this plan touched the card only to add `tabindex="-1"`, and
+  `test_upload_response_renders_the_same_card_markup_as_the_feed` still pins the markup.
+- **Colour fidelity.** Dark Reader is active and repaints the page. Layout, geometry and
+  fonts are unaffected and were measured normally.
+- **Timing note, not a defect.** A backgrounded automation tab throttles timers, so
+  HTMX's 200ms debounce lands late and the feed can appear one keystroke behind. With a
+  3s settle the final state was always correct.
+
 ---
 
 ## Final review
