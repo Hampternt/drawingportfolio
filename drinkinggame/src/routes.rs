@@ -213,8 +213,13 @@ async fn room_page(
                 let mut st = crate::last_call::LastCallState::from_json(
                     game.state_json.as_deref().unwrap_or_default(),
                 );
-                if st.seat_of(player.id).is_none() {
-                    st.add_player(player.id, &player.name);
+                // `add_player` returns `None` when the table is already at
+                // `MAX_SEATS` — the newcomer must still join the room (that
+                // already happened above, via `db::join_room`), just not
+                // this game, so a full table is not an error here.
+                if st.seat_of(player.id).is_none()
+                    && st.add_player(player.id, &player.name).is_some()
+                {
                     db::set_game_state(&state.pool, game.id, &st.to_json()).await;
                     lc_joined = true;
                 }
@@ -878,6 +883,10 @@ pub fn router() -> Router<GameState> {
         .route(
             "/room/{code}/lastcall/table",
             get(crate::lc_routes::lc_table_handler),
+        )
+        .route(
+            "/room/{code}/lastcall/end",
+            post(crate::lc_routes::lc_end_handler),
         )
         .route("/room/{code}/sse", get(sse_stream))
         .route("/room/{code}/screen", get(screen_page))

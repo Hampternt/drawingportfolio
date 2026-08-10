@@ -5038,3 +5038,209 @@ async fn test_one_flight_layer_per_page() {
     anchors.dedup();
     assert_eq!(anchors.len(), before, "duplicate flight anchor: {html}");
 }
+
+// -------------------------------------------------------------
+// Last Call (Task 6): the seat ceiling on both seating paths, and
+// `POST /room/{code}/lastcall/end` — a game can end without ending the
+// room. `add_player`'s signature change and `LastCallState::new`'s cap are
+// covered at the unit level in `last_call.rs`; these integration tests
+// cover route-level effects: room survival, the big-screen handoff run in
+// reverse, membership, and a full table's ninth visitor.
+// -------------------------------------------------------------
+
+#[tokio::test]
+async fn test_ending_last_call_keeps_the_room_open() {
+    let (app, pool) = test_app_with_pool().await;
+    let alice = login(&app, "alice", "1234").await;
+    let bob = login(&app, "bob", "5678").await;
+    let code = create_room(&app, &alice).await;
+    room_page_html(&app, &bob, &code).await;
+    post_form(&app, &alice, &format!("/room/{code}/lastcall/start"), "").await;
+
+    let res = post_form(&app, &alice, &format!("/room/{code}/lastcall/end"), "").await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+
+    // The room survives, the game does not.
+    let room = drinkinggame::db::get_open_room(&pool, &code)
+        .await
+        .expect("room must still be open");
+    assert!(drinkinggame::db::get_active_game(&pool, room.id)
+        .await
+        .is_none());
+
+    // And the start card comes back: a plain GET no longer redirects into
+    // the Last Call shell (no active game left to redirect to), it renders
+    // the generic room page with the idle panel's three start cards.
+    let html = room_page_html(&app, &alice, &code).await;
+    assert!(html.contains(r#"class="game-idle""#), "{html}");
+    assert!(
+        html.contains(r#"<h2 class="start-title">Last Call</h2>"#),
+        "{html}"
+    );
+}
+
+/// Filter by event name, not position — the fix Task 4 needed for its own
+/// positionally-indexed SSE test applies here too: `lc_end_handler`
+/// publishes `game`, then `screen`, then `broadcast_room`'s `room`, three
+/// frames not one.
+#[tokio::test]
+async fn test_ending_publishes_an_unmarked_screen_frame() {
+    let app = test_app().await;
+    let alice = login(&app, "alice", "1234").await;
+    let bob = login(&app, "bob", "5678").await;
+    let code = create_room(&app, &alice).await;
+    room_page_html(&app, &bob, &code).await;
+    post_form(&app, &alice, &format!("/room/{code}/lastcall/start"), "").await;
+
+    let res = get(&app, &format!("/room/{code}/sse")).await;
+    let mut body = res.into_body().into_data_stream();
+    read_sse_until(&mut body, "event: room").await; // drain the start snapshot
+
+    let end_res = post_form(&app, &alice, &format!("/room/{code}/lastcall/end"), "").await;
+    assert_eq!(end_res.status(), StatusCode::NO_CONTENT);
+
+    let seen = read_sse_until(&mut body, "event: screen").await;
+    let frame = &seen[seen.find("event: screen").unwrap()..];
+    assert!(
+        !contains_the_live_marker_as_a_real_attribute(frame),
+        "the screen frame published on game end must not carry data-lc-live \
+         or every open lc_screen.html can never fall back to the generic \
+         screen: {frame}"
+    );
+}
+
+/// The mirror of the test above: while Last Call is actually running, the
+/// `game` frame must NOT match `.game-idle`, or a future change to
+/// `lc_placeholder_panel` (or to `game_idle_panel`) could silently kick
+/// every phone off the table mid-round via the new listener in
+/// `lc_room.html`. Checked on the four-frame snapshot a fresh subscriber
+/// receives at connect — the shape most likely to regress unnoticed, since
+/// it fires on every page load, not just on END GAME.
+#[tokio::test]
+async fn test_lastcall_live_game_frame_does_not_carry_game_idle() {
+    use futures::StreamExt;
+    let app = test_app().await;
+    let alice = login(&app, "alice", "1234").await;
+    let bob = login(&app, "bob", "5678").await;
+    let code = create_room(&app, &alice).await;
+    room_page_html(&app, &bob, &code).await;
+    post_form(&app, &alice, &format!("/room/{code}/lastcall/start"), "").await;
+
+    let res = get(&app, &format!("/room/{code}/sse")).await;
+    let mut body = res.into_body().into_data_stream();
+    let mut seen_game = false;
+    for _ in 0..4 {
+        let frame = String::from_utf8(body.next().await.unwrap().unwrap().to_vec()).unwrap();
+        if frame.contains("event: game") {
+            seen_game = true;
+            assert!(!frame.contains(r#"class="game-idle""#), "{frame}");
+        }
+    }
+    assert!(seen_game, "expected a game frame in the 4-frame snapshot");
+}
+
+/// No JS test harness exists in this repo (recorded on Task 4's ledger
+/// entry) — this is the same Rust-side byte-shape proxy that fix round
+/// used there: the shell wires the `game` SSE event to a parsed-and-selected
+/// redirect, never a raw substring test against the user-controllable
+/// `e.data` payload (a player's display name rides in the very same frame).
+#[tokio::test]
+async fn test_lastcall_shell_wires_the_game_idle_redirect_safely() {
+    let app = test_app().await;
+    let alice = login(&app, "alice", "1234").await;
+    let bob = login(&app, "bob", "5678").await;
+    let code = create_room(&app, &alice).await;
+    room_page_html(&app, &bob, &code).await;
+    post_form(&app, &alice, &format!("/room/{code}/lastcall/start"), "").await;
+
+    let html = body_string(get_shell(&app, &alice, &code).await).await;
+    assert!(html.contains(r#"addEventListener("game""#), "{html}");
+    assert!(html.contains(r#"querySelector(".game-idle")"#), "{html}");
+    assert!(!html.contains(r#"e.data.includes("game-idle")"#), "{html}");
+    assert!(!html.contains(r#".includes("game-idle")"#), "{html}");
+}
+
+#[tokio::test]
+async fn test_ending_requires_membership() {
+    let app = test_app().await;
+    let alice = login(&app, "alice", "1234").await;
+    let bob = login(&app, "bob", "5678").await;
+    let cara = login(&app, "cara", "1234").await; // never joins the room
+    let code = create_room(&app, &alice).await;
+    room_page_html(&app, &bob, &code).await;
+    post_form(&app, &alice, &format!("/room/{code}/lastcall/start"), "").await;
+
+    let res = post_form(&app, &cara, &format!("/room/{code}/lastcall/end"), "").await;
+    assert_eq!(res.status(), StatusCode::FORBIDDEN);
+
+    // No cookie at all: the same PlayerSession redirect the crate already
+    // produces for any other room route.
+    let res = app
+        .oneshot(
+            Request::post(format!("/room/{code}/lastcall/end"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+}
+
+/// Unseated, but not locked out: the ROOM tab (HAND/TABLE/LOG shell, no
+/// separate ROOM tab on Last Call) and the TABLE tab both render, and the
+/// table renders unrotated — spec §6.1/D.2's contract that a member who
+/// missed a seat still reaches the room, just with `me = None`.
+#[tokio::test]
+async fn test_a_ninth_member_can_still_open_the_room() {
+    let (app, pool) = test_app_with_pool().await;
+    let alice = login(&app, "alice", "1234").await;
+    let code = create_room(&app, &alice).await;
+
+    // Seven more, eight total, filling the table to MAX_SEATS.
+    for i in 1..=7 {
+        let cookie = login(&app, &format!("p{i}"), "1234").await;
+        room_page_html(&app, &cookie, &code).await;
+    }
+    post_form(&app, &alice, &format!("/room/{code}/lastcall/start"), "").await;
+
+    let st = lc_state(&pool, &code).await;
+    assert_eq!(st.players.len(), drinkinggame::last_call::MAX_SEATS);
+
+    // The ninth visitor opens the room link.
+    let ninth = login(&app, "ninth", "1234").await;
+    let res = app
+        .clone()
+        .oneshot(
+            Request::get(format!("/room/{code}"))
+                .header(header::COOKIE, &ninth)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        res.status(),
+        StatusCode::SEE_OTHER,
+        "still joins the room and is redirected into the lc shell"
+    );
+
+    let ninth_player = drinkinggame::db::get_player_by_name(&pool, "ninth")
+        .await
+        .unwrap();
+    let room = drinkinggame::db::get_open_room(&pool, &code).await.unwrap();
+    assert!(
+        drinkinggame::db::is_room_member(&pool, room.id, ninth_player.id).await,
+        "not seated is not the same as not a member"
+    );
+    assert!(st.seat_of(ninth_player.id).is_none());
+
+    // The shell itself renders, and the table renders unrotated: a seated
+    // viewer's fragment always carries exactly one `data-me`
+    // (lc_render.rs's own test), so a ninth member's fragment carrying none
+    // is the same "unrotated" proof at the whole-page level.
+    let shell = body_string(get_shell(&app, &ninth, &code).await).await;
+    assert!(
+        !shell.contains("data-me"),
+        "an unseated member must render the unrotated table: {shell}"
+    );
+}

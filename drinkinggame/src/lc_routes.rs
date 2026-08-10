@@ -158,6 +158,52 @@ pub async fn lc_start_handler(
     StatusCode::NO_CONTENT.into_response()
 }
 
+/// `POST /room/{code}/lastcall/end`. Ends the game, not the room — the room
+/// stays open for another game to start on it. Modelled on
+/// `tm_routes::tm_end_handler` line for line: member_room -> lock -> load_lc
+/// -> `db::end_game` -> `db::touch_room` -> publish `Game`/`Screen` ->
+/// `broadcast_room`.
+///
+/// The `Screen` frame is built via `game::current_screen_panel`, not a
+/// direct `render::` call: `db::end_game` has already run, so
+/// `db::get_active_game` now returns `None` for this room, and
+/// `current_screen_panel`'s own kind-branch falls through to
+/// `render::screen_panel_idle` on its own — the same "kind-aware for free"
+/// property `tm_end_handler`'s comment documents for its closing
+/// `broadcast_leaderboard` call. That idle panel carries no `data-lc-live`
+/// marker, which is what sends every spectator already on `lc_screen.html`
+/// back to the generic `screen.html` (Task 4's handoff, run in reverse).
+pub async fn lc_end_handler(
+    State(state): State<GameState>,
+    PlayerSession(player): PlayerSession,
+    Path(code): Path<String>,
+) -> axum::response::Response {
+    let room = match crate::game::member_room(&state, &code, &player).await {
+        Ok(r) => r,
+        Err(resp) => return resp,
+    };
+    let lock = state.locks.for_room(room.id);
+    let _guard = lock.lock().await;
+
+    let ctx = match load_lc(&state, &code, &player).await {
+        Ok(c) => c,
+        Err(resp) => return resp,
+    };
+    db::end_game(&state.pool, ctx.game.id).await;
+    db::touch_room(&state.pool, room.id).await;
+
+    let phone_html = crate::game::idle_panel(&state, &room.code).await;
+    let screen_html = crate::game::current_screen_panel(&state, room.id, &room.code).await;
+    state
+        .hub
+        .publish(room.id, crate::hub::RoomMessage::Game(phone_html));
+    state
+        .hub
+        .publish(room.id, crate::hub::RoomMessage::Screen(screen_html));
+    crate::game::broadcast_room(&state, room.id, &room.code).await;
+    StatusCode::NO_CONTENT.into_response()
+}
+
 #[derive(Deserialize)]
 pub struct VesselForm {
     pub deck: String,

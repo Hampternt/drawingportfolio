@@ -335,9 +335,17 @@ impl LastCallState {
     /// unlocked and not drawing, `Status::Alive`. Round 1, `Beat::Draw`,
     /// `first_seat = 0`, `seq = 0`. `deck_counts` is initialized from
     /// `Deck::ALL` at `0` — settable but never set by this slice (spec §4.1).
+    ///
+    /// Caps at `MAX_SEATS`: a room with more members than that (everyone
+    /// pressed join before anyone pressed START) seats only the first
+    /// `MAX_SEATS` and leaves the rest unseated — the same "in the room, not
+    /// at the table" outcome `add_player` reaches for a mid-game join. This
+    /// is the seating path `add_player`'s own ceiling never sees, because
+    /// nothing here calls it (Plan B Task 6).
     pub fn new(members: Vec<(i64, String)>, rng_seed: u64) -> Self {
         let players = members
             .into_iter()
+            .take(MAX_SEATS)
             .enumerate()
             .map(|(seat, (player_id, name))| LcPlayer {
                 seat,
@@ -398,13 +406,26 @@ impl LastCallState {
             .map(|p| p.seat)
     }
 
-    /// Mid-game join. Mirrors `ThreeManState::add_player`: no-op if already
-    /// seated, otherwise push at `seat = players.len()`. Does not enforce
-    /// `MAX_SEATS` — that is a Plan B seat-ring layout concern; the constant
-    /// is exported for it.
-    pub fn add_player(&mut self, player_id: i64, name: &str) {
-        if self.seat_of(player_id).is_some() {
-            return;
+    /// Mid-game join. Mirrors `ThreeManState::add_player`: no-op (returns the
+    /// existing seat) if already seated, otherwise pushes at
+    /// `seat = players.len()` — unless the table is already at `MAX_SEATS`,
+    /// in which case the newcomer is not seated at all and `None` comes
+    /// back. Callers must not fail the join on `None`: an unseated member
+    /// still belongs to the room, just not to this game (Plan B Task 6).
+    ///
+    /// Bumps `seq` exactly when a player is actually newly seated — not on
+    /// the idempotent replay, not on the full-table `None` — because `seq`
+    /// is the freshness floor every SSE-driven repaint compares against
+    /// (`lcApply`/`lcApplyTable`'s `if (seq < lcSeq) return`), and two
+    /// distinct seatings sharing one `seq` would let the client's
+    /// equal-seq-is-a-harmless-duplicate allowance silently accept a stale
+    /// repaint as current.
+    pub fn add_player(&mut self, player_id: i64, name: &str) -> Option<usize> {
+        if let Some(seat) = self.seat_of(player_id) {
+            return Some(seat);
+        }
+        if self.players.len() >= MAX_SEATS {
+            return None;
         }
         let seat = self.players.len();
         self.players.push(LcPlayer {
@@ -422,6 +443,8 @@ impl LastCallState {
             tabs: Vec::new(),
             status: Status::Alive,
         });
+        self.seq += 1;
+        Some(seat)
     }
 
     /// Registers the player's drink. `pulls_max` is a DECK constant
@@ -823,12 +846,72 @@ mod tests {
     #[test]
     fn test_add_player_is_idempotent() {
         let mut st = seated();
-        st.add_player(2, "bob");
+        // bob is already seated at index 1 — re-adding is a no-op that
+        // still reports his existing seat, not a fresh one.
+        assert_eq!(st.add_player(2, "bob"), Some(1));
         assert_eq!(st.players.len(), 3);
 
-        st.add_player(9, "dan");
+        assert_eq!(st.add_player(9, "dan"), Some(3));
         assert_eq!(st.players.len(), 4);
         assert_eq!(st.players[3].seat, 3);
+    }
+
+    #[test]
+    fn test_add_player_stops_at_max_seats() {
+        // The ninth visitor joins the room and is not seated. The D.2 ring
+        // has nowhere to put a seat 8, and a table that silently drops a
+        // plaque is worse than one that never seats them.
+        let mut st = seated();
+        for i in 4..=MAX_SEATS as i64 {
+            assert!(st.add_player(i, "filler").is_some());
+        }
+        assert_eq!(st.players.len(), MAX_SEATS);
+
+        assert_eq!(st.add_player(999, "ninth"), None);
+        assert_eq!(st.players.len(), MAX_SEATS);
+        assert!(st.seat_of(999).is_none());
+    }
+
+    #[test]
+    fn test_starting_with_more_than_max_seats_members_seats_only_max() {
+        // The path add_player never sees: nine members in the room when
+        // somebody presses START. LastCallState::new seats the first
+        // MAX_SEATS and leaves the rest unseated.
+        let members: Vec<(i64, String)> = (1..=9).map(|i| (i, format!("p{i}"))).collect();
+        let st = LastCallState::new(members, 42);
+        assert_eq!(st.players.len(), MAX_SEATS);
+        assert!(st.seat_of(9).is_none());
+    }
+
+    #[test]
+    fn test_seating_a_player_bumps_seq() {
+        // Two distinct states must never share a seq: the client's
+        // equal-seq allowance exists so a duplicate repaint is harmless,
+        // and it would otherwise admit a stale one.
+        let mut st = seated();
+        let before = st.seq;
+        assert_eq!(st.add_player(9, "dan"), Some(3));
+        assert_eq!(st.seq, before + 1);
+    }
+
+    #[test]
+    fn test_add_player_does_not_bump_seq_when_not_newly_seated() {
+        // The idempotent replay and the full-table rejection both mutate
+        // nothing about who's seated, so neither may raise seq — a phantom
+        // advance is exactly what the equal-seq allowance in
+        // test_seating_a_player_bumps_seq's doc comment can't defend
+        // against.
+        let mut st = seated();
+        let before = st.seq;
+        assert_eq!(st.add_player(2, "bob"), Some(1)); // already seated
+        assert_eq!(st.seq, before);
+
+        for i in 4..=MAX_SEATS as i64 {
+            st.add_player(i, "filler");
+        }
+        let before_full = st.seq;
+        assert_eq!(st.add_player(999, "ninth"), None); // table full
+        assert_eq!(st.seq, before_full);
     }
 
     #[test]

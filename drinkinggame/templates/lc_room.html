@@ -29,7 +29,15 @@
        descendant query. Deliberate for now, not accidental — but the layer
        is inside a `hidden` pane, so the task that first fires a phone flight
        must move it out first. Full reasoning on lc_mini_table. #}
-    <section class="lc-pane" data-lc-pane="table" hidden>{{ table_pane|safe }}</section>
+    <section class="lc-pane" data-lc-pane="table" hidden>{{ table_pane|safe }}
+      {# A sibling of #lc-table, not a descendant — lcApplyTable below
+         replaces #lc-table by id (outerHTML), never this section's
+         innerHTML, so this form survives every table repaint instead of
+         being wiped and rebuilt every broadcast. #}
+      <form method="post" action="{{ base_path }}/room/{{ code }}/lastcall/end" onsubmit="return confirm('End the game for everyone? The room stays open.')">
+        <button type="submit" class="lc-btn lc-btn-secondary">END GAME</button>
+      </form>
+    </section>
     <section class="lc-pane" data-lc-pane="log" hidden>
       <p class="lc-empty">Nothing logged yet.</p>
     </section>
@@ -131,6 +139,10 @@ function lcApply(html) {
 
 // The TABLE pane has no live inputs to preserve, so its apply is the plain
 // half of lcApply: parse, stale-drop against the same shared lcSeq, replace.
+// Replaces #lc-table itself (by id), not the whole pane's innerHTML — the
+// pane also hosts the static END GAME form as a sibling of #lc-table, and
+// swapping the pane's innerHTML wholesale would wipe and rebuild that form
+// on every broadcast instead of leaving it alone.
 function lcApplyTable(html) {
   const tpl = document.createElement("div");
   tpl.innerHTML = html;
@@ -138,7 +150,8 @@ function lcApplyTable(html) {
   const seq = Number(frag?.dataset.seq || 0);
   if (!frag || seq < lcSeq) return;
   lcSeq = seq;
-  document.querySelector('[data-lc-pane="table"]').innerHTML = html;
+  const current = document.getElementById("lc-table");
+  if (current) current.outerHTML = html;
 }
 
 // Coalesce: LcPublic and LcTick arrive as a pair for the same change, so a
@@ -175,6 +188,24 @@ es.addEventListener("lcpublic", e => {
 es.addEventListener("lctick", e => {
   lcSeq = Math.max(lcSeq, Number(e.data || 0));
   lcFetchHand();
+});
+// The room's own SSE stream already carries the "game" event — every
+// `broadcast_game` call publishes it, LC play included, so this shell was
+// already receiving it with no listener registered (a no-op, not an error).
+// `game_idle_panel` is the ONE builder whose root carries class="game-idle"
+// (the RoF/3Man "no game running, press START" card); ending a Last Call
+// game (POST .../lastcall/end) re-renders this exact panel because
+// `db::end_game` makes `db::get_active_game` return None afterward. Parsed
+// and matched by selector, not substring-tested against e.data, for the
+// same reason Task 4's screen/lc_screen handoff had to be fixed to do the
+// same: e.data can carry a player's display name, which is user-controlled.
+es.addEventListener("game", e => {
+  const tpl = document.createElement("div");
+  tpl.innerHTML = e.data;
+  if (tpl.querySelector(".game-idle")) {
+    es.close();
+    window.location = BP + "/room/" + CODE;
+  }
 });
 es.addEventListener("ended", () => { es.close(); window.location = BP + "/"; });
   </script>
