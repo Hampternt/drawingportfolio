@@ -60,7 +60,7 @@ cargo run -p drinkinggame          # standalone on :3001
 #   the game:               http://localhost:3001/room/{CODE}
 ```
 
-### B · Artportfolio visual layer — awaiting spec approval
+### B · Artportfolio visual layer — active
 
 A design-system-driven redesign of `/artportfolio`.
 
@@ -68,11 +68,34 @@ A design-system-driven redesign of `/artportfolio`.
 | --- | --- |
 | Worktree | `~/projects/drawingportfolio.worktrees/artportfolio-visual-layer` |
 | Branch | `feat/artportfolio-visual-layer` (tracks `origin/feat/artportfolio-visual-layer`) |
-| Touches | `docs/` only so far |
-| Status | **Docs only** — 2 commits, ~6800 lines, all under `docs/`. The design-system bundle in `docs/design/artportfolio-redesign/` plus `docs/superpowers/specs/2026-08-09-artportfolio-visual-layer-design.md` (marked *pending user approval*). No implementation started. |
-| Next | Approve or revise the spec, then plan slice 1. |
+| Touches | `docs/`, `src/`, `static/`, `templates/`, `.sqlx/` |
+| Status | **Implementing.** Spec approved 2026-08-09. Slice 1 did not fit one plan under `plan-economics` sizing, so it was split: **Plan A is written and executing**, Plan B is not yet written. Head `e67cf49` (2026-08-10 02:33). |
+| Next | Finish Plan A — its browser checkpoint is still owed — then write Plan B. |
 
-Independent of Last Call — different crates, no overlap.
+Slice 1's split, so the next session does not re-derive it:
+
+| Plan | Scope |
+| --- | --- |
+| **A** — `docs/superpowers/plans/2026-08-10-artportfolio-visual-layer-plan-a.md` | Self-hosted fonts + icons · migration 012 (`image_width`/`image_height`) + sqlx regen · the `style.css` section under `body.art-page` · `art-page` derivation in **both** `base.html` and `admin.html` · the Askama templates that replace `post_card_html()` |
+| **B** — not written | `get_posts_page(q)` + `count_posts` + LIKE escaping · `feed.rs` `q`/`last_month` + month grouping · `filter_rail.html` + `artfeed.js` · page-head counts |
+
+B is **not** safely parallel with A — both rewrite the same `feed.rs`, the same
+templates and the same `style.css` section. Run them in sequence.
+
+Two places execution contradicted the spec. Both are load-bearing:
+
+- **`post_card_html()` has three callers, not the two the spec names.**
+  `src/routes/admin.rs:211` returns it as the upload response when
+  `source == "gallery"`. Converting only the two in `feed.rs` still compiles —
+  the symptom is a legacy `.post-card` appearing in a feed of `hm-post` cards
+  after a real upload, which no test and no build catches.
+- **`feed.html`'s `{% if is_admin %}` admin composer must survive this slice.**
+  The spec's template description omits it; the multi-upload tray that replaces
+  it is slice 4, so removing it now strips upload from the page for two slices.
+
+Independent of Last Call — different crates, no overlap. Slices 2–5 (visibility
+model, collections + tags, multi-upload tray, select mode + batch actions) are
+queued behind slice 1 and scoped in the spec.
 
 ### C · Portfolio drawing tasks — **closed 2026-08-09**
 
@@ -84,7 +107,21 @@ the day it landed. Both branches are gone; nothing is owed.
 
 ---
 
-## 3 · Cleanup queue — empty
+## 3 · Cleanup queue
+
+**Open — `docs/index-refresh`, merged 2026-08-10.** Its one commit `e8610b3`
+fast-forwarded into `master`, so the branch and its worktree have nothing
+unique left:
+
+```bash
+git worktree remove .claude/worktrees/index-refresh
+git branch -d docs/index-refresh
+git push origin --delete docs/index-refresh
+```
+
+That worktree also sits in `.claude/worktrees/`, which §1 reserves for
+short-lived session worktrees — correct for what it was, and the reason it is
+safe to remove now rather than something to preserve.
 
 Everything below was executed on 2026-08-09. Kept as a record of what was
 checked, because the *method* is the reusable part.
@@ -153,6 +190,11 @@ git stash show -p 'stash@{0}' | less    # inspect before deciding
 - **Test counts, measured on `master` at `0eb05b0`:** 49 + 4 + 100 + 77 =
   **230**. PR #6 added one. On `feat/last-call` the numbers are **327 / 145 /
   130**, so whoever merges Last Call owns that update.
+
+  `feat/artportfolio-visual-layer` moves them too, and **already carries its
+  own CLAUDE.md correction** (`e67cf49`). Two branches now edit the same
+  counts, so whichever merges second will conflict on that line — resolve it by
+  re-measuring, not by taking either side.
 
   Counts in prose go stale on almost every merge. If you touch this line, get
   the number from `cargo test --workspace`, never from another document.
