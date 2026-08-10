@@ -875,6 +875,10 @@ pub fn router() -> Router<GameState> {
             "/room/{code}/lastcall/hand",
             get(crate::lc_routes::lc_hand_handler),
         )
+        .route(
+            "/room/{code}/lastcall/table",
+            get(crate::lc_routes::lc_table_handler),
+        )
         .route("/room/{code}/sse", get(sse_stream))
         .route("/room/{code}/screen", get(screen_page))
         .route("/assets/game.css", get(game_css))

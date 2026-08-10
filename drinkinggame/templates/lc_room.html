@@ -23,9 +23,7 @@
 
   <main class="lc-view">
     <section class="lc-pane" data-lc-pane="hand">{{ hand_pane|safe }}</section>
-    <section class="lc-pane" data-lc-pane="table" hidden>
-      <p class="lc-empty">The table lands in the next slice.</p>
-    </section>
+    <section class="lc-pane" data-lc-pane="table" hidden>{{ table_pane|safe }}</section>
     <section class="lc-pane" data-lc-pane="log" hidden>
       <p class="lc-empty">Nothing logged yet.</p>
     </section>
@@ -125,16 +123,36 @@ function lcApply(html) {
   }
 }
 
+// The TABLE pane has no live inputs to preserve, so its apply is the plain
+// half of lcApply: parse, stale-drop against the same shared lcSeq, replace.
+function lcApplyTable(html) {
+  const tpl = document.createElement("div");
+  tpl.innerHTML = html;
+  const frag = tpl.querySelector("#lc-table");
+  const seq = Number(frag?.dataset.seq || 0);
+  if (!frag || seq < lcSeq) return;
+  lcSeq = seq;
+  document.querySelector('[data-lc-pane="table"]').innerHTML = html;
+}
+
 // Coalesce: LcPublic and LcTick arrive as a pair for the same change, so a
 // naive fetch-per-message doubles every request for no new information.
+// Both per-viewer surfaces (hand, table) ride the same debounced timer, in
+// one Promise.all round trip, so a change still costs one fetch per surface
+// and never two per event.
 function lcFetchHand() {
   if (lcPending) return;
   lcPending = setTimeout(() => {
     lcPending = null;
-    fetch(BP + "/room/" + CODE + "/lastcall/hand", { credentials: "same-origin" })
-      .then(r => r.ok ? r.text() : null)
-      .then(html => { if (html !== null) lcApply(html); })
-      .catch(() => {});
+    Promise.all([
+      fetch(BP + "/room/" + CODE + "/lastcall/hand", { credentials: "same-origin" })
+        .then(r => r.ok ? r.text() : null),
+      fetch(BP + "/room/" + CODE + "/lastcall/table", { credentials: "same-origin" })
+        .then(r => r.ok ? r.text() : null),
+    ]).then(([handHtml, tableHtml]) => {
+      if (handHtml !== null) lcApply(handHtml);
+      if (tableHtml !== null) lcApplyTable(tableHtml);
+    }).catch(() => {});
   }, 60);
 }
 

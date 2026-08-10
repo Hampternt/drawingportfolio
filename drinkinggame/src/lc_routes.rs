@@ -13,7 +13,7 @@ use serde::Deserialize;
 use crate::auth::PlayerSession;
 use crate::db;
 use crate::error::GameError;
-use crate::last_call::{Deck, LastCallState, LcError};
+use crate::last_call::{Deck, LastCallState, LcError, PublicView};
 use crate::lc_render::{self, SetupRow};
 use crate::models::{Game, Player, Room};
 use crate::GameState;
@@ -279,8 +279,9 @@ struct LcRoomTemplate {
     base_path: String,
     code: String,
     player_id: i64,
-    banner: String,    // lc_render::lc_banner(&view)
-    hand_pane: String, // lc_render::lc_hand_pane(...)
+    banner: String,     // lc_render::lc_banner(&view)
+    hand_pane: String,  // lc_render::lc_hand_pane(...)
+    table_pane: String, // table_pane_html(&view, me) — the #lc-table fragment
 }
 
 /// `GET /room/{code}/lastcall` — the F.1 phone shell. `load_lc` already gates
@@ -298,21 +299,68 @@ pub async fn lc_page(
         Err(r) => return r,
     };
     let rows = setup_rows(&ctx.st);
-    let hand = ctx
-        .st
-        .seat_of(player.id)
+    let me = ctx.st.seat_of(player.id);
+    let hand = me
         .map(|seat| ctx.st.players[seat].hand.as_slice())
         .unwrap_or(&[]);
     let hand_pane =
         lc_render::lc_hand_pane(&state.base_path, &code, player.id, hand, &rows, ctx.st.seq);
+    let view = ctx.st.public_view();
     let tpl = LcRoomTemplate {
         base_path: state.base_path.to_string(),
         code,
         player_id: player.id,
-        banner: lc_render::lc_banner(&ctx.st.public_view()),
+        banner: lc_render::lc_banner(&view),
         hand_pane,
+        table_pane: table_pane_html(&view, me),
     };
     Html(tpl.render().unwrap()).into_response()
+}
+
+/// The `#lc-table` fragment: the F.3 mini table (`lc_render::lc_mini_table`)
+/// wrapped with the `data-seq` freshness marker, mirroring `lc_hand_pane`'s
+/// `#lc-hand` root. Shared by `lc_page` (initial paint) and
+/// `lc_table_handler` (the per-viewer refetch) so the two can never
+/// disagree on the fragment's shape for the same state.
+fn table_pane_html(view: &PublicView, me: Option<usize>) -> String {
+    format!(
+        r#"<div id="lc-table" data-seq="{}">{}</div>"#,
+        view.seq,
+        lc_render::lc_mini_table(view, me),
+    )
+}
+
+/// `GET /room/{code}/lastcall/table` — PER VIEWER.
+///
+/// The mini table's underlying data is entirely public — it's the same
+/// `PublicView` the big screen renders from `LcPublic` — but the LAYOUT is
+/// not: D.2 rotates the ring so the viewer's own seat sits at
+/// bottom-centre, and no two players share a rotation. A `RoomHub`
+/// broadcast is one fragment for the whole room and cannot carry a
+/// per-viewer rotation, so this is fetched rather than pushed — same reason
+/// `lc_hand_handler` below is a fetch, not a broadcast.
+///
+/// Takes no player identifier of any kind: no path segment, no query
+/// parameter, no form field. The viewer's identity comes from the session
+/// cookie alone, via `PlayerSession`. Written this way, "can player A fetch
+/// player B's rotation?" is unanswerable rather than merely guarded, and a
+/// reviewer can verify it from this signature — the same property
+/// `lc_hand_handler` establishes for hands (spec §6.1). A room member who
+/// has not been seated (joined mid-game, no vessel yet) passes `None` to
+/// `lc_mini_table` and gets the unrotated table, the same branch `lc_page`
+/// already takes for the hand.
+pub async fn lc_table_handler(
+    State(state): State<GameState>,
+    PlayerSession(player): PlayerSession,
+    Path(code): Path<String>,
+) -> axum::response::Response {
+    let ctx = match load_lc(&state, &code, &player).await {
+        Ok(c) => c,
+        Err(r) => return r,
+    };
+    let me = ctx.st.seat_of(player.id);
+    let view = ctx.st.public_view();
+    Html(table_pane_html(&view, me)).into_response()
 }
 
 /// `GET /room/{code}/lastcall/hand` — PRIVATE.

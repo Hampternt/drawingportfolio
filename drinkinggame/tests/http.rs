@@ -4809,3 +4809,232 @@ async fn test_lcpublic_carries_both_templates_and_the_frame_count_is_unchanged()
         }
     }
 }
+
+// -------------------------------------------------------------
+// Last Call (Task 5): the phone TABLE tab — `GET /room/{code}/lastcall/table`.
+// Per-viewer data (D.2's bottom-centre rotation), fetched rather than
+// broadcast, following `lc_hand_handler`'s exact shape: no player
+// identifier of any kind, identity from the session cookie alone.
+// -------------------------------------------------------------
+
+async fn get_table(app: &Router, cookie: &str, code: &str) -> axum::response::Response {
+    app.clone()
+        .oneshot(
+            Request::get(format!("/room/{code}/lastcall/table"))
+                .header(header::COOKIE, cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap()
+}
+
+/// Pulls the `data-seq` off the `#lc-table` root, so tests can assert two
+/// fetches of the same state agree on freshness without hardcoding it.
+fn table_seq(html: &str) -> u64 {
+    let marker = "id=\"lc-table\" data-seq=\"";
+    let start = html.find(marker).unwrap() + marker.len();
+    let rest = &html[start..];
+    rest[..rest.find('"').unwrap()].parse().unwrap()
+}
+
+/// The core claim (D.2, and the reason this route is a fetch and not a
+/// broadcast): same room, same state, same seq — different HTML, each with
+/// the requester's own seat in the bottom slot.
+#[tokio::test]
+async fn test_two_players_get_different_rotations_of_the_same_table() {
+    let (app, pool) = test_app_with_pool().await;
+    let alice = login(&app, "alice", "1234").await;
+    let bob = login(&app, "bob", "5678").await;
+    let cara = login(&app, "cara", "1234").await;
+    let code = create_room(&app, &alice).await;
+    room_page_html(&app, &bob, &code).await;
+    room_page_html(&app, &cara, &code).await;
+    post_form(&app, &alice, &format!("/room/{code}/lastcall/start"), "").await;
+
+    let st = lc_state(&pool, &code).await;
+    let alice_player = drinkinggame::db::get_player_by_name(&pool, "alice")
+        .await
+        .unwrap();
+    let bob_player = drinkinggame::db::get_player_by_name(&pool, "bob")
+        .await
+        .unwrap();
+    let alice_seat = st.seat_of(alice_player.id).unwrap();
+    let bob_seat = st.seat_of(bob_player.id).unwrap();
+    assert_ne!(alice_seat, bob_seat, "test precondition: distinct seats");
+
+    let alice_table = body_string(get_table(&app, &alice, &code).await).await;
+    let bob_table = body_string(get_table(&app, &bob, &code).await).await;
+    assert_ne!(alice_table, bob_table);
+
+    // Neither request changed any state, so both reads land at the same seq.
+    assert_eq!(table_seq(&alice_table), table_seq(&bob_table));
+
+    let bottom = drinkinggame::lc_layout::seat_positions(3)[0];
+    assert!(
+        alice_table.contains(&format!(
+            r#"style="left:{}%;top:{}%" data-seat="{alice_seat}""#,
+            bottom.0, bottom.1
+        )),
+        "alice's own seat ({alice_seat}) should hold the bottom slot in her \
+         view: {alice_table}"
+    );
+    assert!(
+        bob_table.contains(&format!(
+            r#"style="left:{}%;top:{}%" data-seat="{bob_seat}""#,
+            bottom.0, bottom.1
+        )),
+        "bob's own seat ({bob_seat}) should hold the bottom slot in his \
+         view: {bob_table}"
+    );
+}
+
+/// Asserts the §6.1 constraint behaviourally, not just by signature:
+/// appending a caller-supplied player identifier to the query string must
+/// change nothing about the response — mirrors
+/// `test_lastcall_hand_route_takes_no_player_input`.
+#[tokio::test]
+async fn test_the_table_route_takes_no_player_identifier() {
+    let (app, pool) = test_app_with_pool().await;
+    let alice = login(&app, "alice", "1234").await;
+    let bob = login(&app, "bob", "5678").await;
+    let code = create_room(&app, &alice).await;
+    room_page_html(&app, &bob, &code).await;
+    post_form(&app, &alice, &format!("/room/{code}/lastcall/start"), "").await;
+    let bob_player = drinkinggame::db::get_player_by_name(&pool, "bob")
+        .await
+        .unwrap();
+
+    let baseline = body_string(get_table(&app, &alice, &code).await).await;
+
+    let with_player_id = body_string(
+        app.clone()
+            .oneshot(
+                Request::get(format!(
+                    "/room/{code}/lastcall/table?player_id={}",
+                    bob_player.id
+                ))
+                .header(header::COOKIE, &alice)
+                .body(Body::empty())
+                .unwrap(),
+            )
+            .await
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(baseline, with_player_id);
+
+    let with_target = body_string(
+        app.oneshot(
+            Request::get(format!(
+                "/room/{code}/lastcall/table?target={}",
+                bob_player.id
+            ))
+            .header(header::COOKIE, &alice)
+            .body(Body::empty())
+            .unwrap(),
+        )
+        .await
+        .unwrap(),
+    )
+    .await;
+    assert_eq!(baseline, with_target);
+}
+
+#[tokio::test]
+async fn test_the_table_route_requires_a_session() {
+    let app = test_app().await;
+    let alice = login(&app, "alice", "1234").await;
+    let code = create_room(&app, &alice).await;
+
+    let res = app
+        .oneshot(
+            Request::get(format!("/room/{code}/lastcall/table"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert!(
+        res.status().is_redirection() || res.status() == StatusCode::UNAUTHORIZED,
+        "expected a redirect or 401, got {}",
+        res.status()
+    );
+    assert!(body_string(res).await.is_empty());
+}
+
+/// A room member the app has no route for reaching un-seated: every real
+/// HTTP path into a room (`/room/{code}`) auto-seats a member into
+/// `LastCallState` the instant a Last Call game is active, so this test
+/// puts cara in `room_members` directly at the DB layer — the same
+/// mid-game-join, no-vessel-yet state the brief describes — and asserts the
+/// route falls back to the unrotated table rather than panicking on a
+/// missing seat.
+#[tokio::test]
+async fn test_an_unseated_member_gets_the_unrotated_table() {
+    let (app, pool) = test_app_with_pool().await;
+    let alice = login(&app, "alice", "1234").await;
+    let bob = login(&app, "bob", "5678").await;
+    let cara = login(&app, "cara", "1234").await;
+    let code = create_room(&app, &alice).await;
+    room_page_html(&app, &bob, &code).await;
+    post_form(&app, &alice, &format!("/room/{code}/lastcall/start"), "").await;
+
+    let room = drinkinggame::db::get_open_room(&pool, &code).await.unwrap();
+    let cara_player = drinkinggame::db::get_player_by_name(&pool, "cara")
+        .await
+        .unwrap();
+    drinkinggame::db::join_room(&pool, room.id, cara_player.id).await;
+
+    let st = lc_state(&pool, &code).await;
+    assert!(
+        st.seat_of(cara_player.id).is_none(),
+        "test precondition: cara must be unseated"
+    );
+
+    let table = body_string(get_table(&app, &cara, &code).await).await;
+    assert!(!table.contains("data-me"));
+    let expected = format!(
+        r#"<div id="lc-table" data-seq="{}">{}</div>"#,
+        st.public_view().seq,
+        drinkinggame::lc_render::lc_mini_table(&st.public_view(), None),
+    );
+    assert_eq!(table, expected);
+}
+
+/// Both panes (HAND and TABLE) are always in the DOM, one just `hidden` —
+/// so the page must not carry two `#lc-flights` or `#lc-felt` roots, and no
+/// `data-flight-anchor` may repeat across the two surfaces: `lcAnchor`
+/// returns the first match, so a duplicate would silently misroute a
+/// flight. Mirrors `lc_render`'s own
+/// `test_no_duplicate_anchors_or_ids_on_either_surface`, at the whole-page
+/// level.
+#[tokio::test]
+async fn test_one_flight_layer_per_page() {
+    let app = test_app().await;
+    let alice = login(&app, "alice", "1234").await;
+    let bob = login(&app, "bob", "5678").await;
+    let code = create_room(&app, &alice).await;
+    room_page_html(&app, &bob, &code).await;
+    post_form(&app, &alice, &format!("/room/{code}/lastcall/start"), "").await;
+
+    let html = body_string(get_shell(&app, &alice, &code).await).await;
+    for needle in ["id=\"lc-felt\"", "id=\"lc-flights\""] {
+        assert_eq!(
+            html.matches(needle).count(),
+            1,
+            "duplicate {needle}: {html}"
+        );
+    }
+    let mut anchors: Vec<&str> = html
+        .match_indices("data-flight-anchor=\"")
+        .map(|(i, m)| {
+            let rest = &html[i + m.len()..];
+            &rest[..rest.find('"').unwrap()]
+        })
+        .collect();
+    let before = anchors.len();
+    anchors.sort_unstable();
+    anchors.dedup();
+    assert_eq!(anchors.len(), before, "duplicate flight anchor: {html}");
+}
