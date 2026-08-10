@@ -23,7 +23,7 @@
       {#- The real total, from count_posts() — one COUNT per full page render,
           never on HTMX pagination. Under an active search it names the query
           instead of the sort order. -#}
-      <div class="hm-eyebrow art-head__label">{{ head_label }}</div>
+      <div class="hm-eyebrow art-head__label" id="art-head-label">{{ head_label }}</div>
       <h1>Drawing Portfolio</h1>
       <p class="art-head__intro">Mostly practice — studies, drills, and the odd finished piece.</p>
     </div>

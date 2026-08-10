@@ -12,6 +12,13 @@
   pre-computed from the handler — this file contains no logic beyond the
   conditionals below.
 #}
+{#- Out-of-band swap of the page head's label. A search replaces #feed only,
+    so without this the head would keep claiming the unfiltered total above a
+    filtered feed. Empty on the inlined first page (the shell renders the head)
+    and on Load more (which appends and changes no total). -#}
+{% if !head_label_oob.is_empty() %}
+<div class="hm-eyebrow art-head__label" id="art-head-label" hx-swap-oob="true">{{ head_label_oob }}</div>
+{% endif %}
 {% if groups.is_empty() && is_first_page %}
 {% include "artportfolio/partials/empty_state.html" %}
 {% else %}
@@ -22,7 +29,7 @@
 <section class="art-month">
   {% if group.show_divider %}
   <div class="art-month__divider">
-    <span class="art-month__label">{{ group.label }} · {{ group.count }} drawings</span>
+    <span class="art-month__label">{{ group.label }} · {{ group.count }} drawing{% if group.count != 1 %}s{% endif %}</span>
     <span class="art-month__rule"></span>
   </div>
   {% endif %}

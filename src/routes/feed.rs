@@ -142,6 +142,15 @@ struct PostGridTemplate {
     is_first_page: bool,
     /// The active search, `""` when there is none — the empty state names it.
     q: String,
+    /// The page head's label, re-rendered as an out-of-band swap, or `""` to
+    /// leave the head alone.
+    ///
+    /// A search swaps `#feed` only, so without this the head would go on
+    /// claiming "32 drawings · newest first" above a single result — a visible
+    /// lie, not a stale nicety. Sent on page 0 of an HTMX request (a search or
+    /// a cleared filter); never on Load more, which appends and leaves the
+    /// total unchanged.
+    head_label_oob: String,
 }
 
 #[derive(Deserialize)]
@@ -162,6 +171,7 @@ async fn render_grid(
     page: i64,
     q: Option<&str>,
     last_month: Option<&str>,
+    head_label_oob: Option<String>,
 ) -> String {
     let mut posts = crate::db::get_posts_page(&state.pool, q, page).await;
     let has_more = posts.len() > 20;
@@ -177,6 +187,7 @@ async fn render_grid(
         load_more_url: load_more_url(page + 1, q, next_last_month.as_deref()),
         is_first_page: page == 0,
         q: q.unwrap_or_default().to_string(),
+        head_label_oob: head_label_oob.unwrap_or_default(),
         groups,
     }
     .render()
@@ -195,7 +206,8 @@ async fn feed_page(
     // Fetch first page here so posts arrive in the very first HTTP response.
     // Without this, the browser would load the page and then fire a second
     // request to /artportfolio/htmx/posts?page=0 before anything was visible.
-    let initial_posts_html = render_grid(&state, 0, q.as_deref(), None).await;
+    // No out-of-band label here: the shell renders the head itself.
+    let initial_posts_html = render_grid(&state, 0, q.as_deref(), None, None).await;
     let total = crate::db::count_posts(&state.pool, q.as_deref()).await;
 
     Html(
@@ -216,7 +228,16 @@ async fn htmx_posts(
 ) -> Response {
     let page = query.page.unwrap_or(0);
     let q = normalize_q(query.q.as_deref());
-    let html = render_grid(&state, page, q.as_deref(), query.last_month.as_deref()).await;
+
+    // Page 0 replaces the whole feed, so the head's total has to move with it.
+    // Load more only appends, and pays no COUNT.
+    let oob = if page == 0 {
+        let total = crate::db::count_posts(&state.pool, q.as_deref()).await;
+        Some(head_label(total, q.as_deref()))
+    } else {
+        None
+    };
+    let html = render_grid(&state, page, q.as_deref(), query.last_month.as_deref(), oob).await;
 
     if page == 0 {
         // Page 0 is a search or a cleared filter — the address bar should read
@@ -601,6 +622,42 @@ mod tests {
             resp.headers().get("HX-Push-Url").unwrap(),
             "/artportfolio?q=loomis",
             "pushing the fragment URL would give a bare grid on reload"
+        );
+    }
+
+    /// Renders a fragment route and returns its body as a string.
+    async fn fragment(app: Router, uri: &str) -> String {
+        let resp = app
+            .oneshot(Request::builder().uri(uri).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        String::from_utf8(body.to_vec()).unwrap()
+    }
+
+    #[tokio::test]
+    async fn test_search_re_renders_the_head_label_out_of_band() {
+        // A search swaps #feed alone, so the head has to travel with it or it
+        // goes on stating the unfiltered total above a filtered feed.
+        let html = fragment(test_app().await, "/artportfolio/htmx/posts?q=loomis").await;
+        assert!(
+            html.contains(r#"id="art-head-label" hx-swap-oob="true""#),
+            "the fragment must carry the head label as an OOB swap: {html}"
+        );
+        assert!(
+            html.contains("matching"),
+            "and the label must name the active search: {html}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_load_more_leaves_the_head_label_alone() {
+        let html = fragment(test_app().await, "/artportfolio/htmx/posts?page=1").await;
+        assert!(
+            !html.contains("hx-swap-oob"),
+            "appending changes no total, so it must not touch the head: {html}"
         );
     }
 
