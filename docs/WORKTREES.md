@@ -74,52 +74,46 @@ A design-system-driven redesign of `/artportfolio`.
 
 Independent of Last Call — different crates, no overlap.
 
-### C · Portfolio drawing tasks — dormant, being wound up
+### C · Portfolio drawing tasks — **closed 2026-08-09**
 
-| | |
-| --- | --- |
-| Worktree | none |
-| Branch | `fix/stale-image-id` → **PR #6, open** |
-| Status | One rescued commit. `./scripts/verify.sh` green. |
-
-`fix/stale-image-id` carries commit `82e0053` (2026-07-04), which guards
+Landed as **PR #6** (`be7cfdc`). Commit `82e0053` (2026-07-04) guards
 `insert_drawing_task` against a stale `image_id` and stops the S3 object being
-deleted when the transaction fails. It was stranded for five weeks on
-`claude/portfolio-drawing-tasks-9sazgl` and never reached `master`.
-
-Once PR #6 merges, `claude/portfolio-drawing-tasks-9sazgl` has nothing unique
-left and can go — see the cleanup queue.
+deleted when the transaction fails. It sat unmerged for five weeks on
+`claude/portfolio-drawing-tasks-9sazgl` and existed only on one machine until
+the day it landed. Both branches are gone; nothing is owed.
 
 ---
 
-## 3 · Cleanup queue
+## 3 · Cleanup queue — empty
 
-Deliberately manual: remote deletion is not recoverable from the reflog. Each
-tip below is an ancestor of `master`, so any ref can be recreated locally with
-`git branch <name> <sha>` — the SHAs are recorded for exactly that reason.
+Everything below was executed on 2026-08-09. Kept as a record of what was
+checked, because the *method* is the reusable part.
 
-**Merged, verified 0 commits ahead of `master` with an empty file-level diff:**
+Six remote branches deleted, each verified before removal:
 
-```bash
-git push origin --delete claude/add-portion-sizes-SnZ3a               # e0b806a
-git push origin --delete claude/fitness-barcode-camera-reload-bj3i88  # 7b9cf9e
-git push origin --delete claude/claude-md-docs-cfwpf6                 # f153acb
-```
-
-**After PR #6 merges** — and not before, it is the only copy of `82e0053`
-outside the PR:
-
-```bash
-git branch -D claude/portfolio-drawing-tasks-9sazgl                   # 66f8485
-git push origin --delete claude/portfolio-drawing-tasks-9sazgl
-```
+| Branch | Tip | Why it was safe |
+| --- | --- | --- |
+| `claude/add-portion-sizes-SnZ3a` | `e0b806a` | 0 ahead, empty file diff |
+| `claude/fitness-barcode-camera-reload-bj3i88` | `7b9cf9e` | 0 ahead, empty file diff |
+| `claude/claude-md-docs-cfwpf6` | `f153acb` | 0 ahead, empty file diff |
+| `claude/portfolio-drawing-tasks-9sazgl` | `66f8485` | see below |
+| `fix/stale-image-id` | `53882c7` | merged, PR #6 |
+| `docs/worktree-index` | `89ebdec` | merged, PR #7 |
 
 > **Before deleting any branch that merely looks stale, run
-> `git diff master...<branch>`.** Ahead/behind counts cannot tell *superseded*
-> from *pending*. `9sazgl` read as 4 commits unmerged and looked live, but
-> three were content-identical to work already on `master` by another path and
-> only one was real. A file-level diff is the only check that distinguishes
-> them.
+> `git diff master...<branch>` — and then check the files it names actually
+> exist on `master`.** Ahead/behind counts cannot tell *superseded* from
+> *pending*.
+>
+> `9sazgl` is the worked example. It read as **4 commits ahead** with a
+> non-empty diff naming ~3000 lines of plan and spec documents — which looks
+> like unmerged work. Every one of those documents was already on `master`,
+> having landed via PR #4 by a different path. The only object unique to the
+> branch was a stray `160000` gitlink from someone `git add`-ing a worktree
+> directory. Its one piece of real value, `82e0053`, had been rescued onto
+> `fix/stale-image-id` first — the branch was only deleted after that merged.
+>
+> Commit counts measure divergence. Only content measures loss.
 
 ### Two orphaned stashes
 
@@ -151,16 +145,17 @@ git stash show -p 'stash@{0}' | less    # inspect before deciding
 
 ## 4 · Known debts
 
-- **`cargo test` runs 52 of 229 tests.** The root `Cargo.toml` is both a package
+- **`cargo test` runs 53 of 230 tests.** The root `Cargo.toml` is both a package
   and the workspace root, and in that layout cargo defaults to the *current
-  package* — so `drinkinggame`'s 177 tests are silently skipped. CLAUDE.md's
-  "`cargo build` / `cargo test` at the root cover both" is wrong for `test`.
-  **`./scripts/verify.sh` is the gate precisely because it passes
-  `--workspace`.** Never accept a bare `cargo test` as evidence.
-- **CLAUDE.md's test counts are correct for `master` and will break on merge.**
-  It says 229 workspace / 100 drinkinggame / 77 http; `master` measures exactly
-  48 + 4 + 100 + 77 = 229. On `feat/last-call` the numbers are **327 / 145 /
+  package* — so `drinkinggame`'s 177 tests are silently skipped. **
+  `./scripts/verify.sh` is the gate precisely because it passes `--workspace`.**
+  Never accept a bare `cargo test` as evidence.
+- **Test counts, measured on `master` at `0eb05b0`:** 49 + 4 + 100 + 77 =
+  **230**. PR #6 added one. On `feat/last-call` the numbers are **327 / 145 /
   130**, so whoever merges Last Call owns that update.
+
+  Counts in prose go stale on almost every merge. If you touch this line, get
+  the number from `cargo test --workspace`, never from another document.
 - ~~`…-last-call-STATUS.md` says "19 clippy warnings" where CLAUDE.md says 17
   distinct.~~ **Fixed 2026-08-09** (`d8b0a9a`). Both numbers were real and
   measured different things; the STATUS card now states **17 distinct** and
