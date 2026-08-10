@@ -5244,3 +5244,40 @@ async fn test_a_ninth_member_can_still_open_the_room() {
         "an unseated member must render the unrotated table: {shell}"
     );
 }
+
+/// `lc_room.html`'s new `game` listener redirects to `/room/{code}` the
+/// instant a `game` frame's payload matches `.game-idle`, and it does so
+/// unconditionally — there is no room-scoped check. `POST /room/{code}/end`
+/// (a different route from `/lastcall/end`, ends the whole night) only ever
+/// publishes `RoomMessage::Ended`, never `RoomMessage::Game`
+/// (`end_room_handler`, `routes.rs`) — but that is a property of a route
+/// this task did not touch, so it is worth pinning with a test rather than
+/// trusting the read: if `Ended` ever raced a `game-idle` `Game` frame
+/// published first, every phone on the Last Call shell would navigate to
+/// `/room/{code}` instead of `/`, landing on "Room not found" once the room
+/// row is actually gone.
+#[tokio::test]
+async fn test_ending_the_room_never_races_the_game_idle_redirect() {
+    let app = test_app().await;
+    let alice = login(&app, "alice", "1234").await;
+    let bob = login(&app, "bob", "5678").await;
+    let code = create_room(&app, &alice).await;
+    room_page_html(&app, &bob, &code).await;
+    post_form(&app, &alice, &format!("/room/{code}/lastcall/start"), "").await;
+
+    let res = get(&app, &format!("/room/{code}/sse")).await;
+    let mut body = res.into_body().into_data_stream();
+    read_sse_until(&mut body, "event: room").await; // drain the start snapshot
+
+    let end_res = post_form(&app, &alice, &format!("/room/{code}/end"), "").await;
+    assert_eq!(end_res.status(), StatusCode::SEE_OTHER);
+
+    let seen = read_sse_until(&mut body, "event: ended").await;
+    let before_ended = &seen[..seen.find("event: ended").unwrap()];
+    assert!(
+        !before_ended.contains(r#"class="game-idle""#),
+        "a game-idle Game frame published before Ended would send every LC \
+         phone to /room/{{code}} instead of /, right as the room disappears: \
+         {seen}"
+    );
+}
