@@ -231,6 +231,26 @@ computed on the page-0 path and would otherwise never learn about the preview.
 The permalink route honours the same flag: a previewing admin gets the 404 on a hidden
 post. A preview that quietly shows more than a visitor would is worse than no preview.
 
+**One effective viewer drives everything.** This is the subtle failure mode: `Viewer`
+governs the db layer while `is_admin: bool` governs the templates, so under `?visitor=1`
+a naive implementation passes `Viewer::Visitor` to the query and the raw session bool to
+the card — rendering a visitor's post set with admin badges and hover controls on every
+card. The preview would get wrong precisely the thing it exists to show.
+
+So the handler derives **one** effective viewer and drives both from it:
+
+```
+effective = if session_is_admin && !preview { Admin } else { Visitor }
+```
+
+The raw `OptionalAuth` bool survives for exactly one purpose: rendering the "previewing
+as a visitor — exit" affordance in the head, which a real visitor must never see.
+
+**Consequence, stated so nobody hesitates over it:** under preview the
+`{% if is_admin %}` upload composer in `feed.html` disappears too. That is correct — a
+visitor has no composer — and consistent with the badges going away, but it looks like
+a regression to anyone implementing it without this paragraph.
+
 ### `src/routes/admin.rs`
 
 - `PATCH /api/admin/posts/{id}/visibility` — body carries the new state; an unrecognised
@@ -254,8 +274,14 @@ The card gains, **admin only**:
 - a hover/focus control cluster at top-left with hide and unlist actions
 
 A visitor's card is byte-identical to slice 1's. The badge and cluster live behind
-`{% if is_admin %}`, which means `PostCardTemplate` gains an `is_admin` field and all
-three render sites pass it.
+`{% if is_admin %}` — fed by the *effective* viewer above, never the raw session bool.
+
+**The threading is not just `PostCardTemplate`.** `post_card.html` is `include`d from
+`post_grid.html` with `{% let %}` bindings, so the flag has to reach the grid as well:
+`PostGridTemplate` gains the field and `render_grid()` gains the parameter. Add it to
+`PostCardTemplate` alone and the feed's own cards — every card except the upload
+response — cannot see it. `render_grid()` already needs the viewer for its db call, so
+this is one parameter threaded to two uses, not two parameters.
 
 Styles go in `style.css` under the existing `body.art-page` section — never a `<style>`
 block, per the architecture rules.
@@ -270,6 +296,7 @@ block, per the architecture rules.
 | `/admin` dashboard lists all three | catches `admin.rs:52` being passed `Visitor` |
 | permalink: public 200 · unlisted 200 · hidden 404 visitor / 200 admin | the state table above, executable |
 | `?visitor=1` hides hidden posts on page 0 **and** page 1 | the `load_more_url` threading bug |
+| `?visitor=1` also hides the badges, the card controls and the composer | the effective-viewer split — a preview showing admin chrome over a visitor's posts |
 | `PATCH` with an unknown string → 400 | fail closed |
 | `Visibility::from_str` round-trip, unknown → `Hidden` | fail closed |
 | head counts split correctly | `count_posts`' new shape |
@@ -294,8 +321,12 @@ either. Candidate split, to be confirmed when the plan is written:
 
 | Plan | Scope |
 |---|---|
-| **A** | migration 013 · `Visibility`/`Viewer` · db filtering · `OptionalAuth` on all three feed routes · permalink route + template · sqlx cache |
-| **B** | `PATCH` route · upload field · card badge, opacity and control cluster · split head counts · view-as-visitor |
+| **A** | migration 013 · `Visibility`/`Viewer` · db filtering · `OptionalAuth` on all three feed routes · the effective-viewer derivation **including the `?visitor=1` flag** and its threading through `PageQuery`, `load_more_url()`, `page_url()` and `head_label()` · permalink route + template · sqlx cache |
+| **B** | `PATCH` route · upload field · card badge, opacity and control cluster · split head counts · the view-as-visitor button and `V` shortcut |
+
+The preview *flag* belongs to A even though the preview *button* belongs to B. Its
+threading through those four functions is the same viewer plumbing A ships; split it and
+B has to re-open every function A just closed.
 
 A and B are **not** safely parallel: both touch `feed.rs`, `post_card.html` and the same
 `style.css` section, the same reason slice 1's two plans ran in sequence.
