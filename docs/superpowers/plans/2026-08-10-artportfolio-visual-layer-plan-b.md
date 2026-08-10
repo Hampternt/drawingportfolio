@@ -951,6 +951,14 @@ Verified good:
   HTMX's 200ms debounce lands late and the feed can appear one keystroke behind. With a
   3s settle the final state was always correct.
 
+**Known debt this plan creates, deliberately:** the head count goes stale by one after an
+admin upload. The composer's response is a single `PostCardTemplate` swapped
+`afterbegin` into `#feed`, so it carries no OOB label — and Plan B is what made the head
+state a number for that staleness to be visible in. It corrects itself on the next page
+load or search. Not fixed here because slice 4 replaces the composer with the
+multi-upload tray, which owns this response shape; whoever writes it should return the
+OOB label alongside the new card, exactly as `htmx_posts` does for page 0.
+
 ---
 
 ## Final review

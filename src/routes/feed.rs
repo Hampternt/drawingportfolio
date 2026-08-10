@@ -201,6 +201,11 @@ async fn feed_page(
 ) -> impl IntoResponse {
     // `?q=` is read here as well as on the fragment route, so a searched feed
     // survives a reload and is linkable.
+    //
+    // `?page=` is deliberately ignored: the inlined first page is always page 0,
+    // and deep-linking into the middle of an append-only feed would render a
+    // page with no way back to the top of it. PageQuery carries the field for
+    // the fragment route's sake.
     let q = normalize_q(query.q.as_deref());
 
     // Fetch first page here so posts arrive in the very first HTTP response.
