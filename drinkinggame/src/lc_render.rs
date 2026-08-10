@@ -564,6 +564,30 @@ pub fn lc_screen_panel(view: &PublicView) -> String {
 /// dot+label+count row, so doing so would be authoring a new component,
 /// which this plan does not do. See the task report for the full
 /// adjudication.
+///
+/// # The phone's only flight layer lives in here — read before firing one
+///
+/// The `#lc-flights` emitted below is the F.1 shell's *sole* layer:
+/// `lc_hand_pane` emits none, and `lc_room.html` marks no
+/// `[data-lc-scene]`, so `ensureLayer` falls back to `document.body` and
+/// then finds this one by descendant query. It therefore sits inside
+/// `<section data-lc-pane="table">`, which is `hidden` unless the viewer
+/// has the TABLE tab open.
+///
+/// Harmless today: nothing on the phone calls `lcFlight` — the beat state
+/// machine's transitions are stubbed. **The task that first fires a phone
+/// flight must move the layer out of this fragment before doing so.** A
+/// flight appended into a `display: none` host never animates, so
+/// `animationend` never fires, the node is never removed, and `onArrive`
+/// never runs. Marking `body.lc` with `data-lc-scene` is *not* the fix —
+/// `ensureLayer` searches the host's descendants, so it would still reach
+/// this layer.
+///
+/// Where it should move to is that task's call, not this one's: a
+/// deck-to-seat flight belongs to the table, a draw-to-hand flight to the
+/// hand, and only the beat loop knows which it fires. Doing it here would
+/// also re-open Task 3's builder, its `lc_render` tests, and the
+/// containing-block reasoning recorded at `lastcall.css:551-563`.
 pub fn lc_mini_table(view: &PublicView, me: Option<usize>) -> String {
     let n = view.seats.len();
 

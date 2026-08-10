@@ -23,6 +23,12 @@
 
   <main class="lc-view">
     <section class="lc-pane" data-lc-pane="hand">{{ hand_pane|safe }}</section>
+    {# This pane is the shell's only scene root: lc_mini_table emits the
+       single #lc-flights, and with no [data-lc-scene] anywhere on this page
+       ensureLayer falls back to document.body and finds it in here by
+       descendant query. Deliberate for now, not accidental — but the layer
+       is inside a `hidden` pane, so the task that first fires a phone flight
+       must move it out first. Full reasoning on lc_mini_table. #}
     <section class="lc-pane" data-lc-pane="table" hidden>{{ table_pane|safe }}</section>
     <section class="lc-pane" data-lc-pane="log" hidden>
       <p class="lc-empty">Nothing logged yet.</p>
