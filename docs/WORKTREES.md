@@ -70,7 +70,7 @@ A design-system-driven redesign of `/artportfolio`.
 | Branch | `feat/artportfolio-visual-layer` (tracks `origin/feat/artportfolio-visual-layer`) |
 | Touches | `docs/`, `src/`, `static/`, `templates/`, `.sqlx/` |
 | Status | **Slice 1 complete**, 2026-08-10. Spec approved 2026-08-09. Slice 1 did not fit one plan under `plan-economics` sizing, so it was split — **Plan A and Plan B are both written, executed and browser-checkpointed**, last slice-1 commit `4c786a2`. `master` is merged in and `./scripts/verify.sh` is green. Pushed; not merged to `master`. |
-| Next | **Slice 2's spec is written** — `docs/superpowers/specs/2026-08-11-artportfolio-visibility-model-design.md`, pending user approval. Then `plan-economics` and the plan(s). |
+| Next | **Execute slice 2's Plan A** — `docs/superpowers/plans/2026-08-11-artportfolio-visibility-plan-a.md`, 5 tasks, written 2026-08-11 against the spec `…/specs/2026-08-11-artportfolio-visibility-model-design.md`. Plan B is deliberately unwritten: `plan-economics` says each plan is written fresh from the spec in its own session. |
 
 No ahead/behind counts live in this card on purpose — they are stale the moment
 anything moves. Run `git rev-list --left-right --count master...HEAD` if you
