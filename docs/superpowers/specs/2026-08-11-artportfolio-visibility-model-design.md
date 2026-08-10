@@ -25,6 +25,12 @@ Non-goals: collections, tags, the rail's filter groups (slice 3), the multi-uplo
 tray (slice 4), select mode and batch visibility (slice 5), and post reordering — the
 handoff's `position` column is not added here, because nothing reorders yet.
 
+**Also a non-goal, and worth stating so it is not filed as a bug:** the `/admin`
+dashboard shows no visibility badge. It renders through `admin_post_card_html()`, the
+legacy format string, which slice 1 deliberately left alone and which a later slice
+migrates. So an admin who hides a post will see it unchanged on `/admin` — correctly
+listed, just unlabelled. The feed is where state is visible in this slice.
+
 ## The three states
 
 | visibility | in feed | in JSON API | permalink, visitor | permalink, admin |
@@ -169,6 +175,21 @@ pub struct PostCounts { pub total: i64, pub public: i64, pub unlisted: i64, pub 
 One `GROUP BY visibility` query, not three COUNTs. For a visitor, `total` is the public
 count and the other three fields are not rendered.
 
+**`GROUP BY` returns no row for a state with zero posts**, so the struct is built by
+defaulting every absent key to `0` — not by indexing the result. A portfolio with
+nothing hidden is the normal case, not an edge one.
+
+`head_label()` therefore takes the viewer as well, and the label has four shapes:
+
+| | no search | searching |
+|---|---|---|
+| **visitor** | `117 drawings · newest first` | `12 drawings · matching "cat"` |
+| **admin** | `128 drawings · 117 public · 4 unlisted · 7 hidden` | `12 drawings · matching "cat" · 9 public · 2 unlisted · 1 hidden` |
+
+The split **replaces** the `· newest first` sort suffix and **follows** `· matching
+"…"` when there is a search. Sort order is unchanged and stated by the toolbar, so
+spending head room on it while withholding the counts would be the wrong trade.
+
 Today's `count_posts` carries `as "count: i64"` because sqlx infers SQLite's `COUNT(*)`
 as `i32` (`db.rs:153`). The `GROUP BY` version is `query_as!` rather than
 `query_scalar!`, so that override changes form to `AS "n: i64"` and is easy to drop on
@@ -199,10 +220,13 @@ Cards in the feed link to their permalink.
 an admin can see what a visitor sees. The handoff gives it the `V` shortcut and a
 secondary button in the head; while active, the head shows a way back.
 
-**It must be added to `PageQuery` and threaded through both `load_more_url()` and
-`page_url()`, exactly as `q` and `last_month` already are.** Without that, page 0
-renders as a visitor and the first *Load more* renders as an admin — hidden posts
-appear mid-feed in the middle of the preview that exists to prove they do not.
+**It must be added to `PageQuery` and threaded through `load_more_url()`, `page_url()`
+and `head_label()`, exactly as `q` and `last_month` already are.** Without the first
+two, page 0 renders as a visitor and the first *Load more* renders as an admin — hidden
+posts appear mid-feed in the middle of the preview that exists to prove they do not.
+Without the third, a search while previewing swaps in the admin-shaped head (`…· 7
+hidden`) above a visitor-shaped feed — the out-of-band label at `feed.rs:239` is
+computed on the page-0 path and would otherwise never learn about the preview.
 
 The permalink route honours the same flag: a previewing admin gets the 404 on a hidden
 post. A preview that quietly shows more than a visitor would is worse than no preview.
