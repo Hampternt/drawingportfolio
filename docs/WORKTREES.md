@@ -69,18 +69,36 @@ A design-system-driven redesign of `/artportfolio`.
 | Worktree | `~/projects/drawingportfolio.worktrees/artportfolio-visual-layer` |
 | Branch | `feat/artportfolio-visual-layer` (tracks `origin/feat/artportfolio-visual-layer`) |
 | Touches | `docs/`, `src/`, `static/`, `templates/`, `.sqlx/` |
-| Status | **Implementing.** Spec approved 2026-08-09. Slice 1 did not fit one plan under `plan-economics` sizing, so it was split: **Plan A is written and executing**, Plan B is not yet written. Head `e67cf49` (2026-08-10 02:33). |
-| Next | Finish Plan A — its browser checkpoint is still owed — then write Plan B. |
+| Status | **Slice 1 complete**, 2026-08-10. Spec approved 2026-08-09. Slice 1 did not fit one plan under `plan-economics` sizing, so it was split — **Plan A and Plan B are both written, executed and browser-checkpointed**, last slice-1 commit `4c786a2`. `master` is merged in and `./scripts/verify.sh` is green. Pushed; not merged to `master`. |
+| Next | Write the slice 2 plan (visibility model) — `superpowers:brainstorming` then `plan-economics`. |
+
+No ahead/behind counts live in this card on purpose — they are stale the moment
+anything moves. Run `git rev-list --left-right --count master...HEAD` if you
+need them.
 
 Slice 1's split, so the next session does not re-derive it:
 
-| Plan | Scope |
-| --- | --- |
-| **A** — `docs/superpowers/plans/2026-08-10-artportfolio-visual-layer-plan-a.md` | Self-hosted fonts + icons · migration 012 (`image_width`/`image_height`) + sqlx regen · the `style.css` section under `body.art-page` · `art-page` derivation in **both** `base.html` and `admin.html` · the Askama templates that replace `post_card_html()` |
-| **B** — not written | `get_posts_page(q)` + `count_posts` + LIKE escaping · `feed.rs` `q`/`last_month` + month grouping · `filter_rail.html` + `artfeed.js` · page-head counts |
+| Plan | Scope | State |
+| --- | --- | --- |
+| **A** — `docs/superpowers/plans/2026-08-10-artportfolio-visual-layer-plan-a.md` | Self-hosted fonts + icons · migration 012 (`image_width`/`image_height`) + sqlx regen · the `style.css` section under `body.art-page` · `art-page` derivation in **both** `base.html` and `admin.html` · the Askama templates that replace `post_card_html()` | done, checkpointed |
+| **B** — `docs/superpowers/plans/2026-08-10-artportfolio-visual-layer-plan-b.md` | `get_posts_page(q)` + `count_posts` + LIKE escaping · `feed.rs` `q`/`last_month` + month grouping · `filter_rail.html` + `artfeed.js` · page-head counts | done, checkpointed |
 
-B is **not** safely parallel with A — both rewrite the same `feed.rs`, the same
-templates and the same `style.css` section. Run them in sequence.
+B was **not** safely parallel with A — both rewrite the same `feed.rs`, the same
+templates and the same `style.css` section. They ran in sequence.
+
+**Debt slice 1 leaves, deliberately.** The page head goes stale by one after an
+admin upload: the composer's response is a single `PostCardTemplate` swapped
+`afterbegin` into `#feed`, so it carries no OOB label, and Plan B is what turned
+the head into a number for that staleness to show in. It self-corrects on the
+next page load or search. Slice 4 replaces the composer with the multi-upload
+tray and owns the fix — return the OOB label alongside the new card, exactly as
+`htmx_posts` does for page 0. Recorded in `3ace46d` and in Plan B's checkpoint.
+
+Both plans' browser checkpoints record what they could **not** verify:
+`resize_window` never changes `innerWidth` in this environment, so the 900px and
+390px bands were verified through the CSSOM but **have not been seen rendered**;
+key events were synthetic, not natively delivered; and Dark Reader repaints
+colour, so only geometry and fonts were measured.
 
 Two places execution contradicted the spec. Both are load-bearing:
 
