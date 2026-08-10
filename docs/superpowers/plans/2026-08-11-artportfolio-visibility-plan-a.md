@@ -74,6 +74,25 @@ Task 2: the query shape cannot use it.
 the report. Never a bare `cargo test`; the root `Cargo.toml` is both a package and
 the workspace root, so it silently skips `drinkinggame`'s tests.
 
+**`cargo sqlx prepare` runs in every task that touches SQL — Tasks 1 and 2 — not
+once at the end.** This deliberately departs from `plan-economics` §6, using the
+carve-out it names: *"unless that plan's commits need to build offline
+individually."* They do. `scripts/verify.sh` runs its test step as
+`SQLX_OFFLINE=true cargo test --workspace`, so the moment Task 1 adds `visibility`
+to `Post` and to every posts `SELECT`, a stale `.sqlx` cache fails that task's own
+acceptance line. Deferring the regeneration would leave Tasks 1–4 unable to go
+green.
+
+**There is no `.env` in this worktree**, so nothing exports `DATABASE_URL` for you.
+The sqlx macros need a live database to infer against whenever the queries change:
+
+```bash
+export DATABASE_URL=sqlite:portfolio.db     # once per shell, before any task
+```
+
+The ordering trap this creates is spelled out in Task 1, Step 2 — read it before
+touching `models.rs`.
+
 **Browser checkpoints:** after Task 4 (the permalink is the first thing with a visual
 surface) and before the final review. Not per task.
 
@@ -130,7 +149,12 @@ ALTER TABLE posts ADD COLUMN visibility TEXT NOT NULL DEFAULT 'public';
 Deliberately **no index**. See Task 2's step 2 for why the query shape cannot use
 one.
 
-- [ ] **Step 2: Register it in `run_migrations()`**
+- [ ] **Step 2: Register it in `run_migrations()`, then apply it — before touching `models.rs`**
+
+**Order matters here and the obvious order deadlocks.** The sqlx macros infer
+against a live database, so once `Post` names `visibility` nothing compiles until the
+column exists — and applying the migration by running the app needs a build. Do the
+registration and the run *first*, while no query mentions the new column.
 
 Append after the migration 012 block, following the `let _ =` duplicate-column
 tolerance every migration from 002 onward uses:
@@ -145,6 +169,16 @@ tolerance every migration from 002 onward uses:
         .execute(pool)
         .await;
 ```
+
+Then apply it:
+
+```bash
+cargo run    # run_migrations applies 013 at startup; Ctrl-C once it binds :3000
+```
+
+`run_migrations` pulls the file in with `include_str!`, which is not a macro that
+touches the database, so this build succeeds while the column is still absent. Steps
+3 and 4 then edit `models.rs` and the queries against a database that already has it.
 
 - [ ] **Step 3: Add the enum to `models.rs`**
 
@@ -219,21 +253,24 @@ grep -n "image_width, image_height FROM posts" src/db.rs
 `insert_post` does **not** gain the column — new posts take the column default.
 Plan B adds the upload's `visibility` field.
 
-- [ ] **Step 5: Apply the migration to the dev database**
-
-The sqlx macros infer against a live DB, so every later task fails to compile until
-this runs:
+- [ ] **Step 5: Regenerate the sqlx offline cache**
 
 ```bash
-cargo run    # run_migrations applies 013 at startup; Ctrl-C once it binds :3000
+cargo sqlx prepare
 ```
 
-`cargo sqlx prepare` is **not** run here — once per plan, in Task 5.
+Not deferred to the end of the plan. `scripts/verify.sh` runs its tests as
+`SQLX_OFFLINE=true cargo test --workspace`, so this task's own acceptance line reads
+the `.sqlx` cache — and Step 4 just changed the row shape every posts entry in it
+describes. Without this the task cannot go green.
+
+`prepare` rewrites the directory wholesale, so a partially-updated cache is not a
+failure mode you have to reason about.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add migrations/013_post_visibility.sql src/db.rs src/models.rs
+git add migrations/013_post_visibility.sql src/db.rs src/models.rs .sqlx
 git commit -m "feat(artportfolio): the visibility column and its two parse modes"
 ```
 
@@ -446,7 +483,14 @@ Four call sites, and **the value matters at each one**:
 
 `admin.rs:52` is the one that fails quietly. Pass `Visitor` there and the dashboard
 still compiles, still renders, and simply stops listing the posts an admin most needs
-to see. Task 5's test asserts against exactly this.
+to see. `test_admin_dashboard_query_sees_all_states` in Step 6 asserts against
+exactly this.
+
+**Say plainly what this task's commit leaves behind.** With `feed.rs` hardcoded to
+`Viewer::Visitor`, the feed ignores sessions entirely — an admin sees a visitor's
+posts. That is a deliberate intermediate that Task 3 closes inside this same plan,
+but an implementer who stops here has shipped the mirror image of the leak the plan
+exists to fix. Do not end a session on this commit.
 
 - [ ] **Step 6: Write the tests**
 
@@ -468,11 +512,21 @@ until Plan B:
 | `test_visibility_from_row_fails_closed` | — | `Visibility::from_row("bogus") == Visibility::Hidden` |
 | `test_visibility_from_str_rejects_unknown` | — | `Visibility::from_str("bogus").is_none()` |
 | `test_set_post_visibility_unknown_id_is_false` | empty | returns `false` |
+| `test_admin_dashboard_query_sees_all_states` | 1 public, 1 unlisted, 1 hidden | `get_posts_page(&pool, None, 0, Viewer::Admin).len() == 3` — the assertion that catches `admin.rs:52` being handed `Visitor` |
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 7: Regenerate the sqlx offline cache**
 
 ```bash
-git add src/db.rs src/models.rs src/routes/admin.rs
+cargo sqlx prepare
+```
+
+Step 4 added two queries the cache has never seen, and this task's acceptance line
+runs the tests offline. Same reasoning as Task 1, Step 5.
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add src/db.rs src/models.rs src/routes/admin.rs .sqlx
 git commit -m "feat(artportfolio): every post read now says who is asking"
 ```
 
@@ -724,30 +778,28 @@ measurable here, colour is not.
 
 **Class:** A
 
-**Why this class:** Mechanical. `cargo sqlx prepare` either regenerates the cache or
-the offline build fails, and the docs are prose.
+**Why this class:** Mechanical. The offline build either succeeds or it does not, and
+the docs are prose.
 
 **Files:**
 - Modify: `.sqlx/` (regenerated wholesale)
 - Modify: `CLAUDE.md` — migration list, test counts, route list
 - Modify: `docs/WORKTREES.md` — the artportfolio card
 
-- [ ] **Step 1: Regenerate the sqlx offline cache**
+- [ ] **Step 1: Confirm the offline build**
 
-```bash
-DATABASE_URL=sqlite:portfolio.db cargo sqlx prepare
-```
-
-Six of the sixty entries reference `posts`, and a new column changes the row shape
-every one of them describes — plus this plan adds queries of its own. `prepare`
-rewrites the directory wholesale, so a partial update is not a failure mode you have
-to think about. Verify it took:
+Tasks 1 and 2 already regenerated `.sqlx` — they had to, since every acceptance line
+runs the tests offline. This step only confirms the end state is coherent, which is
+what CI will do:
 
 ```bash
 SQLX_OFFLINE=true cargo build --release
 ```
 
-CI builds with `SQLX_OFFLINE=true` and fails without this step.
+If this fails, something was committed between a query change and its `prepare`. Run
+`cargo sqlx prepare` once more and commit the diff; a non-empty diff here means one
+of the earlier tasks went green against a cache it had already updated but not
+staged.
 
 - [ ] **Step 2: Update `CLAUDE.md`**
 
