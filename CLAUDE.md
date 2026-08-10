@@ -18,13 +18,13 @@ cargo fmt --check      # check formatting without modifying
 
 When building without a live database (e.g. on the server): `SQLX_OFFLINE=true cargo build --release`. The `drinkinggame` crate uses runtime-checked sqlx queries — it has no `.sqlx` cache entries, and `cargo sqlx prepare` remains portfolio-only.
 
-The repo is a cargo workspace, but the root `Cargo.toml` is *also* a package — so bare `cargo test` runs the current package only and silently skips `drinkinggame`'s 177 tests (**61 of 238 run**). Always pass `--workspace`, or just run `./scripts/verify.sh`, which does. `cargo run -p drinkinggame` serves the drinking game standalone on `:3001` (no portfolio, no nginx).
+The repo is a cargo workspace, but the root `Cargo.toml` is *also* a package — so bare `cargo test` runs the current package only and silently skips `drinkinggame`'s 177 tests (**74 of 255 run**). Always pass `--workspace`, or just run `./scripts/verify.sh`, which does. `cargo run -p drinkinggame` serves the drinking game standalone on `:3001` (no portfolio, no nginx).
 
 **Which worktree/branch am I in, and what else is in flight?** See `docs/WORKTREES.md` — the live index of work streams, worktree layout and branch conventions. Read it before creating a branch or worktree.
 
 `./scripts/verify.sh` is the single acceptance gate — `cargo fmt --check`, `cargo clippy`, the workspace test suite, and `node --check` over `static/*.js` (a nested palette entry broke `palette.js` once; nothing else catches JS syntax). It runs clippy *without* `-D warnings` because the tree carries 19 pre-existing warnings; promote it once that reaches zero.
 
-Tests live in `src/db.rs`, `src/routes/feed.rs`, `src/routes/admin.rs`, and `src/routes/nutrition.rs` (portfolio, 57 tests) plus `tests/static_assets.rs` (4 tests — guards `static/*.css` against nested `/* */` comment markers, which browsers resolve by silently dropping the next rule). The `drinkinggame` crate has its own, larger suite: unit tests across `drinkinggame/src/*.rs` (rooms, db, rules, hub, render, `three_man.rs` state machine — 100 tests) plus integration tests in `drinkinggame/tests/http.rs` (77 tests) covering both games' routes end to end.
+Tests live in `src/db.rs`, `src/routes/feed.rs`, `src/routes/admin.rs`, and `src/routes/nutrition.rs` (portfolio, 74 tests) plus `tests/static_assets.rs` (4 tests — guards `static/*.css` against nested `/* */` comment markers, which browsers resolve by silently dropping the next rule). The `drinkinggame` crate has its own, larger suite: unit tests across `drinkinggame/src/*.rs` (rooms, db, rules, hub, render, `three_man.rs` state machine — 100 tests) plus integration tests in `drinkinggame/tests/http.rs` (77 tests) covering both games' routes end to end.
 
 ## Environment
 
@@ -56,7 +56,7 @@ Single Rust/Axum binary with server-side rendering via Askama templates + HTMX f
 
 **Route modules:**
 - `src/routes/hub.rs` — `GET /` (hub/index page)
-- `src/routes/feed.rs` — `GET /artportfolio` (art feed), `GET /artportfolio/htmx/posts?page=N` (HTMX paginated cards), `GET /artportfolio/api/posts?page=N` (JSON API)
+- `src/routes/feed.rs` — `GET /artportfolio` (art feed), `GET /artportfolio/htmx/posts?page=N&q=&last_month=` (HTMX month sections), `GET /artportfolio/api/posts?page=N&q=` (JSON API). All three take the same optional `q` caption filter, applied by `db::get_posts_page()`; the page head's total comes from `db::count_posts()`, called only on a full page render. Posts are grouped into `MonthGroup`s **in the handler** (keyed on `created_at[..7]`), each month rendering its own `columns` block — `last_month` suppresses the duplicate divider when a month spans a page boundary. Search does **not** use `hx-push-url`: that pushes the fragment URL, so `htmx_posts` returns an `HX-Push-Url: /artportfolio?q=…` header on page 0 only.
 - `src/routes/admin.rs` — `GET /admin` (auth-gated), `POST /api/admin/posts` (multipart upload), `DELETE /api/admin/posts/{id}`
 - `src/routes/auth.rs` — WebAuthn registration ceremony (localhost-only) and login ceremony; creates session cookie on success
 - `src/routes/tasks.rs` — Drawing Tasks, a LeetCode-inspired practice board: reference images with any number of attached task prompts, filterable by subject/difficulty/task type. `GET /tasks` and `GET /tasks/htmx/board` are public (`OptionalAuth` — admins additionally see management controls); all mutations (`POST /api/tasks`, `DELETE /api/tasks/{id}`, `POST /api/tasks/{id}/toggle`, `POST/DELETE /api/tasks/images…`) require `AuthSession`. Deleting an image cascades to its tasks and returns the URL for S3 cleanup.
@@ -81,7 +81,7 @@ Single Rust/Axum binary with server-side rendering via Askama templates + HTMX f
 - **chrono** is pinned to `0.4.34` — `0.4.35+` renames `Duration` to `TimeDelta` (breaking change)
 - **Nutrition dates/timezones:** server "today" is UTC (`Utc::now()`), meal-slot defaults come from the browser clock, and the day-step arrows format dates from local parts (never `toISOString()`, which is UTC and skips days east of UTC). For a UTC+2 user, logs between 00:00–02:00 local land on the previous UTC date — accepted single-user trade-off.
 - **Nutrition tracker:** Session-gated (`AuthSession` on every route — no longer public). UI is the Nocturne dark theme: tokens live under `body.fitness-dark` in `style.css` (`--noc-*` variables, `.noc-*` primitives); design reference and decisions in `docs/design/fitness-redesign/`. The `fitness-dark` body class is re-derived across hx-boost navigations by an inline script in `base.html`/`admin.html` (hx-boost swaps body children, not attributes). Barcode scanning via native `BarcodeDetector` + OpenFoodFacts: a known barcode opens a one-tap log card in the add sheet; unknown ones prefill the add-food form (`openOffLookup` in `barcode.js`).
-- **Tests:** `src/db.rs` holds the db-layer tests (nutrition CRUD, slots, targets, ranges, recipes, weights) and `src/routes/nutrition.rs` has unit tests for the ring/rail math and streak logic — 238 tests across the workspace.
+- **Tests:** `src/db.rs` holds the db-layer tests (nutrition CRUD, slots, targets, ranges, recipes, weights) and `src/routes/nutrition.rs` has unit tests for the ring/rail math and streak logic — 255 tests across the workspace.
 
 ## Architecture Rules
 
