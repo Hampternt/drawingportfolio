@@ -1,9 +1,13 @@
 {#
-  The all-empty case: no drawings at all. The design brief renders emptiness as
-  a single mono line behind a prompt caret rather than an illustration or a
-  centred call to action.
+  Emptiness, rendered as a single mono line behind a prompt caret rather than an
+  illustration or a centred call to action.
 
-  The filtered-but-no-results variant ("no drawings match ...") needs the active
-  query to name what missed, so it arrives with search in the next slice.
+  Two variants: nothing at all, and nothing that matched. The second names the
+  query, because "no results" without the term is a dead end — you cannot tell a
+  typo from an honest miss.
 #}
+{% if q.is_empty() %}
 <div class="art-empty">&gt; no drawings yet.</div>
+{% else %}
+<div class="art-empty">&gt; no drawings match "{{ q }}".</div>
+{% endif %}

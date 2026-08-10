@@ -18,6 +18,28 @@ pub struct Post {
     pub image_height: i64,
 }
 
+/// One month's worth of the feed, computed in the handler.
+///
+/// Grouping lives in Rust rather than the template because a month is also a
+/// layout unit: each group renders its own `columns` block, which is what makes
+/// a full-bleed divider composable with a CSS multi-column masonry.
+#[derive(Debug, Clone)]
+pub struct MonthGroup {
+    /// `YYYY-MM` — the first seven characters of the ISO8601 `created_at`.
+    pub label: String,
+    /// Posts in **this page's** slice of the month, not the month's total. A
+    /// month straddling the page boundary leaves its divider reading `5` above
+    /// 8 cards once Load more appends the rest, because the divider is not
+    /// re-rendered. That is inherent to append-only pagination; a per-month
+    /// COUNT is not in this slice's scope.
+    pub count: usize,
+    /// False when the previous page already rendered this month's divider. The
+    /// label survives suppression, because the next page's `last_month`
+    /// parameter is built from it.
+    pub show_divider: bool,
+    pub posts: Vec<Post>,
+}
+
 /// Extensibility hook: add new variants here as post formats are implemented.
 #[derive(Debug, Clone, PartialEq)]
 pub enum PostFormat {

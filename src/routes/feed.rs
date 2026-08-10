@@ -1,8 +1,12 @@
-use crate::{middleware::OptionalAuth, models::Post, AppState};
+use crate::{
+    middleware::OptionalAuth,
+    models::{MonthGroup, Post},
+    AppState,
+};
 use askama::Template;
 use axum::{
     extract::{Query, State},
-    response::{Html, IntoResponse},
+    response::{Html, IntoResponse, Response},
     routing::get,
     Json, Router,
 };
@@ -13,25 +17,98 @@ use std::sync::Arc;
 #[template(path = "artportfolio/feed.html")]
 struct FeedTemplate {
     is_admin: bool,
-    /// The page head's micro-label, pre-computed because it is only sometimes
-    /// possible to state a total honestly — see `head_label()`.
+    /// The page head's micro-label, pre-computed — see `head_label()`.
     head_label: String,
     /// First page of posts rendered as HTML, injected directly into the page.
     /// Eliminates the extra HTMX round trip that would otherwise happen on load.
     initial_posts_html: String,
 }
 
-/// Builds the page head's micro-label.
+/// Builds the page head's micro-label from the real total.
 ///
-/// Page 0 holds at most 20 posts, so `posts.len()` is the real total only when
-/// there is no second page. With more, saying "20 drawings" would be plainly
-/// false rather than merely approximate, so the count is omitted until a real
-/// `COUNT` lands with caption search in the next slice.
-fn head_label(page_len: usize, has_more: bool) -> String {
-    if has_more {
-        "newest first".to_string()
-    } else {
-        format!("{page_len} drawings · newest first")
+/// `count_posts` runs only on a full page render — never on HTMX pagination,
+/// where the head is not re-rendered and the COUNT would be wasted work on
+/// every Load more.
+fn head_label(total: i64, q: Option<&str>) -> String {
+    let noun = if total == 1 { "drawing" } else { "drawings" };
+    match q {
+        // Deliberately unescaped: the template renders this through `{{ }}` and
+        // Askama escapes it on the way out. Escaping here too would paint
+        // entities on the page.
+        Some(q) => format!("{total} {noun} · matching \"{q}\""),
+        None => format!("{total} {noun} · newest first"),
+    }
+}
+
+/// Trims the raw query and treats blank as absent.
+///
+/// One normalisation at the handler edge kills three separate defects: a head
+/// label reading `matching ""`, a `%%` pattern that matches every row, and a
+/// pushed URL carrying a pointless empty `?q=`.
+fn normalize_q(raw: Option<&str>) -> Option<String> {
+    raw.map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+}
+
+/// Splits a page of posts into month sections.
+///
+/// `created_at` is ISO8601 `TEXT`, so its first seven characters are `YYYY-MM`.
+/// Rows arrive already sorted `created_at DESC`, so this is one pass over
+/// consecutive runs — a hash map would risk reordering the feed.
+///
+/// `last_month` is the month the previous page ended on. When the first group
+/// matches it, that group's divider is suppressed: page 1 opening with more
+/// June posts must not draw a second `2026-06` rule under the one page 0 drew.
+fn group_by_month(posts: Vec<Post>, last_month: Option<&str>) -> Vec<MonthGroup> {
+    let mut groups: Vec<MonthGroup> = Vec::new();
+    for post in posts {
+        // `get(..7)` rather than `[..7]`: a malformed short timestamp would
+        // panic on a slice, and one bad row is not worth a 500.
+        let label = post.created_at.get(..7).unwrap_or("").to_string();
+        match groups.last_mut() {
+            Some(group) if group.label == label => {
+                group.count += 1;
+                group.posts.push(post);
+            }
+            _ => groups.push(MonthGroup {
+                // Only the leading group can be a continuation of the previous
+                // page; every later one starts a month this page opened.
+                show_divider: !groups.is_empty() || Some(label.as_str()) != last_month,
+                label,
+                count: 1,
+                posts: vec![post],
+            }),
+        }
+    }
+    groups
+}
+
+/// The Load more URL, built in Rust because Askama escapes HTML, not URLs — a
+/// query containing `&` or `%` must be percent-encoded before it reaches an
+/// attribute.
+fn load_more_url(next_page: i64, q: Option<&str>, last_month: Option<&str>) -> String {
+    let mut s = url::form_urlencoded::Serializer::new(String::new());
+    s.append_pair("page", &next_page.to_string());
+    if let Some(q) = q {
+        s.append_pair("q", q);
+    }
+    if let Some(m) = last_month {
+        s.append_pair("last_month", m);
+    }
+    format!("/artportfolio/htmx/posts?{}", s.finish())
+}
+
+/// The URL the address bar should show for a search — a real page, not the
+/// fragment endpoint that produced the swap. See `htmx_posts`.
+fn page_url(q: Option<&str>) -> String {
+    match q {
+        Some(q) => {
+            let mut s = url::form_urlencoded::Serializer::new(String::new());
+            s.append_pair("q", q);
+            format!("/artportfolio?{}", s.finish())
+        }
+        None => "/artportfolio".to_string(),
     }
 }
 
@@ -47,61 +124,81 @@ pub struct PostCardTemplate<'a> {
     pub is_first: bool,
 }
 
-/// A page of cards plus Load more. Rendered by both the inline first page and
-/// the HTMX pagination route, so the two cannot drift.
+/// A page of month sections plus Load more. Rendered by both the inline first
+/// page and the HTMX pagination route, so the two cannot drift.
 #[derive(Template)]
 #[template(path = "artportfolio/partials/post_grid.html")]
-struct PostGridTemplate<'a> {
-    posts: &'a [Post],
+struct PostGridTemplate {
+    groups: Vec<MonthGroup>,
     has_more: bool,
-    next_page: i64,
-    /// Drives two things: whether an empty list renders the empty state (page 1
-    /// of nothing means no drawings; page 3 of nothing just means the end), and
-    /// which single image gets `fetchpriority="high"`.
+    /// Pre-built, carrying the active query and the month this page ended on.
+    load_more_url: String,
+    /// Drives two things: whether an empty result renders the empty state (page
+    /// 1 of nothing means no drawings; page 3 of nothing just means the end),
+    /// and which single image gets `fetchpriority="high"`.
     is_first_page: bool,
+    /// The active search, `""` when there is none — the empty state names it.
+    q: String,
 }
 
 #[derive(Deserialize)]
 pub struct PageQuery {
     pub page: Option<i64>,
+    pub q: Option<String>,
+    /// The month the previous page ended on, so a month split across pages
+    /// renders one divider rather than two.
+    pub last_month: Option<String>,
 }
 
-/// Fetches one page and renders the grid, also returning how many posts it holds
-/// and whether another page follows.
+/// Fetches one page and renders its month sections.
 ///
-/// `get_posts` asks for 21 rows to answer "is there another page?" without a
-/// COUNT; the 21st is dropped before rendering. Returning both lets `feed_page`
-/// build the page head without a second query.
-async fn render_page(state: &Arc<AppState>, page: i64) -> (String, usize, bool) {
-    let mut posts = crate::db::get_posts_page(&state.pool, None, page).await;
+/// `get_posts_page` asks for 21 rows to answer "is there another page?" without
+/// a COUNT; the 21st is dropped before grouping.
+async fn render_grid(
+    state: &Arc<AppState>,
+    page: i64,
+    q: Option<&str>,
+    last_month: Option<&str>,
+) -> String {
+    let mut posts = crate::db::get_posts_page(&state.pool, q, page).await;
     let has_more = posts.len() > 20;
     if has_more {
         posts.truncate(20);
     }
-    let html = PostGridTemplate {
-        posts: &posts,
+    let groups = group_by_month(posts, last_month);
+    // The next page has to know which month this one ended on, or it draws a
+    // duplicate divider for a month already on screen.
+    let next_last_month = groups.last().map(|g| g.label.clone());
+    PostGridTemplate {
         has_more,
-        next_page: page + 1,
+        load_more_url: load_more_url(page + 1, q, next_last_month.as_deref()),
         is_first_page: page == 0,
+        q: q.unwrap_or_default().to_string(),
+        groups,
     }
     .render()
-    .unwrap();
-    (html, posts.len(), has_more)
+    .unwrap()
 }
 
 async fn feed_page(
     OptionalAuth(is_admin): OptionalAuth,
     State(state): State<Arc<AppState>>,
+    Query(query): Query<PageQuery>,
 ) -> impl IntoResponse {
+    // `?q=` is read here as well as on the fragment route, so a searched feed
+    // survives a reload and is linkable.
+    let q = normalize_q(query.q.as_deref());
+
     // Fetch first page here so posts arrive in the very first HTTP response.
     // Without this, the browser would load the page and then fire a second
     // request to /artportfolio/htmx/posts?page=0 before anything was visible.
-    let (initial_posts_html, page_len, has_more) = render_page(&state, 0).await;
+    let initial_posts_html = render_grid(&state, 0, q.as_deref(), None).await;
+    let total = crate::db::count_posts(&state.pool, q.as_deref()).await;
 
     Html(
         FeedTemplate {
             is_admin,
-            head_label: head_label(page_len, has_more),
+            head_label: head_label(total, q.as_deref()),
             initial_posts_html,
         }
         .render()
@@ -111,10 +208,24 @@ async fn feed_page(
 
 async fn htmx_posts(
     State(state): State<Arc<AppState>>,
-    Query(q): Query<PageQuery>,
-) -> impl IntoResponse {
-    let (html, _, _) = render_page(&state, q.page.unwrap_or(0)).await;
-    Html(html)
+    Query(query): Query<PageQuery>,
+) -> Response {
+    let page = query.page.unwrap_or(0);
+    let q = normalize_q(query.q.as_deref());
+    let html = render_grid(&state, page, q.as_deref(), query.last_month.as_deref()).await;
+
+    if page == 0 {
+        // Page 0 is a search or a cleared filter — the address bar should read
+        // /artportfolio?q=…, a page that actually renders. `hx-push-url="true"`
+        // would push this fragment endpoint instead, and reloading THAT gives a
+        // bare grid with no shell, styles or nav.
+        //
+        // Load more (page >= 1) pushes nothing: it appends to what is already
+        // on screen and must not rewrite history.
+        ([("HX-Push-Url", page_url(q.as_deref()))], Html(html)).into_response()
+    } else {
+        Html(html).into_response()
+    }
 }
 
 #[derive(serde::Serialize)]
@@ -125,10 +236,13 @@ struct PostsResponse {
 
 async fn api_posts(
     State(state): State<Arc<AppState>>,
-    Query(q): Query<PageQuery>,
+    Query(query): Query<PageQuery>,
 ) -> impl IntoResponse {
-    let page = q.page.unwrap_or(0);
-    let mut posts = crate::db::get_posts_page(&state.pool, None, page).await;
+    let page = query.page.unwrap_or(0);
+    // The same filter the HTML feed applies, so the two cannot drift on what
+    // "matching" means.
+    let q = normalize_q(query.q.as_deref());
+    let mut posts = crate::db::get_posts_page(&state.pool, q.as_deref(), page).await;
     let has_more = posts.len() > 20;
     if has_more {
         posts.truncate(20);
@@ -345,17 +459,191 @@ mod tests {
     }
 
     #[test]
-    fn test_head_label_states_a_total_only_when_it_knows_one() {
-        // No second page: page 0 IS the whole feed, so the count is the truth.
-        assert_eq!(head_label(8, false), "8 drawings · newest first");
-        assert_eq!(head_label(0, false), "0 drawings · newest first");
+    fn test_head_label_states_the_real_total() {
+        // Replaces the pre-count_posts version of this test, which pinned a
+        // vaguer fallback ("newest first" with no number) that existed only
+        // because there was no COUNT to state a total with.
+        assert_eq!(head_label(117, None), "117 drawings · newest first");
+        assert_eq!(head_label(1, None), "1 drawing · newest first");
+        assert_eq!(head_label(0, None), "0 drawings · newest first");
+    }
 
-        // A second page exists, so page 0 was truncated to 20. Saying "20
-        // drawings" here would be false, not merely approximate.
-        assert_eq!(head_label(20, true), "newest first");
+    #[test]
+    fn test_head_label_names_the_active_search() {
+        assert_eq!(
+            head_label(12, Some("loomis")),
+            "12 drawings · matching \"loomis\""
+        );
+        assert_eq!(
+            head_label(1, Some("loomis")),
+            "1 drawing · matching \"loomis\""
+        );
+    }
+
+    #[test]
+    fn test_normalize_q_treats_blank_as_absent() {
+        assert_eq!(normalize_q(None), None);
+        assert_eq!(normalize_q(Some("")), None);
+        assert_eq!(normalize_q(Some("   ")), None);
+        assert_eq!(normalize_q(Some("  loomis ")).as_deref(), Some("loomis"));
+    }
+
+    /// A post carrying only the field month grouping reads.
+    fn post_dated(id: i64, created_at: &str) -> crate::models::Post {
+        let mut post = sample_post(id, "");
+        post.created_at = created_at.to_string();
+        post
+    }
+
+    #[test]
+    fn test_group_by_month_splits_on_the_iso_prefix() {
+        let posts = vec![
+            post_dated(1, "2026-08-03T10:00:00"),
+            post_dated(2, "2026-08-01T10:00:00"),
+            post_dated(3, "2026-07-20T10:00:00"),
+            post_dated(4, "2026-06-30T10:00:00"),
+            post_dated(5, "2026-06-02T10:00:00"),
+        ];
+        let groups = group_by_month(posts, None);
+
+        assert_eq!(groups.len(), 3);
+        assert_eq!(groups[0].label, "2026-08");
+        assert_eq!(groups[0].count, 2);
+        assert_eq!(groups[1].label, "2026-07");
+        assert_eq!(groups[1].count, 1);
+        assert_eq!(groups[2].label, "2026-06");
+        assert_eq!(groups[2].count, 2);
         assert!(
-            !head_label(20, true).contains("20"),
-            "must not report the page size as the total"
+            groups.iter().all(|g| g.show_divider),
+            "with no previous page every month opens with its own divider"
+        );
+        assert_eq!(
+            groups.iter().map(|g| g.posts.len()).sum::<usize>(),
+            5,
+            "grouping loses no posts"
+        );
+    }
+
+    #[test]
+    fn test_last_month_suppresses_only_a_matching_leading_divider() {
+        // Page 1 opens with more July posts, then rolls into June.
+        let posts = vec![
+            post_dated(1, "2026-07-09T10:00:00"),
+            post_dated(2, "2026-06-28T10:00:00"),
+        ];
+        let groups = group_by_month(posts, Some("2026-07"));
+
+        assert!(
+            !groups[0].show_divider,
+            "2026-07 is already on screen from the previous page"
+        );
+        assert_eq!(
+            groups[0].label, "2026-07",
+            "the label survives suppression — the next page's last_month is built from it"
+        );
+        assert!(groups[1].show_divider, "June is new on this page");
+    }
+
+    #[test]
+    fn test_a_last_month_that_does_not_match_suppresses_nothing() {
+        let posts = vec![post_dated(1, "2026-07-09T10:00:00")];
+        let groups = group_by_month(posts, Some("2026-05"));
+        assert!(groups[0].show_divider);
+    }
+
+    #[test]
+    fn test_group_by_month_of_nothing_is_empty() {
+        assert!(group_by_month(vec![], None).is_empty());
+        assert!(group_by_month(vec![], Some("2026-07")).is_empty());
+    }
+
+    #[test]
+    fn test_load_more_url_percent_encodes_the_query() {
+        assert_eq!(
+            load_more_url(1, Some("100%"), Some("2026-07")),
+            "/artportfolio/htmx/posts?page=1&q=100%25&last_month=2026-07"
+        );
+        assert_eq!(
+            load_more_url(1, None, None),
+            "/artportfolio/htmx/posts?page=1"
+        );
+        assert_eq!(
+            load_more_url(3, Some("a&b"), None),
+            "/artportfolio/htmx/posts?page=3&q=a%26b"
+        );
+    }
+
+    #[test]
+    fn test_page_url_is_the_page_not_the_fragment_endpoint() {
+        assert_eq!(page_url(None), "/artportfolio");
+        assert_eq!(page_url(Some("loomis")), "/artportfolio?q=loomis");
+        assert_eq!(page_url(Some("100%")), "/artportfolio?q=100%25");
+    }
+
+    #[tokio::test]
+    async fn test_htmx_page_0_pushes_the_page_url_not_the_fragment_url() {
+        let app = test_app().await;
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .uri("/artportfolio/htmx/posts?q=loomis")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(
+            resp.headers().get("HX-Push-Url").unwrap(),
+            "/artportfolio?q=loomis",
+            "pushing the fragment URL would give a bare grid on reload"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_load_more_pushes_no_url() {
+        let app = test_app().await;
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .uri("/artportfolio/htmx/posts?page=1")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert!(
+            resp.headers().get("HX-Push-Url").is_none(),
+            "appending to the feed must not rewrite the address bar"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_api_posts_applies_the_same_caption_filter() {
+        let pool = SqlitePoolOptions::new()
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        crate::db::run_migrations(&pool).await;
+        for caption in ["Loomis head", "figure drawing"] {
+            crate::db::insert_post(
+                &pool,
+                caption,
+                "https://example.com/img.jpg",
+                "",
+                "",
+                crate::models::PostFormat::Single.as_str(),
+                0,
+                0,
+                0,
+            )
+            .await;
+        }
+        let hits = crate::db::get_posts_page(&pool, Some("loomis"), 0).await;
+        assert_eq!(
+            hits.len(),
+            1,
+            "the JSON API filters through the same db call"
         );
     }
 
