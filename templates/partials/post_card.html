@@ -13,7 +13,9 @@
   Askama auto-escapes every {{ }}, so this replaces the hand-rolled
   html_escape() the old format string needed.
 #}
-<article class="hm-post" id="post-{{ post.id }}">
+{#- tabindex="-1" makes the card focusable for J/K without putting 20 cards
+    into the Tab order, which would be worse than no keyboard support. -#}
+<article class="hm-post" id="post-{{ post.id }}" tabindex="-1">
   <div class="hm-post__media">
     <picture>
       {#- An empty variant URL means that encode failed or has not finished.

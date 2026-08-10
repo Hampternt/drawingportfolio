@@ -1,0 +1,35 @@
+{#
+  The filter rail: a search field and a keyboard legend, and nothing else.
+
+  Collections, tags and the visibility group belong to later slices. A
+  full-screen "Filters" sheet holding one input would be an empty gesture, so
+  below 900px this collapses to the search field alone (see style.css).
+
+  The input carries its own HTMX attributes: HTMX includes a named input's own
+  value, so no hx-include is needed. There is deliberately no hx-push-url —
+  that pushes the REQUEST url, i.e. the fragment endpoint. The server sends an
+  HX-Push-Url header naming the real page instead (see routes/feed.rs).
+#}
+<aside class="art-rail">
+  <form class="art-rail__search" onsubmit="return false">
+    <label class="hm-field__label" for="art-search">Search</label>
+    <div class="hm-input-wrap">
+      <span class="hm-icon hm-icon--search" aria-hidden="true"></span>
+      <input class="hm-input" type="search" name="q" id="art-search"
+             value="{{ q }}" placeholder="Search captions"
+             autocomplete="off" spellcheck="false"
+             hx-get="/artportfolio/htmx/posts"
+             hx-trigger="keyup changed delay:200ms, search"
+             hx-target="#feed"
+             hx-swap="innerHTML">
+      <kbd class="hm-kbd">/</kbd>
+    </div>
+  </form>
+
+  <div class="art-rail__legend">
+    <div class="hm-rule"></div>
+    <p><span class="hm-kbd">J</span> <span class="hm-kbd">K</span> — next, previous</p>
+    <p><span class="hm-kbd">/</span> — search</p>
+    <p><span class="hm-kbd">Esc</span> — leave the field</p>
+  </div>
+</aside>

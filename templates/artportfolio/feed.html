@@ -20,9 +20,9 @@
 
   <div class="art-head">
     <div class="art-head__inner">
-      {#- Pre-computed in head_label(): page 0 caps at 20 posts, so a count can
-          only be stated when there is no second page. The real total needs
-          count_posts(), which arrives with search in the next slice. -#}
+      {#- The real total, from count_posts() — one COUNT per full page render,
+          never on HTMX pagination. Under an active search it names the query
+          instead of the sort order. -#}
       <div class="hm-eyebrow art-head__label">{{ head_label }}</div>
       <h1>Drawing Portfolio</h1>
       <p class="art-head__intro">Mostly practice — studies, drills, and the odd finished piece.</p>
@@ -91,11 +91,14 @@ function onComposerResponse(evt) {
 {% endif %}
 
   <div class="art-body">
-    {#- The first page is inlined so posts arrive in the very first HTTP
-        response; without it the browser would paint, then fire a second
-        request for page 0 before anything was visible. -#}
-    <div id="feed">
-      {{ initial_posts_html|safe }}
+    {% include "artportfolio/partials/filter_rail.html" %}
+    <div class="art-main">
+      {#- The first page is inlined so posts arrive in the very first HTTP
+          response; without it the browser would paint, then fire a second
+          request for page 0 before anything was visible. -#}
+      <div id="feed">
+        {{ initial_posts_html|safe }}
+      </div>
     </div>
   </div>
 

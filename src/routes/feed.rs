@@ -22,6 +22,9 @@ struct FeedTemplate {
     /// First page of posts rendered as HTML, injected directly into the page.
     /// Eliminates the extra HTMX round trip that would otherwise happen on load.
     initial_posts_html: String,
+    /// The active search, `""` when there is none. Fills the rail's input so a
+    /// shared or reloaded `?q=` URL comes back with its query still on screen.
+    q: String,
 }
 
 /// Builds the page head's micro-label from the real total.
@@ -200,6 +203,7 @@ async fn feed_page(
             is_admin,
             head_label: head_label(total, q.as_deref()),
             initial_posts_html,
+            q: q.unwrap_or_default(),
         }
         .render()
         .unwrap(),
