@@ -18,7 +18,7 @@ cargo fmt --check      # check formatting without modifying
 
 When building without a live database (e.g. on the server): `SQLX_OFFLINE=true cargo build --release`. The `drinkinggame` crate uses runtime-checked sqlx queries — it has no `.sqlx` cache entries, and `cargo sqlx prepare` remains portfolio-only.
 
-The repo is a cargo workspace, but the root `Cargo.toml` is *also* a package — so bare `cargo test` runs the current package only and silently skips `drinkinggame`'s 177 tests (**76 of 257 run**). Always pass `--workspace`, or just run `./scripts/verify.sh`, which does. `cargo run -p drinkinggame` serves the drinking game standalone on `:3001` (no portfolio, no nginx).
+The repo is a cargo workspace, but the root `Cargo.toml` is *also* a package — so bare `cargo test` runs the current package only and silently skips `drinkinggame`'s 177 tests (**80 of 257 run**). Always pass `--workspace`, or just run `./scripts/verify.sh`, which does. `cargo run -p drinkinggame` serves the drinking game standalone on `:3001` (no portfolio, no nginx).
 
 **Which worktree/branch am I in, and what else is in flight?** See `docs/WORKTREES.md` — the live index of work streams, worktree layout and branch conventions. Read it before creating a branch or worktree.
 
