@@ -1388,24 +1388,68 @@ body.art-page .art-head__intro {
   font: var(--type-body);
   color: var(--text-muted);
 }
+/* Rail + main. The rail is a real column at >= 900px and collapses to a
+   full-width search field above the grid below that — see the media queries. */
 body.art-page .art-body {
   max-width: var(--page-max);
   margin: 0 auto;
   padding: var(--space-9) var(--gutter) var(--space-12);
+  display: flex;
+  gap: var(--space-9);
+  align-items: flex-start;
+}
+body.art-page .art-rail {
+  flex: 0 0 var(--rail-width);
+  position: sticky;
+  top: 80px;
+}
+/* `min-width: 0` is not optional: a flex item defaults to `min-width: auto`,
+   so a multi-column child sizes the row to its own content and pushes the page
+   wider than the viewport instead of narrowing. */
+body.art-page .art-main { flex: 1; min-width: 0; }
+
+body.art-page .art-rail__search { display: flex; flex-direction: column; gap: var(--space-3); }
+body.art-page .art-rail__legend { margin-top: var(--space-8); }
+body.art-page .art-rail__legend .hm-rule { margin-bottom: var(--space-5); }
+body.art-page .art-rail__legend p {
+  margin: 0 0 var(--space-3);
+  font: var(--type-mono);
+  font-size: var(--text-11);
+  color: var(--text-faint);
 }
 
-/* Masonry. CSS multi-column, so cards flow top-to-bottom within a column.
-   The next slice wraps each month in its own section with its own column
-   block, which is what makes a full-bleed month divider composable with this. */
+/* Month sections. Each month owns its OWN column block, which is the whole
+   reason the feed is not one flat masonry: in a CSS multi-column flow content
+   fills column 1 before column 2, so a divider placed inline would span one
+   column's width and the chronology would read vertically per column. */
+body.art-page .art-month + .art-month { margin-top: var(--space-9); }
+body.art-page .art-month__divider {
+  display: flex;
+  align-items: center;
+  gap: var(--space-5);
+  margin-bottom: var(--space-6);
+}
+body.art-page .art-month__label {
+  font: var(--type-mono);
+  font-size: var(--text-11);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+body.art-page .art-month__rule { flex: 1; height: 1px; background: var(--border-subtle); }
+
 /* `display: block` is not redundant. The pre-existing `#feed` rule earlier in
-   this file sets `display: flex; flex-direction: column`, and a flex container
-   ignores `columns` entirely — every card lands in one column and the masonry
-   silently does nothing. Winning on `columns` alone is not enough; the display
-   type has to be reset too. `gap` is dropped with it, since column-gap and the
-   per-card margin-bottom below own the spacing now. */
+   this file sets `display: flex; flex-direction: column`, and flex items would
+   make the month sections carry a gap nobody designed. `gap: normal` goes with
+   it, since column-gap and the per-card margin-bottom own the spacing now.
+   `columns` lives on the per-month grid below, never here — a flex container
+   ignores it in silence. */
 body.art-page #feed {
   display: block;
   gap: normal;
+}
+body.art-page .art-month__grid {
   columns: 3;
   column-gap: var(--space-6);
 }
@@ -1415,15 +1459,14 @@ body.art-page #feed .hm-post {
   margin-bottom: var(--space-6);
 }
 
-/* Load more and the empty state span the full width, not a single column. */
+/* Load more and the empty state are children of #feed, outside every column
+   block — they span the content width because nothing narrows them. */
 body.art-page .load-more {
-  column-span: all;
   display: flex;
   justify-content: center;
   padding-top: var(--space-8);
 }
 body.art-page .art-empty {
-  column-span: all;
   font: var(--type-mono);
   font-size: var(--text-13);
   color: var(--text-faint);
@@ -1526,13 +1569,27 @@ body.art-page .composer-actions .btn-secondary {
 
 /* Responsive. The bands are disjoint on purpose: the design brief's "2 columns
    780-1179" and "under 900px the rail collapses" overlap, so 780-899 is spelled
-   out rather than left to whichever rule happens to win. The rail itself is a
-   later slice; only the column counts are implemented here. */
+   out rather than left to whichever rule happens to win.
+
+     >= 1180   rail 236px sticky   3 columns
+     900-1179  rail 236px sticky   2 columns
+     780-899   rail collapsed      2 columns
+     < 780     rail collapsed      1 column                                   */
 @media (max-width: 1179px) {
-  body.art-page #feed { columns: 2; }
+  body.art-page .art-month__grid { columns: 2; }
+}
+@media (max-width: 899px) {
+  body.art-page .art-body { display: block; }
+  body.art-page .art-rail {
+    position: static;
+    width: auto;
+    margin-bottom: var(--space-7);
+  }
+  /* The legend documents keys that need a hardware keyboard. */
+  body.art-page .art-rail__legend { display: none; }
 }
 @media (max-width: 779px) {
-  body.art-page #feed { columns: 1; }
+  body.art-page .art-month__grid { columns: 1; }
   body.art-page .art-head { padding: var(--space-9) var(--space-6) var(--space-8); }
   body.art-page .art-head h1 { font-size: var(--text-32); }
   body.art-page .art-body { padding: var(--space-8) var(--space-6) var(--space-11); }
