@@ -49,7 +49,7 @@ async fn htmx_admin_posts(
     _session: crate::middleware::AuthSession,
     State(state): State<Arc<AppState>>,
 ) -> impl IntoResponse {
-    let posts = crate::db::get_posts(&state.pool, 0).await;
+    let posts = crate::db::get_posts_page(&state.pool, None, 0).await;
     let mut html = String::new();
     for post in &posts {
         html.push_str(&admin_post_card_html(post));

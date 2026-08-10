@@ -94,15 +94,81 @@ pub async fn run_migrations(pool: &DbPool) {
         .await;
 }
 
-pub async fn get_posts(pool: &DbPool, page: i64) -> Vec<Post> {
+/// Builds the `LIKE` pattern for a caption search.
+///
+/// Escapes the escape character first, then LIKE's two wildcards, then wraps the
+/// result in `%…%`. The order is not a style choice: escaping `%` before `\`
+/// would send the second pass back over the backslashes the first one just
+/// introduced and double them.
+///
+/// Without this, a search for `100%` becomes the pattern `%100%%`, which matches
+/// every row in the table.
+pub fn like_pattern(q: &str) -> String {
+    let escaped = q
+        .replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_");
+    format!("%{escaped}%")
+}
+
+/// One page of posts, optionally filtered by caption.
+///
+/// Asks for 21 rows to answer "is there another page?" without a COUNT; the
+/// caller drops the 21st. SQLite's `LIKE` is ASCII-case-insensitive by default,
+/// which is the behaviour the search wants — no `COLLATE NOCASE` needed.
+///
+/// Two query branches rather than one `?1 IS NULL` query: sqlx's SQLite macro
+/// does not reliably support reusing a numbered placeholder, and a match needs
+/// no argument about NULL semantics at all.
+pub async fn get_posts_page(pool: &DbPool, q: Option<&str>, page: i64) -> Vec<Post> {
     let offset = page * 20;
-    sqlx::query_as!(Post,
-        "SELECT id, caption, image_url, webp_url, avif_url, format, file_size_bytes, created_at, image_width, image_height FROM posts ORDER BY created_at DESC LIMIT 21 OFFSET ?",
-        offset
-    )
-    .fetch_all(pool)
-    .await
-    .unwrap_or_default()
+    match q {
+        Some(q) => {
+            let pattern = like_pattern(q);
+            sqlx::query_as!(Post,
+                "SELECT id, caption, image_url, webp_url, avif_url, format, file_size_bytes, created_at, image_width, image_height FROM posts WHERE caption LIKE ? ESCAPE '\\' ORDER BY created_at DESC LIMIT 21 OFFSET ?",
+                pattern, offset
+            )
+            .fetch_all(pool)
+            .await
+            .unwrap_or_default()
+        }
+        None => {
+            sqlx::query_as!(Post,
+                "SELECT id, caption, image_url, webp_url, avif_url, format, file_size_bytes, created_at, image_width, image_height FROM posts ORDER BY created_at DESC LIMIT 21 OFFSET ?",
+                offset
+            )
+            .fetch_all(pool)
+            .await
+            .unwrap_or_default()
+        }
+    }
+}
+
+/// The real total for the page head.
+///
+/// Called only on a full page render — never on HTMX pagination, where the head
+/// is not re-rendered and the COUNT would be wasted work on every Load more.
+///
+/// The `as "count: i64"` override is load-bearing: sqlx infers SQLite's
+/// `COUNT(*)` as `i32`.
+pub async fn count_posts(pool: &DbPool, q: Option<&str>) -> i64 {
+    match q {
+        Some(q) => {
+            let pattern = like_pattern(q);
+            sqlx::query_scalar!(
+                r#"SELECT COUNT(*) AS "count: i64" FROM posts WHERE caption LIKE ? ESCAPE '\'"#,
+                pattern
+            )
+            .fetch_one(pool)
+            .await
+            .unwrap_or(0)
+        }
+        None => sqlx::query_scalar!(r#"SELECT COUNT(*) AS "count: i64" FROM posts"#)
+            .fetch_one(pool)
+            .await
+            .unwrap_or(0),
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1014,7 +1080,7 @@ mod tests {
         )
         .await;
         assert_eq!(post.caption, "test caption");
-        let posts = get_posts(&pool, 0).await;
+        let posts = get_posts_page(&pool, None, 0).await;
         assert_eq!(posts.len(), 1);
         assert_eq!(posts[0].id, post.id);
     }
@@ -1040,7 +1106,7 @@ mod tests {
         assert_eq!(urls.image_url, "https://example.com/img.jpg");
         assert_eq!(urls.webp_url, "https://example.com/img-webp.webp");
         assert_eq!(urls.avif_url, "https://example.com/img-avif.avif");
-        assert!(get_posts(&pool, 0).await.is_empty());
+        assert!(get_posts_page(&pool, None, 0).await.is_empty());
     }
 
     #[tokio::test]
@@ -1123,7 +1189,7 @@ mod tests {
         // SQLite has no ADD COLUMN IF NOT EXISTS, so every re-run returns a
         // duplicate-column error that the `let _ =` in run_migrations discards.
         run_migrations(&pool).await;
-        assert!(get_posts(&pool, 0).await.is_empty());
+        assert!(get_posts_page(&pool, None, 0).await.is_empty());
     }
 
     #[tokio::test]
@@ -1144,7 +1210,7 @@ mod tests {
         assert_eq!(post.image_width, 1600);
         assert_eq!(post.image_height, 900);
 
-        let fetched = &get_posts(&pool, 0).await[0];
+        let fetched = &get_posts_page(&pool, None, 0).await[0];
         assert_eq!(
             fetched.image_width, 1600,
             "dimensions survive the insert/select round trip"
@@ -1167,9 +1233,99 @@ mod tests {
         .await
         .expect("legacy-shaped insert succeeds");
 
-        let post = &get_posts(&pool, 0).await[0];
+        let post = &get_posts_page(&pool, None, 0).await[0];
         assert_eq!(post.image_width, 0, "legacy rows read back as 0, not NULL");
         assert_eq!(post.image_height, 0);
+    }
+
+    /// Inserts a post carrying only a caption — the field caption search reads.
+    async fn seed_caption(pool: &DbPool, caption: &str) {
+        insert_post(
+            pool,
+            caption,
+            "https://example.com/img.jpg",
+            "",
+            "",
+            crate::models::PostFormat::Single.as_str(),
+            0,
+            0,
+            0,
+        )
+        .await;
+    }
+
+    #[test]
+    fn test_like_pattern_escapes_wildcards() {
+        assert_eq!(like_pattern("100%"), "%100\\%%");
+        assert_eq!(like_pattern("a_b"), "%a\\_b%");
+        // The escape character itself is doubled first, so it survives as a
+        // literal rather than escaping whatever follows it.
+        assert_eq!(like_pattern("c:\\x"), "%c:\\\\x%");
+        assert_eq!(like_pattern("loomis"), "%loomis%");
+    }
+
+    #[tokio::test]
+    async fn test_get_posts_page_unfiltered_keeps_the_n_plus_1_probe() {
+        let pool = test_pool().await;
+        for i in 0..21 {
+            seed_caption(&pool, &format!("caption {i}")).await;
+        }
+        // 21 rows come back on page 0: 20 to render plus the has_more probe,
+        // which the caller truncates. Page 1 holds the single leftover.
+        assert_eq!(get_posts_page(&pool, None, 0).await.len(), 21);
+        assert_eq!(get_posts_page(&pool, None, 1).await.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_get_posts_page_filters_captions_case_insensitively() {
+        let pool = test_pool().await;
+        seed_caption(&pool, "Loomis head").await;
+        seed_caption(&pool, "figure drawing").await;
+
+        let hits = get_posts_page(&pool, Some("loomis"), 0).await;
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].caption, "Loomis head");
+    }
+
+    #[tokio::test]
+    async fn test_search_for_a_literal_percent_does_not_match_every_row() {
+        let pool = test_pool().await;
+        seed_caption(&pool, "100% cotton paper").await;
+        seed_caption(&pool, "graphite study").await;
+
+        // Unescaped, the pattern would be %100%% — two wildcards around a
+        // literal, which matches every row in the table.
+        let hits = get_posts_page(&pool, Some("100%"), 0).await;
+        assert_eq!(hits.len(), 1, "a literal % must not act as a wildcard");
+        assert_eq!(hits[0].caption, "100% cotton paper");
+    }
+
+    #[tokio::test]
+    async fn test_search_for_a_literal_underscore_is_not_a_wildcard() {
+        let pool = test_pool().await;
+        seed_caption(&pool, "study_01").await;
+        seed_caption(&pool, "studyA01").await;
+
+        let hits = get_posts_page(&pool, Some("study_0"), 0).await;
+        assert_eq!(hits.len(), 1, "_ must match itself, not any character");
+        assert_eq!(hits[0].caption, "study_01");
+    }
+
+    #[tokio::test]
+    async fn test_count_posts_agrees_with_the_filtered_result() {
+        let pool = test_pool().await;
+        seed_caption(&pool, "gesture study").await;
+        seed_caption(&pool, "hand study").await;
+        seed_caption(&pool, "colour thumbnail").await;
+
+        assert_eq!(count_posts(&pool, None).await, 3);
+        assert_eq!(count_posts(&pool, Some("study")).await, 2);
+        assert_eq!(count_posts(&pool, Some("nothing here")).await, 0);
+        assert_eq!(
+            count_posts(&pool, Some("study")).await as usize,
+            get_posts_page(&pool, Some("study"), 0).await.len(),
+            "the head count and the rendered page must not disagree"
+        );
     }
 
     #[tokio::test]

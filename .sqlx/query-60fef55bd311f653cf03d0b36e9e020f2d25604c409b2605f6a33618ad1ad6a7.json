@@ -1,0 +1,74 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT id, caption, image_url, webp_url, avif_url, format, file_size_bytes, created_at, image_width, image_height FROM posts WHERE caption LIKE ? ESCAPE '\\' ORDER BY created_at DESC LIMIT 21 OFFSET ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "id",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "caption",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "image_url",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "webp_url",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "avif_url",
+        "ordinal": 4,
+        "type_info": "Text"
+      },
+      {
+        "name": "format",
+        "ordinal": 5,
+        "type_info": "Text"
+      },
+      {
+        "name": "file_size_bytes",
+        "ordinal": 6,
+        "type_info": "Integer"
+      },
+      {
+        "name": "created_at",
+        "ordinal": 7,
+        "type_info": "Text"
+      },
+      {
+        "name": "image_width",
+        "ordinal": 8,
+        "type_info": "Integer"
+      },
+      {
+        "name": "image_height",
+        "ordinal": 9,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "60fef55bd311f653cf03d0b36e9e020f2d25604c409b2605f6a33618ad1ad6a7"
+}

@@ -73,7 +73,7 @@ pub struct PageQuery {
 /// COUNT; the 21st is dropped before rendering. Returning both lets `feed_page`
 /// build the page head without a second query.
 async fn render_page(state: &Arc<AppState>, page: i64) -> (String, usize, bool) {
-    let mut posts = crate::db::get_posts(&state.pool, page).await;
+    let mut posts = crate::db::get_posts_page(&state.pool, None, page).await;
     let has_more = posts.len() > 20;
     if has_more {
         posts.truncate(20);
@@ -128,7 +128,7 @@ async fn api_posts(
     Query(q): Query<PageQuery>,
 ) -> impl IntoResponse {
     let page = q.page.unwrap_or(0);
-    let mut posts = crate::db::get_posts(&state.pool, page).await;
+    let mut posts = crate::db::get_posts_page(&state.pool, None, page).await;
     let has_more = posts.len() > 20;
     if has_more {
         posts.truncate(20);
@@ -210,7 +210,7 @@ mod tests {
             }
             pool
         };
-        let posts = crate::db::get_posts(&pool, 0).await;
+        let posts = crate::db::get_posts_page(&pool, None, 0).await;
         assert!(posts.len() > 20, "expected 21 rows with has_more=true");
     }
 
