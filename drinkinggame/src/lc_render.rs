@@ -464,11 +464,13 @@ pub fn lc_hand_pane(
 /// Where seat `seat` sits on an `n`-seat ring, from `me`'s point of view.
 /// `me: None` is identity (the big screen; a mini-table spectator).
 ///
-/// `.get()`, never `[]`: until Task 6 lands the `MAX_SEATS` ceiling, a
-/// stale oversized state can hand this more seats than `seat_positions`
-/// has rows for at that count. Render short rather than panic — this is
-/// the one formula both `lc_screen_panel` and `lc_mini_table` share, one
-/// argument different.
+/// `.get()`, never `[]`: an oversized state can still hand this more seats
+/// than `seat_positions` has rows for at that count. Both *live* paths into
+/// `players` now cap at `MAX_SEATS` (`LastCallState::new`'s `.take`, and
+/// `add_player`'s guard), but `from_json` does not — a state blob persisted
+/// before that ceiling existed deserializes with every seat it had. Render
+/// short rather than panic; this is the one formula both `lc_screen_panel`
+/// and `lc_mini_table` share, one argument different.
 fn seat_pos(n: usize, seat: usize, me: Option<usize>) -> Option<SeatPos> {
     seat_positions(n).get(view_index(seat, me, n)).copied()
 }

@@ -5133,10 +5133,64 @@ async fn test_lastcall_live_game_frame_does_not_carry_game_idle() {
         let frame = String::from_utf8(body.next().await.unwrap().unwrap().to_vec()).unwrap();
         if frame.contains("event: game") {
             seen_game = true;
-            assert!(!frame.contains(r#"class="game-idle""#), "{frame}");
+            // Same selector-shaped check the positive test below uses: a
+            // bare `class="game-idle"` needle would miss a multi-class root
+            // that the browser's querySelector still matches.
+            assert!(!matches_the_game_idle_selector(&frame), "{frame}");
         }
     }
     assert!(seen_game, "expected a game frame in the 4-frame snapshot");
+}
+
+/// True when the payload holds an element `querySelector(".game-idle")`
+/// would match: `game-idle` as a whitespace-delimited token of some `class`
+/// attribute, rather than the literal substring `class="game-idle"`. A root
+/// that gained a second class would still match in the browser but slip
+/// past the substring form, so the byte-shape proxy has to model the
+/// selector, not the current spelling of the markup.
+fn matches_the_game_idle_selector(payload: &str) -> bool {
+    payload.match_indices("class=\"").any(|(i, m)| {
+        let rest = &payload[i + m.len()..];
+        rest.find('"')
+            .is_some_and(|end| rest[..end].split_whitespace().any(|c| c == "game-idle"))
+    })
+}
+
+/// The other half of the handoff, and the one nothing asserted: ending the
+/// game must publish a `game` frame the phone's listener will actually act
+/// on. `lc_room.html` redirects on `querySelector(".game-idle")`, so the
+/// coupling between this handler's choice of builder and that selector is
+/// the whole exit path — swap `idle_panel` for any other builder and every
+/// other test here still passes while every phone sits on a dead table
+/// watching a game that ended.
+///
+/// Its mirror above proves a live game publishes no match; this proves an
+/// ended one does. Neither alone pins the contract.
+#[tokio::test]
+async fn test_ending_publishes_a_game_frame_the_phone_acts_on() {
+    let app = test_app().await;
+    let alice = login(&app, "alice", "1234").await;
+    let bob = login(&app, "bob", "5678").await;
+    let code = create_room(&app, &alice).await;
+    room_page_html(&app, &bob, &code).await;
+    post_form(&app, &alice, &format!("/room/{code}/lastcall/start"), "").await;
+
+    let res = get(&app, &format!("/room/{code}/sse")).await;
+    let mut body = res.into_body().into_data_stream();
+    read_sse_until(&mut body, "event: room").await; // drain the start snapshot
+
+    let end_res = post_form(&app, &alice, &format!("/room/{code}/lastcall/end"), "").await;
+    assert_eq!(end_res.status(), StatusCode::NO_CONTENT);
+
+    // `lc_end_handler` publishes game, then screen, then broadcast_room's
+    // room — filter by event name, never by position.
+    let seen = read_sse_until(&mut body, "event: game").await;
+    let frame = &seen[seen.find("event: game").unwrap()..];
+    assert!(
+        matches_the_game_idle_selector(frame),
+        "the game frame published on end must match the phone's \
+         .game-idle selector or no phone ever leaves the table: {frame}"
+    );
 }
 
 /// No JS test harness exists in this repo (recorded on Task 4's ledger
@@ -5203,8 +5257,8 @@ async fn test_a_ninth_member_can_still_open_the_room() {
     }
     post_form(&app, &alice, &format!("/room/{code}/lastcall/start"), "").await;
 
-    let st = lc_state(&pool, &code).await;
-    assert_eq!(st.players.len(), drinkinggame::last_call::MAX_SEATS);
+    let before = lc_state(&pool, &code).await;
+    assert_eq!(before.players.len(), drinkinggame::last_call::MAX_SEATS);
 
     // The ninth visitor opens the room link.
     let ninth = login(&app, "ninth", "1234").await;
@@ -5232,7 +5286,23 @@ async fn test_a_ninth_member_can_still_open_the_room() {
         drinkinggame::db::is_room_member(&pool, room.id, ninth_player.id).await,
         "not seated is not the same as not a member"
     );
-    assert!(st.seat_of(ninth_player.id).is_none());
+
+    // Re-read the state AFTER the join, not before. Asserting
+    // `seat_of(ninth) == None` against `before` proves nothing: that snapshot
+    // was taken while the ninth player row did not yet exist, so its id could
+    // not appear in it whether the ceiling held or not. The live claim is
+    // that the mid-game join hook ran, added the member, and declined to seat
+    // them — which only a post-join read can show.
+    let after = lc_state(&pool, &code).await;
+    assert_eq!(
+        after.players.len(),
+        drinkinggame::last_call::MAX_SEATS,
+        "the join hook must not grow the table past the ceiling"
+    );
+    assert!(
+        after.seat_of(ninth_player.id).is_none(),
+        "a member who arrived at a full table holds no seat"
+    );
 
     // The shell itself renders, and the table renders unrotated: a seated
     // viewer's fragment always carries exactly one `data-me`
