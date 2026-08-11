@@ -5,7 +5,8 @@ use crate::{
 };
 use askama::Template;
 use axum::{
-    extract::{Query, State},
+    extract::{Path, Query, State},
+    http::StatusCode,
     response::{Html, IntoResponse, Response},
     routing::get,
     Json, Router,
@@ -348,6 +349,60 @@ async fn htmx_posts(
     }
 }
 
+#[derive(Template)]
+#[template(path = "artportfolio/post.html")]
+struct PostPageTemplate {
+    post: Post,
+    is_admin: bool,
+}
+
+/// `is_admin` is not decoration here — `base.html` renders it into the
+/// `IS_ADMIN` constant the command palette reads, so every page that extends the
+/// shell must supply it. The 404 always reports false: it is the response a
+/// visitor gets, and an admin who lands on it has asked for an id that does not
+/// exist.
+#[derive(Template)]
+#[template(path = "artportfolio/not_found.html")]
+struct NotFoundTemplate {
+    is_admin: bool,
+}
+
+/// One drawing at its own URL.
+///
+/// This route is what makes `unlisted` mean anything. Without somewhere to reach
+/// an unlisted post, unlisted and hidden would be the same state.
+///
+/// A hidden post and a missing id produce the same 404 page, byte for byte. A
+/// distinguishable response — a 403, or a different message — would confirm the
+/// row exists, which is precisely what hiding it is meant to withhold.
+async fn post_permalink(
+    OptionalAuth(session_is_admin): OptionalAuth,
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<i64>,
+    Query(query): Query<PageQuery>,
+) -> Response {
+    // A previewing admin gets the visitor's 404, or the preview lies about the
+    // one thing it exists to show.
+    let viewer = effective_viewer(session_is_admin, is_preview(&query));
+
+    match crate::db::get_post_by_id(&state.pool, id, viewer).await {
+        Some(post) => Html(
+            PostPageTemplate {
+                post,
+                is_admin: viewer.is_admin(),
+            }
+            .render()
+            .unwrap(),
+        )
+        .into_response(),
+        None => (
+            StatusCode::NOT_FOUND,
+            Html(NotFoundTemplate { is_admin: false }.render().unwrap()),
+        )
+            .into_response(),
+    }
+}
+
 #[derive(serde::Serialize)]
 struct PostsResponse {
     posts: Vec<Post>,
@@ -379,6 +434,10 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/artportfolio", get(feed_page))
         .route("/artportfolio/htmx/posts", get(htmx_posts))
         .route("/artportfolio/api/posts", get(api_posts))
+        // Registered last so the file reads in specificity order. There is no
+        // collision to avoid — the two routes above are two segments deep and
+        // this one is a single segment.
+        .route("/artportfolio/{id}", get(post_permalink))
 }
 
 #[cfg(test)]
@@ -1060,5 +1119,107 @@ mod tests {
         let body = body_of(get(&app, "/artportfolio?visitor=1", Some(&cookie)).await).await;
         assert!(body.contains("on show"));
         assert!(!body.contains("kept back"));
+    }
+
+    // ===== Permalink (slice 2) =====
+
+    /// Returns the post id as well, since the permalink is addressed by it.
+    async fn seed_id(
+        pool: &crate::db::DbPool,
+        caption: &str,
+        visibility: crate::models::Visibility,
+    ) -> i64 {
+        let post = crate::db::insert_post(
+            pool,
+            caption,
+            "https://example.com/img.jpg",
+            "",
+            "",
+            crate::models::PostFormat::Single.as_str(),
+            0,
+            0,
+            0,
+        )
+        .await;
+        crate::db::set_post_visibility(pool, post.id, visibility).await;
+        post.id
+    }
+
+    #[tokio::test]
+    async fn test_permalink_public_is_200_for_visitor() {
+        let (app, pool) = app_with_pool().await;
+        let id = seed_id(&pool, "on show", crate::models::Visibility::Public).await;
+        let resp = get(&app, &format!("/artportfolio/{id}"), None).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert!(body_of(resp).await.contains("on show"));
+    }
+
+    /// The state's entire reason to exist: out of the feed, still served here.
+    #[tokio::test]
+    async fn test_permalink_unlisted_is_200_for_visitor() {
+        let (app, pool) = app_with_pool().await;
+        let id = seed_id(&pool, "by link only", crate::models::Visibility::Unlisted).await;
+        let resp = get(&app, &format!("/artportfolio/{id}"), None).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert!(body_of(resp).await.contains("by link only"));
+    }
+
+    #[tokio::test]
+    async fn test_permalink_hidden_is_404_for_visitor() {
+        let (app, pool) = app_with_pool().await;
+        let id = seed_id(&pool, "kept back", crate::models::Visibility::Hidden).await;
+        let resp = get(&app, &format!("/artportfolio/{id}"), None).await;
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+        assert!(!body_of(resp).await.contains("kept back"));
+    }
+
+    #[tokio::test]
+    async fn test_permalink_hidden_is_200_for_admin() {
+        let (app, pool) = app_with_pool().await;
+        let id = seed_id(&pool, "kept back", crate::models::Visibility::Hidden).await;
+        let cookie = admin_cookie(&pool).await;
+        let resp = get(&app, &format!("/artportfolio/{id}"), Some(&cookie)).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert!(body_of(resp).await.contains("kept back"));
+    }
+
+    /// A hidden post and a missing id must be indistinguishable from outside —
+    /// same status *and* same bytes. Anything that differed would confirm the
+    /// row exists.
+    #[tokio::test]
+    async fn test_permalink_unknown_id_is_404() {
+        let (app, pool) = app_with_pool().await;
+        let hidden = seed_id(&pool, "kept back", crate::models::Visibility::Hidden).await;
+
+        let missing_resp = get(&app, "/artportfolio/999999", None).await;
+        assert_eq!(missing_resp.status(), StatusCode::NOT_FOUND);
+        let missing_body = body_of(missing_resp).await;
+
+        let hidden_resp = get(&app, &format!("/artportfolio/{hidden}"), None).await;
+        let hidden_body = body_of(hidden_resp).await;
+
+        assert_eq!(missing_body, hidden_body);
+    }
+
+    #[tokio::test]
+    async fn test_permalink_hidden_is_404_for_previewing_admin() {
+        let (app, pool) = app_with_pool().await;
+        let id = seed_id(&pool, "kept back", crate::models::Visibility::Hidden).await;
+        let cookie = admin_cookie(&pool).await;
+        let resp = get(
+            &app,
+            &format!("/artportfolio/{id}?visitor=1"),
+            Some(&cookie),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    /// The card has to link somewhere, or the permalink is unreachable by
+    /// anything but a typed URL.
+    #[tokio::test]
+    async fn test_card_links_to_its_permalink() {
+        let post = sample_post(42, "linked");
+        assert!(card(&post, false).contains("href=\"/artportfolio/42\""));
     }
 }

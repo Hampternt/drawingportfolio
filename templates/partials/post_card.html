@@ -17,6 +17,10 @@
     into the Tab order, which would be worse than no keyboard support. -#}
 <article class="hm-post" id="post-{{ post.id }}" tabindex="-1">
   <div class="hm-post__media">
+    {#- tabindex="-1" on the anchor as well as the article. The article carries
+        it so J/K navigation does not push twenty cards into the Tab order; an
+        ordinarily-focusable link inside would undo exactly that. -#}
+    <a class="hm-post__link" href="/artportfolio/{{ post.id }}" tabindex="-1">
     <picture>
       {#- An empty variant URL means that encode failed or has not finished.
           AVIF in particular is produced by a detached task after the response
@@ -29,6 +33,7 @@
            {% if post.image_width > 0 && post.image_height > 0 %} width="{{ post.image_width }}" height="{{ post.image_height }}"{% endif %}
            {% if is_first %} loading="eager" fetchpriority="high"{% else %} loading="lazy"{% endif %}>
     </picture>
+    </a>
   </div>
   <div class="hm-post__body">
     {% if !post.caption.is_empty() %}<p class="hm-post__caption">{{ post.caption }}</p>{% endif %}

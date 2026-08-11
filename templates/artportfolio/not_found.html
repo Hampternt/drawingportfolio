@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+
+{% block title %}Not found — Drawing Portfolio{% endblock %}
+
+{% block body_class %}art-page{% endblock %}
+
+{% block content %}
+{#- `.art-feed` for the boosted-navigation body class, as in feed.html. -#}
+<div class="art-feed">
+  <div class="art-head">
+    <div class="art-head__inner">
+      <div class="hm-eyebrow art-head__label">404</div>
+      <h1>No such drawing</h1>
+      {#- Deliberately the same page for a missing id and for a hidden post. A
+          message that distinguished them would confirm the row exists, which is
+          the one fact hiding it is meant to withhold. -#}
+      <p class="art-head__intro">
+        It may never have existed. <a href="/artportfolio">Back to the feed</a>.
+      </p>
+    </div>
+  </div>
+</div>
+{% endblock %}
