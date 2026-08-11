@@ -23,6 +23,17 @@ const COMMANDS = [
     action() { location.href = '/artportfolio'; },
   },
   {
+    label: 'Toggle visitor view',
+    keywords: ['visitor', 'preview', 'public', 'visibility', 'hidden', 'unlisted'],
+    adminOnly: true,
+    action() {
+      // Reads the current URL rather than the page, so it works from anywhere
+      // in the section and not only when the toggle link is on screen.
+      const previewing = new URLSearchParams(location.search).get('visitor') === '1';
+      location.href = previewing ? '/artportfolio' : '/artportfolio?visitor=1';
+    },
+  },
+  {
     label: 'Go to Drawing Tasks',
     keywords: ['tasks', 'practice', 'prompts', 'drills', 'study', 'leetcode', 'exercises'],
     action() { location.href = '/tasks'; },

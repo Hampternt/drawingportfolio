@@ -42,19 +42,34 @@ struct FeedTemplate {
 /// every Load more.
 ///
 /// `counts.total` already encodes the viewer — an admin's total is every post, a
-/// visitor's is the public count — so nothing here branches on `viewer` yet. It
-/// is threaded now because the admin split (`· 117 public · 4 unlisted · 7
-/// hidden`) lands in this function, and the out-of-band label on the page-0 path
-/// would otherwise have to learn about the preview after the fact.
+/// visitor's is the public count — so `viewer` here decides only the *shape* of
+/// the label, not its numbers.
+///
+/// It matters that the out-of-band label on the page-0 path passes the same
+/// effective viewer: a search made while previewing would otherwise paint an
+/// admin-shaped head (`· 7 hidden`) above a visitor-shaped feed.
 fn head_label(counts: &PostCounts, q: Option<&str>, viewer: Viewer) -> String {
     let total = counts.total;
     let noun = if total == 1 { "drawing" } else { "drawings" };
-    let _ = viewer;
+
+    // The split REPLACES the sort suffix and FOLLOWS an active search. Sort
+    // order is already stated by the feed itself, so spending the head's one
+    // line on it while withholding the counts would be the wrong trade.
+    let tail = if viewer.is_admin() {
+        format!(
+            " · {} public · {} unlisted · {} hidden",
+            counts.public, counts.unlisted, counts.hidden
+        )
+    } else {
+        String::new()
+    };
+
     match q {
         // Deliberately unescaped: the template renders this through `{{ }}` and
         // Askama escapes it on the way out. Escaping here too would paint
         // entities on the page.
-        Some(q) => format!("{total} {noun} · matching \"{q}\""),
+        Some(q) => format!("{total} {noun} · matching \"{q}\"{tail}"),
+        None if viewer.is_admin() => format!("{total} {noun}{tail}"),
         None => format!("{total} {noun} · newest first"),
     }
 }
@@ -1307,5 +1322,132 @@ mod tests {
         assert!(html.contains(r#"hx-target="closest .hm-post""#), "{html}");
         assert!(html.contains(r#"hx-swap="outerHTML""#), "{html}");
         assert!(html.contains("/api/admin/posts/7/visibility"), "{html}");
+    }
+
+    // ===== Split head counts (slice 2) =====
+
+    fn counts(total: i64, public: i64, unlisted: i64, hidden: i64) -> PostCounts {
+        PostCounts {
+            total,
+            public,
+            unlisted,
+            hidden,
+        }
+    }
+
+    #[test]
+    fn test_head_label_visitor_no_search() {
+        assert_eq!(
+            head_label(&counts(117, 117, 0, 0), None, Viewer::Visitor),
+            "117 drawings · newest first"
+        );
+    }
+
+    #[test]
+    fn test_head_label_visitor_with_search() {
+        assert_eq!(
+            head_label(&counts(12, 12, 0, 0), Some("cat"), Viewer::Visitor),
+            "12 drawings · matching \"cat\""
+        );
+    }
+
+    /// The split replaces the sort suffix — the feed already states its order,
+    /// and the head has one line.
+    #[test]
+    fn test_head_label_admin_no_search() {
+        assert_eq!(
+            head_label(&counts(128, 117, 4, 7), None, Viewer::Admin),
+            "128 drawings · 117 public · 4 unlisted · 7 hidden"
+        );
+    }
+
+    /// …and follows an active search rather than replacing it.
+    #[test]
+    fn test_head_label_admin_with_search() {
+        assert_eq!(
+            head_label(&counts(12, 9, 2, 1), Some("cat"), Viewer::Admin),
+            "12 drawings · matching \"cat\" · 9 public · 2 unlisted · 1 hidden"
+        );
+    }
+
+    #[test]
+    fn test_head_label_singular() {
+        assert_eq!(
+            head_label(&counts(1, 1, 0, 0), None, Viewer::Visitor),
+            "1 drawing · newest first"
+        );
+        assert_eq!(
+            head_label(&counts(1, 1, 0, 0), None, Viewer::Admin),
+            "1 drawing · 1 public · 0 unlisted · 0 hidden"
+        );
+    }
+
+    /// A zero state renders as `0 hidden`, not as an omitted clause. A head
+    /// whose shape changed with the data would be harder to read at a glance,
+    /// not easier.
+    #[test]
+    fn test_head_label_admin_zero_states_still_render() {
+        let label = head_label(&counts(2, 2, 0, 0), None, Viewer::Admin);
+        assert!(label.contains("0 unlisted"), "{label}");
+        assert!(label.contains("0 hidden"), "{label}");
+    }
+
+    #[tokio::test]
+    async fn test_feed_page_admin_head_shows_the_split() {
+        let (app, pool) = app_with_pool().await;
+        seed(&pool, "on show", crate::models::Visibility::Public).await;
+        seed(&pool, "kept back", crate::models::Visibility::Hidden).await;
+        let cookie = admin_cookie(&pool).await;
+        let body = body_of(get(&app, "/artportfolio", Some(&cookie)).await).await;
+        assert!(body.contains("1 public"), "head did not split");
+        assert!(body.contains("1 hidden"), "head did not split");
+    }
+
+    /// The preview must reshape the head too. Without the viewer reaching
+    /// head_label, a previewing admin would read "· 1 hidden" above a feed with
+    /// nothing hidden in it.
+    #[tokio::test]
+    async fn test_preview_head_is_visitor_shaped() {
+        let (app, pool) = app_with_pool().await;
+        seed(&pool, "on show", crate::models::Visibility::Public).await;
+        seed(&pool, "kept back", crate::models::Visibility::Hidden).await;
+        let cookie = admin_cookie(&pool).await;
+        let body = body_of(get(&app, "/artportfolio?visitor=1", Some(&cookie)).await).await;
+        assert!(
+            !body.contains("hidden</div>"),
+            "admin split leaked into preview"
+        );
+        assert!(
+            body.contains("1 drawing · newest first"),
+            "{}",
+            &body[..200.min(body.len())]
+        );
+    }
+
+    #[tokio::test]
+    async fn test_admin_head_offers_the_preview_toggle() {
+        let (app, pool) = app_with_pool().await;
+        let cookie = admin_cookie(&pool).await;
+        let body = body_of(get(&app, "/artportfolio", Some(&cookie)).await).await;
+        assert!(body.contains("art-visitor-toggle"));
+        assert!(body.contains("/artportfolio?visitor=1"));
+    }
+
+    /// A real visitor must never see a way to leave a preview they are not in.
+    #[tokio::test]
+    async fn test_visitor_never_sees_the_preview_controls() {
+        let (app, _pool) = app_with_pool().await;
+        let body = body_of(get(&app, "/artportfolio", None).await).await;
+        assert!(!body.contains("art-visitor-toggle"));
+        assert!(!body.contains("Previewing as a visitor"));
+    }
+
+    #[tokio::test]
+    async fn test_previewing_admin_sees_the_exit_control() {
+        let (app, pool) = app_with_pool().await;
+        let cookie = admin_cookie(&pool).await;
+        let body = body_of(get(&app, "/artportfolio?visitor=1", Some(&cookie)).await).await;
+        assert!(body.contains("Previewing as a visitor"), "no preview flag");
+        assert!(body.contains("Exit preview"), "no way out");
     }
 }

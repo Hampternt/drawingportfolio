@@ -1696,3 +1696,31 @@ body.art-page .art-card-controls__btn:active { transform: translateY(1px); }
   body.art-page .art-card-controls { opacity: 1; }
   body.art-page .art-card-controls__btn { width: 44px; height: 44px; }
 }
+
+/* Head actions — the preview toggle and the flag that says you are in one. */
+body.art-page .art-head__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4, 12px);
+  margin-top: var(--space-5, 16px);
+}
+body.art-page .art-head__action {
+  font: var(--type-micro, 500 12px/1.4 ui-monospace, monospace);
+  color: var(--text-body, #f2eef8);
+  text-decoration: none;
+  padding: 6px 10px;
+  border-radius: var(--radius-2, 8px);
+  border: 1px solid rgba(242, 238, 248, .18);
+}
+body.art-page .art-head__action:hover { border-color: rgba(242, 238, 248, .4); }
+body.art-page .art-head__action kbd {
+  font: inherit;
+  opacity: .6;
+  margin-left: 4px;
+}
+body.art-page .art-preview-flag {
+  font: var(--type-micro, 500 12px/1.4 ui-monospace, monospace);
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: #FFB570;
+}

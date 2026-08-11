@@ -75,6 +75,16 @@ function artfeedInit() {
     } else if (e.key === 'k' || e.key === 'K') {
       e.preventDefault();
       artfeedStep(-1);
+    } else if (e.key === 'v' || e.key === 'V') {
+      // Admin-only in effect rather than by a check: a visitor's page never
+      // renders this link, so the lookup returns null and the key does nothing.
+      // The same element id serves both directions — entering the preview and
+      // leaving it — so this one branch toggles.
+      const toggle = document.getElementById('art-visitor-toggle');
+      if (toggle) {
+        e.preventDefault();
+        toggle.click();
+      }
     }
   });
 }

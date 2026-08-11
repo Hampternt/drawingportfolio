@@ -26,6 +26,26 @@
       <div class="hm-eyebrow art-head__label" id="art-head-label">{{ head_label }}</div>
       <h1>Drawing Portfolio</h1>
       <p class="art-head__intro">Mostly practice — studies, drills, and the odd finished piece.</p>
+      {#- These two are mutually exclusive by construction: under preview the
+          effective viewer is a visitor, so `is_admin` is false and only the exit
+          control renders. `is_previewing` comes from the RAW session bool, which
+          is the one thing it is still used for — a real visitor must never see
+          a way to "exit" a preview they are not in. -#}
+      {% if is_admin %}
+      <div class="art-head__actions">
+        <a class="art-head__action" id="art-visitor-toggle" href="/artportfolio?visitor=1">
+          Preview as visitor <kbd>V</kbd>
+        </a>
+      </div>
+      {% endif %}
+      {% if is_previewing %}
+      <div class="art-head__actions art-head__actions--preview">
+        <span class="art-preview-flag">Previewing as a visitor</span>
+        <a class="art-head__action" id="art-visitor-toggle" href="/artportfolio">
+          Exit preview <kbd>V</kbd>
+        </a>
+      </div>
+      {% endif %}
     </div>
   </div>
 
