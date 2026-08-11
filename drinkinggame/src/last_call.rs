@@ -924,8 +924,122 @@ impl LastCallState {
         Ok(())
     }
 
+    /// The viewer's own staged plays, hidden everywhere else — feeds Plan
+    /// E's private-fetch hand pane so a locked player's own `LOCKED {n}`
+    /// header still shows their card minis after `lock_in` empties `armed`
+    /// into `locked_plays`. Seat-scoped and pure: callers must gate this to
+    /// the requesting player's own seat and never feed it to a broadcast
+    /// path — the same secrecy boundary `public_view()` enforces for
+    /// everyone else.
+    pub fn staged_for(&self, seat: usize) -> Vec<&Card> {
+        self.locked_plays
+            .iter()
+            .filter(|play| play.source_seat == seat)
+            .map(|play| &play.card)
+            .collect()
+    }
+
+    /// One beat forward. Draw→Deal clears `drawing`; Lock→Reveal is the
+    /// reveal: unlocked players' armed cards return to hand (DDv2 §12,
+    /// disconnect at lock), locked plays are charged (6.4) and moved into
+    /// `plays` with order_key computed (7.1/7.2). At Resolve returns
+    /// Err(MustResolve) — resolve() owns the rollover (D5). Bumps seq on
+    /// success.
     pub fn advance_beat(&mut self) -> Result<(), LcError> {
-        Err(LcError::NotImplemented)
+        if self.beat == Beat::Resolve {
+            return Err(LcError::MustResolve);
+        }
+        let from = self.beat;
+        self.beat = from.next();
+        match from {
+            Beat::Draw => {
+                for p in &mut self.players {
+                    p.drawing = false;
+                }
+            }
+            Beat::Lock => self.reveal(),
+            // Deal→Diplomacy, Diplomacy→Lock, Reveal→Resolve: events, tabs,
+            // the swap and the reaction window are hollow systems (D14, D9).
+            _ => {}
+        }
+        self.seq += 1;
+        Ok(())
+    }
+
+    /// Lock→Reveal edge — the reveal. See `advance_beat`'s doc comment for
+    /// the transition it's called from.
+    fn reveal(&mut self) {
+        // 1. Unlocked players play nothing (§12): their armed cards go
+        // home, uncharged. A disconnect (or simply never locking) forfeits
+        // the round's plays but not the cards.
+        for p in &mut self.players {
+            if p.status == Status::Alive && !p.locked {
+                for a in p.armed.drain(..) {
+                    p.hand.push(a.card);
+                }
+            }
+        }
+
+        // 2. Charge pulls (6.4). `lock_in` already ran `payment_plan` over
+        // the same cards and accepted them; vessels cannot change between
+        // lock and reveal (arming and drawing both live in other beats), so
+        // this cannot fail — it is re-run rather than cached only because
+        // `handicap_pct` (which `pull_cost` depends on) is settable at any
+        // beat via `set_handicap`, and re-simulating against the player's
+        // *current* vessels/handicap is what keeps this charge and
+        // lock_in's/arm's earlier checks agreeing on what "affordable"
+        // meant, per D3's single shared `payment_plan` helper.
+        let locked_seats: Vec<usize> = self
+            .players
+            .iter()
+            .filter(|p| p.locked)
+            .map(|p| p.seat)
+            .collect();
+        for seat in locked_seats {
+            let armed: Vec<ArmedCard> = self
+                .locked_plays
+                .iter()
+                .filter(|play| play.source_seat == seat)
+                .map(|play| ArmedCard {
+                    card: play.card.clone(),
+                    target: play.target,
+                })
+                .collect();
+            let mut trial = self.players[seat].clone();
+            trial.armed = armed;
+            let plan = payment_plan(&trial).expect(
+                "vessels cannot change between lock and reveal; lock_in already validated this payment plan",
+            );
+            let p = &mut self.players[seat];
+            for (vessel_idx, cost) in plan {
+                p.vessels[vessel_idx].pulls_left -= cost;
+            }
+        }
+
+        // 3. Order (7.1/7.2): bigger spender acts first; `first_seat`
+        // breaks ties by table position; the stable sort preserves each
+        // player's own arming order among their own plays for free (7.2's
+        // within-player rule).
+        let n = self.players.len();
+        let first_seat = self.first_seat;
+        let mut totals = vec![0u32; n];
+        for play in &self.locked_plays {
+            let handicap = self.players[play.source_seat].handicap_pct;
+            totals[play.source_seat] += pull_cost(play.card.cost, handicap) as u32;
+        }
+        self.locked_plays.sort_by_key(|play| {
+            let priority = (play.source_seat + n - first_seat) % n;
+            (std::cmp::Reverse(totals[play.source_seat]), priority)
+        });
+        for (i, play) in self.locked_plays.iter_mut().enumerate() {
+            play.order_key = i as u32 + 1;
+        }
+
+        // 4. Flip everything at once: this is the single point where plays
+        // become revealable — `beat` is already `Reveal` (set by
+        // `advance_beat` before calling this) when `public_view()` next
+        // runs.
+        self.plays = std::mem::take(&mut self.locked_plays);
     }
 
     pub fn resolve(&mut self) -> Result<(), LcError> {
@@ -1592,6 +1706,133 @@ mod tests {
             st.set_target(1, "beer-01", None),
             Err(LcError::AlreadyLocked)
         );
+    }
+
+    /// alice locks beer-01(→bob) then beer-02(→bob): 3 pulls. bob locks
+    /// cider-04(→alice): 3 pulls. cara arms soft-01 but never locks.
+    fn locked_table() -> LastCallState {
+        let mut st = at_lock();
+        st.arm(1, "beer-01").unwrap();
+        st.set_target(1, "beer-01", Some(1)).unwrap();
+        st.arm(1, "beer-02").unwrap();
+        st.set_target(1, "beer-02", Some(1)).unwrap();
+        st.lock_in(1).unwrap();
+        st.arm(2, "cider-04").unwrap();
+        st.set_target(2, "cider-04", Some(0)).unwrap();
+        st.lock_in(2).unwrap();
+        st.arm(3, "soft-01").unwrap();
+        st
+    }
+
+    #[test]
+    fn test_advance_walks_the_beats_and_refuses_resolve() {
+        let mut st = seated();
+        for expected in [
+            Beat::Deal,
+            Beat::Diplomacy,
+            Beat::Lock,
+            Beat::Reveal,
+            Beat::Resolve,
+        ] {
+            let seq = st.seq;
+            st.advance_beat().unwrap();
+            assert_eq!(st.beat, expected);
+            assert_eq!(st.seq, seq + 1);
+        }
+        assert_eq!(st.advance_beat(), Err(LcError::MustResolve)); // D5
+    }
+
+    #[test]
+    fn test_draw_to_deal_clears_drawing() {
+        let mut st = seated();
+        st.players[0].drawing = true;
+        st.advance_beat().unwrap();
+        assert!(!st.players[0].drawing);
+    }
+
+    #[test]
+    fn test_reveal_charges_orders_and_flips() {
+        let mut st = locked_table();
+        st.advance_beat().unwrap(); // Lock → Reveal
+        assert_eq!(st.beat, Beat::Reveal);
+        assert!(st.locked_plays.is_empty());
+        assert_eq!(st.players[0].vessels[0].pulls_left, 5); // Beer 8-3
+        assert_eq!(st.players[1].vessels[0].pulls_left, 7); // Cider 10-3
+        assert_eq!(st.players[2].vessels[0].pulls_left, 6); // cara never locked
+                                                            // cara's armed card went home, uncharged (§12):
+        assert_eq!(st.players[2].hand.len(), 4);
+        assert!(st.players[2].armed.is_empty());
+        // 3 = 3 tie → seat order from first_seat 0 → alice first, arming order:
+        assert_eq!(
+            st.plays
+                .iter()
+                .map(|p| (p.card.id.as_str(), p.order_key))
+                .collect::<Vec<_>>(),
+            vec![("beer-01", 1), ("beer-02", 2), ("cider-04", 3)]
+        );
+        // And the projection now — and only now — carries identity:
+        let json = serde_json::to_string(&st.public_view()).unwrap();
+        assert!(json.contains("Nudge"));
+    }
+
+    #[test]
+    fn test_bigger_spender_acts_first() {
+        // 7.1
+        let mut st = at_lock();
+        st.arm(1, "beer-01").unwrap(); // alice spends 1
+        st.set_target(1, "beer-01", Some(1)).unwrap();
+        st.lock_in(1).unwrap();
+        st.arm(2, "cider-04").unwrap(); // bob spends 3
+        st.set_target(2, "cider-04", Some(0)).unwrap();
+        st.lock_in(2).unwrap();
+        st.advance_beat().unwrap();
+        assert_eq!(st.plays[0].card.id, "cider-04");
+        assert_eq!(st.plays[0].order_key, 1);
+    }
+
+    #[test]
+    fn test_first_seat_breaks_the_tie() {
+        // 7.2
+        let mut st = locked_table();
+        st.first_seat = 1;
+        st.advance_beat().unwrap();
+        assert_eq!(st.plays[0].card.id, "cider-04"); // bob's seat leads now
+    }
+
+    #[test]
+    fn test_handicap_inflates_the_charge() {
+        // §11: cost only, rounded up
+        let mut st = at_lock();
+        st.set_handicap(1, 150).unwrap();
+        st.arm(1, "beer-01").unwrap(); // pull_cost(1,150) = 2
+        st.set_target(1, "beer-01", Some(1)).unwrap();
+        st.lock_in(1).unwrap();
+        st.advance_beat().unwrap();
+        assert_eq!(st.players[0].vessels[0].pulls_left, 6); // 8 - 2
+    }
+
+    #[test]
+    fn test_staged_for_returns_only_the_named_seat_and_survives_the_flip() {
+        let mut st = locked_table();
+        // Pre-reveal: alice's two locked cards are visible only to her seat.
+        assert_eq!(
+            st.staged_for(0)
+                .iter()
+                .map(|c| c.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["beer-01", "beer-02"]
+        );
+        assert_eq!(
+            st.staged_for(1)
+                .iter()
+                .map(|c| c.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["cider-04"]
+        );
+        assert!(st.staged_for(2).is_empty()); // cara never locked
+        st.advance_beat().unwrap(); // Lock → Reveal flips locked_plays into plays
+        assert!(st.staged_for(0).is_empty()); // nothing left in locked_plays
+        assert!(st.staged_for(1).is_empty());
     }
 
     #[test]
