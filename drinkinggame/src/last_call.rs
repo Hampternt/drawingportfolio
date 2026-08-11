@@ -276,6 +276,13 @@ pub enum EffectOp {
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Effect {
+    /// The `Play.order_key` that created this effect — NOT a unique
+    /// identity. `order_key` resets to 1 at every reveal (DDv2 §1), so the
+    /// same `source_play` value recurs across rounds and could even collide
+    /// with a different play's `order_key` in a later round (M5, review
+    /// finding). Harmless today — nothing dereferences it — but if a future
+    /// LOG tab or "what caused this" lookup ever treats it as an identity,
+    /// it needs pairing with `round` (or a real global play id) first.
     pub source_play: u32,
     pub subject: usize,
     pub op: EffectOp,
@@ -527,16 +534,27 @@ impl LastCallState {
     /// back. Callers must not fail the join on `None`: an unseated member
     /// still belongs to the room, just not to this game (Plan B Task 6).
     ///
+    /// Also refuses (M4, review finding) once `outcome()` is `Some` — a
+    /// D16 freeze at `Beat::Resolve` is the final tableau, and seating a
+    /// third player after a 1v1 ends would make `outcome()` re-evaluate to
+    /// `None` (two alive again), retroactively blanking
+    /// `public_view().outcome` while `beat` stayed frozen at `Resolve`. An
+    /// already-seated member's idempotent replay is unaffected — that check
+    /// runs first.
+    ///
     /// Bumps `seq` exactly when a player is actually newly seated — not on
-    /// the idempotent replay, not on the full-table `None` — because `seq`
-    /// is the freshness floor every SSE-driven repaint compares against
-    /// (`lcApply`/`lcApplyTable`'s `if (seq < lcSeq) return`), and two
-    /// distinct seatings sharing one `seq` would let the client's
-    /// equal-seq-is-a-harmless-duplicate allowance silently accept a stale
-    /// repaint as current.
+    /// the idempotent replay, not on the full-table or game-over `None` —
+    /// because `seq` is the freshness floor every SSE-driven repaint
+    /// compares against (`lcApply`/`lcApplyTable`'s `if (seq < lcSeq)
+    /// return`), and two distinct seatings sharing one `seq` would let the
+    /// client's equal-seq-is-a-harmless-duplicate allowance silently accept
+    /// a stale repaint as current.
     pub fn add_player(&mut self, player_id: i64, name: &str) -> Option<usize> {
         if let Some(seat) = self.seat_of(player_id) {
             return Some(seat);
+        }
+        if self.outcome().is_some() {
+            return None;
         }
         if self.players.len() >= MAX_SEATS {
             return None;
@@ -674,10 +692,23 @@ impl LastCallState {
         Ok(())
     }
 
+    /// Draw-beat-gated (D19, added post-review — mirrors D15's `set_vessel`
+    /// gate): handicap is a "round boundary" setting exactly like vessels.
+    /// Before this gate, a handicap raised between `lock_in` and `reveal`
+    /// could inflate 7.1's ordering total (computed from the *current*
+    /// `handicap_pct`) above what the reveal charge actually paid, buying
+    /// initiative at a discount (review finding I1). Gating closes the
+    /// window: vessels and handicap are now both frozen for the whole
+    /// Lock/Reveal pair, so `payment_plan` re-derived at reveal always
+    /// reproduces exactly what `lock_in` validated. Guard order: `NotSeated`
+    /// -> `WrongBeat` -> `BadHandicap`.
     pub fn set_handicap(&mut self, target_id: i64, handicap_pct: u16) -> Result<(), LcError> {
         let Some(seat) = self.seat_of(target_id) else {
             return Err(LcError::NotSeated);
         };
+        if self.beat != Beat::Draw {
+            return Err(LcError::WrongBeat);
+        }
         if !(HANDICAP_MIN_PCT..=HANDICAP_MAX_PCT).contains(&handicap_pct) {
             return Err(LcError::BadHandicap);
         }
@@ -983,20 +1014,14 @@ impl LastCallState {
         }
 
         // 2. Charge pulls (6.4). `lock_in` already ran `payment_plan` over
-        // the same cards and accepted them; vessels cannot change between
-        // lock and reveal (arming and drawing both live in other beats), so
-        // re-deriving the plan here normally reproduces the exact numbers
-        // lock_in validated — re-run rather than cached only because
-        // `handicap_pct` (which `pull_cost` depends on) is settable at any
-        // beat via `set_handicap`, and charging against the player's
-        // *current* handicap is what keeps this and lock_in's/arm's earlier
-        // checks agreeing on what "affordable" meant, per D3's shared
-        // greedy-vessel-selection logic. Uses `reveal_charge_plan`, not
-        // `payment_plan`, because that agreement is not actually guaranteed:
-        // `set_handicap` has no beat guard, so a handicap raised after
-        // lock_in can inflate the cost above what lock_in validated —
-        // `reveal_charge_plan` saturates in that case instead of failing
-        // (see its doc comment).
+        // the same cards and accepted them; neither vessels nor handicap can
+        // change between lock and reveal (vessels are Draw-gated, D15;
+        // handicap is now Draw-gated too, D19 — closing the review's I1
+        // finding), so re-deriving the plan here is *guaranteed*, not just
+        // normally expected, to reproduce the exact numbers lock_in
+        // validated. `expect` rather than propagating an error: a
+        // `CantAfford` here would mean state diverged from what lock_in
+        // accepted, which the D15/D19 gates make unreachable.
         let locked_seats: Vec<usize> = self
             .players
             .iter()
@@ -1015,7 +1040,12 @@ impl LastCallState {
                 .collect();
             let mut trial = self.players[seat].clone();
             trial.armed = armed;
-            let plan = reveal_charge_plan(&trial);
+            let plan = payment_plan(&trial).expect(
+                "lock_in already validated affordability against these vessels \
+                 and this handicap_pct, and neither can change before reveal \
+                 (vessels are Draw-gated, D15; handicap is Draw-gated, D19) — \
+                 a CantAfford here means state diverged from what lock_in accepted",
+            );
             let p = &mut self.players[seat];
             for (vessel_idx, cost) in plan {
                 p.vessels[vessel_idx].pulls_left -= cost;
@@ -1081,6 +1111,20 @@ impl LastCallState {
             return Err(LcError::WrongBeat);
         }
 
+        // M3 hardening: no engine transition can produce an empty `players`
+        // (a fresh room always seats via `add_player`/`new`), but a
+        // hand-corrupted or pre-ceiling blob loaded via `from_json` could.
+        // Without seats there is nothing to resolve, tick or roll over — and
+        // `% self.players.len()` below would panic on zero — so stop here
+        // instead of poisoning the room. `seq` does NOT bump: nothing is
+        // mutated (no plays, no players, no rollover), so per D18/the
+        // `add_player` precedent this is a no-op return, not a successful
+        // mutating transition — bumping here would let a corrupt-blob room
+        // manufacture phantom `seq` advances with no state behind them.
+        if self.players.is_empty() {
+            return Ok(());
+        }
+
         // Step 1: resolve plays in order_key order. `plays` is drained up
         // front (§14: the queue empties every round) and iterated as owned
         // data so mutating `self.players`/`self.effects`/`self.discards`
@@ -1088,7 +1132,17 @@ impl LastCallState {
         let plays = std::mem::take(&mut self.plays);
         let mut queued_effects: Vec<Effect> = Vec::new();
         for play in plays {
-            if self.players[play.source_seat].status == Status::Eliminated {
+            // M3: `source_seat` is validated at `lock_in` time, but a
+            // corrupt/truncated blob (e.g. `from_json`'s MAX_SEATS cap
+            // shrinking `players` under a play staged by a pre-ceiling
+            // binary) could reference a seat that no longer exists. Treat
+            // that the same as an eliminated source — no effect, the card
+            // still leaves play — rather than panic on `self.players[..]`.
+            let Some(source) = self.players.get(play.source_seat) else {
+                self.discards.push(play.card);
+                continue;
+            };
+            if source.status == Status::Eliminated {
                 // 7.6: a source eliminated earlier this resolve plays
                 // nothing, but the card still leaves play (8.4).
                 self.discards.push(play.card);
@@ -1097,10 +1151,12 @@ impl LastCallState {
 
             // D2 subject resolution. "table" has no card in the current
             // catalog and is treated as no direct subject — Util/Reaction
-            // ignore subjects anyway (D8).
+            // ignore subjects anyway (D8). The "one" arm bounds-checks the
+            // target the same way (M3) — an out-of-range seat fizzles
+            // exactly like a dead one, instead of panicking.
             let subjects: Vec<usize> = match play.card.targets.as_str() {
-                "one" => match play.target {
-                    Some(t) if self.players[t].status == Status::Alive => vec![t],
+                "one" => match play.target.and_then(|t| self.players.get(t)) {
+                    Some(p) if p.status == Status::Alive => vec![p.seat],
                     _ => {
                         // 7.5: fizzle — no effect, pulls stay spent, the
                         // card still occupied its slot.
@@ -1152,11 +1208,19 @@ impl LastCallState {
         // applying: the no-stack rule (D10) guarantees at most one Dot
         // effect per subject, so a tick can eliminate its own subject
         // (removing that same effect, per D11) without disturbing any other
-        // snapshotted entry.
+        // snapshotted entry. Bounds-checked (M3): a corrupt blob's effect
+        // could name a subject seat that no longer exists — skip it rather
+        // than panic.
         let dot_ticks: Vec<(usize, i32)> = self
             .effects
             .iter()
-            .filter(|e| e.op == EffectOp::Dot && self.players[e.subject].status == Status::Alive)
+            .filter(|e| {
+                e.op == EffectOp::Dot
+                    && self
+                        .players
+                        .get(e.subject)
+                        .is_some_and(|p| p.status == Status::Alive)
+            })
             .map(|e| (e.subject, e.magnitude))
             .collect();
         for (subject, magnitude) in dot_ticks {
@@ -1296,47 +1360,6 @@ fn payment_plan(player: &LcPlayer) -> Result<Vec<(usize, u8)>, LcError> {
         plan.push((bi, cost));
     }
     Ok(plan)
-}
-
-/// Reveal-time charge (Task 4, DDv2 6.4): the same deterministic-greedy
-/// vessel selection as `payment_plan`, over a player's staged `locked_plays`
-/// (converted to `armed` by the caller — reveal runs after `lock_in` has
-/// already emptied the real `armed`). Unlike `payment_plan` this never
-/// fails: `lock_in` validated affordability against `handicap_pct` *at lock
-/// time*, and vessels don't move outside `Beat::Draw`, so re-deriving the
-/// same plan at reveal is normally guaranteed to succeed with the exact
-/// same numbers. The one gap that can violate that: `set_handicap` carries
-/// no beat guard (pre-existing — out of this task's scope to close, see the
-/// task-4 report's concerns), so a handicap raised between `lock_in` and
-/// reveal can inflate `pull_cost` past what a vessel has left. Rather than
-/// let that gap panic a live room, each charge saturates at the vessel's
-/// remaining `pulls_left` instead of erroring — a card can never charge a
-/// vessel negative. See
-/// `test_handicap_raised_after_lock_saturates_instead_of_panicking`.
-fn reveal_charge_plan(player: &LcPlayer) -> Vec<(usize, u8)> {
-    let mut sim: Vec<u8> = player.vessels.iter().map(|v| v.pulls_left).collect();
-    let mut plan = Vec::with_capacity(player.armed.len());
-    for a in &player.armed {
-        let cost = pull_cost(a.card.cost, player.handicap_pct);
-        let mut best: Option<usize> = None;
-        for (i, v) in player.vessels.iter().enumerate() {
-            if v.deck != a.card.deck {
-                continue;
-            }
-            match best {
-                Some(bi) if sim[i] <= sim[bi] => {}
-                _ => best = Some(i),
-            }
-        }
-        // `best` is always `Some`: a card only ever enters `armed`/`locked_plays`
-        // from a hand `set_vessel` seeded, so a vessel of its deck exists.
-        if let Some(bi) = best {
-            let charge = cost.min(sim[bi]);
-            sim[bi] -= charge;
-            plan.push((bi, charge));
-        }
-    }
-    plan
 }
 
 /// Shared runtime fixture builder (spec §8) — NOT `#[cfg(test)]`. Task 3's
@@ -1483,6 +1506,10 @@ mod tests {
         assert_eq!(st.players[1].handicap_pct, 150);
 
         assert_eq!(st.set_handicap(999, 150), Err(LcError::NotSeated));
+
+        st.beat = Beat::Lock; // D19: handicap is Draw-gated, like set_vessel
+        assert_eq!(st.set_handicap(2, 200), Err(LcError::WrongBeat));
+        assert_eq!(st.players[1].handicap_pct, 150); // unchanged
     }
 
     /// finding 9: a missing top-level field (the shape of a slice-3 addition
@@ -1649,6 +1676,28 @@ mod tests {
         assert!(st.seat_of(999).is_none());
     }
 
+    /// M4 (review finding): once the table has frozen at the D16 game-over
+    /// tableau, a new join must not un-freeze it. Before this fix, a third
+    /// player joining after a 1v1 ended would make `outcome()` re-evaluate
+    /// to `None` (two alive again), retroactively blanking
+    /// `public_view().outcome` while `beat` stayed stuck at `Resolve`.
+    #[test]
+    fn test_add_player_refuses_after_the_game_is_over() {
+        let mut st = LastCallState::new(vec![(1, "alice".into()), (2, "bob".into())], 42);
+        st.players[1].status = Status::Eliminated;
+        assert_eq!(st.outcome(), Some(LcOutcome::Winner(0)));
+        let before = st.seq;
+
+        assert_eq!(st.add_player(3, "cara"), None);
+        assert_eq!(st.players.len(), 2); // not seated
+        assert_eq!(st.seq, before); // no phantom bump either
+
+        // An already-seated member's idempotent replay is unaffected —
+        // that check runs before the outcome refusal.
+        assert_eq!(st.add_player(2, "bob"), Some(1));
+        assert_eq!(st.seq, before);
+    }
+
     #[test]
     fn test_starting_with_more_than_max_seats_members_seats_only_max() {
         // The path add_player never sees: nine members in the room when
@@ -1766,10 +1815,17 @@ mod tests {
     /// alice(1)/Beer, bob(2)/Cider, cara(3)/Soft — vessels registered at Draw,
     /// then moved to the Lock beat.
     fn at_lock() -> LastCallState {
+        at_lock_with(|_| {})
+    }
+
+    /// Like `at_lock`, but runs `setup` while still at `Beat::Draw` — needed
+    /// by tests that call `set_handicap`, which is Draw-gated (D19).
+    fn at_lock_with(setup: impl FnOnce(&mut LastCallState)) -> LastCallState {
         let mut st = seated();
         st.set_vessel(1, Deck::Beer, "can").unwrap();
         st.set_vessel(2, Deck::Cider, "bottle").unwrap();
         st.set_vessel(3, Deck::Soft, "glass").unwrap();
+        setup(&mut st);
         st.beat = Beat::Lock;
         st
     }
@@ -1809,9 +1865,8 @@ mod tests {
             Err(LcError::CantAfford("beer-02".into()))
         );
         // Handicap inflates the check (4.2's cost × handicap):
-        let mut st = at_lock();
+        let mut st = at_lock_with(|st| st.set_handicap(1, 150).unwrap()); // pull_cost(2,150) = 3
         st.players[0].vessels[0].pulls_left = 2;
-        st.set_handicap(1, 150).unwrap(); // pull_cost(2,150) = 3
         assert_eq!(
             st.arm(1, "beer-02"),
             Err(LcError::CantAfford("beer-02".into()))
@@ -2058,8 +2113,7 @@ mod tests {
     #[test]
     fn test_handicap_inflates_the_charge() {
         // §11: cost only, rounded up
-        let mut st = at_lock();
-        st.set_handicap(1, 150).unwrap();
+        let mut st = at_lock_with(|st| st.set_handicap(1, 150).unwrap());
         st.arm(1, "beer-01").unwrap(); // pull_cost(1,150) = 2
         st.set_target(1, "beer-01", Some(1)).unwrap();
         st.lock_in(1).unwrap();
@@ -2067,22 +2121,32 @@ mod tests {
         assert_eq!(st.players[0].vessels[0].pulls_left, 6); // 8 - 2
     }
 
-    /// `set_handicap` has no beat guard (pre-existing, not this task's
-    /// scope to fix — see the task-4 report) — a handicap raised after
-    /// `lock_in` validated affordability can inflate `pull_cost` above what
-    /// the vessel has left by reveal. The engine must not panic over that
-    /// gap: reveal charges saturate at 0 instead of failing.
+    /// I1 (review finding, closed by D19): `set_handicap` is now Draw-gated,
+    /// so a handicap raised after `lock_in` simply errs — the side channel
+    /// that let 7.1's ordering total and the reveal charge disagree is
+    /// closed at the source, not papered over with saturation. The reveal
+    /// charge and the 7.1 ordering totals must match exactly what `lock_in`
+    /// validated, because nothing was able to change in between.
     #[test]
-    fn test_handicap_raised_after_lock_saturates_instead_of_panicking() {
-        let mut st = at_lock();
-        st.players[0].vessels[0].pulls_left = 2;
-        st.arm(1, "beer-02").unwrap(); // pull_cost(2,100) = 2, affordable
-        st.set_target(1, "beer-02", Some(1)).unwrap();
-        st.lock_in(1).unwrap();
-        st.set_handicap(1, 300).unwrap(); // no beat guard — legal today
-        st.advance_beat().unwrap(); // pull_cost(2,300) = 6 > 2 left: must not panic
-        assert_eq!(st.players[0].vessels[0].pulls_left, 0); // saturated, not negative
-        assert_eq!(st.plays[0].card.id, "beer-02"); // still revealed and ordered
+    fn test_set_handicap_after_lock_is_rejected_and_reveal_matches_lock_time() {
+        // alice locks beer-01(→bob)+beer-02(→bob) = 3 pulls; bob locks
+        // cider-04(→alice) = 3 pulls (see `locked_table`).
+        let mut st = locked_table();
+        assert_eq!(st.set_handicap(1, 300), Err(LcError::WrongBeat));
+        assert_eq!(st.players[0].handicap_pct, 100); // unchanged — no side channel
+        st.advance_beat().unwrap(); // Lock -> Reveal
+                                    // Charges match exactly the lock-time simulation (handicap 100% throughout):
+        assert_eq!(st.players[0].vessels[0].pulls_left, 5); // Beer 8-3
+        assert_eq!(st.players[1].vessels[0].pulls_left, 7); // Cider 10-3
+                                                            // 7.1 ordering: 3 == 3 tie, alice's seat (first_seat 0) leads —
+                                                            // exactly the lock-time totals, not the (rejected) inflated ones:
+        assert_eq!(
+            st.plays
+                .iter()
+                .map(|p| (p.card.id.as_str(), p.order_key))
+                .collect::<Vec<_>>(),
+            vec![("beer-01", 1), ("beer-02", 2), ("cider-04", 3)]
+        );
     }
 
     #[test]
@@ -2236,6 +2300,26 @@ mod tests {
         assert_eq!(st.players[0].hand.len(), 7);
     }
 
+    /// M7 (D7 taken to its edge): an empty shoe makes `expected = 0`, so an
+    /// empty `drawn` batch is legal — the vessel still refills (a free
+    /// top-up) and `drawing`/`draws_this_round` still register the beat-1
+    /// action, but the hand gains nothing because there is nothing left to
+    /// deal.
+    #[test]
+    fn test_finish_and_draw_at_an_empty_shoe_draws_nothing() {
+        let mut st = seated();
+        st.set_vessel(1, Deck::Beer, "can").unwrap();
+        set_deck_count(&mut st, Deck::Beer, 0);
+        st.players[0].vessels[0].pulls_left = 2; // most of the can is gone
+        let hand_before = st.players[0].hand.len();
+        st.finish_and_draw(1, 0, vec![]).unwrap();
+        assert_eq!(st.players[0].vessels[0].pulls_left, 8); // still refills
+        assert_eq!(st.players[0].hand.len(), hand_before); // nothing to draw
+        assert_eq!(st.players[0].draws_this_round, 0);
+        assert!(st.players[0].drawing);
+        assert_eq!(deck_count(&st, Deck::Beer), 0);
+    }
+
     #[test]
     fn test_resolve_applies_damage_and_rolls_over() {
         let mut st = locked_table(); // alice 3 pulls → bob; bob 3 → alice
@@ -2260,6 +2344,77 @@ mod tests {
     fn test_resolve_wrong_beat() {
         let mut st = seated();
         assert_eq!(st.resolve(), Err(LcError::WrongBeat));
+    }
+
+    /// M3: no engine transition can empty `players` (only a hand-corrupted
+    /// or `Default`/`{}` blob can), but `resolve` must degrade instead of
+    /// panicking on `% self.players.len()`.
+    #[test]
+    fn test_resolve_on_empty_players_does_not_panic() {
+        let mut st = LastCallState {
+            beat: Beat::Resolve,
+            ..Default::default()
+        };
+        let seq = st.seq;
+        assert_eq!(st.resolve(), Ok(()));
+        assert_eq!(st.beat, Beat::Resolve); // frozen — no rollover to do
+        assert_eq!(st.seq, seq); // no mutation occurred — no bump (D18)
+    }
+
+    /// M3: a play whose `source_seat` no longer exists (e.g. a
+    /// `from_json`-truncated `players` vec under a play staged by a
+    /// pre-ceiling binary) fizzles like an eliminated source instead of
+    /// panicking on `self.players[..]`.
+    #[test]
+    fn test_resolve_skips_a_play_from_a_truncated_source_seat() {
+        let mut st = seated(); // 3 seats: 0, 1, 2
+        st.beat = Beat::Resolve;
+        set_deck_count(&mut st, Deck::Beer, 5); // keep the discard out of the reshuffle
+        st.plays.push(Play {
+            card: crate::lc_cards::card_by_id("beer-01").unwrap(),
+            source_seat: 9, // no such seat
+            target: Some(1),
+            paid_from: Deck::Beer,
+            order_key: 1,
+        });
+        st.resolve().unwrap();
+        assert_eq!(st.players[1].hp, STARTING_HP); // untouched
+        assert_eq!(st.discards.len(), 1); // the card still leaves play (8.4)
+    }
+
+    /// M3: a `targets == "one"` play whose target seat no longer exists
+    /// fizzles the same way a dead target does, instead of panicking.
+    #[test]
+    fn test_resolve_fizzles_a_play_targeting_a_truncated_seat() {
+        let mut st = seated();
+        st.beat = Beat::Resolve;
+        set_deck_count(&mut st, Deck::Beer, 5); // keep the discard out of the reshuffle
+        st.plays.push(Play {
+            card: crate::lc_cards::card_by_id("beer-01").unwrap(),
+            source_seat: 0,
+            target: Some(9), // no such seat
+            paid_from: Deck::Beer,
+            order_key: 1,
+        });
+        st.resolve().unwrap();
+        assert!(st.players.iter().all(|p| p.hp == STARTING_HP));
+        assert_eq!(st.discards.len(), 1);
+    }
+
+    /// M3: a stored `Effect` naming a subject seat that no longer exists is
+    /// skipped at tick time rather than panicking.
+    #[test]
+    fn test_resolve_skips_a_dot_on_a_truncated_subject() {
+        let mut st = seated();
+        st.beat = Beat::Resolve;
+        st.effects.push(Effect {
+            source_play: 0,
+            subject: 9, // no such seat
+            op: EffectOp::Dot,
+            magnitude: 5,
+            expires_round: 99,
+        });
+        st.resolve().unwrap(); // must not panic
     }
 
     #[test]
@@ -2401,12 +2556,30 @@ mod tests {
         let mut st = at_lock();
         st.advance_beat().unwrap(); // Reveal (nobody locked, nothing staged)
         st.advance_beat().unwrap(); // Resolve
-        st.players[1].hand = std::iter::repeat_n(crate::lc_cards::deck_cards(Deck::Cider), 4)
-            .flatten()
+                                    // Four reps of Cider's four ids, with reps 1..3 given distinct
+                                    // suffixes (the `preview_state` `-r{rep}` trick) so the 16-card hand
+                                    // is not four indistinguishable quadruples — a mutant that discards
+                                    // from the FRONT instead of the end would fail these id assertions
+                                    // (M2: the un-suffixed version passed either way).
+        st.players[1].hand = (0..4)
+            .flat_map(|rep| {
+                crate::lc_cards::deck_cards(Deck::Cider)
+                    .into_iter()
+                    .map(move |mut c| {
+                        if rep > 0 {
+                            c.id = format!("{}-r{rep}", c.id);
+                        }
+                        c
+                    })
+            })
             .collect(); // 16
         st.resolve().unwrap();
         assert_eq!(st.players[1].hand.len(), HAND_SOFT_CAP);
         assert_eq!(st.discards.len(), 4);
+        // Survivors are reps 0-2 (the oldest, kept); discards are rep 3
+        // (the newest, at the end of the hand — D12's "newest first"):
+        assert!(st.players[1].hand.iter().all(|c| !c.id.ends_with("-r3")));
+        assert!(st.discards.iter().all(|c| c.id.ends_with("-r3")));
     }
 
     #[test]

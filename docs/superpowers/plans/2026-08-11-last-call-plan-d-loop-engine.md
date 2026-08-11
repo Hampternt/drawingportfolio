@@ -111,6 +111,12 @@ named constant so a playtest can move it.
 - **D18 — `seq` bumps on every successful mutating transition,** including
   `arm`/`disarm`/`set_target`. The bump is anonymous at the transport level
   and the arming player's own hand fragment needs the repaint signal.
+- **D19 (added post-review, D's fix wave) — `set_handicap` is Draw-beat-gated**,
+  mirroring D15's `set_vessel` gate: closes the review's I1 finding (a
+  handicap raised between `lock_in` and `reveal` could inflate 7.1's
+  ordering total without paying the charge that should back it), and lets
+  `reveal_charge_plan`'s saturating fallback collapse back into the shared
+  `payment_plan` + `expect`.
 
 ---
 
