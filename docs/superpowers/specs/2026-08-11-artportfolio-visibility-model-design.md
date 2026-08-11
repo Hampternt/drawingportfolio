@@ -316,20 +316,22 @@ block, per the architecture rules.
 
 ## Sizing
 
-Slice 1 did not fit one plan under `plan-economics` and this one probably does not
-either. Candidate split, to be confirmed when the plan is written:
+**Resolved 2026-08-11: one plan, not two.**
+`docs/superpowers/plans/2026-08-11-artportfolio-visibility.md`, eight tasks.
 
-| Plan | Scope |
-|---|---|
-| **A** | migration 013 · `Visibility`/`Viewer` · db filtering · `OptionalAuth` on all three feed routes · the effective-viewer derivation **including the `?visitor=1` flag** and its threading through `PageQuery`, `load_more_url()`, `page_url()` and `head_label()` · permalink route + template · sqlx cache |
-| **B** | `PATCH` route · upload field · card badge, opacity and control cluster · split head counts · the view-as-visitor button and `V` shortcut |
+This spec originally proposed an A/B split, matching slice 1's, and Plan A was written
+that way before the user asked for a single plan covering everything slice 2 needs. The
+split is recorded here only because the reasoning behind its boundary survived into the
+merged plan: the preview **flag** had to sit with the viewer plumbing even though the
+preview **button** is a late, cosmetic task, because its threading through `PageQuery`,
+`load_more_url()`, `page_url()` and `head_label()` *is* that plumbing. In the merged plan
+that shows up as Task 3 threading a `viewer` parameter Task 7 is the first to branch on.
 
-The preview *flag* belongs to A even though the preview *button* belongs to B. Its
-threading through those four functions is the same viewer plumbing A ships; split it and
-B has to re-open every function A just closed.
-
-A and B are **not** safely parallel: both touch `feed.rs`, `post_card.html` and the same
-`style.css` section, the same reason slice 1's two plans ran in sequence.
+Eight tasks exceeds `plan-economics` §1 (4–6 tasks, one session) at the user's explicit
+direction. The measured risk is the 2026-08-01 fitness redesign: 421 turns and 139M
+cache-read tokens from a plan whose scope outran one session. The merged plan mitigates
+it by marking Tasks 1–4 as a deployable session boundary — the model complete and
+enforced, with nothing in the UI yet able to change a state.
 
 ## Acceptance
 

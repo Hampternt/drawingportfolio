@@ -1,11 +1,11 @@
-# Artportfolio Visibility Model — Plan A (data layer, viewer plumbing, permalink)
+# Artportfolio Visibility Model — Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILLS: `plan-economics` (this repo's task
 > classes, review policy and plan sizing) then
 > superpowers:subagent-driven-development to execute task-by-task.
 
-**Goal:** Give every post a `visibility` state, enforce it on every route that reads
-posts, and serve unlisted posts from a permalink.
+**Goal:** Give every post a `public` / `unlisted` / `hidden` state, enforce it on
+every route that reads posts, and let an admin change it inline from the feed.
 
 **Architecture:** A `visibility` column (migration 013) plus two enums in
 `models.rs` — `Visibility` for the state and `Viewer` for who is asking. Every
@@ -13,24 +13,28 @@ posts, and serve unlisted posts from a permalink.
 effective viewer from `OptionalAuth` and the `?visitor=1` preview flag, and drives
 both its db call and its templates from that single value.
 
-**Slice:** When this plan is done the three states are real and enforced —
-`/artportfolio`, its HTMX fragment route, the JSON API and the new permalink all
-agree on what a visitor may see, and `?visitor=1` previews a visitor's view
-faithfully. Deployable as-is: every existing row defaults to `public`, so the site
-behaves exactly as it does today until something sets a different state.
-
-Plan B picks up everything that *changes* a state or *displays* it: the `PATCH`
-route, the upload's `visibility` field, the card badge and control cluster, the split
-head counts, and the view-as-visitor button and `V` shortcut. Until B lands, changing
-a post's state means an `UPDATE` by hand — that is the honest boundary, not an
-oversight.
+**Slice:** All of slice 2. When this plan is done the visibility model is complete
+and deployable — the three states are real, enforced on all four post-reading
+routes, changeable from the feed without a reload, settable at upload time, visible
+as a per-card badge, summarised in the page head, and previewable through
+`?visitor=1`. Slice 3 (collections, tags, the full filter rail) picks up next and
+depends on nothing here beyond the `Viewer` parameter already being threaded.
 
 Spec: `docs/superpowers/specs/2026-08-11-artportfolio-visibility-model-design.md`.
+
+**On the size of this plan.** Eight tasks exceeds `plan-economics` §1, which sizes a
+plan at 4–6 tasks and one session, at the user's explicit direction — they asked for
+one plan covering everything slice 2 needs rather than the A/B split the spec
+proposed. The risk is the measured one: the 2026-08-01 fitness redesign's 421-turn,
+139M-cache-read session came from exactly this, a plan whose scope outran a single
+session. Two mitigations are built in — Tasks 1–4 end at a deployable state (the
+model enforced, nothing yet able to change it), so **that is a clean place to end a
+session and resume from the ledger** if context is running long by then.
 
 ## Global Constraints
 
 **The three states, verbatim from the spec.** This table is the acceptance criterion
-for Tasks 2, 3 and 4:
+for Tasks 2, 3, 4 and 5:
 
 | visibility | in feed | in JSON API | permalink, visitor | permalink, admin |
 |---|---|---|---|---|
@@ -45,10 +49,11 @@ fact hiding it is meant to withhold.
 
 - Parsing a value **read from the DB**: unrecognised → `Hidden`. A corrupt or
   future value must not render to the public.
-- Parsing the **`PATCH` body** (Plan B): unrecognised → `400`. Silently coercing a
-  typo to `Hidden` would look like the request succeeded.
+- Parsing **input from outside** — the `PATCH` body, the upload's multipart field:
+  unrecognised → `400`. Silently coercing a typo to `Hidden` would look like the
+  request succeeded.
 
-**One effective viewer.** `Viewer` governs the db layer and the template flag governs
+**One effective viewer.** `Viewer` governs the db layer and a template flag governs
 the markup, and they must be derived from the same value:
 
 ```rust
@@ -74,14 +79,13 @@ Task 2: the query shape cannot use it.
 the report. Never a bare `cargo test`; the root `Cargo.toml` is both a package and
 the workspace root, so it silently skips `drinkinggame`'s tests.
 
-**`cargo sqlx prepare` runs in every task that touches SQL — Tasks 1 and 2 — not
+**`cargo sqlx prepare` runs in every task that touches SQL — Tasks 1, 2 and 5 — not
 once at the end.** This deliberately departs from `plan-economics` §6, using the
 carve-out it names: *"unless that plan's commits need to build offline
 individually."* They do. `scripts/verify.sh` runs its test step as
 `SQLX_OFFLINE=true cargo test --workspace`, so the moment Task 1 adds `visibility`
 to `Post` and to every posts `SELECT`, a stale `.sqlx` cache fails that task's own
-acceptance line. Deferring the regeneration would leave Tasks 1–4 unable to go
-green.
+acceptance line.
 
 **There is no `.env` in this worktree**, so nothing exports `DATABASE_URL` for you.
 The sqlx macros need a live database to infer against whenever the queries change:
@@ -93,8 +97,8 @@ export DATABASE_URL=sqlite:portfolio.db     # once per shell, before any task
 The ordering trap this creates is spelled out in Task 1, Step 2 — read it before
 touching `models.rs`.
 
-**Browser checkpoints:** after Task 4 (the permalink is the first thing with a visual
-surface) and before the final review. Not per task.
+**Browser checkpoints:** after Task 6 (the visual layer) and before the final review.
+Not per task.
 
 ---
 
@@ -146,7 +150,7 @@ what you intended.
 ALTER TABLE posts ADD COLUMN visibility TEXT NOT NULL DEFAULT 'public';
 ```
 
-Deliberately **no index**. See Task 2's step 2 for why the query shape cannot use
+Deliberately **no index**. See Task 2's Step 2 for why the query shape cannot use
 one.
 
 - [ ] **Step 2: Register it in `run_migrations()`, then apply it — before touching `models.rs`**
@@ -250,8 +254,8 @@ becomes that list plus `, visibility`. Find them with:
 grep -n "image_width, image_height FROM posts" src/db.rs
 ```
 
-`insert_post` does **not** gain the column — new posts take the column default.
-Plan B adds the upload's `visibility` field.
+`insert_post` does **not** gain the column here — new posts take the column default
+until Task 5 adds the upload's field.
 
 - [ ] **Step 5: Regenerate the sqlx offline cache**
 
@@ -332,7 +336,7 @@ impl Viewer {
 /// The page head's numbers.
 ///
 /// `total` is viewer-dependent: an admin's total is every post, a visitor's is
-/// the public count. The other three are rendered only for an admin (Plan B).
+/// the public count. The other three are rendered for an admin only.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct PostCounts {
     pub total: i64,
@@ -467,9 +471,7 @@ Note `unlisted` is deliberately **not** filtered here — reachable by permalink
 whole point of the state.
 
 `set_post_visibility` is a plain `UPDATE … WHERE id = ?` returning
-`rows_affected() == 1`, so Plan B's route can answer 404 for an unknown id. It has no
-caller until Plan B; that is expected, and it belongs here because SQL lives in
-`db.rs` only.
+`rows_affected() == 1`, so Task 5's route can answer 404 for an unknown id.
 
 - [ ] **Step 5: Update the callers**
 
@@ -494,9 +496,9 @@ exists to fix. Do not end a session on this commit.
 
 - [ ] **Step 6: Write the tests**
 
-In `src/db.rs`'s `mod tests`, using the existing `test_pool()` helper. Insert three
-posts and set their states with a direct `UPDATE`, since nothing writes visibility
-until Plan B:
+In `src/db.rs`'s `mod tests`, using the existing `test_pool()` helper. Insert posts
+and set their states with a direct `UPDATE`, since nothing writes visibility until
+Task 5:
 
 | Test | Setup | Assert |
 |---|---|---|
@@ -511,8 +513,9 @@ until Plan B:
 | `test_get_post_by_id_unknown_id_is_none` | empty | `None` for `Admin` too |
 | `test_visibility_from_row_fails_closed` | — | `Visibility::from_row("bogus") == Visibility::Hidden` |
 | `test_visibility_from_str_rejects_unknown` | — | `Visibility::from_str("bogus").is_none()` |
+| `test_set_post_visibility_round_trip` | 1 public | set to `Hidden`, re-read, assert the column changed |
 | `test_set_post_visibility_unknown_id_is_false` | empty | returns `false` |
-| `test_admin_dashboard_query_sees_all_states` | 1 public, 1 unlisted, 1 hidden | `get_posts_page(&pool, None, 0, Viewer::Admin).len() == 3` — the assertion that catches `admin.rs:52` being handed `Visitor` |
+| `test_admin_dashboard_query_sees_all_states` | 1 of each | `get_posts_page(&pool, None, 0, Viewer::Admin).len() == 3` — catches `admin.rs:52` being handed `Visitor` |
 
 - [ ] **Step 7: Regenerate the sqlx offline cache**
 
@@ -607,24 +610,14 @@ prove they do not.
 fn head_label(counts: &PostCounts, q: Option<&str>, viewer: Viewer) -> String
 ```
 
-The body is unchanged in this plan — render `counts.total` where `total` used to be.
-`counts.total` already encodes the viewer (Task 2 step 3), so nothing here branches
-on it yet.
-
-The `viewer` parameter is added now, deliberately unused, with:
-
-```rust
-// `viewer` is unused until Plan B, which appends the admin split
-// (`· 117 public · 4 unlisted · 7 hidden`). It is threaded now because the
-// out-of-band label on the page-0 path would otherwise have to be re-opened
-// then — and a search while previewing would paint an admin-shaped head above a
-// visitor-shaped feed.
-let _ = viewer;
-```
+In this task the body renders `counts.total` where `total` used to be, and nothing
+branches on `viewer` yet — `counts.total` already encodes it. Task 7 adds the admin
+split. The parameter is threaded now so Task 7 changes one function body rather than
+re-opening this signature and every call to it.
 
 - [ ] **Step 4: `render_grid` takes the viewer**
 
-Add `viewer: Viewer` as the last parameter and pass it to `get_posts_page`. Plan B
+Add `viewer: Viewer` as the last parameter and pass it to `get_posts_page`. Task 6
 uses this same value for the card flag, so its signature does not move again.
 
 - [ ] **Step 5: Wire all three routes**
@@ -637,6 +630,11 @@ uses this same value for the card flag, so its signature does not move again.
 Under preview the `{% if is_admin %}` upload composer in `feed.html` therefore
 disappears. That is correct — a visitor has no composer — and it will look like a
 regression to anyone who has not read this line.
+
+`FeedTemplate` also gains `is_previewing: bool`, fed from the *raw* session bool AND
+the preview flag (`session_is_admin && preview`). This is the one thing the raw bool
+is for: Task 7 renders the "exit preview" affordance from it, and a real visitor must
+never see that control.
 
 **`htmx_posts` and `api_posts` must now extract `OptionalAuth` too. They do not
 today.** While every post is public that is harmless; the moment Task 1 lands it is a
@@ -760,21 +758,280 @@ git commit -m "feat(artportfolio): unlisted posts get somewhere to be reached"
 
 **Acceptance:** `./scripts/verify.sh` — all green.
 
-**Browser checkpoint 1.** Run `cargo run`, set one post to each state by hand
-(`UPDATE posts SET visibility='hidden' WHERE id=…`), then check, logged out: the feed
-omits the hidden and unlisted posts; the unlisted permalink renders; the hidden
-permalink 404s. Logged in: all three appear in the feed, and `?visitor=1` collapses
-the view to the visitor's — **including across one *Load more* click**, which is the
-click that catches the URL-builder bug.
-
-Record what you could not verify. Slice 1's checkpoints found `resize_window` never
-changes `innerWidth` in this environment, key events arrive synthetic rather than
-natively delivered, and Dark Reader repaints colour — so geometry and text are
-measurable here, colour is not.
+> **Session boundary, if context is running long.** Tasks 1–4 leave the model
+> complete and enforced — deployable, with the honest limitation that nothing in the
+> UI can *change* a state yet. This is the one clean place to stop and resume from
+> the ledger. Tasks 5–8 do not leave a comparable boundary.
 
 ---
 
-### Task 5: Offline cache, docs and the plan's final verification
+### Task 5: Changing a visibility — the `PATCH` route and the upload field
+
+**Class:** C
+
+**Why this class:** A state-mutating admin route. `AuthSession` gating is the whole
+protection here: a visitor who can reach this endpoint can unhide anything.
+
+**Files:**
+- Modify: `src/routes/admin.rs` — new handler, route registration, upload handler
+- Modify: `src/db.rs` — `insert_post` gains the visibility parameter
+- Modify: `src/main.rs` — route registration if not nested under the admin router
+- Test: `src/routes/admin.rs` `mod tests`
+
+**Interfaces:**
+- Consumes: `set_post_visibility`, `Visibility::from_str`, `PostCardTemplate`.
+- Produces:
+  ```rust
+  // PATCH /api/admin/posts/{id}/visibility
+  // Body: form or JSON carrying `visibility`
+  pub async fn insert_post(…, visibility: Visibility) -> Post;   // new trailing parameter
+  ```
+
+- [ ] **Step 1: The `PATCH` handler**
+
+Gated by `AuthSession`, not `OptionalAuth` — this one mutates. Follow the existing
+`DELETE /api/admin/posts/{id}` handler in the same file for extractor order and error
+shape.
+
+Three outcomes, and they are distinct on purpose:
+
+| Input | Response |
+|---|---|
+| unrecognised visibility string | **400** — `Visibility::from_str` returned `None`; fail loudly, per Global Constraints |
+| unknown post id | **404** — `set_post_visibility` returned `false` |
+| success | **200** with the re-rendered card |
+
+The success body is a `PostCardTemplate` with `is_admin: true` — an admin is the only
+caller — swapped `outerHTML` into `closest .hm-post` by the button's HTMX attributes
+(Task 6). Returning the card rather than a status keeps the badge and the opacity in
+step with the database without a reload.
+
+- [ ] **Step 2: The upload gains a `visibility` field**
+
+`insert_post` takes `visibility: Visibility` as a trailing parameter and writes
+`visibility.as_str()`. Its SQL changes, which is why this task regenerates the cache.
+
+In the multipart loop, read an optional `visibility` field. **Absent means `public`**
+(`Visibility::default()`); **present but unrecognised means 400**, exactly as the
+`PATCH` body does. An absent field is the normal case — Task 6 does not add an upload
+control, and slice 4's tray is what will send this.
+
+Update `insert_post`'s existing test callers to pass `Visibility::Public`.
+
+- [ ] **Step 3: Write the tests**
+
+| Test | Assert |
+|---|---|
+| `test_patch_visibility_requires_session` | no cookie → redirect or 401, **never** 200 |
+| `test_patch_visibility_sets_state` | with a session, `public` → `hidden`, re-read the row |
+| `test_patch_visibility_unknown_string_is_400` | body `visibility=bogus` → 400, row unchanged |
+| `test_patch_visibility_unknown_id_is_404` | 404 |
+| `test_patch_visibility_returns_card_markup` | body contains `hm-post` and the badge class |
+| `test_upload_absent_visibility_defaults_public` | `insert_post` with `Visibility::default()` stores `"public"` |
+| `test_upload_unknown_visibility_is_400` | multipart carrying `visibility=bogus` → 400 |
+
+- [ ] **Step 4: Regenerate the sqlx offline cache**
+
+```bash
+cargo sqlx prepare
+```
+
+`insert_post`'s SQL changed in Step 2.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/routes/admin.rs src/db.rs src/main.rs .sqlx
+git commit -m "feat(artportfolio): visibility becomes something you can change"
+```
+
+**Acceptance:** `./scripts/verify.sh` — all green.
+
+---
+
+### Task 6: The card badge, the dimmed hidden card, and the control cluster
+
+**Class:** A
+
+**Why this class:** Askama templates compile into the binary, so broken markup is a
+build error, and `tests/static_assets.rs` catches the nested-comment CSS failure that
+has bitten this repo before. Everything here is compiler- or lint-gated.
+
+**Files:**
+- Modify: `templates/partials/post_card.html`
+- Modify: `src/routes/feed.rs` — `PostCardTemplate`, `PostGridTemplate`, `render_grid`
+- Modify: `src/routes/admin.rs` — the two `PostCardTemplate` construction sites
+- Modify: `static/style.css` — under the existing `body.art-page` section
+
+**Interfaces:**
+- Consumes: `Viewer` from Task 2, `render_grid`'s `viewer` parameter from Task 3.
+- Produces: `PostCardTemplate { post, is_first, is_admin }`, `PostGridTemplate { …, is_admin }`.
+
+- [ ] **Step 1: Thread the flag to the card — through the grid, not around it**
+
+`post_card.html` is **`include`d** from `post_grid.html` with `{% let %}` bindings, so
+adding `is_admin` to `PostCardTemplate` alone leaves every card in the feed unable to
+see it — only the upload response would get it. Both templates need the field:
+
+- `PostCardTemplate` gains `is_admin: bool`
+- `PostGridTemplate` gains `is_admin: bool`
+- `render_grid` sets it from the `viewer` it already takes: `is_admin: viewer.is_admin()`
+
+One value, two uses, no signature churn. `admin.rs`'s two construction sites pass
+`true`.
+
+- [ ] **Step 2: The card markup**
+
+Everything below lives behind `{% if is_admin %}`. **A visitor's card must stay
+byte-identical to slice 1's** — that is the check for this step.
+
+- A visibility badge at top-right, 8px inset, its class derived from the state.
+- The control cluster at top-left: `eye-off` hide and `link` unlist, 28px
+  IconButtons, 6px gap, faded in on card hover and on keyboard focus within the card.
+  Each is an HTMX `hx-patch` to `/api/admin/posts/{{ post.id }}/visibility` with
+  `hx-target="closest .hm-post" hx-swap="outerHTML"`.
+- Edit, collection and delete controls from the handoff's cluster belong to slices
+  3–5. Do not add them.
+
+- [ ] **Step 3: The styles**
+
+Under the existing `body.art-page` section in `style.css`, in a named subsection
+comment. Never a `<style>` block in a template that extends `base.html`.
+
+```css
+/* Visibility badge — tones from the handoff, S2. */
+--art-vis-public:   #4FD6A8;   /* mint    */
+--art-vis-unlisted: #FFB570;   /* amber   */
+--art-vis-hidden:   inherit;   /* neutral */
+```
+
+A hidden card renders at `opacity: .5`. The control cluster transitions over 130ms
+`cubic-bezier(.2,.8,.3,1)`, and `prefers-reduced-motion: reduce` zeroes it.
+
+Under 900px the cluster is always visible at 44px hit targets rather than
+hover-revealed — a touch device has no hover, so a hover-only control is no control.
+
+**Do not nest `/* */` inside these comments.** `tests/static_assets.rs` exists because
+a nested marker silently dropped the next rule once; browsers resolve it by
+discarding, not erroring.
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add templates/partials/post_card.html src/routes/feed.rs src/routes/admin.rs static/style.css
+git commit -m "feat(artportfolio): a card that says what state it is in"
+```
+
+**Acceptance:** `./scripts/verify.sh` — all green.
+
+**Browser checkpoint 1.** `cargo run`, then logged out: the feed omits hidden and
+unlisted posts, and no badge or cluster appears anywhere. Logged in: all three states
+appear, each badge matches its state, a hidden card is visibly dimmed, and clicking
+hide swaps that one card without touching the rest of the page.
+
+Record what you could not verify. Slice 1's checkpoints found `resize_window` never
+changes `innerWidth` here, key events arrive synthetic rather than natively
+delivered, and Dark Reader repaints colour — so **the three badge tones need human
+eyes**, and the 900px always-visible cluster is only checkable through the CSSOM.
+
+---
+
+### Task 7: The split head counts and the view-as-visitor control
+
+**Class:** B
+
+**Why this class:** `head_label` is a pure function with four specified output
+shapes, and the table below names every one with its expected string. The button and
+the key handler are markup and a listener beside two that already exist.
+
+**Files:**
+- Modify: `src/routes/feed.rs` — `head_label`
+- Modify: `templates/artportfolio/feed.html` — head actions
+- Modify: `static/artfeed.js` — the `V` shortcut
+- Modify: `static/palette.js` — the COMMANDS array
+- Test: `src/routes/feed.rs` `mod tests`
+
+**Interfaces:**
+- Consumes: `PostCounts`, `Viewer`, `FeedTemplate.is_previewing` from Task 3.
+
+- [ ] **Step 1: `head_label` gains the admin split**
+
+Four shapes, exactly:
+
+| | no search | searching |
+|---|---|---|
+| **visitor** | `117 drawings · newest first` | `12 drawings · matching "cat"` |
+| **admin** | `128 drawings · 117 public · 4 unlisted · 7 hidden` | `12 drawings · matching "cat" · 9 public · 2 unlisted · 1 hidden` |
+
+The split **replaces** the `· newest first` suffix and **follows** `· matching "…"`
+when there is a search. Sort order is stated by the toolbar, so spending head room on
+it while withholding the counts is the wrong trade.
+
+The singular/plural on `drawing`/`drawings` follows `counts.total`, as it does today.
+The three split numbers carry no noun.
+
+- [ ] **Step 2: The head actions**
+
+In `feed.html`, behind `{% if is_admin %}`, a secondary **View as visitor** button
+(`eye` glyph) linking to `/artportfolio?visitor=1` — a plain link, so it is
+bookmarkable and survives a reload.
+
+Behind `{% if is_previewing %}` — the flag Task 3 fed from the *raw* session bool —
+an "exit preview" control linking back to `/artportfolio`. These two are mutually
+exclusive by construction: under preview `is_admin` is false, so only the exit
+control renders.
+
+- [ ] **Step 3: The `V` shortcut**
+
+In `artfeed.js`'s existing `keydown` listener, after the `j`/`k` branch. It sits
+**after** the `artfeedIsTyping(active)` guard already in place, so it cannot fire
+while the search field has focus.
+
+```js
+    } else if (e.key === 'v' || e.key === 'V') {
+      // Admin-only in effect: a visitor's page has no such link, so this
+      // resolves to null and the key does nothing.
+      const toggle = document.getElementById('art-visitor-toggle');
+      if (toggle) {
+        e.preventDefault();
+        toggle.click();
+      }
+    }
+```
+
+No new listener and no new init path — `artfeedInit` is already idempotent via
+`window.artfeedBound` and already bound on both `DOMContentLoaded` and
+`htmx:afterSwap`, which is what the hx-boost rule requires.
+
+- [ ] **Step 4: The palette entry**
+
+Add "Toggle visitor view" to the `COMMANDS` array in `palette.js`, following the
+existing entry shape exactly. **A nested object literal broke this file once**
+(`c72d614`) and `node --check` in `verify.sh` is the only thing that catches it.
+
+- [ ] **Step 5: Write the tests**
+
+| Test | Assert |
+|---|---|
+| `test_head_label_visitor_no_search` | `"117 drawings · newest first"` |
+| `test_head_label_visitor_with_search` | `"12 drawings · matching \"cat\""` |
+| `test_head_label_admin_no_search` | `"128 drawings · 117 public · 4 unlisted · 7 hidden"` |
+| `test_head_label_admin_with_search` | `"12 drawings · matching \"cat\" · 9 public · 2 unlisted · 1 hidden"` |
+| `test_head_label_singular` | `total == 1` → `"1 drawing · …"` |
+| `test_head_label_admin_zero_states_still_render` | nothing hidden → `"· 0 hidden"`, not an omitted clause |
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add src/routes/feed.rs templates/artportfolio/feed.html static/artfeed.js static/palette.js
+git commit -m "feat(artportfolio): a head that counts each state, and a way to preview"
+```
+
+**Acceptance:** `./scripts/verify.sh` — all green.
+
+---
+
+### Task 8: Offline build, docs and the plan's final verification
 
 **Class:** A
 
@@ -782,14 +1039,13 @@ measurable here, colour is not.
 the docs are prose.
 
 **Files:**
-- Modify: `.sqlx/` (regenerated wholesale)
-- Modify: `CLAUDE.md` — migration list, test counts, route list
+- Modify: `CLAUDE.md` — migration list, route list, test counts
 - Modify: `docs/WORKTREES.md` — the artportfolio card
 
 - [ ] **Step 1: Confirm the offline build**
 
-Tasks 1 and 2 already regenerated `.sqlx` — they had to, since every acceptance line
-runs the tests offline. This step only confirms the end state is coherent, which is
+Tasks 1, 2 and 5 already regenerated `.sqlx` — they had to, since every acceptance
+line runs the tests offline. This step confirms the end state is coherent, which is
 what CI will do:
 
 ```bash
@@ -797,14 +1053,15 @@ SQLX_OFFLINE=true cargo build --release
 ```
 
 If this fails, something was committed between a query change and its `prepare`. Run
-`cargo sqlx prepare` once more and commit the diff; a non-empty diff here means one
-of the earlier tasks went green against a cache it had already updated but not
-staged.
+`cargo sqlx prepare` once more and commit the diff; a non-empty diff here means an
+earlier task went green against a cache it had updated but not staged.
 
 - [ ] **Step 2: Update `CLAUDE.md`**
 
-Three places: the migration list gains "013 `posts.visibility`"; the route list gains
-`GET /artportfolio/{id}`; the test counts move. **Re-measure the counts** —
+Four places: the migration list gains "013 `posts.visibility`"; the route list gains
+`GET /artportfolio/{id}` and `PATCH /api/admin/posts/{id}/visibility`; the models
+paragraph gains `Visibility` and `Viewer`; the test counts move. **Re-measure the
+counts** —
 
 ```bash
 cargo test --workspace 2>&1 | grep "test result"
@@ -816,9 +1073,13 @@ re-measuring.
 
 - [ ] **Step 3: Update `docs/WORKTREES.md`**
 
-Set the artportfolio card's Status to Plan A complete and Next to "write Plan B".
-Record the boundary plainly: **nothing in the UI can change a post's visibility yet**
-— it takes a hand-written `UPDATE` until Plan B ships the `PATCH` route.
+Set the artportfolio card's Status to slice 2 complete and Next to slice 3
+(collections, tags, the full filter rail — `superpowers:brainstorming`, then a spec).
+
+Record the two trade-offs the spec accepted, so slice 3 does not rediscover them as
+bugs: **unlisted posts are enumerable by sequential id**, and **`/admin` shows no
+visibility badge** because it still renders through `admin_post_card_html()`, the
+legacy format string.
 
 Land this on `master` as well as the branch. That file's own header exists because an
 orientation doc written only onto a feature branch becomes invisible from everywhere
@@ -827,8 +1088,8 @@ else, and this stream has already done it twice.
 - [ ] **Step 4: Commit**
 
 ```bash
-git add .sqlx CLAUDE.md docs/WORKTREES.md
-git commit -m "chore(artportfolio): regenerate the offline cache for the visibility column"
+git add CLAUDE.md docs/WORKTREES.md
+git commit -m "docs: slice 2 lands — the visibility model"
 ```
 
 **Acceptance:** `./scripts/verify.sh` — all green, plus
@@ -838,16 +1099,32 @@ git commit -m "chore(artportfolio): regenerate the offline cache for the visibil
 
 ## Before the plan is done
 
-**Browser checkpoint 2**, then **one review of the whole plan's diff** on the most
-capable model — Class A and B tasks get no per-task reviewer under `plan-economics`,
-so this pass is their only review. Point it at the state table in Global Constraints
-and ask specifically whether any route can be made to return a post the table says it
-may not.
+**Browser checkpoint 2** — the whole slice end to end, with at least one post in each
+state:
 
-Three things worth naming for that reviewer, because each is a place where the code
-compiles and the tests can still pass while the behaviour is wrong:
+1. Logged out: feed omits hidden and unlisted; the unlisted permalink renders; the
+   hidden permalink 404s.
+2. Logged in: all three in the feed, badges correct, head reads
+   `N drawings · N public · N unlisted · N hidden`.
+3. Click hide on a card — the badge and dimming change without a reload, and the head
+   goes stale by one until the next load. **That staleness is expected**: it is the
+   same debt slice 1 recorded for the composer, and slice 4 owns the fix.
+4. Press `V`, then click *Load more* **before doing anything else**. This is the click
+   that catches a missing `visitor=1` in `load_more_url`.
+5. Under preview: no badges, no cluster, no composer, and the hidden permalink 404s.
+
+Then **one review of the whole plan's diff** on the most capable model — Class A and
+B tasks get no per-task reviewer under `plan-economics`, so this pass is their only
+review. Point it at the state table in Global Constraints and ask specifically
+whether any route can be made to return a post the table says it may not.
+
+Four places where the code compiles, the tests pass, and the behaviour is still
+wrong — name these for the reviewer:
 
 1. **`admin.rs:52`** — passing `Viewer::Visitor` empties the admin dashboard silently.
 2. **The URL builders** — a missing `visitor=1` only shows up after a *Load more*.
 3. **`FeedTemplate.is_admin`** — fed from the raw session bool instead of `effective`,
    the preview renders admin chrome over a visitor's posts.
+4. **`PostGridTemplate.is_admin`** — added to `PostCardTemplate` only, every card in
+   the feed loses its badge while the upload response keeps one, which looks like a
+   caching bug rather than a missing field.
