@@ -5113,12 +5113,11 @@ async fn test_ending_publishes_an_unmarked_screen_frame() {
 /// `game` frame must NOT match `.game-idle`, or a future change to
 /// `lc_placeholder_panel` (or to `game_idle_panel`) could silently kick
 /// every phone off the table mid-round via the new listener in
-/// `lc_room.html`. Checked on the four-frame snapshot a fresh subscriber
-/// receives at connect — the shape most likely to regress unnoticed, since
-/// it fires on every page load, not just on END GAME.
+/// `lc_room.html`. Checked on the snapshot a fresh subscriber receives at
+/// connect — the shape most likely to regress unnoticed, since it fires on
+/// every page load, not just on END GAME.
 #[tokio::test]
 async fn test_lastcall_live_game_frame_does_not_carry_game_idle() {
-    use futures::StreamExt;
     let app = test_app().await;
     let alice = login(&app, "alice", "1234").await;
     let bob = login(&app, "bob", "5678").await;
@@ -5128,18 +5127,22 @@ async fn test_lastcall_live_game_frame_does_not_carry_game_idle() {
 
     let res = get(&app, &format!("/room/{code}/sse")).await;
     let mut body = res.into_body().into_data_stream();
-    let mut seen_game = false;
-    for _ in 0..4 {
-        let frame = String::from_utf8(body.next().await.unwrap().unwrap().to_vec()).unwrap();
-        if frame.contains("event: game") {
-            seen_game = true;
-            // Same selector-shaped check the positive test below uses: a
-            // bare `class="game-idle"` needle would miss a multi-class root
-            // that the browser's querySelector still matches.
-            assert!(!matches_the_game_idle_selector(&frame), "{frame}");
-        }
-    }
-    assert!(seen_game, "expected a game frame in the 4-frame snapshot");
+    // Read until the game frame arrives rather than counting out four of
+    // them. A fixed count is wrong in both directions: if the server ever
+    // coalesces frames into one chunk the loop blocks forever waiting for a
+    // fourth that never comes, and if it splits one the assertion silently
+    // starts inspecting a different frame than it names. `read_sse_until`
+    // times out with a clear message instead, which also subsumes the old
+    // `seen_game` flag.
+    let seen = read_sse_until(&mut body, "event: game").await;
+    let rest = &seen[seen.find("event: game").unwrap()..];
+    // Cut at the frame boundary so a coalesced chunk cannot smuggle a later
+    // frame into the assertion.
+    let frame = rest.split("\n\n").next().unwrap_or(rest);
+    // Same selector-shaped check the positive test below uses: a bare
+    // `class="game-idle"` needle would miss a multi-class root that the
+    // browser's querySelector still matches.
+    assert!(!matches_the_game_idle_selector(frame), "{frame}");
 }
 
 /// True when the payload holds an element `querySelector(".game-idle")`
@@ -5345,7 +5348,7 @@ async fn test_ending_the_room_never_races_the_game_idle_redirect() {
     let seen = read_sse_until(&mut body, "event: ended").await;
     let before_ended = &seen[..seen.find("event: ended").unwrap()];
     assert!(
-        !before_ended.contains(r#"class="game-idle""#),
+        !matches_the_game_idle_selector(before_ended),
         "a game-idle Game frame published before Ended would send every LC \
          phone to /room/{{code}} instead of /, right as the room disappears: \
          {seen}"

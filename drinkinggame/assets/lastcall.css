@@ -738,12 +738,19 @@ body.lc-screen .lc-timer { height: 3px; }
   position: absolute;
   left: 40px; top: 36px; right: 40px; bottom: 36px;
 }
-/* The ring box is the felt's inner hairline ellipse — 92px / 88px in from
-   the stage on a 1320x992 centre column. Expressed as a fraction, not those
-   pixels: the seat table is percentages OF THIS BOX, so a pixel inset would
-   silently change the ring's proportions at any width but 1920, and the
-   mini table (which uses the same fractions) would stop matching. */
-.lc-ring { position: absolute; inset: 8.9% 7.0%; }
+/* The ring box IS the stage box — keep `inset: 0`.
+   Task 1's seat table is stage-relative, not ring-box-relative: its extremes
+   ARE the felt's inner hairline ellipse already measured against the whole
+   1320x992 centre column. 50% +- 568/1320 = 7.0 / 93.0 horizontally and
+   50% +- 408/992 = 8.9 / 91.1 vertically, which is exactly why the n=4 row
+   reads (7.0, 50.0) / (93.0, 50.0) and n=2 reads (50.0, 8.9) / (50.0, 91.1).
+   Insetting this box by those same percentages applies the ellipse twice and
+   shrinks the ring to 86% x 82% of design — the bottom seat 61px high, the
+   leftmost seat ~75px inboard at 1920x1080. Every test still passes when it
+   is wrong, because the tests check the formula and the formula is right;
+   only the box it resolves against is wrong. Caught by the Plan B whole-plan
+   review, not by the suite. */
+.lc-ring { position: absolute; inset: 0; }
 /* A seat is centred on its own midpoint, so a plaque of any width lands
    with its centre on the ellipse (D.2). */
 .lc-seat {
@@ -769,11 +776,13 @@ body.lc-screen .lc-timer { height: 3px; }
   margin: 0 0 14px;
 }
 .lc-minitable > #lc-felt { position: absolute; inset: 0; }
-/* Proportional, not pixel: the seat table is percentages OF THE RING BOX,
-   so the two surfaces only place seats at the same proportional distance
-   from the felt edge if both ring boxes are inset by the same fraction.
-   8.9% / 7.0% is the big screen's 88px / 92px over its 992 x 1320 stage. */
-.lc-minitable-ring { position: absolute; inset: 8.9% 7.0%; }
+/* Same rule as .lc-ring, and the same reason: the seat table is
+   stage-relative, so this box must span the whole mini table or the two
+   surfaces stop placing seats at the same proportional distance from the
+   felt edge. Any inset here shrinks the ring twice over — and on a table
+   only 466px tall the error is proportionally identical but visually
+   tighter. Keep `inset: 0`. */
+.lc-minitable-ring { position: absolute; inset: 0; }
 .lc-minitable-chip {
   position: absolute;
   transform: translate(-50%, -50%);
@@ -791,9 +800,13 @@ body.lc-screen .lc-timer { height: 3px; }
 .lc-minitable-chip[data-locked] { border-color: #B48EF7; }
 .lc-minitable-chip[data-out] { opacity: .4; }
 .lc-minitable-chip[data-me] { border-color: var(--lc-hair-strong); }
-/* Centre column: a 46x62 draw pile above the event / quest / discard rows
-   (Module Spec F.3). Only the discard row carries a real count in this
-   slice; event and quest are content-systems work and render as a dash. */
+/* Centre column: a 46x62 draw pile, and nothing else in this slice.
+   Module Spec F.3 also draws event / quest / discard rows beneath it, but
+   those are content-systems work — the systems they report on (events,
+   quests) do not exist yet, so nothing renders them. The five
+   `.lc-minitable-row*` rules that styled them were deleted after the Plan B
+   whole-plan review flagged them as dead: rules whose comment described a
+   feature no code emits. Re-add them next to the renderer that needs them. */
 .lc-minitable-centre {
   position: absolute;
   left: 50%; top: 50%;
@@ -803,16 +816,6 @@ body.lc-screen .lc-timer { height: 3px; }
   align-items: center;
   gap: 9px;
 }
-.lc-minitable-rows { display: flex; flex-direction: column; gap: 5px; }
-.lc-minitable-row { display: flex; align-items: center; gap: 7px; }
-.lc-minitable-row-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--lc-hair-strong); }
-.lc-minitable-row-label {
-  font: 700 9px 'Space Grotesk', sans-serif;
-  letter-spacing: .14em;
-  color: var(--lc-label);
-  text-transform: uppercase;
-}
-.lc-minitable-row-n { font: 900 13px 'Archivo', sans-serif; color: var(--lc-body); }
 
 /* Do not add a second reduced-motion @media block — one already exists
    above. Nothing in this section animates; if that changes, extend the

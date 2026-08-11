@@ -561,11 +561,12 @@ pub fn lc_screen_panel(view: &PublicView) -> String {
 /// point of the route in Task 5. `me` is the viewer's own seat, or `None`
 /// for a member who is not seated.
 ///
-/// The centre column's event/quest/discard rows (`.lc-minitable-rows`
-/// etc.) are deliberately not filled here: no Plan A builder renders a
+/// The centre column's event/quest/discard rows (Module Spec F.3) are
+/// deliberately not filled here: no Plan A builder renders a
 /// dot+label+count row, so doing so would be authoring a new component,
 /// which this plan does not do. See the task report for the full
-/// adjudication.
+/// adjudication. The `.lc-minitable-row*` CSS that anticipated them has
+/// since been deleted as dead — style them next to whatever renders them.
 ///
 /// # The phone's only flight layer lives in here — read before firing one
 ///
@@ -615,8 +616,12 @@ pub fn lc_mini_table(view: &PublicView, me: Option<usize>) -> String {
         })
         .collect();
 
-    // The pile's deck: the first deck still in the shoe, defaulting to
-    // Beer — same convention as player_plaque's first_slug.
+    // The pile's deck: simply the first entry in `deck_counts`, defaulting
+    // to Beer — same convention as player_plaque's first_slug. Note it does
+    // NOT skip exhausted decks: `deck_counts` is ordered, not filtered, so
+    // this is "the first deck in the list", not "the first deck still in the
+    // shoe". Fine while the pile is decorative; revisit when the draw pile
+    // has to show what would actually be drawn.
     let pile_deck = view
         .deck_counts
         .first()
@@ -1488,8 +1493,39 @@ mod tests {
         // Spec 3.4.1 binds slice 3, not this one: nothing may enter `plays`
         // before it is revealable, and this plan renders no plays at all.
         // If this test starts failing, someone has begun slice 3 inside Plan B.
+        //
+        // `revealed` is deliberately NON-empty. An earlier version of this
+        // test cleared it and then asserted no card face was rendered, which
+        // held for the trivial reason that there was nothing to render — it
+        // stayed green even against a panel that rendered `card_face` for
+        // every entry in `view.revealed`. Give it something to leak first, or
+        // the assertion is about the fixture rather than the renderer.
         let mut view = ring_fixture(4);
-        view.revealed.clear();
-        assert!(!lc_screen_panel(&view).contains("lc-cardface"));
+        view.revealed = vec![crate::last_call::Play {
+            card: Card {
+                id: "leak-01".to_string(),
+                deck: Deck::Wine,
+                kind: crate::last_call::CardKind::Atk,
+                cost: 2,
+                targets: "one".to_string(),
+                title: "Should Not Appear".to_string(),
+                text: "If this renders, the felt centre has begun showing plays.".to_string(),
+                keywords: Vec::new(),
+                duration: None,
+            },
+            source_seat: 1,
+            target: Some(2),
+            paid_from: Deck::Wine,
+            order_key: 1,
+        }];
+        let html = lc_screen_panel(&view);
+        assert!(
+            !html.contains("lc-cardface"),
+            "the felt centre rendered a card face"
+        );
+        assert!(
+            !html.contains("Should Not Appear"),
+            "a revealed play's text reached the big screen"
+        );
     }
 }
