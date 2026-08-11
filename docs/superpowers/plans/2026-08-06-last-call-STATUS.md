@@ -33,7 +33,7 @@ invented.
 Slice 1 is four plans: **A → A-vis → A2 → B**. Everything after slice 1 was
 planned in one pass on 2026-08-11 — see "The rest of the game" below.
 
-## The rest of the game — eight plans, written 2026-08-11; C executed
+## The rest of the game — eight plans, written 2026-08-11; C and D executed
 
 All eight are in `docs/superpowers/plans/2026-08-11-last-call-plan-*.md`. Each
 was written by its own subagent against the spec, DDv2 and the earlier plans'
@@ -57,6 +57,21 @@ approved") and the plans committed at `b5aa789`.
   drag/snap/notch feel, rail tap-to-jump, armed tap dispatch (devtools:
   `lc:arm` events logged), locked suppression, reduced-motion, and the
   camera-not-card behavior when a hand shrinks mid-view.
+
+- **Plan D — the loop engine. EXECUTED 2026-08-12.** `cba4300..788d8fc`,
+  8 commits, verify green, **424 tests**, `drinkinggame` clippy-clean. The
+  engine plays a complete round end to end under unit test; every
+  `NotImplemented` stub is dead. Whole-plan review APPROVED (1 important,
+  9 minor); fix wave closed the important + 6 minors; scoped re-review
+  CLEAN. **New decision D19 (post-review, awaiting user eyes):
+  `set_handicap` is Draw-beat-gated** — a post-lock handicap raise could
+  inflate a locked play's reveal charge *and* buy 7.1 initiative; the gate
+  restores lock-time/reveal-time agreement. **Carried into Plan E:** wire
+  `staged_for(seat)` into `hand_pane_html` (else the armed column shows
+  `LOCKED 0` after lock), the lock_in-replay-returns-WrongBeat handler
+  note, and `reveal()`'s direct-index hardening. **Carried into Plan F:**
+  fixtures for same-resolve double elimination and the `table` targets
+  class (the placeholder catalog cannot drive either).
 
 | Plan | File suffix | What it ships | Tasks |
 | --- | --- | --- | --- |
@@ -461,11 +476,11 @@ Then, in this order:
    All eight remaining plans (C through J, covering every slice to completion)
    are written; see "The rest of the game" above.
 4. ~~User design review.~~ **Approved 2026-08-11**, all 106 decisions.
-5. **Execute, one plan per session**, in the binding order: ~~C~~ → **D next**
-   → F → E → G/H/I → J. Plan C executed and review-clean 2026-08-12 (see "The
-   rest of the game"); its browser checkpoint is owed to a human alongside
-   Plan B's checkpoint 2. Each plan names its ledger at
-   `.superpowers/sdd/<plan-basename>/progress.md`.
+5. **Execute** in the binding order: ~~C~~ → ~~D~~ → **F next** → E →
+   G/H/I → J. C and D executed and review-clean 2026-08-12 (see "The rest
+   of the game"); C's browser checkpoint is owed to a human alongside Plan
+   B's checkpoint 2 (D is pure engine — nothing to eyeball). Each plan
+   names its ledger at `.superpowers/sdd/<plan-basename>/progress.md`.
 
 Spec §3.4.1 (nothing enters `plays` before it is revealable) is owned by Plan
 D, which holds locked plays in a hidden `locked_plays` field and carries the
