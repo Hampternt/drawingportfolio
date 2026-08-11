@@ -1672,6 +1672,10 @@ mod tests {
         let html = cost_rail(&hand, 100);
         assert_eq!(html.matches("is-active").count(), 1);
         assert!(html.contains(r#"lc-costrail-group lc-deck-beer is-active" data-idx="0""#));
+        // Negative check, not just a count: idx 1 and 2 close their class
+        // attribute right after the deck slug — no trailing ` is-active`.
+        assert!(html.contains(r#"lc-costrail-group lc-deck-wine" data-idx="1""#));
+        assert!(html.contains(r#"lc-costrail-group lc-deck-liquor" data-idx="2""#));
         no_hex(&html);
 
         let empty: [Card; 0] = [];
@@ -1688,6 +1692,7 @@ mod tests {
         let empty: [Card; 0] = [];
         let html_empty = armed_column(&empty, false);
         assert!(html_empty.contains("ARMED 0"));
+        assert!(html_empty.contains(r#"data-count="0""#));
         assert_eq!(html_empty.matches("lc-armed-slot").count(), 1);
         assert!(!html_empty.contains("data-locked"));
         assert!(html_empty.contains(r#"data-flight-anchor="armed""#));
@@ -1699,6 +1704,7 @@ mod tests {
         ];
         let html_two = armed_column(&two, false);
         assert!(html_two.contains("ARMED 2"));
+        assert!(html_two.contains(r#"data-count="2""#));
         assert_eq!(
             html_two.matches(r#"<div class="lc-mini lc-deck-"#).count(),
             2
@@ -1715,8 +1721,10 @@ mod tests {
         ];
         let html_locked = armed_column(&three, true);
         assert!(html_locked.contains("LOCKED 3"));
+        assert!(html_locked.contains(r#"data-count="3""#));
         assert!(html_locked.contains("data-locked "));
-        assert!(!html_locked.contains(r#"data-locked=""#));
+        // Never a value form — the brief's rule: bare presence only.
+        assert!(!html_locked.contains("data-locked="));
         assert_eq!(html_locked.matches("lc-armed-slot").count(), 0);
         assert!(!html_locked.contains("ARMED"));
         no_hex(&html_locked);
