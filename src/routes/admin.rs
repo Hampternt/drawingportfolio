@@ -5,7 +5,7 @@ use axum::{
     http::StatusCode,
     response::{Html, IntoResponse},
     routing::{delete, get, patch, post},
-    Router,
+    Form, Router,
 };
 use std::sync::Arc;
 
@@ -303,27 +303,25 @@ async fn delete_post(
 /// Returning the card rather than a status is what keeps the badge and the
 /// dimming in step with the database without a reload: the button swaps it
 /// `outerHTML` into `closest .hm-post`.
+#[derive(serde::Deserialize)]
+pub struct VisibilityForm {
+    pub visibility: String,
+}
+
 async fn patch_visibility(
     _session: crate::middleware::AuthSession,
     State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
-    mut multipart: Multipart,
+    // `Form`, not `Multipart`: this is what HTMX sends for an `hx-patch` with
+    // `hx-vals` and no `hx-encoding`. Multipart would mean an extra attribute of
+    // ceremony on every button, for a body that is one short string.
+    Form(form): Form<VisibilityForm>,
 ) -> impl IntoResponse {
-    let mut requested = None::<String>;
-    while let Ok(Some(field)) = multipart.next_field().await {
-        if field.name() == Some("visibility") {
-            requested = field.text().await.ok();
-        }
-    }
-
     // Fail loudly, not closed. `Visibility::from_row` coerces an unknown value
     // to Hidden when reading a row, because a value nobody recognises must not
     // render to the public — but doing that to a *request* would report success
     // for a typo.
-    let visibility = match requested
-        .as_deref()
-        .and_then(crate::models::Visibility::from_str)
-    {
+    let visibility = match crate::models::Visibility::from_str(&form.visibility) {
         Some(v) => v,
         None => {
             return (
@@ -547,33 +545,24 @@ mod tests {
         "session=test-session".to_string()
     }
 
-    /// One-field multipart body, which is what the card's button sends.
-    fn multipart_visibility(value: &str) -> (String, Body) {
-        let boundary = "X-BOUNDARY";
-        let body = format!(
-            "--{boundary}\r\nContent-Disposition: form-data; name=\"visibility\"\r\n\r\n{value}\r\n--{boundary}--\r\n"
-        );
-        (
-            format!("multipart/form-data; boundary={boundary}"),
-            Body::from(body),
-        )
-    }
-
     async fn patch_visibility_req(
         app: &Router,
         id: i64,
         value: &str,
         cookie: Option<&str>,
     ) -> axum::response::Response {
-        let (content_type, body) = multipart_visibility(value);
+        // Form-encoded, matching what HTMX sends for an hx-patch.
         let mut req = Request::builder()
             .method("PATCH")
             .uri(format!("/api/admin/posts/{id}/visibility"))
-            .header("content-type", content_type);
+            .header("content-type", "application/x-www-form-urlencoded");
         if let Some(c) = cookie {
             req = req.header("cookie", c);
         }
-        app.clone().oneshot(req.body(body).unwrap()).await.unwrap()
+        app.clone()
+            .oneshot(req.body(Body::from(format!("visibility={value}"))).unwrap())
+            .await
+            .unwrap()
     }
 
     async fn stored_visibility(pool: &crate::db::DbPool, id: i64) -> String {

@@ -1241,4 +1241,71 @@ mod tests {
         let post = sample_post(42, "linked");
         assert!(card(&post, false).contains("href=\"/artportfolio/42\""));
     }
+
+    // ===== Card badge and controls (slice 2) =====
+
+    fn card_as(post: &crate::models::Post, is_admin: bool) -> String {
+        PostCardTemplate {
+            post,
+            is_first: false,
+            is_admin,
+        }
+        .render()
+        .unwrap()
+    }
+
+    fn post_in(state: crate::models::Visibility) -> crate::models::Post {
+        let mut post = sample_post(7, "a drawing");
+        post.visibility = state.as_str().to_string();
+        post
+    }
+
+    /// The check that keeps slice 1's output intact: a visitor's card must not
+    /// gain a single byte from this slice.
+    #[test]
+    fn test_visitor_card_has_no_admin_chrome() {
+        let html = card_as(&post_in(crate::models::Visibility::Hidden), false);
+        assert!(!html.contains("art-badge"));
+        assert!(!html.contains("art-card-controls"));
+        assert!(!html.contains("hm-post--dimmed"));
+        assert!(!html.contains("hx-patch"));
+    }
+
+    #[test]
+    fn test_admin_card_carries_the_badge() {
+        let html = card_as(&post_in(crate::models::Visibility::Unlisted), true);
+        assert!(html.contains("art-badge--unlisted"), "{html}");
+        assert!(html.contains(">unlisted<"), "{html}");
+    }
+
+    #[test]
+    fn test_admin_hidden_card_is_dimmed() {
+        let html = card_as(&post_in(crate::models::Visibility::Hidden), true);
+        assert!(html.contains("hm-post--dimmed"), "{html}");
+        assert!(
+            !card_as(&post_in(crate::models::Visibility::Public), true).contains("hm-post--dimmed")
+        );
+    }
+
+    /// The control for a post's *current* state is omitted — a "hide" button on
+    /// an already-hidden card is a no-op that looks like a control.
+    #[test]
+    fn test_admin_card_omits_the_current_state_control() {
+        let hidden = card_as(&post_in(crate::models::Visibility::Hidden), true);
+        assert!(!hidden.contains(r#""visibility": "hidden""#), "{hidden}");
+        assert!(hidden.contains(r#""visibility": "public""#), "{hidden}");
+        assert!(hidden.contains(r#""visibility": "unlisted""#), "{hidden}");
+
+        let public = card_as(&post_in(crate::models::Visibility::Public), true);
+        assert!(!public.contains(r#""visibility": "public""#), "{public}");
+        assert!(public.contains(r#""visibility": "hidden""#), "{public}");
+    }
+
+    #[test]
+    fn test_admin_card_controls_target_the_card() {
+        let html = card_as(&post_in(crate::models::Visibility::Public), true);
+        assert!(html.contains(r#"hx-target="closest .hm-post""#), "{html}");
+        assert!(html.contains(r#"hx-swap="outerHTML""#), "{html}");
+        assert!(html.contains("/api/admin/posts/7/visibility"), "{html}");
+    }
 }

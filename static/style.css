@@ -1638,3 +1638,61 @@ body.art-page .art-permalink__state {
   letter-spacing: .06em;
   opacity: .7;
 }
+
+/* Visibility badge and card controls — admin only.
+   Both live inside the card's `{% if is_admin %}`, so a visitor's card is
+   byte-identical to what slice 1 shipped. Tones from the design handoff, S2. */
+body.art-page .hm-post { position: relative; }
+
+body.art-page .art-badge {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 2;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill, 999px);
+  font: var(--type-micro, 500 11px/1.4 ui-monospace, monospace);
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  background: rgba(0, 0, 0, .55);
+  backdrop-filter: blur(4px);
+}
+body.art-page .art-badge--public { color: #4FD6A8; }
+body.art-page .art-badge--unlisted { color: #FFB570; }
+body.art-page .art-badge--hidden { color: var(--text-muted, #9a94a6); }
+
+body.art-page .hm-post--dimmed { opacity: .5; }
+body.art-page .hm-post--dimmed:hover { opacity: 1; }
+
+body.art-page .art-card-controls {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 2;
+  display: flex;
+  gap: 6px;
+  opacity: 0;
+  transition: opacity 130ms cubic-bezier(.2, .8, .3, 1);
+}
+body.art-page .hm-post:hover .art-card-controls,
+body.art-page .hm-post:focus-within .art-card-controls { opacity: 1; }
+
+body.art-page .art-card-controls__btn {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: var(--radius-2, 8px);
+  cursor: pointer;
+  background: rgba(0, 0, 0, .55);
+  color: var(--text-body, #f2eef8);
+  backdrop-filter: blur(4px);
+}
+body.art-page .art-card-controls__btn:active { transform: translateY(1px); }
+
+/* A touch device has no hover, so a hover-only control is no control. */
+@media (max-width: 899px) {
+  body.art-page .art-card-controls { opacity: 1; }
+  body.art-page .art-card-controls__btn { width: 44px; height: 44px; }
+}
