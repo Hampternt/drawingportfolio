@@ -12,7 +12,7 @@ use askama::Template;
 use axum::extract::State;
 use axum::response::{Html, IntoResponse};
 
-use crate::last_call::{self, Beat, Card, CardKind, Deck, PublicView};
+use crate::last_call::{self, Beat, Card, CardKind, Deck, LastCallState, PublicView};
 use crate::lc_cards::{self, CATALOG};
 use crate::lc_render::{self, BackSize};
 use crate::GameState;
@@ -584,6 +584,201 @@ fn shell_group(view: &PublicView) -> PreviewGroup {
     }
 }
 
+/// Group 8 (Plan C) — the hand group's hard cases: a live, draggable
+/// `HandWheel` at a realistic size, then the sizes and states a plain game
+/// can never reach on its own (oversized, one-card, both empty-state
+/// copies, every ArmedColumn cardinality including locked, and the
+/// handicap-priced CostRail). `st` is the raw fixture (not `PublicView`) —
+/// the hand is private data no projection carries, so this is the one
+/// group in the file that reads `st.players[..].hand` directly rather than
+/// through `view`.
+fn hand_group_group(st: &LastCallState) -> PreviewGroup {
+    let mut body = String::new();
+
+    // Row 1 — a full, real HandWheel at a size worth dragging: armed 2,
+    // an 8-card hand spanning all five decks, handicap 100. Sized via
+    // .lc-preview-scroll > .lc-preview-handframe (Task 5 CSS) so it reads
+    // as a phone column, not a full-bleed strip — .lc-handgroup itself
+    // only fixes its own height (480px), never its width.
+    let live_hand: Vec<Card> = [
+        "beer-01",
+        "beer-02",
+        "cider-01",
+        "cider-02",
+        "wine-01",
+        "wine-04",
+        "liquor-01",
+        "soft-01",
+    ]
+    .iter()
+    .filter_map(|id| lc_cards::card_by_id(id))
+    .collect();
+    let live_armed: Vec<Card> = ["liquor-02", "soft-02"]
+        .iter()
+        .filter_map(|id| lc_cards::card_by_id(id))
+        .collect();
+    let live_view = lc_render::HandGroupView {
+        hand: &live_hand,
+        armed: &live_armed,
+        locked: false,
+        handicap_pct: 100,
+    };
+    let live_frame = format!(
+        r#"<div class="lc-preview-scroll"><div class="lc-preview-handframe">{}</div></div>"#,
+        lc_render::hand_group(&live_view)
+    );
+    body.push_str(&row(
+        "HandWheel — live, drag it",
+        &[swatch(
+            "armed 2 · 8-card mixed-deck hand · handicap 100",
+            &live_frame,
+        )],
+    ));
+
+    // Row 2 — degenerate hand sizes: the oversized wheel (seat 1's 12-card
+    // fixture hand plus two boundary_cards, 14 total — past |d| > 2.05,
+    // the culling threshold the JS applies), the one-card wheel (snap
+    // always returns to its single card), and decision 5's two distinct
+    // empty-state copies.
+    let mut oversized_hand = st.players[1].hand.clone();
+    oversized_hand.extend(boundary_cards().into_iter().take(2).map(|(_, c)| c));
+    let oversized_view = lc_render::HandGroupView {
+        hand: &oversized_hand,
+        armed: &[],
+        locked: false,
+        handicap_pct: 100,
+    };
+    let one_card: Vec<Card> = lc_cards::card_by_id("wine-03").into_iter().collect();
+    let one_view = lc_render::HandGroupView {
+        hand: &one_card,
+        armed: &[],
+        locked: false,
+        handicap_pct: 100,
+    };
+    let empty_no_armed = lc_render::HandGroupView {
+        hand: &[],
+        armed: &[],
+        locked: false,
+        handicap_pct: 100,
+    };
+    let empty_armed_cards: Vec<Card> = lc_cards::card_by_id("cider-01").into_iter().collect();
+    let empty_all_armed = lc_render::HandGroupView {
+        hand: &[],
+        armed: &empty_armed_cards,
+        locked: false,
+        handicap_pct: 100,
+    };
+    body.push_str(&row(
+        "HandWheel — degenerate hand sizes",
+        &[
+            swatch(
+                &format!(
+                    "oversized — {} cards (seat 1's 12 + two boundary cards)",
+                    oversized_hand.len()
+                ),
+                &lc_render::hand_group(&oversized_view),
+            ),
+            swatch(
+                "one card — snap always returns to it",
+                &lc_render::hand_group(&one_view),
+            ),
+            swatch(
+                "empty, nothing armed — \"Register your drink to be dealt a hand.\"",
+                &lc_render::hand_group(&empty_no_armed),
+            ),
+            swatch(
+                "empty, everything armed — \"Every card you hold is armed.\"",
+                &lc_render::hand_group(&empty_all_armed),
+            ),
+        ],
+    ));
+
+    // Row 3 — ArmedColumn's own cardinalities: 0 (still ARMED 0 plus the
+    // slot, never an empty state), 1, many (4), and locked (3 — LOCKED 3,
+    // dimmed via [data-locked], no slot).
+    let one_armed: Vec<Card> = lc_cards::card_by_id("beer-01").into_iter().collect();
+    let four_armed = lc_cards::deck_cards(Deck::Wine);
+    let three_locked: Vec<Card> = lc_cards::deck_cards(Deck::Liquor)
+        .into_iter()
+        .take(3)
+        .collect();
+    body.push_str(&row(
+        "ArmedColumn — 0 / 1 / many / locked",
+        &[
+            swatch(
+                "0 — ARMED 0, slot still shown",
+                &lc_render::armed_column(&[], false),
+            ),
+            swatch("1", &lc_render::armed_column(&one_armed, false)),
+            swatch("4 — many", &lc_render::armed_column(&four_armed, false)),
+            swatch(
+                "locked, 3 — LOCKED 3, dimmed, no slot",
+                &lc_render::armed_column(&three_locked, true),
+            ),
+        ],
+    ));
+
+    // Row 4 — every deck at every cost 1-3, synthesized (the catalog's own
+    // per-deck spread never covers costs outside it) — 5 decks x 3 costs =
+    // 15 cards, 1+2+3=6 bars per deck, 30 bars total.
+    let mut priced_all: Vec<Card> = Vec::new();
+    for deck in Deck::ALL {
+        let sample = &lc_cards::deck_cards(deck)[0];
+        for cost in 1..=3u8 {
+            priced_all.push(Card {
+                cost,
+                ..sample.clone()
+            });
+        }
+    }
+    body.push_str(&row(
+        "CostRail — every cost 1-3 in every deck",
+        &[swatch(
+            "5 decks x 3 costs — 30 bars, every ink ramp, Wine ink-not-fill",
+            &lc_render::cost_rail(&priced_all, 100),
+        )],
+    ));
+
+    // Row 5 — the same 3-card hand (costs 1, 2, 3) priced through three
+    // handicaps. Bar counts per handicap_pct, pull_cost(cost, pct)
+    // rounding up: 100 -> 1,2,3; 150 -> 2,3,5; 300 -> 3,6,9.
+    let handicap_hand: Vec<Card> = ["cider-01", "cider-02", "cider-04"]
+        .iter()
+        .filter_map(|id| lc_cards::card_by_id(id))
+        .collect();
+    let rail_cells: Vec<String> = [(100u16, "1,2,3"), (150, "2,3,5"), (300, "3,6,9")]
+        .into_iter()
+        .map(|(pct, bars)| {
+            swatch(
+                &format!("handicap {pct} — {bars} bars"),
+                &lc_render::cost_rail(&handicap_hand, pct),
+            )
+        })
+        .collect();
+    body.push_str(&row(
+        "CostRail — handicap prices the same hand differently",
+        &rail_cells,
+    ));
+
+    PreviewGroup {
+        id: "hand".to_string(),
+        title: "Hand group — the hard cases".to_string(),
+        note: "Decision 1: the CostRail shows the true pull price — cost run through \
+               the viewer's own handicap, rounded up — while CardPip (group 1) still \
+               shows the printed cost; the two numbers disagree on purpose whenever a \
+               handicap isn't 100, and row 5 pins the arithmetic. No #lc-hand id \
+               anywhere in this group — the preview already carries that id from \
+               shell_group and must not gain a second — so every wheel here lives in \
+               a plain .lc-handgroup root, which also keeps it out of decision 8's \
+               #lc-hand-scoped camera persistence: gallery wheels are demos, they \
+               don't remember where you left them. shell_group's static F.1 frame is \
+               deliberately left as the plain hand-region stub — it demonstrates the \
+               F.1 chrome order, not the hand view; this group owns the hand."
+            .to_string(),
+        body,
+    }
+}
+
 /// Group 6 — replayable flights and the anchor board. Motion in a static
 /// document is invisible unless it can be fired; each REPLAY button below
 /// calls `window.lcFlight` via `lc_preview.html`'s inline script, which
@@ -639,6 +834,7 @@ fn flights_group() -> PreviewGroup {
         "plaque-seat-6",
         "plaque-seat-7",
         "hand",
+        "armed",
         "felt",
     ];
     let items: String = anchors
@@ -759,13 +955,15 @@ fn deck_ramp_group() -> PreviewGroup {
 /// site, which is the whole point of routing through the projection here
 /// rather than discovering the gap in Plan A2.
 fn build_groups() -> Vec<PreviewGroup> {
-    let view = last_call::preview_state().public_view();
+    let st = last_call::preview_state();
+    let view = st.public_view();
     vec![
         card_matrix_group(),
         text_cases_group(),
         scene_group(),
         table_components_group(&view),
         shell_group(&view),
+        hand_group_group(&st),
         flights_group(),
         deck_ramp_group(),
     ]

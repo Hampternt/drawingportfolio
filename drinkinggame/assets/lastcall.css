@@ -696,6 +696,11 @@ body.lc-preview #lc-felt { width: 640px; height: 360px; margin: 0 auto; }
 .lc-preview-ramp-ink    { color: var(--lc-ink); }
 .lc-preview-ramp-onfill { background: var(--lc-fill); color: var(--lc-on-fill); }
 
+/* Plan C group 8 — a sized stage for live preview wheels: the hand group is
+   height: 480px by its own rule, but needs a bounded width to read as a
+   phone column rather than a full-bleed strip. */
+.lc-preview-handframe { width: 366px; height: 480px; }
+
 /* Plan B — felt surfaces: F.2 big screen, D.2 seat ring, F.3 mini table */
 
 /* F.2 BigScreenShell — 1920x1080, a display and never an input. Fixed

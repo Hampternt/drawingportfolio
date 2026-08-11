@@ -619,14 +619,22 @@ pub fn preview_state() -> LastCallState {
 
     // 12 cards: four distinct Cider ids repeated three times. Deliberate —
     // it bypasses set_vessel's dedupe so the n > 8 hand-strip split has a
-    // hand to split, and the strip only ever reads a COUNT. Slice 2's
-    // HandWheel indexes by card id, so vary the ids before building it.
-    //
-    // `Card` isn't `Copy` (it carries owned `String`s), so `[T]::repeat`
-    // (as the brief's literal snippet used) doesn't compile here; build the
-    // repeat via `iter::repeat_n` instead.
-    st.players[1].hand = std::iter::repeat_n(crate::lc_cards::deck_cards(Deck::Cider), 3)
-        .flatten()
+    // hand to split, and the strip only ever reads a COUNT. The wheel now
+    // indexes by DOM position, not card id (decision 10) — but three
+    // visually identical card triples would still make the preview's
+    // oversized wheel look broken, so the second and third rep's ids are
+    // suffixed to stay distinct.
+    st.players[1].hand = (0..3)
+        .flat_map(|rep| {
+            crate::lc_cards::deck_cards(Deck::Cider)
+                .into_iter()
+                .map(move |mut c| {
+                    if rep > 0 {
+                        c.id = format!("{}-r{rep}", c.id);
+                    }
+                    c
+                })
+        })
         .collect();
     st.players[0].draws_this_round = 3; // the plaque's draw badge
     st.set_vessel(8, Deck::Soft, "any").unwrap(); // 8th seat: MAX_SEATS ceiling
