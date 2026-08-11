@@ -1,6 +1,6 @@
 use crate::{
     middleware::OptionalAuth,
-    models::{MonthGroup, Post, Viewer},
+    models::{MonthGroup, Post, PostCounts, Viewer},
     AppState,
 };
 use askama::Template;
@@ -16,7 +16,14 @@ use std::sync::Arc;
 #[derive(Template)]
 #[template(path = "artportfolio/feed.html")]
 struct FeedTemplate {
+    /// The **effective** viewer's admin-ness, not the raw session bool. Under
+    /// `?visitor=1` this is false, so every admin affordance on the page goes
+    /// away at once rather than one control at a time.
     is_admin: bool,
+    /// True only for an admin who is currently previewing. Drives the "exit
+    /// preview" affordance, which is the one thing that must render while
+    /// `is_admin` is false — and must never render for a real visitor.
+    is_previewing: bool,
     /// The page head's micro-label, pre-computed — see `head_label()`.
     head_label: String,
     /// First page of posts rendered as HTML, injected directly into the page.
@@ -27,13 +34,21 @@ struct FeedTemplate {
     q: String,
 }
 
-/// Builds the page head's micro-label from the real total.
+/// Builds the page head's micro-label from the real counts.
 ///
 /// `count_posts` runs only on a full page render — never on HTMX pagination,
 /// where the head is not re-rendered and the COUNT would be wasted work on
 /// every Load more.
-fn head_label(total: i64, q: Option<&str>) -> String {
+///
+/// `counts.total` already encodes the viewer — an admin's total is every post, a
+/// visitor's is the public count — so nothing here branches on `viewer` yet. It
+/// is threaded now because the admin split (`· 117 public · 4 unlisted · 7
+/// hidden`) lands in this function, and the out-of-band label on the page-0 path
+/// would otherwise have to learn about the preview after the fact.
+fn head_label(counts: &PostCounts, q: Option<&str>, viewer: Viewer) -> String {
+    let total = counts.total;
     let noun = if total == 1 { "drawing" } else { "drawings" };
+    let _ = viewer;
     match q {
         // Deliberately unescaped: the template renders this through `{{ }}` and
         // Askama escapes it on the way out. Escaping here too would paint
@@ -90,7 +105,17 @@ fn group_by_month(posts: Vec<Post>, last_month: Option<&str>) -> Vec<MonthGroup>
 /// The Load more URL, built in Rust because Askama escapes HTML, not URLs — a
 /// query containing `&` or `%` must be percent-encoded before it reaches an
 /// attribute.
-fn load_more_url(next_page: i64, q: Option<&str>, last_month: Option<&str>) -> String {
+///
+/// The preview flag rides along with `q` and `last_month`. Without it, page 0
+/// renders as a visitor and the first Load more renders as an admin — hidden
+/// posts appear mid-feed, in the middle of the preview that exists to prove they
+/// do not.
+fn load_more_url(
+    next_page: i64,
+    q: Option<&str>,
+    last_month: Option<&str>,
+    preview: bool,
+) -> String {
     let mut s = url::form_urlencoded::Serializer::new(String::new());
     s.append_pair("page", &next_page.to_string());
     if let Some(q) = q {
@@ -99,20 +124,30 @@ fn load_more_url(next_page: i64, q: Option<&str>, last_month: Option<&str>) -> S
     if let Some(m) = last_month {
         s.append_pair("last_month", m);
     }
+    if preview {
+        s.append_pair("visitor", "1");
+    }
     format!("/artportfolio/htmx/posts?{}", s.finish())
 }
 
 /// The URL the address bar should show for a search — a real page, not the
 /// fragment endpoint that produced the swap. See `htmx_posts`.
-fn page_url(q: Option<&str>) -> String {
-    match q {
-        Some(q) => {
-            let mut s = url::form_urlencoded::Serializer::new(String::new());
-            s.append_pair("q", q);
-            format!("/artportfolio?{}", s.finish())
-        }
-        None => "/artportfolio".to_string(),
+///
+/// Carries the preview flag for the same reason `load_more_url` does — a search
+/// while previewing must push a URL that reloads back into the preview, not out
+/// of it.
+fn page_url(q: Option<&str>, preview: bool) -> String {
+    if q.is_none() && !preview {
+        return "/artportfolio".to_string();
     }
+    let mut s = url::form_urlencoded::Serializer::new(String::new());
+    if let Some(q) = q {
+        s.append_pair("q", q);
+    }
+    if preview {
+        s.append_pair("visitor", "1");
+    }
+    format!("/artportfolio?{}", s.finish())
 }
 
 /// One drawing card — the single source of card markup in the app.
@@ -160,6 +195,32 @@ pub struct PageQuery {
     /// The month the previous page ended on, so a month split across pages
     /// renders one divider rather than two.
     pub last_month: Option<String>,
+    /// `?visitor=1` — an admin asking to be shown a visitor's view.
+    ///
+    /// A string rather than a bool: serde parses `Option<bool>` from
+    /// `true`/`false`, not from `1`.
+    pub visitor: Option<String>,
+}
+
+fn is_preview(query: &PageQuery) -> bool {
+    query.visitor.as_deref() == Some("1")
+}
+
+/// The single viewer every other decision on the page is made from.
+///
+/// Deriving the db filter and the template flags separately is the failure this
+/// function exists to prevent: that combination renders a visitor's post set
+/// with admin badges and controls over it, so the preview gets wrong precisely
+/// the thing it exists to show.
+///
+/// The flag only ever downgrades. A visitor sending `?visitor=0` gains nothing,
+/// because the session bool is still false.
+fn effective_viewer(session_is_admin: bool, preview: bool) -> Viewer {
+    if session_is_admin && !preview {
+        Viewer::Admin
+    } else {
+        Viewer::Visitor
+    }
 }
 
 /// Fetches one page and renders its month sections.
@@ -172,8 +233,10 @@ async fn render_grid(
     q: Option<&str>,
     last_month: Option<&str>,
     head_label_oob: Option<String>,
+    viewer: Viewer,
+    preview: bool,
 ) -> String {
-    let mut posts = crate::db::get_posts_page(&state.pool, q, page, Viewer::Visitor).await;
+    let mut posts = crate::db::get_posts_page(&state.pool, q, page, viewer).await;
     let has_more = posts.len() > 20;
     if has_more {
         posts.truncate(20);
@@ -184,7 +247,7 @@ async fn render_grid(
     let next_last_month = groups.last().map(|g| g.label.clone());
     PostGridTemplate {
         has_more,
-        load_more_url: load_more_url(page + 1, q, next_last_month.as_deref()),
+        load_more_url: load_more_url(page + 1, q, next_last_month.as_deref(), preview),
         is_first_page: page == 0,
         q: q.unwrap_or_default().to_string(),
         head_label_oob: head_label_oob.unwrap_or_default(),
@@ -195,10 +258,12 @@ async fn render_grid(
 }
 
 async fn feed_page(
-    OptionalAuth(is_admin): OptionalAuth,
+    OptionalAuth(session_is_admin): OptionalAuth,
     State(state): State<Arc<AppState>>,
     Query(query): Query<PageQuery>,
 ) -> impl IntoResponse {
+    let preview = is_preview(&query);
+    let viewer = effective_viewer(session_is_admin, preview);
     // `?q=` is read here as well as on the fragment route, so a searched feed
     // survives a reload and is linkable.
     //
@@ -212,13 +277,22 @@ async fn feed_page(
     // Without this, the browser would load the page and then fire a second
     // request to /artportfolio/htmx/posts?page=0 before anything was visible.
     // No out-of-band label here: the shell renders the head itself.
-    let initial_posts_html = render_grid(&state, 0, q.as_deref(), None, None).await;
-    let counts = crate::db::count_posts(&state.pool, q.as_deref(), Viewer::Visitor).await;
+    let initial_posts_html =
+        render_grid(&state, 0, q.as_deref(), None, None, viewer, preview).await;
+    let counts = crate::db::count_posts(&state.pool, q.as_deref(), viewer).await;
 
     Html(
         FeedTemplate {
-            is_admin,
-            head_label: head_label(counts.total, q.as_deref()),
+            // The *effective* viewer, never the raw session bool. Under preview
+            // this is false, so the `{% if is_admin %}` upload composer
+            // disappears along with the badges — correct, since a visitor has no
+            // composer, and it will read as a regression to anyone who has not
+            // seen this comment.
+            is_admin: viewer.is_admin(),
+            // The one thing the raw session bool is for. A real visitor must
+            // never see the "exit preview" affordance.
+            is_previewing: session_is_admin && preview,
+            head_label: head_label(&counts, q.as_deref(), viewer),
             initial_posts_html,
             q: q.unwrap_or_default(),
         }
@@ -228,21 +302,33 @@ async fn feed_page(
 }
 
 async fn htmx_posts(
+    OptionalAuth(session_is_admin): OptionalAuth,
     State(state): State<Arc<AppState>>,
     Query(query): Query<PageQuery>,
 ) -> Response {
     let page = query.page.unwrap_or(0);
     let q = normalize_q(query.q.as_deref());
+    let preview = is_preview(&query);
+    let viewer = effective_viewer(session_is_admin, preview);
 
     // Page 0 replaces the whole feed, so the head's total has to move with it.
     // Load more only appends, and pays no COUNT.
     let oob = if page == 0 {
-        let counts = crate::db::count_posts(&state.pool, q.as_deref(), Viewer::Visitor).await;
-        Some(head_label(counts.total, q.as_deref()))
+        let counts = crate::db::count_posts(&state.pool, q.as_deref(), viewer).await;
+        Some(head_label(&counts, q.as_deref(), viewer))
     } else {
         None
     };
-    let html = render_grid(&state, page, q.as_deref(), query.last_month.as_deref(), oob).await;
+    let html = render_grid(
+        &state,
+        page,
+        q.as_deref(),
+        query.last_month.as_deref(),
+        oob,
+        viewer,
+        preview,
+    )
+    .await;
 
     if page == 0 {
         // Page 0 is a search or a cleared filter — the address bar should read
@@ -252,7 +338,11 @@ async fn htmx_posts(
         //
         // Load more (page >= 1) pushes nothing: it appends to what is already
         // on screen and must not rewrite history.
-        ([("HX-Push-Url", page_url(q.as_deref()))], Html(html)).into_response()
+        (
+            [("HX-Push-Url", page_url(q.as_deref(), preview))],
+            Html(html),
+        )
+            .into_response()
     } else {
         Html(html).into_response()
     }
@@ -265,6 +355,7 @@ struct PostsResponse {
 }
 
 async fn api_posts(
+    OptionalAuth(session_is_admin): OptionalAuth,
     State(state): State<Arc<AppState>>,
     Query(query): Query<PageQuery>,
 ) -> impl IntoResponse {
@@ -272,8 +363,10 @@ async fn api_posts(
     // The same filter the HTML feed applies, so the two cannot drift on what
     // "matching" means.
     let q = normalize_q(query.q.as_deref());
-    let mut posts =
-        crate::db::get_posts_page(&state.pool, q.as_deref(), page, Viewer::Visitor).await;
+    // Reads the session but deliberately not the preview flag: the API has no
+    // head, no pagination UI and nothing to preview.
+    let viewer = effective_viewer(session_is_admin, false);
+    let mut posts = crate::db::get_posts_page(&state.pool, q.as_deref(), page, viewer).await;
     let has_more = posts.len() > 20;
     if has_more {
         posts.truncate(20);
@@ -494,24 +587,43 @@ mod tests {
         assert!(!html.contains("image/webp"), "no webp source for empty url");
     }
 
+    /// A visitor-shaped `PostCounts` — `total` is all these assertions read.
+    fn visitor_counts(total: i64) -> PostCounts {
+        PostCounts {
+            total,
+            public: total,
+            unlisted: 0,
+            hidden: 0,
+        }
+    }
+
     #[test]
     fn test_head_label_states_the_real_total() {
         // Replaces the pre-count_posts version of this test, which pinned a
         // vaguer fallback ("newest first" with no number) that existed only
         // because there was no COUNT to state a total with.
-        assert_eq!(head_label(117, None), "117 drawings · newest first");
-        assert_eq!(head_label(1, None), "1 drawing · newest first");
-        assert_eq!(head_label(0, None), "0 drawings · newest first");
+        assert_eq!(
+            head_label(&visitor_counts(117), None, Viewer::Visitor),
+            "117 drawings · newest first"
+        );
+        assert_eq!(
+            head_label(&visitor_counts(1), None, Viewer::Visitor),
+            "1 drawing · newest first"
+        );
+        assert_eq!(
+            head_label(&visitor_counts(0), None, Viewer::Visitor),
+            "0 drawings · newest first"
+        );
     }
 
     #[test]
     fn test_head_label_names_the_active_search() {
         assert_eq!(
-            head_label(12, Some("loomis")),
+            head_label(&visitor_counts(12), Some("loomis"), Viewer::Visitor),
             "12 drawings · matching \"loomis\""
         );
         assert_eq!(
-            head_label(1, Some("loomis")),
+            head_label(&visitor_counts(1), Some("loomis"), Viewer::Visitor),
             "1 drawing · matching \"loomis\""
         );
     }
@@ -596,24 +708,24 @@ mod tests {
     #[test]
     fn test_load_more_url_percent_encodes_the_query() {
         assert_eq!(
-            load_more_url(1, Some("100%"), Some("2026-07")),
+            load_more_url(1, Some("100%"), Some("2026-07"), false),
             "/artportfolio/htmx/posts?page=1&q=100%25&last_month=2026-07"
         );
         assert_eq!(
-            load_more_url(1, None, None),
+            load_more_url(1, None, None, false),
             "/artportfolio/htmx/posts?page=1"
         );
         assert_eq!(
-            load_more_url(3, Some("a&b"), None),
+            load_more_url(3, Some("a&b"), None, false),
             "/artportfolio/htmx/posts?page=3&q=a%26b"
         );
     }
 
     #[test]
     fn test_page_url_is_the_page_not_the_fragment_endpoint() {
-        assert_eq!(page_url(None), "/artportfolio");
-        assert_eq!(page_url(Some("loomis")), "/artportfolio?q=loomis");
-        assert_eq!(page_url(Some("100%")), "/artportfolio?q=100%25");
+        assert_eq!(page_url(None, false), "/artportfolio");
+        assert_eq!(page_url(Some("loomis"), false), "/artportfolio?q=loomis");
+        assert_eq!(page_url(Some("100%"), false), "/artportfolio?q=100%25");
     }
 
     #[tokio::test]
@@ -772,5 +884,181 @@ mod tests {
             !html.contains("class=\"post-card\""),
             "legacy card class must not appear in the feed's card"
         );
+    }
+
+    // ===== Visibility enforcement (slice 2) =====
+
+    /// A router plus the pool behind it, so a test can seed rows and sessions
+    /// the handlers will actually see. `test_app()` keeps its pool private.
+    async fn app_with_pool() -> (Router, crate::db::DbPool) {
+        let pool = SqlitePoolOptions::new()
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        crate::db::run_migrations(&pool).await;
+        let storage = crate::storage::ObjectStorage::from_env().await;
+        let rp_origin = url::Url::parse("http://localhost:3000").unwrap();
+        let webauthn = webauthn_rs::prelude::WebauthnBuilder::new("localhost", &rp_origin)
+            .unwrap()
+            .build()
+            .unwrap();
+        let state = Arc::new(crate::AppState {
+            pool: pool.clone(),
+            storage,
+            webauthn,
+        });
+        (router().with_state(state), pool)
+    }
+
+    async fn seed(pool: &crate::db::DbPool, caption: &str, visibility: crate::models::Visibility) {
+        let post = crate::db::insert_post(
+            pool,
+            caption,
+            "https://example.com/img.jpg",
+            "",
+            "",
+            crate::models::PostFormat::Single.as_str(),
+            0,
+            0,
+            0,
+        )
+        .await;
+        crate::db::set_post_visibility(pool, post.id, visibility).await;
+    }
+
+    /// A session row plus the cookie header that presents it.
+    async fn admin_cookie(pool: &crate::db::DbPool) -> String {
+        crate::db::create_session(pool, "test-session", "2099-01-01 00:00:00").await;
+        "session=test-session".to_string()
+    }
+
+    async fn body_of(resp: axum::response::Response) -> String {
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        String::from_utf8(bytes.to_vec()).unwrap()
+    }
+
+    async fn get(app: &Router, uri: &str, cookie: Option<&str>) -> axum::response::Response {
+        let mut req = Request::builder().uri(uri);
+        if let Some(c) = cookie {
+            req = req.header("cookie", c);
+        }
+        app.clone()
+            .oneshot(req.body(Body::empty()).unwrap())
+            .await
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn test_feed_page_visitor_omits_hidden() {
+        let (app, pool) = app_with_pool().await;
+        seed(&pool, "on show", crate::models::Visibility::Public).await;
+        seed(&pool, "kept back", crate::models::Visibility::Hidden).await;
+        seed(&pool, "by link only", crate::models::Visibility::Unlisted).await;
+        let body = body_of(get(&app, "/artportfolio", None).await).await;
+        assert!(body.contains("on show"));
+        assert!(!body.contains("kept back"));
+        assert!(!body.contains("by link only"));
+    }
+
+    #[tokio::test]
+    async fn test_feed_page_admin_sees_all() {
+        let (app, pool) = app_with_pool().await;
+        seed(&pool, "on show", crate::models::Visibility::Public).await;
+        seed(&pool, "kept back", crate::models::Visibility::Hidden).await;
+        let cookie = admin_cookie(&pool).await;
+        let body = body_of(get(&app, "/artportfolio", Some(&cookie)).await).await;
+        assert!(body.contains("on show"));
+        assert!(body.contains("kept back"));
+    }
+
+    #[tokio::test]
+    async fn test_htmx_posts_visitor_omits_hidden_page_0() {
+        let (app, pool) = app_with_pool().await;
+        seed(&pool, "on show", crate::models::Visibility::Public).await;
+        seed(&pool, "kept back", crate::models::Visibility::Hidden).await;
+        let body = body_of(get(&app, "/artportfolio/htmx/posts?page=0", None).await).await;
+        assert!(body.contains("on show"));
+        assert!(!body.contains("kept back"));
+    }
+
+    /// The leak this task exists to close. `htmx_posts` never extracted
+    /// `OptionalAuth`, so page 0 could render filtered while the first Load more
+    /// handed back everything — a page-0-only test would pass throughout.
+    #[tokio::test]
+    async fn test_htmx_posts_visitor_omits_hidden_page_1() {
+        let (app, pool) = app_with_pool().await;
+        for i in 0..25 {
+            seed(
+                &pool,
+                &format!("public {i}"),
+                crate::models::Visibility::Public,
+            )
+            .await;
+        }
+        seed(&pool, "kept back", crate::models::Visibility::Hidden).await;
+        let body = body_of(get(&app, "/artportfolio/htmx/posts?page=1", None).await).await;
+        assert!(!body.contains("kept back"));
+    }
+
+    #[tokio::test]
+    async fn test_api_posts_visitor_omits_hidden() {
+        let (app, pool) = app_with_pool().await;
+        seed(&pool, "on show", crate::models::Visibility::Public).await;
+        seed(&pool, "kept back", crate::models::Visibility::Hidden).await;
+        let body = body_of(get(&app, "/artportfolio/api/posts", None).await).await;
+        assert!(body.contains("on show"));
+        assert!(!body.contains("kept back"));
+    }
+
+    /// Unlisted is out of the API as well as the feed. Serving it here would
+    /// make the JSON endpoint a way to enumerate exactly what the feed hides.
+    #[tokio::test]
+    async fn test_api_posts_visitor_omits_unlisted() {
+        let (app, pool) = app_with_pool().await;
+        seed(&pool, "by link only", crate::models::Visibility::Unlisted).await;
+        let body = body_of(get(&app, "/artportfolio/api/posts", None).await).await;
+        assert!(!body.contains("by link only"));
+    }
+
+    #[tokio::test]
+    async fn test_load_more_url_carries_visitor_flag() {
+        assert!(load_more_url(1, None, None, true).contains("visitor=1"));
+        assert!(!load_more_url(1, None, None, false).contains("visitor"));
+    }
+
+    #[tokio::test]
+    async fn test_page_url_carries_visitor_flag() {
+        let url = page_url(Some("cat"), true);
+        assert!(url.contains("q=cat"), "{url}");
+        assert!(url.contains("visitor=1"), "{url}");
+        assert_eq!(page_url(None, false), "/artportfolio");
+        assert_eq!(page_url(None, true), "/artportfolio?visitor=1");
+    }
+
+    #[tokio::test]
+    async fn test_effective_viewer_preview_downgrades_admin() {
+        assert_eq!(effective_viewer(true, false), Viewer::Admin);
+        assert_eq!(effective_viewer(true, true), Viewer::Visitor);
+    }
+
+    /// The flag only ever downgrades — a visitor cannot promote themselves by
+    /// omitting it, or by sending any value at all.
+    #[tokio::test]
+    async fn test_effective_viewer_preview_flag_cannot_promote() {
+        assert_eq!(effective_viewer(false, false), Viewer::Visitor);
+        assert_eq!(effective_viewer(false, true), Viewer::Visitor);
+    }
+
+    #[tokio::test]
+    async fn test_preview_hides_hidden_posts_from_admin() {
+        let (app, pool) = app_with_pool().await;
+        seed(&pool, "on show", crate::models::Visibility::Public).await;
+        seed(&pool, "kept back", crate::models::Visibility::Hidden).await;
+        let cookie = admin_cookie(&pool).await;
+        let body = body_of(get(&app, "/artportfolio?visitor=1", Some(&cookie)).await).await;
+        assert!(body.contains("on show"));
+        assert!(!body.contains("kept back"));
     }
 }
