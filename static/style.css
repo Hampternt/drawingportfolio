@@ -1625,7 +1625,25 @@ body.art-page .art-permalink__media {
   border-radius: var(--radius-3);
   overflow: hidden;
 }
-body.art-page .art-permalink__media img { width: 100%; height: auto; display: block; }
+/* `width: auto` rather than the `100%` the feed's cards use. A card is a
+   thumbnail and should fill its column; a permalink is the drawing at its own
+   size, and stretching a 400px study across a 1132px container renders it
+   blurry. `max-height` keeps a tall portrait from pushing its own caption off
+   the fold.
+
+   Centred with `margin`, NOT by making the wrapper a flex container: `width:
+   auto` on a flex item whose intrinsic size is indefinite — an SVG with a
+   viewBox and no width/height — collapses the image to 0x0. Raster uploads
+   carry intrinsic dimensions and would have survived it, which is exactly why
+   it would not have been noticed until someone uploaded an SVG. */
+body.art-page .art-permalink__media img {
+  width: auto;
+  max-width: 100%;
+  max-height: 85vh;
+  height: auto;
+  display: block;
+  margin-inline: auto;
+}
 body.art-page .art-permalink__caption {
   font: var(--type-body);
   color: var(--text-body);
