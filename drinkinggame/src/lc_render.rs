@@ -1837,7 +1837,7 @@ mod tests {
         // attribute right after the deck slug — no trailing ` is-active`.
         assert!(html.contains(r#"lc-costrail-group lc-deck-wine" data-idx="1""#));
         assert!(html.contains(r#"lc-costrail-group lc-deck-liquor" data-idx="2""#));
-        // Important 1 (fix wave): the above-label is the focused card's
+        // Important 2 (fix wave): the above-label is the focused card's
         // ordinal (01), never the hand size (3) — `syncRail` owns updating
         // it thereafter, this builder only ever paints the initial focus.
         assert!(html.contains(r#"<span class="lc-costrail-above">01</span>"#));
