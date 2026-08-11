@@ -14,7 +14,7 @@ use crate::auth::PlayerSession;
 use crate::db;
 use crate::error::GameError;
 use crate::last_call::{Deck, LastCallState, LcError, PublicView};
-use crate::lc_render::{self, SetupRow};
+use crate::lc_render::{self, HandGroupView, SetupRow};
 use crate::models::{Game, Player, Room};
 use crate::GameState;
 
@@ -308,6 +308,34 @@ fn setup_rows(st: &LastCallState) -> Vec<SetupRow> {
         .collect()
 }
 
+/// The single builder of the `#lc-hand` fragment — mirrors
+/// `table_pane_html`'s role, so the shell's initial paint (`lc_page`) and the
+/// per-viewer refetch (`lc_hand_handler`) can never disagree about the
+/// fragment's shape for the same state. Closes the STATUS-carried
+/// "rows-and-hand lookup duplicated verbatim" minor from Plan A2.
+fn hand_pane_html(base_path: &str, code: &str, st: &LastCallState, player_id: i64) -> String {
+    let rows = setup_rows(st);
+    let (hand, armed, locked, handicap_pct) = match st.seat_of(player_id) {
+        Some(seat) => {
+            let p = &st.players[seat];
+            (
+                p.hand.as_slice(),
+                p.armed.as_slice(),
+                p.locked,
+                p.handicap_pct,
+            )
+        }
+        None => (&[] as &[_], &[] as &[_], false, 100),
+    };
+    let hg = HandGroupView {
+        hand,
+        armed,
+        locked,
+        handicap_pct,
+    };
+    lc_render::lc_hand_pane(base_path, code, player_id, &hg, &rows, st.seq)
+}
+
 // NOTE: the brief's Produces section lists a `seq: u64` field on this struct,
 // but its own literal `lc_room.html` markup never consumes it (`#lc-hand`,
 // embedded inside `hand_pane`, already carries the §7.8-required `data-seq`).
@@ -344,13 +372,8 @@ pub async fn lc_page(
         Ok(c) => c,
         Err(r) => return r,
     };
-    let rows = setup_rows(&ctx.st);
     let me = ctx.st.seat_of(player.id);
-    let hand = me
-        .map(|seat| ctx.st.players[seat].hand.as_slice())
-        .unwrap_or(&[]);
-    let hand_pane =
-        lc_render::lc_hand_pane(&state.base_path, &code, player.id, hand, &rows, ctx.st.seq);
+    let hand_pane = hand_pane_html(&state.base_path, &code, &ctx.st, player.id);
     let view = ctx.st.public_view();
     let tpl = LcRoomTemplate {
         base_path: state.base_path.to_string(),
@@ -426,19 +449,5 @@ pub async fn lc_hand_handler(
         Ok(c) => c,
         Err(r) => return r,
     };
-    let rows = setup_rows(&ctx.st);
-    let hand = ctx
-        .st
-        .seat_of(player.id)
-        .map(|seat| ctx.st.players[seat].hand.as_slice())
-        .unwrap_or(&[]);
-    Html(lc_render::lc_hand_pane(
-        &state.base_path,
-        &code,
-        player.id,
-        hand,
-        &rows,
-        ctx.st.seq,
-    ))
-    .into_response()
+    Html(hand_pane_html(&state.base_path, &code, &ctx.st, player.id)).into_response()
 }

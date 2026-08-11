@@ -4089,6 +4089,112 @@ async fn test_lastcall_shell_shows_all_handicap_rows() {
 }
 
 // -------------------------------------------------------------
+// Last Call (Plan C Task 2): the hand group — HandWheel, armed column, cost
+// rail — replaces the throwaway plain card list inside `#lc-hand`. Seeded by
+// hand-rolling a `LastCallState` and persisting it via `set_game_state` (the
+// `tm_handoff_gating` pattern), because `arm`/`lock_in` are not implemented
+// yet — this is the only way to get an armed/locked hand onto the wire at
+// this point in the plan.
+// -------------------------------------------------------------
+
+/// The privacy property the armed column exists to uphold, restated at the
+/// transport layer (mirrors `test_lastcall_hand_is_private` for the hand
+/// itself): A's fragment carries A's armed card inside its own `.lc-armed`
+/// block and never leaks B's, and vice versa.
+#[tokio::test]
+async fn test_hand_fragment_carries_only_the_viewers_armed_cards() {
+    let (app, pool) = test_app_with_pool().await;
+    let alice = login(&app, "alice", "1234").await;
+    let bob = login(&app, "bob", "5678").await;
+    let code = create_room(&app, &alice).await;
+    room_page_html(&app, &bob, &code).await;
+    post_form(&app, &alice, &format!("/room/{code}/lastcall/start"), "").await;
+
+    let alice_id = drinkinggame::db::get_player_by_name(&pool, "alice")
+        .await
+        .unwrap()
+        .id;
+    let bob_id = drinkinggame::db::get_player_by_name(&pool, "bob")
+        .await
+        .unwrap()
+        .id;
+    let room = drinkinggame::db::get_open_room(&pool, &code).await.unwrap();
+    let game_id = drinkinggame::db::get_active_game(&pool, room.id)
+        .await
+        .unwrap()
+        .id;
+
+    let mut st = LastCallState::new(vec![(alice_id, "alice".into()), (bob_id, "bob".into())], 1);
+    st.players[0].armed = vec![drinkinggame::lc_cards::card_by_id("beer-01").unwrap()];
+    st.players[1].armed = vec![drinkinggame::lc_cards::card_by_id("cider-01").unwrap()];
+    st.players[1].locked = true;
+    drinkinggame::db::set_game_state(&pool, game_id, &st.to_json()).await;
+
+    // Both hands are empty (only `armed` was seeded), so the pane's HandWheel
+    // never renders and the cost rail is the next block after the armed
+    // column — bounding the "inside an lc-armed block" check between them.
+    let alice_hand = body_string(get_hand(&app, &alice, &code).await).await;
+    let armed_start = alice_hand.find("lc-armed").expect("lc-armed missing");
+    let rail_start = alice_hand.find("lc-costrail").expect("lc-costrail missing");
+    assert!(rail_start > armed_start);
+    assert!(alice_hand[armed_start..rail_start].contains("beer-01"));
+    assert!(alice_hand.contains("ARMED 1"));
+    assert!(!alice_hand.contains("cider-01"));
+
+    let bob_hand = body_string(get_hand(&app, &bob, &code).await).await;
+    let armed_start = bob_hand.find("lc-armed").expect("lc-armed missing");
+    let rail_start = bob_hand.find("lc-costrail").expect("lc-costrail missing");
+    assert!(rail_start > armed_start);
+    assert!(bob_hand[armed_start..rail_start].contains("cider-01"));
+    assert!(bob_hand.contains("LOCKED 1"));
+    assert!(bob_hand.contains(" data-locked"));
+    assert!(!bob_hand.contains("beer-01"));
+}
+
+/// The rail's `pull_cost` math is not cosmetic: the same card in two
+/// viewers' hands, priced through their own `handicap_pct`, must produce two
+/// different `data-pull-cost` values on their two private fragments.
+#[tokio::test]
+async fn test_hand_fragment_prices_the_rail_by_the_viewers_own_handicap() {
+    let (app, pool) = test_app_with_pool().await;
+    let alice = login(&app, "alice", "1234").await;
+    let bob = login(&app, "bob", "5678").await;
+    let code = create_room(&app, &alice).await;
+    room_page_html(&app, &bob, &code).await;
+    post_form(&app, &alice, &format!("/room/{code}/lastcall/start"), "").await;
+
+    let alice_id = drinkinggame::db::get_player_by_name(&pool, "alice")
+        .await
+        .unwrap()
+        .id;
+    let bob_id = drinkinggame::db::get_player_by_name(&pool, "bob")
+        .await
+        .unwrap()
+        .id;
+    let room = drinkinggame::db::get_open_room(&pool, &code).await.unwrap();
+    let game_id = drinkinggame::db::get_active_game(&pool, room.id)
+        .await
+        .unwrap()
+        .id;
+
+    let card = drinkinggame::lc_cards::card_by_id("wine-01").unwrap();
+    assert_eq!(card.cost, 2, "fixture assumes wine-01 costs 2");
+
+    let mut st = LastCallState::new(vec![(alice_id, "alice".into()), (bob_id, "bob".into())], 1);
+    st.players[0].hand = vec![card.clone()];
+    st.players[0].handicap_pct = 300;
+    st.players[1].hand = vec![card];
+    st.players[1].handicap_pct = 100;
+    drinkinggame::db::set_game_state(&pool, game_id, &st.to_json()).await;
+
+    let alice_hand = body_string(get_hand(&app, &alice, &code).await).await;
+    assert!(alice_hand.contains(r#"data-pull-cost="6""#));
+
+    let bob_hand = body_string(get_hand(&app, &bob, &code).await).await;
+    assert!(bob_hand.contains(r#"data-pull-cost="2""#));
+}
+
+// -------------------------------------------------------------
 // Last Call (Task 3): the SSE contract (`lcpublic`/`lctick`) and the
 // client-side stale-drop rule. The privacy invariant this task exists to
 // protect — a broadcast fragment can never carry unrevealed card identity,

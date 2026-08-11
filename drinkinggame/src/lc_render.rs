@@ -239,6 +239,64 @@ pub fn armed_column(armed: &[Card], locked: bool) -> String {
 /// big screen's side-rail class (lines 511, 537; `lastcall.css:700`) and
 /// `--lc-rail` is a colour token, so this unrelated component gets its
 /// own prefix instead of colliding with that surface.
+/// §7.8 `HandWheel` — private, wraps each `card_face` (unchanged) in a
+/// positioned `.lc-wheel-card` so the JS can drag/spin the wrapper without
+/// reaching into `CardFace` internals (spec §2: "slice 2 replaces the
+/// container, not the card"). `data-idx` is the DOM-position index
+/// (decision 10); `data-card-id` repeats the face's id at wrapper level.
+/// Never called with an empty `hand` — `hand_group` branches to the
+/// decision-5 empty copy before reaching here, because the empty-state
+/// message depends on `armed` too, which this single-argument builder
+/// doesn't see.
+pub fn hand_wheel(hand: &[Card]) -> String {
+    let n = hand.len();
+    let cards: String = hand
+        .iter()
+        .enumerate()
+        .map(|(i, card)| {
+            format!(
+                r#"<div class="lc-wheel-card" data-idx="{i}" data-card-id="{id}">{face}</div>"#,
+                id = html_escape(&card.id),
+                face = card_face(card),
+            )
+        })
+        .collect();
+    format!(
+        r#"<div class="lc-wheel" data-count="{n}"><div class="lc-wheel-stage" data-lc-wheel><div class="lc-wheel-track">{cards}</div><span class="lc-wheel-hint">DRAG TO SPIN</span></div></div>"#
+    )
+}
+
+/// The viewer's own private hand-group data. All refs — Copy on purpose.
+#[derive(Clone, Copy, Debug)]
+pub struct HandGroupView<'a> {
+    pub hand: &'a [Card],
+    pub armed: &'a [Card],
+    pub locked: bool,
+    pub handicap_pct: u16,
+}
+
+/// §7.8 `Hand group` — private, `.lc-handgroup` with children `.lc-armed`,
+/// `.lc-wheel` (or the decision-5 empty message), `.lc-rail` in that order.
+/// The empty-hand copy depends on whether `armed` is also empty — the choice
+/// lives here rather than in `hand_wheel` because this is the one builder
+/// that sees both slices. `cost_rail` always renders, even in both empty
+/// cases (its own `n == 0` state, Task 1).
+pub fn hand_group(hg: &HandGroupView) -> String {
+    let armed = armed_column(hg.armed, hg.locked);
+    let wheel = if hg.hand.is_empty() {
+        let msg = if hg.armed.is_empty() {
+            "Register your drink to be dealt a hand."
+        } else {
+            "Every card you hold is armed."
+        };
+        format!(r#"<p class="lc-empty">{msg}</p>"#)
+    } else {
+        hand_wheel(hg.hand)
+    };
+    let rail = cost_rail(hg.hand, hg.handicap_pct);
+    format!(r#"<div class="lc-handgroup">{armed}{wheel}{rail}</div>"#)
+}
+
 pub fn cost_rail(hand: &[Card], handicap_pct: u16) -> String {
     let n = hand.len();
     let above = format!("{n:02}");
@@ -489,11 +547,14 @@ pub struct SetupRow {
 /// any room member may set any player's handicap, because the table sets
 /// handicaps rather than each player declaring themselves a lightweight.
 /// `me` is used only to append " (you)" to the viewer's own row.
+///
+/// The trailing card list (Plan A2) is now `hand_group(hg)` — the armed
+/// column, HandWheel (or its empty message) and cost rail (Plan C Task 2).
 pub fn lc_hand_pane(
     base_path: &str,
     code: &str,
     me: i64,
-    hand: &[Card],
+    hg: &HandGroupView,
     rows: &[SetupRow],
     seq: u64,
 ) -> String {
@@ -516,15 +577,10 @@ pub fn lc_hand_pane(
         })
         .collect();
 
-    let cards: String = if hand.is_empty() {
-        r#"<p class="lc-empty">Register your drink to be dealt a hand.</p>"#.to_string()
-    } else {
-        hand.iter().map(card_face).collect()
-    };
-
     format!(
-        r#"<div id="lc-hand" data-seq="{seq}" data-count="{count}" data-flight-anchor="hand"><section class="lc-setup"><h2>Your drink</h2><form method="post" action="{base_path}/room/{code}/lastcall/vessel"><select name="deck">{deck_options}</select><input name="container" maxlength="24" placeholder="50cl can"><button type="submit">REGISTER</button></form><h2>Handicaps</h2>{handicap_rows}</section>{cards}</div>"#,
-        count = hand.len(),
+        r#"<div id="lc-hand" data-seq="{seq}" data-count="{count}" data-flight-anchor="hand"><section class="lc-setup"><h2>Your drink</h2><form method="post" action="{base_path}/room/{code}/lastcall/vessel"><select name="deck">{deck_options}</select><input name="container" maxlength="24" placeholder="50cl can"><button type="submit">REGISTER</button></form><h2>Handicaps</h2>{handicap_rows}</section>{group}</div>"#,
+        count = hg.hand.len(),
+        group = hand_group(hg),
     )
 }
 
@@ -889,6 +945,13 @@ mod tests {
             lc_mini_table(&view, Some(0)),
             armed_column(&cards, false),
             cost_rail(&cards, 150),
+            hand_wheel(&cards),
+            hand_group(&HandGroupView {
+                hand: &cards,
+                armed: &cards[..1],
+                locked: false,
+                handicap_pct: 150,
+            }),
         ];
         for out in &outputs {
             for banned in ["hx-post", "hx-get", "hx-swap", "onclick", "href"] {
@@ -902,7 +965,8 @@ mod tests {
             // run it over the same array this test already assembles — now
             // eighteen builders, extended by Task 3 to add lc_screen_panel
             // and lc_mini_table (each emits an inline `left/top%` style),
-            // and by Plan C Task 1 to add armed_column and cost_rail — so
+            // by Plan C Task 1 to add armed_column and cost_rail, and by
+            // Plan C Task 2 to add hand_wheel and hand_group — so
             // beat_timer's and these builders' inline styles/attrs are
             // covered.
             no_hex(out);
@@ -1358,15 +1422,35 @@ mod tests {
         }
     }
 
+    /// Fills in the fields `HandGroupView` needs beyond `hand`, so each call
+    /// site only spells out what it's varying.
+    fn hg<'a>(hand: &'a [Card], armed: &'a [Card]) -> HandGroupView<'a> {
+        HandGroupView {
+            hand,
+            armed,
+            locked: false,
+            handicap_pct: 100,
+        }
+    }
+
     #[test]
     fn test_lc_hand_pane_satisfies_the_contract() {
         let hand = lc_cards::deck_cards(Deck::Beer);
+        let armed = [hand[0].clone()];
         let rows = [setup_row(1, "alice", 100, &[Deck::Beer])];
-        let html = lc_hand_pane("", "QK4M", 1, &hand, &rows, 7);
+        let view = hg(&hand, &armed);
+        let html = lc_hand_pane("", "QK4M", 1, &view, &rows, 7);
         assert!(html.contains(r#"id="lc-hand""#));
         assert!(html.contains(r#"data-seq="7""#));
         assert!(html.contains(&format!(r#"data-count="{}""#, hand.len())));
         assert!(html.contains(r#"data-flight-anchor="hand""#));
+        // The phone surface carries exactly one `.lc-handgroup`, one
+        // `.lc-armed`, and one `data-flight-anchor="armed"` — one match is
+        // what `lcAnchor` returns, so the pane must not inherit the
+        // preview's duplicate-anchor pattern.
+        assert_eq!(html.matches("lc-handgroup").count(), 1);
+        assert_eq!(html.matches(r#"class="lc-armed""#).count(), 1);
+        assert_eq!(html.matches(r#"data-flight-anchor="armed""#).count(), 1);
     }
 
     #[test]
@@ -1376,7 +1460,8 @@ mod tests {
             setup_row(1, "alice", 100, &[Deck::Beer]),
             setup_row(2, "bob", 150, &[Deck::Wine]),
         ];
-        let html = lc_hand_pane("/drinks", "QK4M", 1, &hand, &rows, 1);
+        let view = hg(&hand, &[]);
+        let html = lc_hand_pane("/drinks", "QK4M", 1, &view, &rows, 1);
         assert!(html.contains(r#"action="/drinks/room/QK4M/lastcall/vessel""#));
         assert!(html.contains(r#"action="/drinks/room/QK4M/lastcall/handicap""#));
         assert_eq!(
@@ -1397,7 +1482,8 @@ mod tests {
             setup_row(2, "bob", 100, &[Deck::Wine]),
             setup_row(3, "cara", 100, &[Deck::Soft]),
         ];
-        let html = lc_hand_pane("", "QK4M", 2, &hand, &rows, 1);
+        let view = hg(&hand, &[]);
+        let html = lc_hand_pane("", "QK4M", 2, &view, &rows, 1);
         assert_eq!(html.matches(">SET<").count(), 3);
         assert_eq!(html.matches("(you)").count(), 1);
         assert!(html.contains("bob (you)"));
@@ -1406,10 +1492,67 @@ mod tests {
     #[test]
     fn test_lc_hand_pane_empty_hand() {
         let rows = [setup_row(1, "alice", 100, &[])];
-        let html = lc_hand_pane("", "QK4M", 1, &[], &rows, 0);
+        let view = hg(&[], &[]);
+        let html = lc_hand_pane("", "QK4M", 1, &view, &rows, 0);
         assert!(html.contains("lc-empty"));
+        assert!(html.contains("Register your drink to be dealt a hand."));
         assert!(!html.contains("lc-cardface"));
+        assert!(!html.contains("lc-wheel"));
         assert!(html.contains(r#"data-count="0""#));
+    }
+
+    #[test]
+    fn test_hand_wheel_wraps_each_card_face_unchanged() {
+        let hand = [
+            rail_card("beer-fx", Deck::Beer, 1),
+            rail_card("wine-fx", Deck::Wine, 2),
+            rail_card("liquor-fx", Deck::Liquor, 3),
+        ];
+        let html = hand_wheel(&hand);
+        assert!(html.contains(r#"data-count="3""#));
+        for (i, card) in hand.iter().enumerate() {
+            assert!(html.contains(&format!(
+                r#"<div class="lc-wheel-card" data-idx="{i}" data-card-id="{}">"#,
+                card.id
+            )));
+            // CardFace rendering is not touched — the wrapper's inner HTML
+            // contains the byte-exact card_face(card) string.
+            assert!(html.contains(&card_face(card)));
+        }
+        no_hex(&html);
+    }
+
+    #[test]
+    fn test_hand_group_orders_armed_wheel_rail_and_picks_the_empty_copy() {
+        let hand = [
+            rail_card("beer-fx", Deck::Beer, 1),
+            rail_card("wine-fx", Deck::Wine, 2),
+        ];
+
+        let populated = hg(&hand, &hand[..1]);
+        let html = hand_group(&populated);
+        let armed_at = html.find("lc-armed").unwrap();
+        let wheel_at = html.find("lc-wheel").unwrap();
+        let rail_at = html.find("lc-costrail").unwrap();
+        assert!(armed_at < wheel_at, "armed must precede wheel");
+        assert!(wheel_at < rail_at, "wheel must precede rail");
+        no_hex(&html);
+
+        let no_hand_no_armed = hg(&[], &[]);
+        let html_empty = hand_group(&no_hand_no_armed);
+        assert!(html_empty.contains("Register your drink to be dealt a hand."));
+        assert!(!html_empty.contains("lc-wheel"));
+        no_hex(&html_empty);
+
+        let no_hand_but_armed = hg(&[], &hand[..1]);
+        let html_armed = hand_group(&no_hand_but_armed);
+        assert!(html_armed.contains("Every card you hold is armed."));
+        assert!(!html_armed.contains("lc-wheel"));
+        // The rail's own empty state, bound to its root (not the armed
+        // column's `data-count="1"`, which would also satisfy a bare
+        // `contains(r#"data-count="0""#)` check by coincidence).
+        assert!(html_armed.contains(r#"lc-costrail" data-count="0""#));
+        no_hex(&html_armed);
     }
 
     // -------------------------------------------------------------------
