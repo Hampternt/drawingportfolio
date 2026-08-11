@@ -135,11 +135,27 @@ Two trade-offs accepted in the spec, so slice 3 does not refile them as bugs:
 - **`/admin` shows no badge**, because the dashboard still renders through
   `admin_post_card_html()`, the legacy format string a later slice migrates.
 
-**No browser checkpoint was run for slice 2** — the whole slice was verified by
-312 passing tests, including sabotage checks proving the auth gate, the page-1
-filter and the session helper each fail when broken. The visual work (three badge
-tones, the hover cluster, the 900px always-visible fallback) is **unseen** and
-needs human eyes.
+**Browser checkpoint run 2026-08-11.** Verified against a seeded dev DB: the
+visitor feed omits both non-public states; the admin head splits
+(`29 drawings · 27 public · 1 unlisted · 1 hidden`); badges render per state; the
+hidden card dims to `.5`; each card's control cluster omits its own state's
+button; a visibility change swaps the single card, and the head's staleness
+self-corrects on reload exactly as slice 1's debt note predicts. `?visitor=1`
+drops badges, cluster and composer, reshapes the head, and carries `visitor=1`
+into the *Load more* URL — page 1 stays filtered across that boundary. Permalinks
+answer 200/200/404 for public/unlisted/hidden as a visitor, 200/200/200 as an
+admin, and 404 for a hidden post viewed by a *previewing* admin.
+
+It caught one real bug no test did: the permalink stretched every drawing to fill
+its container (`b39f5c0`).
+
+**Still unverified, and it is the same wall slice 1 hit.** Dark Reader repaints
+colour — the badge tones read as `rgb(232,230,227)` through the CSSOM while the
+stylesheet correctly says `#4FD6A8` / `#FFB570`, so *whether the three tones are
+distinguishable on screen has not been established*. Synthetic hover does not
+trigger `:hover`, so the cluster was seen only by forcing `opacity: 1`; synthetic
+clicks did not dispatch, so the swap was driven from JS. `resize_window` still
+does not change `innerWidth`, so the 900px always-visible fallback is CSSOM-only.
 
 Independent of Last Call — different crates, no overlap. Slices 3–5 (collections
 + tags, multi-upload tray, select mode + batch actions) remain scoped in slice
