@@ -4,7 +4,7 @@
 //! §3.4). Every root and attribute here is the §7.8 contract; changing one is
 //! a breaking change for Plan A2 and Plan B.
 
-use crate::last_call::{Card, Deck, PublicSeat, PublicView, Status, DECK_LOW_THRESHOLD};
+use crate::last_call::{pull_cost, Card, Deck, PublicSeat, PublicView, Status, DECK_LOW_THRESHOLD};
 use crate::lc_layout::{seat_positions, view_index, SeatPos};
 use crate::render::html_escape;
 
@@ -188,6 +188,80 @@ pub fn card_back(deck: Deck, size: BackSize) -> String {
 pub fn card_dot(deck: Deck) -> String {
     let slug = deck.slug();
     format!(r#"<span class="lc-dot lc-deck-{slug}" data-deck="{slug}"></span>"#)
+}
+
+// ---------------------------------------------------------------------
+// Plan C additions — Task 1. Private-side builders for the phone's HAND
+// tab: the armed-cards column and the drink-cost rail. Both take
+// `&[Card]`/scalars, never `&LastCallState`, and are never called from
+// anything broadcast.
+// ---------------------------------------------------------------------
+
+/// §7.8 `ArmedColumn` — private, the viewer's own armed cards plus one
+/// affordance slot. Rendered even when `armed` is empty (`ARMED 0` plus
+/// the slot, not an empty state). `locked` swaps the header to
+/// `LOCKED {n}` and drops the slot. `data-locked` is a bare presence
+/// attribute, never `data-locked="false"` — same rule and reason as
+/// `deck_stack`'s `data-low` (lines 314-318): the CSS selects on
+/// `[data-locked]`, so a `"false"` value would style every column.
+/// Exactly one slot regardless of `n` — it is an affordance, not a
+/// capacity meter.
+pub fn armed_column(armed: &[Card], locked: bool) -> String {
+    let n = armed.len();
+    let locked_attr = if locked { " data-locked" } else { "" };
+    let head = if locked {
+        format!("LOCKED {n}")
+    } else {
+        format!("ARMED {n}")
+    };
+    let cards: String = armed.iter().map(card_mini).collect();
+    let slot = if locked {
+        String::new()
+    } else {
+        r#"<span class="lc-armed-slot">slot</span>"#.to_string()
+    };
+    format!(
+        r#"<div class="lc-armed" data-count="{n}"{locked_attr} data-flight-anchor="armed"><span class="lc-armed-head">{head}</span>{cards}{slot}</div>"#
+    )
+}
+
+/// §7.8 `CostRail` — private, the viewer's hand priced through their own
+/// handicap. `pc = pull_cost(card.cost, handicap_pct)` — decision 1: the
+/// rail shows the true pull price, rounded up — and each group renders
+/// `pc` bars. `is-active` is emitted server-side on `data-idx="0"` only
+/// (the initial focus); the JS moves it thereafter. `lc-deck-{slug}` on
+/// the group supplies `--lc-ink` to its bars, same convention as every
+/// other `lc-deck-*` root in this file. `n == 0` renders the root with
+/// `data-count="0"`, label `00` above, `0` below and an empty
+/// `.lc-costrail-bars` — stable layout, no special casing downstream.
+///
+/// Named `.lc-costrail*`, not `.lc-rail*`: `.lc-rail` already names the
+/// big screen's side-rail class (lines 511, 537; `lastcall.css:700`) and
+/// `--lc-rail` is a colour token, so this unrelated component gets its
+/// own prefix instead of colliding with that surface.
+pub fn cost_rail(hand: &[Card], handicap_pct: u16) -> String {
+    let n = hand.len();
+    let above = format!("{n:02}");
+    let groups: String = hand
+        .iter()
+        .enumerate()
+        .map(|(i, card)| {
+            let slug = card.deck.slug();
+            let pc = pull_cost(card.cost, handicap_pct);
+            let active = if i == 0 { " is-active" } else { "" };
+            let bars: String = (0..pc)
+                .map(|_| r#"<i class="lc-costrail-bar"></i>"#)
+                .collect();
+            format!(
+                r#"<div class="lc-costrail-group lc-deck-{slug}{active}" data-idx="{i}" data-card-id="{id}" data-cost="{cost}" data-pull-cost="{pc}">{bars}</div>"#,
+                id = html_escape(&card.id),
+                cost = card.cost,
+            )
+        })
+        .collect();
+    format!(
+        r#"<div class="lc-costrail" data-count="{n}"><span class="lc-costrail-above">{above}</span><div class="lc-costrail-bars">{groups}</div><span class="lc-costrail-below">{n}</span></div>"#
+    )
 }
 
 // ---------------------------------------------------------------------
@@ -795,6 +869,7 @@ mod tests {
     fn test_no_builder_emits_behaviour() {
         let view = preview_state().public_view();
         let card = &lc_cards::deck_cards(Deck::Cider)[3]; // cider-04, 6 keywords
+        let cards = lc_cards::deck_cards(Deck::Cider);
         let outputs = [
             card_face(card),
             card_face_expanded(card),
@@ -812,6 +887,8 @@ mod tests {
             lc_public_panel(&view),
             lc_screen_panel(&view),
             lc_mini_table(&view, Some(0)),
+            armed_column(&cards, false),
+            cost_rail(&cards, 150),
         ];
         for out in &outputs {
             for banned in ["hx-post", "hx-get", "hx-swap", "onclick", "href"] {
@@ -823,9 +900,11 @@ mod tests {
             // finding 8: the mechanical no-hex guard used to cover only 6 of
             // 14 builders (the ones a bare `#` check happened to work on);
             // run it over the same array this test already assembles — now
-            // sixteen builders, extended by Task 3 to add lc_screen_panel
-            // and lc_mini_table (each emits an inline `left/top%` style) —
-            // so beat_timer's and these two's inline `style` are covered.
+            // eighteen builders, extended by Task 3 to add lc_screen_panel
+            // and lc_mini_table (each emits an inline `left/top%` style),
+            // and by Plan C Task 1 to add armed_column and cost_rail — so
+            // beat_timer's and these builders' inline styles/attrs are
+            // covered.
             no_hex(out);
         }
     }
@@ -1527,5 +1606,125 @@ mod tests {
             !html.contains("Should Not Appear"),
             "a revealed play's text reached the big screen"
         );
+    }
+
+    // -------------------------------------------------------------
+    // Plan C Task 1 — ArmedColumn and CostRail.
+    // -------------------------------------------------------------
+
+    /// A minimal fixture `Card` for the ArmedColumn/CostRail tests — only
+    /// `id`, `deck` and `cost` vary per call site; the rest is filler.
+    fn rail_card(id: &str, deck: Deck, cost: u8) -> Card {
+        Card {
+            id: id.to_string(),
+            deck,
+            kind: crate::last_call::CardKind::Atk,
+            cost,
+            targets: "one".to_string(),
+            title: "Fixture".to_string(),
+            text: "Fixture text.".to_string(),
+            keywords: Vec::new(),
+            duration: None,
+        }
+    }
+
+    #[test]
+    fn test_cost_rail_applies_handicap_and_rounds_up() {
+        let hand = [
+            rail_card("beer-fx", Deck::Beer, 1),
+            rail_card("wine-fx", Deck::Wine, 2),
+            rail_card("liquor-fx", Deck::Liquor, 3),
+        ];
+        // (handicap_pct, expected per-card pull costs, expected bar total)
+        let cases: [(u16, [u8; 3], usize); 4] = [
+            (100, [1, 2, 3], 6),
+            (150, [2, 3, 5], 10),
+            (25, [1, 1, 1], 3),
+            (300, [3, 6, 9], 18),
+        ];
+        for (pct, expected_costs, expected_bars) in cases {
+            let html = cost_rail(&hand, pct);
+            assert_eq!(
+                html.matches(r#"class="lc-costrail-bar""#).count(),
+                expected_bars,
+                "pct={pct}"
+            );
+            for (i, pc) in expected_costs.iter().enumerate() {
+                assert!(
+                    html.contains(&format!(
+                        r#"data-idx="{i}" data-card-id="{}" data-cost="{}" data-pull-cost="{pc}""#,
+                        hand[i].id, hand[i].cost
+                    )),
+                    "pct={pct} idx={i} missing data-pull-cost={pc}: {html}"
+                );
+            }
+            no_hex(&html);
+        }
+    }
+
+    #[test]
+    fn test_cost_rail_marks_first_group_active_and_survives_empty() {
+        let hand = [
+            rail_card("beer-fx", Deck::Beer, 1),
+            rail_card("wine-fx", Deck::Wine, 2),
+            rail_card("liquor-fx", Deck::Liquor, 3),
+        ];
+        let html = cost_rail(&hand, 100);
+        assert_eq!(html.matches("is-active").count(), 1);
+        assert!(html.contains(r#"lc-costrail-group lc-deck-beer is-active" data-idx="0""#));
+        no_hex(&html);
+
+        let empty: [Card; 0] = [];
+        let html0 = cost_rail(&empty, 100);
+        assert!(html0.contains(r#"data-count="0""#));
+        assert!(html0.contains(">00<"));
+        assert!(html0.contains(">0<"));
+        assert_eq!(html0.matches("lc-costrail-group").count(), 0);
+        no_hex(&html0);
+    }
+
+    #[test]
+    fn test_armed_column_states() {
+        let empty: [Card; 0] = [];
+        let html_empty = armed_column(&empty, false);
+        assert!(html_empty.contains("ARMED 0"));
+        assert_eq!(html_empty.matches("lc-armed-slot").count(), 1);
+        assert!(!html_empty.contains("data-locked"));
+        assert!(html_empty.contains(r#"data-flight-anchor="armed""#));
+        no_hex(&html_empty);
+
+        let two = [
+            rail_card("beer-fx", Deck::Beer, 1),
+            rail_card("wine-fx", Deck::Wine, 2),
+        ];
+        let html_two = armed_column(&two, false);
+        assert!(html_two.contains("ARMED 2"));
+        assert_eq!(
+            html_two.matches(r#"<div class="lc-mini lc-deck-"#).count(),
+            2
+        );
+        assert!(html_two.contains(r#"data-card-id="beer-fx""#));
+        assert!(html_two.contains(r#"data-card-id="wine-fx""#));
+        assert_eq!(html_two.matches("lc-armed-slot").count(), 1);
+        no_hex(&html_two);
+
+        let three = [
+            rail_card("beer-fx", Deck::Beer, 1),
+            rail_card("wine-fx", Deck::Wine, 2),
+            rail_card("liquor-fx", Deck::Liquor, 3),
+        ];
+        let html_locked = armed_column(&three, true);
+        assert!(html_locked.contains("LOCKED 3"));
+        assert!(html_locked.contains("data-locked "));
+        assert!(!html_locked.contains(r#"data-locked=""#));
+        assert_eq!(html_locked.matches("lc-armed-slot").count(), 0);
+        assert!(!html_locked.contains("ARMED"));
+        no_hex(&html_locked);
+    }
+
+    #[test]
+    fn test_armed_column_carries_its_motion_anchor() {
+        let html = armed_column(&[], false);
+        assert!(html.contains(r#"data-flight-anchor="armed""#));
     }
 }
