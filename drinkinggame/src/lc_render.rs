@@ -1603,6 +1603,7 @@ mod tests {
             discard_count: 0,
             revealed: Vec::new(),
             seq: 0,
+            outcome: None,
         }
     }
 

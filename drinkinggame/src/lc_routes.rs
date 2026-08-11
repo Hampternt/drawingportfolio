@@ -244,9 +244,7 @@ pub async fn lc_vessel_handler(
     if let Err(e) = ctx.st.set_vessel(player.id, deck, container) {
         return match e {
             LcError::NotSeated => GameError::NotYourCall.into_response(),
-            LcError::BadHandicap | LcError::NotImplemented => {
-                StatusCode::UNPROCESSABLE_ENTITY.into_response()
-            }
+            _ => StatusCode::UNPROCESSABLE_ENTITY.into_response(),
         };
     }
     persist_and_broadcast_lc(&state, &ctx).await;

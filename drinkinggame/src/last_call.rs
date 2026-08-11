@@ -151,6 +151,19 @@ impl Beat {
             Beat::Resolve => Beat::Draw,
         }
     }
+
+    /// None for the auto beats (Deal, Resolve) — Plan E's ticker consumes
+    /// this and does not display a countdown for either. DDv2 §5.
+    pub fn duration_secs(self) -> Option<u16> {
+        match self {
+            Beat::Draw => Some(DRAW_SECS),
+            Beat::Deal => None,
+            Beat::Diplomacy => Some(DIPLOMACY_SECS),
+            Beat::Lock => Some(LOCK_SECS),
+            Beat::Reveal => Some(REVEAL_SECS),
+            Beat::Resolve => None,
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
@@ -230,11 +243,30 @@ pub struct Play {
     pub order_key: u32,
 }
 
+/// The op vocabulary (Plan F authors real cards against this). "Persists"
+/// means it is stored as an `Effect` on the room; immediate ops apply during
+/// resolution and are never stored.
+///
+/// | op | persists | semantics |
+/// | --- | --- | --- |
+/// | `Damage` | no | subtract `magnitude` from subject HP, shields first (in effect-creation order), clamp HP at 0, elimination check immediately (7.6) |
+/// | `Heal` | no | add `magnitude` to subject HP; no ceiling (TBD-3) |
+/// | `Shield` | yes | absorbs damage up to `magnitude` until `expires_round`; `magnitude` is consumed as it absorbs; removed at 0 |
+/// | `Dot` | yes | `magnitude` damage to subject at each `resolve()` after its creation round, through `expires_round` |
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum EffectOp {
+    Damage,
+    Heal,
+    Shield,
+    Dot,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Effect {
     pub source_play: u32,
     pub subject: usize,
-    pub op: String,
+    pub op: EffectOp,
     pub magnitude: i32,
     pub expires_round: u32,
 }
@@ -304,12 +336,44 @@ pub struct PublicView {
     pub discard_count: usize,
     pub revealed: Vec<Play>,
     pub seq: u64,
+    pub outcome: Option<LcOutcome>,
+}
+
+/// DDv2 9.3 — the two ways a game ends.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum LcOutcome {
+    /// The winning seat.
+    Winner(usize),
+    /// All remaining players are ghosts (DDv2 9.3).
+    Draw,
 }
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum LcError {
     NotSeated,
     BadHandicap,
+    /// Action not legal in the current beat.
+    WrongBeat,
+    /// Eliminated players act on nothing.
+    NotAlive,
+    /// arm/disarm/set_target after lock_in.
+    AlreadyLocked,
+    /// card_id not in the expected zone.
+    UnknownCard,
+    /// A Reaction card at arm time (D9).
+    NotPlayable,
+    /// lock/arm validation, naming the card (DDv2 6.3).
+    CantAfford(String),
+    /// A targets=="one" card with no target at lock.
+    NeedsTarget(String),
+    /// set_target: bad seat / dead seat / class mismatch.
+    BadTarget,
+    /// finish_and_draw: bad vessel, second draw, bad batch.
+    BadDraw,
+    /// advance_beat at Resolve — call resolve() instead.
+    MustResolve,
+    /// Dies in Task 5 with the last stub.
     NotImplemented,
 }
 
@@ -319,6 +383,18 @@ pub const HANDICAP_MIN_PCT: u16 = 25;
 pub const HANDICAP_MAX_PCT: u16 = 300;
 /// Under this many cards a DeckStack count turns amber (`data-low`).
 pub const DECK_LOW_THRESHOLD: u16 = 5;
+
+pub const DRAW_SECS: u16 = 30; // DDv2 §5 beat 1
+pub const DIPLOMACY_SECS: u16 = 60; // DDv2 §5 beat 3, TBD-6
+pub const LOCK_SECS: u16 = 45; // DDv2 §5 beat 4
+pub const REVEAL_SECS: u16 = 20; // DDv2 §5 beat 5
+pub const DRAW_PER_VESSEL: usize = 5; // DDv2 §4.3, TBD-4
+pub const HAND_SOFT_CAP: usize = 12; // DDv2 §8.2, TBD-2
+pub const LC_DECK_SIZE: u16 = 40; // placeholder shoe size (D6) — Plan F resets
+pub const DMG_PER_COST: i32 = 2; // placeholder mapping (D8)
+pub const HEAL_PER_COST: i32 = 2; // placeholder mapping (D8)
+pub const DOT_PER_COST: i32 = 1; // placeholder mapping (D8)
+pub const CURSE_ROUNDS: u32 = 2; // placeholder mapping (D8)
 
 /// Handicap is a percentage (100 = no handicap). Rounds UP, per DDv2 §11.
 /// Integer maths on purpose: a float handicap would let a form field carry
@@ -396,7 +472,28 @@ impl LastCallState {
     /// `from_json(game.state_json.as_deref().unwrap_or_default())` and `""`
     /// is not valid JSON.
     pub fn from_json(s: &str) -> Self {
-        serde_json::from_str(s).expect("valid LastCallState JSON")
+        let mut st: LastCallState = serde_json::from_str(s).expect("valid LastCallState JSON");
+        // The third path into `players` — LastCallState::new and add_player
+        // both cap at MAX_SEATS; a blob persisted by a pre-ceiling binary must
+        // not deserialize past the ring (seat_pos renders short and a real
+        // player's plaque silently vanishes).
+        st.players.truncate(MAX_SEATS);
+        st
+    }
+
+    /// DDv2 9.3. None while the game is undecided — or while fewer than two
+    /// players are seated, because a table of one has no game to win (D16).
+    /// Plan E queries this after resolve() to decide end-of-game handling.
+    pub fn outcome(&self) -> Option<LcOutcome> {
+        if self.players.len() < 2 {
+            return None;
+        }
+        let mut alive = self.players.iter().filter(|p| p.status == Status::Alive);
+        match (alive.next(), alive.next()) {
+            (Some(p), None) => Some(LcOutcome::Winner(p.seat)),
+            (None, _) => Some(LcOutcome::Draw),
+            _ => None,
+        }
     }
 
     pub fn seat_of(&self, player_id: i64) -> Option<usize> {
@@ -549,6 +646,7 @@ impl LastCallState {
                 _ => Vec::new(),
             },
             seq: self.seq,
+            outcome: self.outcome(),
         }
     }
 
@@ -740,7 +838,7 @@ mod tests {
         st.effects.push(Effect {
             source_play: 1,
             subject: 1,
-            op: "damage".to_string(),
+            op: EffectOp::Dot,
             magnitude: -2,
             expires_round: 3,
         });
@@ -889,6 +987,52 @@ mod tests {
         let st = LastCallState::new(members, 42);
         assert_eq!(st.players.len(), MAX_SEATS);
         assert!(st.seat_of(9).is_none());
+    }
+
+    #[test]
+    fn test_from_json_caps_players_at_max_seats() {
+        let mut st = LastCallState::new((1..=8).map(|i| (i, format!("p{i}"))).collect(), 42);
+        // A ninth player, hand-built — the shape only a pre-ceiling blob has.
+        let mut ninth = st.players[0].clone();
+        ninth.seat = 8;
+        ninth.player_id = 9;
+        st.players.push(ninth);
+        let loaded = LastCallState::from_json(&st.to_json());
+        assert_eq!(loaded.players.len(), MAX_SEATS);
+        assert!(loaded.seat_of(9).is_none());
+    }
+
+    #[test]
+    fn test_beat_durations() {
+        assert_eq!(
+            Beat::ORDER.map(|b| b.duration_secs()),
+            [Some(30), None, Some(60), Some(45), Some(20), None]
+        );
+    }
+
+    #[test]
+    fn test_effect_op_serde_names() {
+        assert_eq!(serde_json::to_string(&EffectOp::Dot).unwrap(), "\"dot\"");
+        assert_eq!(
+            serde_json::to_string(&EffectOp::Damage).unwrap(),
+            "\"damage\""
+        );
+    }
+
+    #[test]
+    fn test_outcome_detection() {
+        let mut st = seated(); // 3 players
+        assert_eq!(st.outcome(), None);
+        st.players[1].status = Status::Eliminated;
+        assert_eq!(st.outcome(), None); // two still alive
+        st.players[2].status = Status::Eliminated;
+        assert_eq!(st.outcome(), Some(LcOutcome::Winner(0)));
+        assert_eq!(st.public_view().outcome, Some(LcOutcome::Winner(0)));
+        st.players[0].status = Status::Eliminated;
+        assert_eq!(st.outcome(), Some(LcOutcome::Draw));
+
+        let solo = LastCallState::new(vec![(1, "alice".into())], 42);
+        assert_eq!(solo.outcome(), None); // no game to win (D16)
     }
 
     #[test]
