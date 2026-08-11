@@ -498,6 +498,18 @@ component's markup.
 
 - [ ] **Step 3: The stage and the seat ring**
 
+> **ERRATUM (2026-08-11, whole-plan review).** The two `inset: 8.9% 7.0%`
+> declarations prescribed below are **wrong and were corrected in the shipped
+> CSS to `inset: 0`**. Task 1's seat table is *stage*-relative, not
+> ring-box-relative: `a = 43.0%` / `b = 41.1%` are `568/1320` and `408/992`
+> measured against the whole 1320×992 stage, so its extremes already **are**
+> `7.0 / 93.0` and `8.9 / 91.1`. Insetting the ring box by those same
+> percentages applies the ellipse twice and shrinks the ring to 86% × 82% of
+> design — the bottom seat 61px high. Wherever this plan says "percentages of
+> the ring box", read "of the stage", and make the ring box span the stage.
+> Left in place rather than silently rewritten, because the wording here is
+> what caused the defect and the next plan should recognise the shape.
+
 ```css
 /* The stage is the felt's positioning context and the ring box the
    percentages in lc_layout are relative to. Felt inset 40 x 36 from the
