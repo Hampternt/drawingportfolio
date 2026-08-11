@@ -1485,6 +1485,40 @@ mod tests {
         st.set_target(1, "beer-03", None).unwrap();
     }
 
+    /// D18: seq bumps on every successful mutating transition and on none
+    /// that fails. `test_arm_moves_hand_to_armed` already pins arm's bump and
+    /// `test_lock_in_stages_plays_and_pays_nothing` pins the idempotent
+    /// replay's non-bump; this test covers the remaining combinations Plan E
+    /// trusts: disarm and set_target bump on success, and a failed arm/
+    /// set_target bumps nothing.
+    #[test]
+    fn test_seq_bumps_only_on_success_not_on_failure() {
+        let mut st = at_lock();
+        st.arm(1, "beer-01").unwrap();
+
+        let before = st.seq;
+        assert_eq!(
+            st.arm(1, "beer-02-does-not-exist"),
+            Err(LcError::UnknownCard)
+        );
+        assert_eq!(st.seq, before); // failed arm: no bump
+
+        let before = st.seq;
+        st.set_target(1, "beer-01", Some(1)).unwrap();
+        assert_eq!(st.seq, before + 1); // successful set_target: bump
+
+        let before = st.seq;
+        assert_eq!(
+            st.set_target(1, "beer-01", Some(7)),
+            Err(LcError::BadTarget)
+        );
+        assert_eq!(st.seq, before); // failed set_target: no bump
+
+        let before = st.seq;
+        st.disarm(1, "beer-01").unwrap();
+        assert_eq!(st.seq, before + 1); // successful disarm: bump
+    }
+
     #[test]
     fn test_lock_in_stages_plays_and_pays_nothing() {
         let mut st = at_lock();
