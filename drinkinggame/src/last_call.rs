@@ -1,10 +1,14 @@
 //! Last Call card-game engine — a pure state machine, no I/O, no SQL, no RNG.
 //!
-//! Slice 1 (this module) defines the object model, the `PublicView`
-//! confidentiality projection and a placeholder-dealing `set_vessel`. The
-//! beat transitions (`arm`, `disarm`, `lock_in`, `advance_beat`, `resolve`)
-//! are stubbed here with their final signatures; slice 3 (the loop) fills in
-//! the bodies. `LastCallState` round-trips losslessly through
+//! Slice 1 defines the object model, the `PublicView` confidentiality
+//! projection and a placeholder-dealing `set_vessel`. Slice 3 (the loop)
+//! fills in the beat transitions: `arm`/`disarm`/`lock_in` stage secret
+//! plays (§3.4.1), `advance_beat` walks the six beats and charges pulls at
+//! Lock→Reveal (`reveal`), and `resolve()` runs the beat-6 program —
+//! ordered damage/heal/curse resolution, elimination (D11), effect ticking
+//! and expiry (D10), the hand soft cap (D12) and the round rollover (D5,
+//! D13) — or freezes the table at the final tableau when `outcome()` is
+//! `Some` (D16). `LastCallState` round-trips losslessly through
 //! `to_json`/`from_json` because later tasks snapshot it into a DB column
 //! between requests.
 
@@ -387,8 +391,6 @@ pub enum LcError {
     BadDraw,
     /// advance_beat at Resolve — call resolve() instead.
     MustResolve,
-    /// Dies in Task 5 with the last stub.
-    NotImplemented,
 }
 
 pub const STARTING_HP: i32 = 15; // DDv2 §2.4, TBD-1
@@ -1046,8 +1048,217 @@ impl LastCallState {
         self.plays = std::mem::take(&mut self.locked_plays);
     }
 
+    /// The beat-6 program (DDv2 §7-9) plus the round rollover (D5). Requires
+    /// `beat == Beat::Resolve`. In order:
+    ///
+    /// 1. Resolve `plays` in `order_key` order: a play whose source is now
+    ///    `Eliminated` (7.6) is skipped; a `targets == "one"` play whose
+    ///    target is `Eliminated` fizzles (7.5) — either way the card still
+    ///    ends in `discards` (8.4). Live plays apply the D8 mapping: Atk
+    ///    damages (via `apply_damage`, elimination checked immediately —
+    ///    D11), Buff heals with no ceiling (TBD-3), Curse queues a `Dot`
+    ///    effect (appended in step 3, so it cannot tick this round), Util/
+    ///    Reaction do nothing.
+    /// 2. Tick every existing `Dot` effect on an `Alive` subject, in
+    ///    creation order, through the same `apply_damage` path.
+    /// 3. Append the queued curse effects with the no-stack replace rule
+    ///    (TBD-8/D10): a queued effect replaces any existing effect sharing
+    ///    its `(op, subject)`.
+    /// 4. Expire every effect with `expires_round <= self.round`.
+    /// 5. Soft-cap (D12): any `Alive` player over `HAND_SOFT_CAP` discards
+    ///    from the end of the hand (newest first) down to the cap.
+    /// 6. Bump `seq`. If `outcome()` is now `Some`, stop here — `beat` stays
+    ///    `Resolve`, the frozen final tableau (D16).
+    /// 7. Otherwise roll over: `first_seat` rotates (D13), `round`
+    ///    advances, `beat` resets to `Draw`, every player's `locked`/
+    ///    `drawing`/`draws_this_round` resets, and any deck whose count sits
+    ///    at 0 reclaims its cards from `discards` (8.4/§12) — the shoe is a
+    ///    count, not a deck of identities (D6), so "reshuffle" here is a
+    ///    fold: every discarded card of that deck moves back into the count
+    ///    and out of `discards`, with no ordering to restore.
     pub fn resolve(&mut self) -> Result<(), LcError> {
-        Err(LcError::NotImplemented)
+        if self.beat != Beat::Resolve {
+            return Err(LcError::WrongBeat);
+        }
+
+        // Step 1: resolve plays in order_key order. `plays` is drained up
+        // front (§14: the queue empties every round) and iterated as owned
+        // data so mutating `self.players`/`self.effects`/`self.discards`
+        // per play needs no fighting the borrow checker.
+        let plays = std::mem::take(&mut self.plays);
+        let mut queued_effects: Vec<Effect> = Vec::new();
+        for play in plays {
+            if self.players[play.source_seat].status == Status::Eliminated {
+                // 7.6: a source eliminated earlier this resolve plays
+                // nothing, but the card still leaves play (8.4).
+                self.discards.push(play.card);
+                continue;
+            }
+
+            // D2 subject resolution. "table" has no card in the current
+            // catalog and is treated as no direct subject — Util/Reaction
+            // ignore subjects anyway (D8).
+            let subjects: Vec<usize> = match play.card.targets.as_str() {
+                "one" => match play.target {
+                    Some(t) if self.players[t].status == Status::Alive => vec![t],
+                    _ => {
+                        // 7.5: fizzle — no effect, pulls stay spent, the
+                        // card still occupied its slot.
+                        self.discards.push(play.card);
+                        continue;
+                    }
+                },
+                "self" => vec![play.source_seat],
+                "all" => self
+                    .players
+                    .iter()
+                    .filter(|p| p.status == Status::Alive)
+                    .map(|p| p.seat)
+                    .collect(),
+                _ => Vec::new(),
+            };
+
+            match play.card.kind {
+                CardKind::Atk => {
+                    let dmg = play.card.cost as i32 * DMG_PER_COST;
+                    for subj in subjects {
+                        self.apply_damage(subj, dmg);
+                    }
+                }
+                CardKind::Buff => {
+                    let heal = play.card.cost as i32 * HEAL_PER_COST;
+                    for subj in subjects {
+                        self.players[subj].hp += heal;
+                    }
+                }
+                CardKind::Curse => {
+                    let magnitude = play.card.cost as i32 * DOT_PER_COST;
+                    for subj in subjects {
+                        queued_effects.push(Effect {
+                            source_play: play.order_key,
+                            subject: subj,
+                            op: EffectOp::Dot,
+                            magnitude,
+                            expires_round: self.round + CURSE_ROUNDS,
+                        });
+                    }
+                }
+                CardKind::Util | CardKind::Reaction => {}
+            }
+            self.discards.push(play.card);
+        }
+
+        // Step 2: tick dots (10.4, creation order). Snapshotted before
+        // applying: the no-stack rule (D10) guarantees at most one Dot
+        // effect per subject, so a tick can eliminate its own subject
+        // (removing that same effect, per D11) without disturbing any other
+        // snapshotted entry.
+        let dot_ticks: Vec<(usize, i32)> = self
+            .effects
+            .iter()
+            .filter(|e| e.op == EffectOp::Dot && self.players[e.subject].status == Status::Alive)
+            .map(|e| (e.subject, e.magnitude))
+            .collect();
+        for (subject, magnitude) in dot_ticks {
+            self.apply_damage(subject, magnitude);
+        }
+
+        // Step 3: append queued curse effects, replacing any existing
+        // effect with the same (op, subject) — TBD-8/D10.
+        for queued in queued_effects {
+            self.effects
+                .retain(|e| !(e.op == queued.op && e.subject == queued.subject));
+            self.effects.push(queued);
+        }
+
+        // Step 4: expire.
+        self.effects.retain(|e| e.expires_round > self.round);
+
+        // Step 5: soft cap (8.2, D12) — discard from the end (newest) down
+        // to the cap.
+        for seat in 0..self.players.len() {
+            let p = &mut self.players[seat];
+            if p.status == Status::Alive && p.hand.len() > HAND_SOFT_CAP {
+                let overflow = p.hand.split_off(HAND_SOFT_CAP);
+                self.discards.extend(overflow);
+            }
+        }
+
+        // Step 6: bump seq; stop here if the game just ended (D16).
+        self.seq += 1;
+        if self.outcome().is_some() {
+            return Ok(());
+        }
+
+        // Step 7: rollover (D5).
+        self.first_seat = (self.first_seat + 1) % self.players.len(); // D13
+        self.round += 1;
+        self.beat = Beat::Draw;
+        for p in &mut self.players {
+            p.locked = false;
+            p.drawing = false;
+            p.draws_this_round = 0;
+        }
+        // Reshuffle (8.4/§12): the shoe is a count, so a deck sitting at 0
+        // reclaims every discarded card of that deck straight back into the
+        // count, and those cards leave `discards`.
+        let empty_decks: Vec<Deck> = self
+            .deck_counts
+            .iter()
+            .filter(|&&(_, count)| count == 0)
+            .map(|&(deck, _)| deck)
+            .collect();
+        for deck in empty_decks {
+            let mut reclaimed: u16 = 0;
+            self.discards.retain(|c| {
+                if c.deck == deck {
+                    reclaimed += 1;
+                    false
+                } else {
+                    true
+                }
+            });
+            if let Some(entry) = self.deck_counts.iter_mut().find(|(d, _)| *d == deck) {
+                entry.1 = reclaimed;
+            }
+        }
+        Ok(())
+    }
+
+    /// Shared by both damage call sites (a live Atk play and a ticking Dot).
+    /// Shields on `subject` absorb first, in effect-creation order (`Vec`
+    /// insertion order — nothing in this engine reorders `effects`):
+    /// `magnitude` is consumed by the hit and the shield is dropped once it
+    /// reaches 0. Any remainder comes off HP, clamped at 0 (D11). Hitting 0
+    /// eliminates the subject immediately: `status` flips, `hand` and any
+    /// stray `armed` cards move to `discards` (ghosts hold no cards, 9.2),
+    /// and every effect whose `subject` is this seat is dropped (D10) —
+    /// including, when this call is itself a Dot tick, the very effect
+    /// being ticked.
+    fn apply_damage(&mut self, subject: usize, amount: i32) {
+        let mut remaining = amount;
+        for effect in self.effects.iter_mut() {
+            if remaining <= 0 {
+                break;
+            }
+            if effect.op == EffectOp::Shield && effect.subject == subject {
+                let consumed = remaining.min(effect.magnitude);
+                effect.magnitude -= consumed;
+                remaining -= consumed;
+            }
+        }
+        self.effects
+            .retain(|e| !(e.op == EffectOp::Shield && e.magnitude <= 0));
+
+        let p = &mut self.players[subject];
+        p.hp = (p.hp - remaining).max(0);
+        if p.hp == 0 {
+            p.status = Status::Eliminated;
+            let mut discarded: Vec<Card> = std::mem::take(&mut p.hand);
+            discarded.extend(std::mem::take(&mut p.armed).into_iter().map(|a| a.card));
+            self.discards.extend(discarded);
+            self.effects.retain(|e| e.subject != subject);
+        }
     }
 }
 
@@ -2023,5 +2234,193 @@ mod tests {
         st.finish_and_draw(1, 0, three).unwrap();
         assert_eq!(deck_count(&st, Deck::Beer), 0);
         assert_eq!(st.players[0].hand.len(), 7);
+    }
+
+    #[test]
+    fn test_resolve_applies_damage_and_rolls_over() {
+        let mut st = locked_table(); // alice 3 pulls → bob; bob 3 → alice
+        st.advance_beat().unwrap(); // Reveal
+        st.advance_beat().unwrap(); // Resolve
+        st.resolve().unwrap();
+        assert_eq!(st.players[1].hp, 9); // 15 - 2 (beer-01) - 4 (beer-02)
+        assert_eq!(st.players[0].hp, 9); // 15 - 6 (cider-04)
+        assert!(st.plays.is_empty()); // the queue empties every round (§14)
+        assert_eq!(st.discards.len(), 3);
+        assert_eq!(st.round, 2);
+        assert_eq!(st.beat, Beat::Draw);
+        assert_eq!(st.first_seat, 1); // rotated (D13)
+        assert!(st
+            .players
+            .iter()
+            .all(|p| !p.locked && p.draws_this_round == 0));
+        assert_eq!(st.outcome(), None);
+    }
+
+    #[test]
+    fn test_resolve_wrong_beat() {
+        let mut st = seated();
+        assert_eq!(st.resolve(), Err(LcError::WrongBeat));
+    }
+
+    #[test]
+    fn test_heal_has_no_ceiling() {
+        // TBD-3
+        let mut st = at_lock();
+        st.arm(3, "soft-01").unwrap(); // Buff, cost 1, targets "one"
+        st.set_target(3, "soft-01", Some(2)).unwrap(); // cara heals herself
+        st.lock_in(3).unwrap();
+        st.advance_beat().unwrap();
+        st.advance_beat().unwrap();
+        st.resolve().unwrap();
+        assert_eq!(st.players[2].hp, 17); // 15 + 1×HEAL_PER_COST, past start
+    }
+
+    #[test]
+    fn test_elimination_is_immediate_and_removes_unresolved_plays() {
+        // 7.6, 7.5
+        let mut st = at_lock();
+        st.players[1].hp = 4;
+        // alice arms beer-02 FIRST (4 dmg) then beer-01 (2 dmg), both → bob.
+        st.arm(1, "beer-02").unwrap();
+        st.set_target(1, "beer-02", Some(1)).unwrap();
+        st.arm(1, "beer-01").unwrap();
+        st.set_target(1, "beer-01", Some(1)).unwrap();
+        st.lock_in(1).unwrap(); // 3 pulls
+        st.arm(2, "cider-04").unwrap(); // bob answers, 3 pulls
+        st.set_target(2, "cider-04", Some(0)).unwrap();
+        st.lock_in(2).unwrap();
+        st.advance_beat().unwrap();
+        st.advance_beat().unwrap();
+        let _bob_hand = st.players[1].hand.len(); // 3 after arming cider-04
+        st.resolve().unwrap();
+        // Tie at 3 pulls, alice's seat leads: beer-02 lands, bob hits 0 —
+        assert_eq!(st.players[1].hp, 0); // clamped, not negative
+        assert_eq!(st.players[1].status, Status::Eliminated);
+        // — bob's cider-04 never resolves (alice untouched), his hand discards,
+        // and alice's second play fizzles on a dead target with pulls kept:
+        assert_eq!(st.players[0].hp, 15);
+        assert!(st.players[1].hand.is_empty()); // ghosts hold no cards (9.2)
+        assert_eq!(st.players[0].vessels[0].pulls_left, 5); // 7.5: no refund
+                                                            // beer-01 + beer-02 + cider-04 + bob's 3 hand cards:
+        assert_eq!(st.discards.len(), 6);
+        assert_eq!(st.outcome(), None); // cara still stands
+    }
+
+    #[test]
+    fn test_last_player_standing_freezes_the_table() {
+        // 9.3, D16
+        let mut st = LastCallState::new(vec![(1, "alice".into()), (2, "bob".into())], 42);
+        st.set_vessel(1, Deck::Liquor, "shot").unwrap();
+        st.players[1].hp = 4;
+        st.beat = Beat::Lock;
+        st.arm(1, "liquor-02").unwrap(); // Atk cost 3 → 6 dmg
+        st.set_target(1, "liquor-02", Some(1)).unwrap();
+        st.lock_in(1).unwrap();
+        st.advance_beat().unwrap();
+        st.advance_beat().unwrap();
+        st.resolve().unwrap();
+        assert_eq!(st.outcome(), Some(LcOutcome::Winner(0)));
+        assert_eq!(st.public_view().outcome, Some(LcOutcome::Winner(0)));
+        assert_eq!(st.beat, Beat::Resolve); // frozen final tableau, no rollover
+        assert_eq!(st.round, 1);
+    }
+
+    #[test]
+    fn test_curse_ticks_after_its_round_then_expires() {
+        // D8, D10
+        let mut st = at_lock();
+        st.arm(2, "cider-01").unwrap(); // Curse cost 1 → Dot mag 1, 2 rounds
+        st.set_target(2, "cider-01", Some(0)).unwrap();
+        st.lock_in(2).unwrap();
+        st.advance_beat().unwrap();
+        st.advance_beat().unwrap();
+        st.resolve().unwrap(); // round 1: created, no tick
+        assert_eq!(st.players[0].hp, 15);
+        assert_eq!(st.effects.len(), 1);
+        assert_eq!(st.effects[0].expires_round, 3); // 1 + CURSE_ROUNDS
+        for expected_hp in [14, 13] {
+            // ticks in rounds 2 and 3
+            for _ in 0..5 {
+                st.advance_beat().unwrap();
+            }
+            st.resolve().unwrap();
+            assert_eq!(st.players[0].hp, expected_hp);
+        }
+        assert!(st.effects.is_empty()); // expired after round 3
+    }
+
+    #[test]
+    fn test_effects_replace_not_stack() {
+        // TBD-8, D10
+        let mut st = at_lock();
+        st.effects.push(Effect {
+            source_play: 0,
+            subject: 0,
+            op: EffectOp::Dot,
+            magnitude: 2,
+            expires_round: 9,
+        });
+        st.arm(2, "cider-01").unwrap();
+        st.set_target(2, "cider-01", Some(0)).unwrap();
+        st.lock_in(2).unwrap();
+        st.advance_beat().unwrap();
+        st.advance_beat().unwrap();
+        st.resolve().unwrap();
+        // The old dot ticked once (15-2), then the new curse replaced it:
+        assert_eq!(st.players[0].hp, 13);
+        assert_eq!(st.effects.len(), 1);
+        assert_eq!(
+            (st.effects[0].magnitude, st.effects[0].expires_round),
+            (1, 3)
+        );
+    }
+
+    #[test]
+    fn test_shields_absorb_before_hp() {
+        let mut st = at_lock();
+        st.effects.push(Effect {
+            source_play: 0,
+            subject: 1,
+            op: EffectOp::Shield,
+            magnitude: 3,
+            expires_round: 9,
+        });
+        st.arm(1, "beer-02").unwrap(); // 4 dmg → bob
+        st.set_target(1, "beer-02", Some(1)).unwrap();
+        st.lock_in(1).unwrap();
+        st.advance_beat().unwrap();
+        st.advance_beat().unwrap();
+        st.resolve().unwrap();
+        assert_eq!(st.players[1].hp, 14); // 3 absorbed, 1 through
+        assert!(st.effects.is_empty()); // shield consumed and removed
+    }
+
+    #[test]
+    fn test_soft_cap_discards_newest_first() {
+        // TBD-2, D12
+        let mut st = at_lock();
+        st.advance_beat().unwrap(); // Reveal (nobody locked, nothing staged)
+        st.advance_beat().unwrap(); // Resolve
+        st.players[1].hand = std::iter::repeat_n(crate::lc_cards::deck_cards(Deck::Cider), 4)
+            .flatten()
+            .collect(); // 16
+        st.resolve().unwrap();
+        assert_eq!(st.players[1].hand.len(), HAND_SOFT_CAP);
+        assert_eq!(st.discards.len(), 4);
+    }
+
+    #[test]
+    fn test_rollover_reshuffles_an_empty_shoe() {
+        // 8.4, §12
+        let mut st = at_lock();
+        set_deck_count(&mut st, Deck::Beer, 0);
+        st.discards = crate::lc_cards::deck_cards(Deck::Beer)[..3].to_vec();
+        st.discards
+            .push(crate::lc_cards::card_by_id("cider-01").unwrap());
+        st.advance_beat().unwrap();
+        st.advance_beat().unwrap();
+        st.resolve().unwrap();
+        assert_eq!(deck_count(&st, Deck::Beer), 3);
+        assert_eq!(st.discards.len(), 1); // the cider card stays put
     }
 }
