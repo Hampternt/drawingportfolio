@@ -27,6 +27,7 @@
   --lc-hair: rgba(242, 238, 248, .10);
   --lc-hair-strong: rgba(242, 238, 248, .22);
   --lc-hair-max: rgba(242, 238, 248, .28);
+  --lc-hair-slot: rgba(242, 238, 248, .16);   /* the armed column's dashed slot (README) */
   --lc-lift-sm: 0 3px 0 rgba(5, 3, 10, .5), 0 8px 16px rgba(5, 3, 10, .42);
   --lc-lift-lg: 0 6px 0 rgba(5, 3, 10, .6), 0 22px 40px rgba(5, 3, 10, .55);
   --lc-ease: cubic-bezier(.2, .8, .3, 1);
@@ -383,9 +384,80 @@ body.lc { margin: 0; min-height: 100vh; display: flex; flex-direction: column;
 /* the option that involves drinking is always the amber one */
 .lc-btn-drink { background: var(--lc-amber); }
 
-/* hand region — deliberately throwaway. Slice 2's HandWheel replaces this
-   container, not the CardFace inside it. */
+/* slice 2 — the hand group (Module Spec C.1–C.3): ArmedColumn | HandWheel |
+   CostRail. "One widget in three parts and always ship together." This
+   replaces Plan A2's throwaway plain-list container; the CardFace inside the
+   wheel is Plan A's, untouched. Fixed 480px row inside the scrolling pane
+   (decision 9): the setup section still sits above it until the loop slims
+   that away. */
 #lc-hand { display: flex; flex-direction: column; gap: 12px; padding-bottom: 14px; }
+.lc-handgroup { display: flex; gap: 10px; height: 480px; min-height: 0; }
+
+/* C.2 ArmedColumn — 62px fixed. data-locked: 60% opacity, slot removed by
+   the renderer (not display:none — the markup is the state). */
+.lc-armed { flex: 0 0 62px; display: flex; flex-direction: column; gap: 6px; }
+.lc-armed[data-locked] { opacity: .6; }
+.lc-armed-head { font-family: var(--font-ui); font-weight: 700; font-size: 8.5px;
+                 letter-spacing: .1em; text-transform: uppercase;
+                 text-align: center; color: var(--lc-violet); }
+.lc-armed-slot { height: 46px; border: 1px dashed var(--lc-hair-slot);
+                 border-radius: 6px; display: flex; align-items: center;
+                 justify-content: center; font-family: var(--font-mono);
+                 font-size: 9px; color: var(--lc-faint); }
+/* armed minis sit on the focused ground, per the Game UI armed stack
+   (decision 11) — context styling of Plan A's component, not a fork */
+.lc-armed .lc-mini { background: var(--lc-focused); }
+
+/* C.1 HandWheel — a 3D cylinder of CardFaces on the X axis. The track is
+   pushed back by the radius so the focused card keeps its authored size;
+   lc_wheel.js writes each card's rotateX/translateZ, opacity, visibility and
+   z-index inline from the constants it owns (STEP 21, RADIUS 470, sens .28). */
+.lc-wheel { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.lc-wheel-stage { flex: 1; position: relative; perspective: 1400px;
+                  perspective-origin: 50% 50%; overflow: hidden;
+                  touch-action: none; cursor: grab; }
+.lc-wheel-stage:active { cursor: grabbing; }
+.lc-wheel-track { position: absolute; inset: 0; transform-style: preserve-3d;
+                  transform: translateZ(-470px); }
+.lc-wheel-card { position: absolute; left: 0; right: 0; top: 50%;
+                 height: 176px; margin-top: -88px; will-change: transform;
+                 transition: transform 280ms var(--lc-ease),
+                             opacity 280ms var(--lc-ease); }
+/* off while dragging and for wrap-around cards — a card jumping from one end
+   of the cylinder to the other must never animate across the screen */
+.lc-wheel-card.is-dragging, .lc-wheel-card.is-far { transition: none; }
+.lc-wheel-card .lc-cardface { height: 100%;
+                              transition: background 190ms var(--lc-ease),
+                                          border-color 190ms var(--lc-ease); }
+/* focus styling only at |d| < 0.5 — everything else keeps .lc-cardface's own
+   1px hairline on the raised ground */
+.lc-wheel-card.is-focused .lc-cardface { background: var(--lc-focused);
+    border: 2px solid var(--lc-ink, var(--lc-hair-strong));
+    box-shadow: var(--lc-lift-lg); }
+.lc-wheel-hint { position: absolute; left: 0; right: 0; bottom: 6px;
+                 text-align: center; font-family: var(--font-ui);
+                 font-weight: 700; font-size: 9px; letter-spacing: .14em;
+                 text-transform: uppercase; color: var(--lc-faint);
+                 pointer-events: none; }
+
+/* C.3 CostRail — 26px column, a cost histogram you can scrub. Bars are
+   right-aligned inside a 14px inner rail; the whole column is one pointer
+   surface (decision 2) — lc_wheel.js maps a tap's y to the nearest group. */
+.lc-costrail { flex: 0 0 26px; display: flex; flex-direction: column;
+           align-items: center; gap: 6px; padding: 14px 0;
+           touch-action: none; }
+.lc-costrail-above, .lc-costrail-below { font-family: var(--font-mono); font-size: 9px;
+                                 color: var(--lc-faint); }
+.lc-costrail-bars { flex: 1; width: 14px; display: flex; flex-direction: column;
+                justify-content: center; align-items: flex-end; }
+.lc-costrail-group { display: flex; flex-direction: column; align-items: flex-end;
+                 gap: 2px; }
+.lc-costrail-group + .lc-costrail-group { margin-top: 7px; }
+.lc-costrail-bar { display: block; height: 3px; width: 9px; border-radius: 2px;
+               background: var(--lc-ink, var(--lc-label)); opacity: .4;
+               transition: width 190ms var(--lc-ease),
+                           opacity 190ms var(--lc-ease); }
+.lc-costrail-group.is-active .lc-costrail-bar { width: 14px; opacity: 1; }
 
 /* setup — plain and undesigned on purpose (spec §2, item 2). Plan A2 fills it. */
 .lc-setup { background: var(--lc-panel); border-radius: 8px; padding: 14px;
@@ -476,6 +548,7 @@ body.lc { margin: 0; min-height: 100vh; display: flex; flex-direction: column;
   .lc-banner-beat, .lc-timer { animation: none !important; }
   .lc-timer { transform: scaleX(0); }
   .lc-cardface, .lc-btn { transition: none; }
+  .lc-wheel-card, .lc-costrail-bar { transition: none; }
 }
 
 /* preview page (Plan A-vis Task 2) — a permanent style guide, not a shell
