@@ -983,12 +983,18 @@ impl LastCallState {
         // 2. Charge pulls (6.4). `lock_in` already ran `payment_plan` over
         // the same cards and accepted them; vessels cannot change between
         // lock and reveal (arming and drawing both live in other beats), so
-        // this cannot fail — it is re-run rather than cached only because
+        // re-deriving the plan here normally reproduces the exact numbers
+        // lock_in validated — re-run rather than cached only because
         // `handicap_pct` (which `pull_cost` depends on) is settable at any
-        // beat via `set_handicap`, and re-simulating against the player's
-        // *current* vessels/handicap is what keeps this charge and
-        // lock_in's/arm's earlier checks agreeing on what "affordable"
-        // meant, per D3's single shared `payment_plan` helper.
+        // beat via `set_handicap`, and charging against the player's
+        // *current* handicap is what keeps this and lock_in's/arm's earlier
+        // checks agreeing on what "affordable" meant, per D3's shared
+        // greedy-vessel-selection logic. Uses `reveal_charge_plan`, not
+        // `payment_plan`, because that agreement is not actually guaranteed:
+        // `set_handicap` has no beat guard, so a handicap raised after
+        // lock_in can inflate the cost above what lock_in validated —
+        // `reveal_charge_plan` saturates in that case instead of failing
+        // (see its doc comment).
         let locked_seats: Vec<usize> = self
             .players
             .iter()
@@ -1007,9 +1013,7 @@ impl LastCallState {
                 .collect();
             let mut trial = self.players[seat].clone();
             trial.armed = armed;
-            let plan = payment_plan(&trial).expect(
-                "vessels cannot change between lock and reveal; lock_in already validated this payment plan",
-            );
+            let plan = reveal_charge_plan(&trial);
             let p = &mut self.players[seat];
             for (vessel_idx, cost) in plan {
                 p.vessels[vessel_idx].pulls_left -= cost;
@@ -1081,6 +1085,47 @@ fn payment_plan(player: &LcPlayer) -> Result<Vec<(usize, u8)>, LcError> {
         plan.push((bi, cost));
     }
     Ok(plan)
+}
+
+/// Reveal-time charge (Task 4, DDv2 6.4): the same deterministic-greedy
+/// vessel selection as `payment_plan`, over a player's staged `locked_plays`
+/// (converted to `armed` by the caller — reveal runs after `lock_in` has
+/// already emptied the real `armed`). Unlike `payment_plan` this never
+/// fails: `lock_in` validated affordability against `handicap_pct` *at lock
+/// time*, and vessels don't move outside `Beat::Draw`, so re-deriving the
+/// same plan at reveal is normally guaranteed to succeed with the exact
+/// same numbers. The one gap that can violate that: `set_handicap` carries
+/// no beat guard (pre-existing — out of this task's scope to close, see the
+/// task-4 report's concerns), so a handicap raised between `lock_in` and
+/// reveal can inflate `pull_cost` past what a vessel has left. Rather than
+/// let that gap panic a live room, each charge saturates at the vessel's
+/// remaining `pulls_left` instead of erroring — a card can never charge a
+/// vessel negative. See
+/// `test_handicap_raised_after_lock_saturates_instead_of_panicking`.
+fn reveal_charge_plan(player: &LcPlayer) -> Vec<(usize, u8)> {
+    let mut sim: Vec<u8> = player.vessels.iter().map(|v| v.pulls_left).collect();
+    let mut plan = Vec::with_capacity(player.armed.len());
+    for a in &player.armed {
+        let cost = pull_cost(a.card.cost, player.handicap_pct);
+        let mut best: Option<usize> = None;
+        for (i, v) in player.vessels.iter().enumerate() {
+            if v.deck != a.card.deck {
+                continue;
+            }
+            match best {
+                Some(bi) if sim[i] <= sim[bi] => {}
+                _ => best = Some(i),
+            }
+        }
+        // `best` is always `Some`: a card only ever enters `armed`/`locked_plays`
+        // from a hand `set_vessel` seeded, so a vessel of its deck exists.
+        if let Some(bi) = best {
+            let charge = cost.min(sim[bi]);
+            sim[bi] -= charge;
+            plan.push((bi, charge));
+        }
+    }
+    plan
 }
 
 /// Shared runtime fixture builder (spec §8) — NOT `#[cfg(test)]`. Task 3's
@@ -1809,6 +1854,24 @@ mod tests {
         st.lock_in(1).unwrap();
         st.advance_beat().unwrap();
         assert_eq!(st.players[0].vessels[0].pulls_left, 6); // 8 - 2
+    }
+
+    /// `set_handicap` has no beat guard (pre-existing, not this task's
+    /// scope to fix — see the task-4 report) — a handicap raised after
+    /// `lock_in` validated affordability can inflate `pull_cost` above what
+    /// the vessel has left by reveal. The engine must not panic over that
+    /// gap: reveal charges saturate at 0 instead of failing.
+    #[test]
+    fn test_handicap_raised_after_lock_saturates_instead_of_panicking() {
+        let mut st = at_lock();
+        st.players[0].vessels[0].pulls_left = 2;
+        st.arm(1, "beer-02").unwrap(); // pull_cost(2,100) = 2, affordable
+        st.set_target(1, "beer-02", Some(1)).unwrap();
+        st.lock_in(1).unwrap();
+        st.set_handicap(1, 300).unwrap(); // no beat guard — legal today
+        st.advance_beat().unwrap(); // pull_cost(2,300) = 6 > 2 left: must not panic
+        assert_eq!(st.players[0].vessels[0].pulls_left, 0); // saturated, not negative
+        assert_eq!(st.plays[0].card.id, "beer-02"); // still revealed and ordered
     }
 
     #[test]
