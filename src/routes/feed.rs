@@ -161,6 +161,9 @@ fn page_url(q: Option<&str>, preview: bool) -> String {
 pub struct PostCardTemplate<'a> {
     pub post: &'a Post,
     pub is_first: bool,
+    /// Gates the badge and the hover control cluster. Fed from the **effective**
+    /// viewer, so a preview drops them along with the hidden posts.
+    pub is_admin: bool,
 }
 
 /// A page of month sections plus Load more. Rendered by both the inline first
@@ -169,6 +172,11 @@ pub struct PostCardTemplate<'a> {
 #[template(path = "artportfolio/partials/post_grid.html")]
 struct PostGridTemplate {
     groups: Vec<MonthGroup>,
+    /// Threaded to the card, which is `include`d from this template with
+    /// `{% let %}` bindings rather than constructed. Put the field on
+    /// `PostCardTemplate` alone and every card in the feed loses its badge while
+    /// the upload response keeps one — which reads as a caching bug.
+    is_admin: bool,
     has_more: bool,
     /// Pre-built, carrying the active query and the month this page ended on.
     load_more_url: String,
@@ -248,6 +256,7 @@ async fn render_grid(
     let next_last_month = groups.last().map(|g| g.label.clone());
     PostGridTemplate {
         has_more,
+        is_admin: viewer.is_admin(),
         load_more_url: load_more_url(page + 1, q, next_last_month.as_deref(), preview),
         is_first_page: page == 0,
         q: q.unwrap_or_default().to_string(),
@@ -502,6 +511,7 @@ mod tests {
                     0,
                     0,
                     0,
+                    crate::models::Visibility::Public,
                 )
                 .await;
             }
@@ -516,7 +526,13 @@ mod tests {
     /// ported rather than dropped because they pin behaviour the template still
     /// owes — escaping, the picture fallback, and the empty-caption case.
     fn card(post: &crate::models::Post, is_first: bool) -> String {
-        PostCardTemplate { post, is_first }.render().unwrap()
+        PostCardTemplate {
+            post,
+            is_first,
+            is_admin: false,
+        }
+        .render()
+        .unwrap()
     }
 
     /// A Post with the fields these tests do not care about filled in.
@@ -879,6 +895,7 @@ mod tests {
                 0,
                 0,
                 0,
+                crate::models::Visibility::Public,
             )
             .await;
         }
@@ -980,6 +997,7 @@ mod tests {
             0,
             0,
             0,
+            crate::models::Visibility::Public,
         )
         .await;
         crate::db::set_post_visibility(pool, post.id, visibility).await;
@@ -1139,6 +1157,7 @@ mod tests {
             0,
             0,
             0,
+            crate::models::Visibility::Public,
         )
         .await;
         crate::db::set_post_visibility(pool, post.id, visibility).await;

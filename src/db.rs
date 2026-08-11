@@ -275,10 +275,12 @@ pub async fn insert_post(
     file_size_bytes: i64,
     image_width: i64,
     image_height: i64,
+    visibility: Visibility,
 ) -> Post {
+    let visibility = visibility.as_str();
     let id = sqlx::query!(
-        "INSERT INTO posts (caption, image_url, webp_url, avif_url, format, file_size_bytes, image_width, image_height) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
-        caption, image_url, webp_url, avif_url, format, file_size_bytes, image_width, image_height
+        "INSERT INTO posts (caption, image_url, webp_url, avif_url, format, file_size_bytes, image_width, image_height, visibility) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
+        caption, image_url, webp_url, avif_url, format, file_size_bytes, image_width, image_height, visibility
     )
     .fetch_one(pool)
     .await
@@ -1170,6 +1172,7 @@ mod tests {
             0,
             0,
             0,
+            crate::models::Visibility::Public,
         )
         .await;
         assert_eq!(post.caption, "test caption");
@@ -1191,6 +1194,7 @@ mod tests {
             0,
             0,
             0,
+            crate::models::Visibility::Public,
         )
         .await;
         let urls = delete_post_and_get_urls(&pool, post.id).await;
@@ -1252,6 +1256,7 @@ mod tests {
             12345,
             0,
             0,
+            crate::models::Visibility::Public,
         )
         .await;
         assert_eq!(post.format, "single");
@@ -1272,6 +1277,7 @@ mod tests {
             0,
             0,
             0,
+            crate::models::Visibility::Public,
         )
         .await;
         assert_eq!(post.caption, "");
@@ -1302,6 +1308,7 @@ mod tests {
             0,
             1600,
             900,
+            crate::models::Visibility::Public,
         )
         .await;
         assert_eq!(post.image_width, 1600);
@@ -1347,6 +1354,7 @@ mod tests {
             0,
             0,
             0,
+            crate::models::Visibility::Public,
         )
         .await;
     }
@@ -2086,6 +2094,7 @@ mod tests {
             0,
             0,
             0,
+            crate::models::Visibility::Public,
         )
         .await;
         set_post_visibility(pool, post.id, visibility).await;

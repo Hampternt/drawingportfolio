@@ -4,7 +4,7 @@ use axum::{
     extract::{Multipart, Path, State},
     http::StatusCode,
     response::{Html, IntoResponse},
-    routing::{delete, get, post},
+    routing::{delete, get, patch, post},
     Router,
 };
 use std::sync::Arc;
@@ -72,6 +72,10 @@ async fn upload_post(
     let mut image_data = None::<(Vec<u8>, String, &'static str)>; // (bytes, content_type, ext)
     let mut post_format = crate::models::PostFormat::Single.as_str().to_string();
     let mut source = "admin".to_string();
+    // Absent means public — the normal case, since no upload control sends this
+    // yet. Present but unrecognised is a 400, never a silent coercion.
+    let mut visibility = crate::models::Visibility::default();
+    let mut bad_visibility = false;
 
     while let Ok(Some(field)) = multipart.next_field().await {
         match field.name() {
@@ -81,6 +85,14 @@ async fn upload_post(
             Some("format") => {
                 if let Ok(v) = field.text().await {
                     post_format = v;
+                }
+            }
+            Some("visibility") => {
+                if let Ok(v) = field.text().await {
+                    match crate::models::Visibility::from_str(&v) {
+                        Some(parsed) => visibility = parsed,
+                        None => bad_visibility = true,
+                    }
                 }
             }
             Some("source") => {
@@ -135,6 +147,14 @@ async fn upload_post(
             }
             _ => {}
         }
+    }
+
+    if bad_visibility {
+        return (
+            StatusCode::BAD_REQUEST,
+            Html("Unknown visibility".to_string()),
+        )
+            .into_response();
     }
 
     let caption = caption.unwrap_or_default();
@@ -200,6 +220,7 @@ async fn upload_post(
         file_size_bytes,
         image_width,
         image_height,
+        visibility,
     )
     .await;
     tracing::info!("post created: id={}, key={original_key}, size={file_size_bytes} bytes, format={post_format}", post.id);
@@ -240,6 +261,9 @@ async fn upload_post(
         crate::routes::feed::PostCardTemplate {
             post: &post,
             is_first: false,
+            // The composer is behind `{% if is_admin %}`, so only an admin can
+            // ever reach this response.
+            is_admin: true,
         }
         .render()
         .unwrap()
@@ -268,6 +292,69 @@ async fn delete_post(
         tracing::warn!("delete requested for nonexistent post id={id}");
     }
     StatusCode::OK
+}
+
+/// Changes one post's visibility and returns the re-rendered card.
+///
+/// `AuthSession` is the only gate — the admin router carries no middleware
+/// layer, so the extractor on this handler is what stands between a visitor and
+/// unhiding anything.
+///
+/// Returning the card rather than a status is what keeps the badge and the
+/// dimming in step with the database without a reload: the button swaps it
+/// `outerHTML` into `closest .hm-post`.
+async fn patch_visibility(
+    _session: crate::middleware::AuthSession,
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<i64>,
+    mut multipart: Multipart,
+) -> impl IntoResponse {
+    let mut requested = None::<String>;
+    while let Ok(Some(field)) = multipart.next_field().await {
+        if field.name() == Some("visibility") {
+            requested = field.text().await.ok();
+        }
+    }
+
+    // Fail loudly, not closed. `Visibility::from_row` coerces an unknown value
+    // to Hidden when reading a row, because a value nobody recognises must not
+    // render to the public — but doing that to a *request* would report success
+    // for a typo.
+    let visibility = match requested
+        .as_deref()
+        .and_then(crate::models::Visibility::from_str)
+    {
+        Some(v) => v,
+        None => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Html("Unknown visibility".to_string()),
+            )
+                .into_response()
+        }
+    };
+
+    if !crate::db::set_post_visibility(&state.pool, id, visibility).await {
+        tracing::warn!("visibility change requested for nonexistent post id={id}");
+        return (StatusCode::NOT_FOUND, Html("No such post".to_string())).into_response();
+    }
+    tracing::info!("post id={id} visibility set to {}", visibility.as_str());
+
+    // Re-read rather than patching the struct in memory, so the response
+    // reflects the row as stored.
+    match crate::db::get_post_by_id(&state.pool, id, crate::models::Viewer::Admin).await {
+        Some(post) => Html(
+            crate::routes::feed::PostCardTemplate {
+                post: &post,
+                is_first: false,
+                is_admin: true,
+            }
+            .render()
+            .unwrap(),
+        )
+        .into_response(),
+        None => (StatusCode::NOT_FOUND, Html("No such post".to_string())).into_response(),
+    }
 }
 
 pub fn validate_magic_bytes(bytes: &[u8]) -> Option<&'static str> {
@@ -342,6 +429,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/htmx/admin/posts", get(htmx_admin_posts))
         .route("/api/admin/posts", post(upload_post))
         .route("/api/admin/posts/{id}", delete(delete_post))
+        .route("/api/admin/posts/{id}/visibility", patch(patch_visibility))
 }
 
 #[cfg(test)]
@@ -407,6 +495,169 @@ mod tests {
             &bytes[4..8],
             b"ftyp",
             "output should be an AVIF/ISOBMFF file"
+        );
+    }
+
+    // ===== Visibility PATCH route (slice 2) =====
+
+    use axum::body::Body;
+    use axum::http::{Request, StatusCode as HttpStatus};
+    use sqlx::sqlite::SqlitePoolOptions;
+    use tower::ServiceExt;
+
+    async fn app_with_pool() -> (Router, crate::db::DbPool) {
+        let pool = SqlitePoolOptions::new()
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        crate::db::run_migrations(&pool).await;
+        let storage = crate::storage::ObjectStorage::from_env().await;
+        let rp_origin = url::Url::parse("http://localhost:3000").unwrap();
+        let webauthn = webauthn_rs::prelude::WebauthnBuilder::new("localhost", &rp_origin)
+            .unwrap()
+            .build()
+            .unwrap();
+        let state = Arc::new(crate::AppState {
+            pool: pool.clone(),
+            storage,
+            webauthn,
+        });
+        (router().with_state(state), pool)
+    }
+
+    async fn seed_post(pool: &crate::db::DbPool, caption: &str) -> i64 {
+        crate::db::insert_post(
+            pool,
+            caption,
+            "https://example.com/img.jpg",
+            "",
+            "",
+            crate::models::PostFormat::Single.as_str(),
+            0,
+            0,
+            0,
+            crate::models::Visibility::Public,
+        )
+        .await
+        .id
+    }
+
+    async fn admin_cookie(pool: &crate::db::DbPool) -> String {
+        crate::db::create_session(pool, "test-session", "2099-01-01 00:00:00").await;
+        "session=test-session".to_string()
+    }
+
+    /// One-field multipart body, which is what the card's button sends.
+    fn multipart_visibility(value: &str) -> (String, Body) {
+        let boundary = "X-BOUNDARY";
+        let body = format!(
+            "--{boundary}\r\nContent-Disposition: form-data; name=\"visibility\"\r\n\r\n{value}\r\n--{boundary}--\r\n"
+        );
+        (
+            format!("multipart/form-data; boundary={boundary}"),
+            Body::from(body),
+        )
+    }
+
+    async fn patch_visibility_req(
+        app: &Router,
+        id: i64,
+        value: &str,
+        cookie: Option<&str>,
+    ) -> axum::response::Response {
+        let (content_type, body) = multipart_visibility(value);
+        let mut req = Request::builder()
+            .method("PATCH")
+            .uri(format!("/api/admin/posts/{id}/visibility"))
+            .header("content-type", content_type);
+        if let Some(c) = cookie {
+            req = req.header("cookie", c);
+        }
+        app.clone().oneshot(req.body(body).unwrap()).await.unwrap()
+    }
+
+    async fn stored_visibility(pool: &crate::db::DbPool, id: i64) -> String {
+        crate::db::get_post_by_id(pool, id, crate::models::Viewer::Admin)
+            .await
+            .unwrap()
+            .visibility
+    }
+
+    /// The only gate on this route. The admin router carries no middleware
+    /// layer, so `AuthSession` on the handler is what stands between a visitor
+    /// and unhiding anything.
+    #[tokio::test]
+    async fn test_patch_visibility_requires_session() {
+        let (app, pool) = app_with_pool().await;
+        let id = seed_post(&pool, "guarded").await;
+        let resp = patch_visibility_req(&app, id, "hidden", None).await;
+        assert_ne!(resp.status(), HttpStatus::OK);
+        assert_eq!(stored_visibility(&pool, id).await, "public");
+    }
+
+    #[tokio::test]
+    async fn test_patch_visibility_sets_state() {
+        let (app, pool) = app_with_pool().await;
+        let id = seed_post(&pool, "moves").await;
+        let cookie = admin_cookie(&pool).await;
+        let resp = patch_visibility_req(&app, id, "hidden", Some(&cookie)).await;
+        assert_eq!(resp.status(), HttpStatus::OK);
+        assert_eq!(stored_visibility(&pool, id).await, "hidden");
+    }
+
+    /// Fail loudly, not closed. `from_row` coerces an unknown value to Hidden
+    /// when reading a row; doing that to a request would report success for a
+    /// typo.
+    #[tokio::test]
+    async fn test_patch_visibility_unknown_string_is_400() {
+        let (app, pool) = app_with_pool().await;
+        let id = seed_post(&pool, "unchanged").await;
+        let cookie = admin_cookie(&pool).await;
+        let resp = patch_visibility_req(&app, id, "bogus", Some(&cookie)).await;
+        assert_eq!(resp.status(), HttpStatus::BAD_REQUEST);
+        assert_eq!(stored_visibility(&pool, id).await, "public");
+    }
+
+    #[tokio::test]
+    async fn test_patch_visibility_unknown_id_is_404() {
+        let (app, pool) = app_with_pool().await;
+        let cookie = admin_cookie(&pool).await;
+        let resp = patch_visibility_req(&app, 999999, "hidden", Some(&cookie)).await;
+        assert_eq!(resp.status(), HttpStatus::NOT_FOUND);
+    }
+
+    /// The response is the re-rendered card, which is what keeps the badge and
+    /// the dimming in step with the database without a reload.
+    #[tokio::test]
+    async fn test_patch_visibility_returns_card_markup() {
+        let (app, pool) = app_with_pool().await;
+        let id = seed_post(&pool, "swapped").await;
+        let cookie = admin_cookie(&pool).await;
+        let resp = patch_visibility_req(&app, id, "unlisted", Some(&cookie)).await;
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body = String::from_utf8(bytes.to_vec()).unwrap();
+        assert!(body.contains("hm-post"), "{body}");
+        assert!(body.contains("swapped"), "{body}");
+    }
+
+    #[tokio::test]
+    async fn test_upload_absent_visibility_defaults_public() {
+        let pool = SqlitePoolOptions::new()
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        crate::db::run_migrations(&pool).await;
+        let id = seed_post(&pool, "default").await;
+        assert_eq!(stored_visibility(&pool, id).await, "public");
+    }
+
+    #[tokio::test]
+    async fn test_visibility_default_is_public() {
+        assert_eq!(
+            crate::models::Visibility::default(),
+            crate::models::Visibility::Public
         );
     }
 }
