@@ -226,12 +226,20 @@ pub struct LcPlayer {
     pub handicap_pct: u16,
     pub vessels: Vec<Vessel>,
     pub hand: Vec<Card>,
-    pub armed: Vec<Card>,
+    pub armed: Vec<ArmedCard>,
     pub locked: bool,
     pub drawing: bool,
     pub draws_this_round: u16,
     pub tabs: Vec<String>,
     pub status: Status,
+}
+
+/// A staged card: identity plus its declared target. Never projected —
+/// `public_view()` does not read `LcPlayer::armed` at all (only `locked`).
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct ArmedCard {
+    pub card: Card,
+    pub target: Option<usize>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -289,6 +297,12 @@ pub struct LastCallState {
     pub first_seat: usize,
     pub rng_seed: u64,
     pub plays: Vec<Play>,
+    /// §3.4.1: locked-but-unrevealed plays. `public_view()` NEVER reads this
+    /// field — only `Task 4`'s reveal step moves entries from here into
+    /// `plays`, at which point they become eligible for `public_view`'s
+    /// `revealed` projection. See
+    /// `test_a_locked_play_is_absent_from_public_view_before_reveal`.
+    pub locked_plays: Vec<Play>,
     pub effects: Vec<Effect>,
     pub discards: Vec<Card>,
     pub deck_counts: Vec<(Deck, u16)>,
@@ -446,6 +460,7 @@ impl LastCallState {
             first_seat: 0,
             rng_seed,
             plays: Vec::new(),
+            locked_plays: Vec::new(),
             effects: Vec::new(),
             discards: Vec::new(),
             deck_counts: Deck::ALL.iter().map(|&d| (d, 0)).collect(),
@@ -679,18 +694,15 @@ impl LastCallState {
     /// INVARIANT this method depends on and does NOT itself enforce: nothing
     /// may enter `plays` before it is publicly revealable. This gate is a
     /// beat check only — `revealed` clones the whole of `self.plays` the
-    /// instant `beat` becomes `Reveal`, with no per-play revealed flag. That
-    /// is safe today only because `arm()`/`lock_in()`/`advance_beat()` are
-    /// still `NotImplemented` stubs, so nothing pushes to `plays` at all. A
-    /// slice-3 implementation that stages an armed card into `plays` early
-    /// (e.g. at `arm()` time, so `resolve()` can order by `order_key`) would
-    /// publish every armed card the instant the beat flips — the exact leak
-    /// constraint 1 (`PublicView` as a confidentiality boundary) exists to
-    /// prevent — while leaving this method's code untouched. Armed-but-not-
-    /// yet-revealed plays belong in `LcPlayer::armed`, not `plays`; only move
-    /// a `Play` into `plays` at or after the point it becomes revealable. See
-    /// `test_public_view_never_reveals_before_the_reveal_beat` below, which
-    /// pins the projection side of this invariant.
+    /// instant `beat` becomes `Reveal`, with no per-play revealed flag. This
+    /// is safe because `lock_in()` (§3.4.1) stages locked cards into
+    /// `LastCallState::locked_plays`, which this method never reads at all —
+    /// only Task 4's reveal step moves entries from `locked_plays` into
+    /// `plays`, at which point they become eligible for `revealed`. See
+    /// `test_public_view_never_reveals_before_the_reveal_beat` and
+    /// `test_a_locked_play_is_absent_from_public_view_before_reveal` below,
+    /// which pin both the general projection gate and the secrecy of
+    /// locked-but-unrevealed plays specifically.
     pub fn public_view(&self) -> PublicView {
         PublicView {
             seats: self
@@ -734,22 +746,182 @@ impl LastCallState {
     // Slice 1 defines the shape; slice 3 (the loop) fills these in. The
     // object model is expensive to change later; transitions are not.
 
-    /// INVARIANT for whoever implements this: an armed card is staged
-    /// identity, not revealed identity — push it onto `LcPlayer::armed`,
-    /// never onto `self.plays`. `public_view()`'s `revealed` field clones the
-    /// whole of `self.plays` the moment `beat` becomes `Reveal`, with no
-    /// per-play flag; a `Play` may only enter `plays` at or after the point
-    /// it is publicly revealable (see the doc comment on `public_view`).
-    pub fn arm(&mut self, _player_id: i64, _card_id: &str) -> Result<(), LcError> {
-        Err(LcError::NotImplemented)
+    /// DDv2 6.1/6.2. Guard order (pinned by `test_arm_guard_order`):
+    /// `NotSeated` -> `NotAlive` -> `WrongBeat` (arming lives in `Beat::Lock`,
+    /// DDv2 §5 beat 4) -> `AlreadyLocked` -> `UnknownCard` (not in hand) ->
+    /// `NotPlayable` (a Reaction card, D9 — reactions never arm) ->
+    /// `CantAfford` if `payment_plan` over the player's current armed cards
+    /// plus this one fails (4.2 — checked early for UX; 6.3's lock-time check
+    /// via the same helper remains authoritative).
+    ///
+    /// INVARIANT: an armed card is staged identity, not revealed identity —
+    /// it moves onto `LcPlayer::armed`, never onto `self.plays`. See the
+    /// doc comment on `public_view` and `locked_plays` (§3.4.1).
+    pub fn arm(&mut self, player_id: i64, card_id: &str) -> Result<(), LcError> {
+        let Some(seat) = self.seat_of(player_id) else {
+            return Err(LcError::NotSeated);
+        };
+        if self.players[seat].status != Status::Alive {
+            return Err(LcError::NotAlive);
+        }
+        if self.beat != Beat::Lock {
+            return Err(LcError::WrongBeat);
+        }
+        if self.players[seat].locked {
+            return Err(LcError::AlreadyLocked);
+        }
+        let Some(idx) = self.players[seat].hand.iter().position(|c| c.id == card_id) else {
+            return Err(LcError::UnknownCard);
+        };
+        let card = self.players[seat].hand[idx].clone();
+        if card.kind == CardKind::Reaction {
+            return Err(LcError::NotPlayable);
+        }
+        // Simulate: current armed cards plus this one, in arming order.
+        let mut trial = self.players[seat].clone();
+        trial.armed.push(ArmedCard {
+            card: card.clone(),
+            target: None,
+        });
+        payment_plan(&trial)?;
+
+        let p = &mut self.players[seat];
+        p.hand.remove(idx);
+        p.armed.push(ArmedCard { card, target: None });
+        self.seq += 1;
+        Ok(())
     }
 
-    pub fn disarm(&mut self, _player_id: i64, _card_id: &str) -> Result<(), LcError> {
-        Err(LcError::NotImplemented)
+    /// Guard order: `NotSeated` -> `NotAlive` -> `WrongBeat` ->
+    /// `AlreadyLocked` -> `UnknownCard` (not armed). Success returns the card
+    /// to `hand`; its target is dropped along with the `ArmedCard`.
+    pub fn disarm(&mut self, player_id: i64, card_id: &str) -> Result<(), LcError> {
+        let Some(seat) = self.seat_of(player_id) else {
+            return Err(LcError::NotSeated);
+        };
+        if self.players[seat].status != Status::Alive {
+            return Err(LcError::NotAlive);
+        }
+        if self.beat != Beat::Lock {
+            return Err(LcError::WrongBeat);
+        }
+        if self.players[seat].locked {
+            return Err(LcError::AlreadyLocked);
+        }
+        let p = &mut self.players[seat];
+        let Some(idx) = p.armed.iter().position(|a| a.card.id == card_id) else {
+            return Err(LcError::UnknownCard);
+        };
+        let armed_card = p.armed.remove(idx);
+        p.hand.push(armed_card.card);
+        self.seq += 1;
+        Ok(())
     }
 
-    pub fn lock_in(&mut self, _player_id: i64) -> Result<(), LcError> {
-        Err(LcError::NotImplemented)
+    /// Guard order: `NotSeated` -> `NotAlive` -> `WrongBeat` ->
+    /// `AlreadyLocked` -> `UnknownCard` (not armed) -> `BadTarget` (D2):
+    /// `targets == "one"` requires `Some(seat)` naming a seat that exists and
+    /// is `Alive` (self-targeting allowed); every other target class
+    /// (`self`/`all`/`table`) requires `None`.
+    pub fn set_target(
+        &mut self,
+        player_id: i64,
+        card_id: &str,
+        target: Option<usize>,
+    ) -> Result<(), LcError> {
+        let Some(seat) = self.seat_of(player_id) else {
+            return Err(LcError::NotSeated);
+        };
+        if self.players[seat].status != Status::Alive {
+            return Err(LcError::NotAlive);
+        }
+        if self.beat != Beat::Lock {
+            return Err(LcError::WrongBeat);
+        }
+        if self.players[seat].locked {
+            return Err(LcError::AlreadyLocked);
+        }
+        let Some(idx) = self.players[seat]
+            .armed
+            .iter()
+            .position(|a| a.card.id == card_id)
+        else {
+            return Err(LcError::UnknownCard);
+        };
+        let targets_class = self.players[seat].armed[idx].card.targets.clone();
+        match targets_class.as_str() {
+            "one" => match target {
+                Some(t) => match self.players.get(t) {
+                    Some(tp) if tp.status == Status::Alive => {}
+                    _ => return Err(LcError::BadTarget),
+                },
+                None => return Err(LcError::BadTarget),
+            },
+            _ => {
+                if target.is_some() {
+                    return Err(LcError::BadTarget);
+                }
+            }
+        }
+        self.players[seat].armed[idx].target = target;
+        self.seq += 1;
+        Ok(())
+    }
+
+    /// Guard order: `NotSeated` -> `NotAlive` -> `WrongBeat` -> already
+    /// locked (`Ok(())`, no seq bump — idempotent replay, the `add_player`
+    /// precedent). Then, in arming order: `NeedsTarget(card_id)` for the
+    /// first `targets == "one"` card missing a target, then `payment_plan` ->
+    /// `CantAfford(card_id)` (DDv2 6.3: "rejects the lock ... naming the
+    /// card"). On success each `ArmedCard` becomes a `Play` pushed onto
+    /// `locked_plays` (§3.4.1 — NEVER `plays`), `armed` is cleared, `locked`
+    /// is set, `seq` bumps. Pulls are not charged here; payment happens at
+    /// reveal (DDv2 6.4). Locking zero cards is legal.
+    pub fn lock_in(&mut self, player_id: i64) -> Result<(), LcError> {
+        let Some(seat) = self.seat_of(player_id) else {
+            return Err(LcError::NotSeated);
+        };
+        if self.players[seat].status != Status::Alive {
+            return Err(LcError::NotAlive);
+        }
+        if self.beat != Beat::Lock {
+            return Err(LcError::WrongBeat);
+        }
+        if self.players[seat].locked {
+            return Ok(());
+        }
+        let p = &self.players[seat];
+        if let Some(a) = p
+            .armed
+            .iter()
+            .find(|a| a.card.targets == "one" && a.target.is_none())
+        {
+            return Err(LcError::NeedsTarget(a.card.id.clone()));
+        }
+        payment_plan(p)?;
+
+        let plays: Vec<Play> = p
+            .armed
+            .iter()
+            .map(|a| Play {
+                card: a.card.clone(),
+                source_seat: seat,
+                target: match a.card.targets.as_str() {
+                    "self" => Some(seat), // D2
+                    "one" => a.target,    // validated Some
+                    _ => None,
+                },
+                paid_from: a.card.deck,
+                order_key: 0, // set at reveal (DDv2 §1), not here
+            })
+            .collect();
+
+        let p = &mut self.players[seat];
+        p.armed.clear();
+        p.locked = true;
+        self.locked_plays.extend(plays);
+        self.seq += 1;
+        Ok(())
     }
 
     pub fn advance_beat(&mut self) -> Result<(), LcError> {
@@ -759,6 +931,42 @@ impl LastCallState {
     pub fn resolve(&mut self) -> Result<(), LcError> {
         Err(LcError::NotImplemented)
     }
+}
+
+/// Private helper, shared with Task 4's reveal charge: the deterministic
+/// greedy payment simulation (D3). Simulates the player's armed cards in
+/// arming order against a local copy of each vessel's `pulls_left`: for each
+/// card, picks the vessel of `card.deck` with the greatest remaining
+/// simulated `pulls_left` (a tie keeps the lowest index — the first-seen
+/// candidate is never displaced by an equal one), deducts
+/// `pull_cost(card.cost, handicap_pct)`. Returns, per armed card in order,
+/// the `(vessel index, pulls)` it pays — or `CantAfford` naming the first
+/// card for which no vessel of its deck can cover the cost.
+fn payment_plan(player: &LcPlayer) -> Result<Vec<(usize, u8)>, LcError> {
+    let mut sim: Vec<u8> = player.vessels.iter().map(|v| v.pulls_left).collect();
+    let mut plan = Vec::with_capacity(player.armed.len());
+    for a in &player.armed {
+        let cost = pull_cost(a.card.cost, player.handicap_pct);
+        let mut best: Option<usize> = None;
+        for (i, v) in player.vessels.iter().enumerate() {
+            if v.deck != a.card.deck {
+                continue;
+            }
+            match best {
+                Some(bi) if sim[i] <= sim[bi] => {}
+                _ => best = Some(i),
+            }
+        }
+        let Some(bi) = best else {
+            return Err(LcError::CantAfford(a.card.id.clone()));
+        };
+        if sim[bi] < cost {
+            return Err(LcError::CantAfford(a.card.id.clone()));
+        }
+        sim[bi] -= cost;
+        plan.push((bi, cost));
+    }
+    Ok(plan)
 }
 
 /// Shared runtime fixture builder (spec §8) — NOT `#[cfg(test)]`. Task 3's
@@ -1185,15 +1393,171 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_stubs_are_not_implemented() {
+    /// alice(1)/Beer, bob(2)/Cider, cara(3)/Soft — vessels registered at Draw,
+    /// then moved to the Lock beat.
+    fn at_lock() -> LastCallState {
         let mut st = seated();
-        let before = st.to_json();
-        assert_eq!(st.arm(1, "beer-01"), Err(LcError::NotImplemented));
-        assert_eq!(st.lock_in(1), Err(LcError::NotImplemented));
-        assert_eq!(st.advance_beat(), Err(LcError::NotImplemented));
-        assert_eq!(st.resolve(), Err(LcError::NotImplemented));
-        assert_eq!(st.to_json(), before);
+        st.set_vessel(1, Deck::Beer, "can").unwrap();
+        st.set_vessel(2, Deck::Cider, "bottle").unwrap();
+        st.set_vessel(3, Deck::Soft, "glass").unwrap();
+        st.beat = Beat::Lock;
+        st
+    }
+
+    #[test]
+    fn test_arm_moves_hand_to_armed() {
+        let mut st = at_lock();
+        let before = st.seq;
+        st.arm(1, "beer-01").unwrap();
+        assert_eq!(st.players[0].hand.len(), 3);
+        assert_eq!(st.players[0].armed.len(), 1);
+        assert_eq!(st.players[0].armed[0].card.id, "beer-01");
+        assert_eq!(st.players[0].armed[0].target, None);
+        assert_eq!(st.seq, before + 1);
+    }
+
+    #[test]
+    fn test_arm_guard_order() {
+        let mut st = at_lock();
+        assert_eq!(st.arm(999, "beer-01"), Err(LcError::NotSeated));
+        assert_eq!(st.arm(1, "nope"), Err(LcError::UnknownCard));
+        assert_eq!(st.arm(3, "soft-04"), Err(LcError::NotPlayable)); // Reaction, D9
+        st.players[0].status = Status::Eliminated;
+        assert_eq!(st.arm(1, "beer-01"), Err(LcError::NotAlive));
+        st.players[0].status = Status::Alive;
+        st.beat = Beat::Draw;
+        assert_eq!(st.arm(1, "beer-01"), Err(LcError::WrongBeat));
+    }
+
+    #[test]
+    fn test_arm_affordability_is_aggregate() {
+        let mut st = at_lock();
+        st.players[0].vessels[0].pulls_left = 2;
+        st.arm(1, "beer-01").unwrap(); // cost 1, plan: 1 of 2
+        assert_eq!(
+            st.arm(1, "beer-02"), // cost 2, total 3 > 2
+            Err(LcError::CantAfford("beer-02".into()))
+        );
+        // Handicap inflates the check (4.2's cost × handicap):
+        let mut st = at_lock();
+        st.players[0].vessels[0].pulls_left = 2;
+        st.set_handicap(1, 150).unwrap(); // pull_cost(2,150) = 3
+        assert_eq!(
+            st.arm(1, "beer-02"),
+            Err(LcError::CantAfford("beer-02".into()))
+        );
+    }
+
+    #[test]
+    fn test_disarm_returns_the_card() {
+        let mut st = at_lock();
+        st.arm(1, "beer-01").unwrap();
+        st.set_target(1, "beer-01", Some(1)).unwrap();
+        st.disarm(1, "beer-01").unwrap();
+        assert_eq!(st.players[0].hand.len(), 4);
+        assert!(st.players[0].armed.is_empty());
+        assert_eq!(st.disarm(1, "beer-01"), Err(LcError::UnknownCard));
+    }
+
+    #[test]
+    fn test_set_target_classes() {
+        // D2
+        let mut st = at_lock();
+        st.arm(1, "beer-01").unwrap(); // targets "one"
+        assert_eq!(st.set_target(1, "beer-01", None), Err(LcError::BadTarget));
+        assert_eq!(
+            st.set_target(1, "beer-01", Some(7)),
+            Err(LcError::BadTarget)
+        );
+        st.players[1].status = Status::Eliminated;
+        assert_eq!(
+            st.set_target(1, "beer-01", Some(1)),
+            Err(LcError::BadTarget)
+        );
+        st.players[1].status = Status::Alive;
+        st.set_target(1, "beer-01", Some(0)).unwrap(); // self-target a "one": legal
+        st.set_target(1, "beer-01", Some(1)).unwrap(); // retargeting: legal
+        st.arm(1, "beer-03").unwrap(); // targets "self"
+        assert_eq!(
+            st.set_target(1, "beer-03", Some(1)),
+            Err(LcError::BadTarget)
+        );
+        st.set_target(1, "beer-03", None).unwrap();
+    }
+
+    #[test]
+    fn test_lock_in_stages_plays_and_pays_nothing() {
+        let mut st = at_lock();
+        st.arm(1, "beer-01").unwrap();
+        st.set_target(1, "beer-01", Some(1)).unwrap();
+        st.arm(1, "beer-03").unwrap(); // "self"
+        st.lock_in(1).unwrap();
+        let p = &st.players[0];
+        assert!(p.locked);
+        assert!(p.armed.is_empty());
+        assert_eq!(p.vessels[0].pulls_left, 8); // payment at reveal (6.4)
+        assert!(st.plays.is_empty()); // §3.4.1
+        assert_eq!(st.locked_plays.len(), 2);
+        assert_eq!(st.locked_plays[0].card.id, "beer-01");
+        assert_eq!(st.locked_plays[0].target, Some(1));
+        assert_eq!(st.locked_plays[1].target, Some(0)); // self → own seat (D2)
+        assert_eq!(st.locked_plays[1].order_key, 0); // set at reveal, not here
+                                                     // Idempotent replay: Ok, no bump, nothing re-staged.
+        let seq = st.seq;
+        st.lock_in(1).unwrap();
+        assert_eq!((st.seq, st.locked_plays.len()), (seq, 2));
+    }
+
+    #[test]
+    fn test_lock_in_names_the_failing_card() {
+        // DDv2 6.3
+        let mut st = at_lock();
+        st.arm(1, "beer-01").unwrap(); // "one", no target yet
+        assert_eq!(st.lock_in(1), Err(LcError::NeedsTarget("beer-01".into())));
+        st.set_target(1, "beer-01", Some(1)).unwrap();
+        st.arm(1, "beer-02").unwrap();
+        st.set_target(1, "beer-02", Some(1)).unwrap();
+        st.players[0].vessels[0].pulls_left = 2; // 1+2=3 > 2 now
+        assert_eq!(st.lock_in(1), Err(LcError::CantAfford("beer-02".into())));
+        assert!(!st.players[0].locked);
+        assert_eq!(st.players[0].armed.len(), 2); // rejection stages nothing
+    }
+
+    /// MANDATORY (spec §3.4.1): the function that stages plays owns this test.
+    /// A locked play is invisible to the projection during beats 1–4; only the
+    /// lock tick is public.
+    #[test]
+    fn test_a_locked_play_is_absent_from_public_view_before_reveal() {
+        let mut st = at_lock();
+        st.arm(1, "beer-01").unwrap();
+        st.set_target(1, "beer-01", Some(1)).unwrap();
+        st.lock_in(1).unwrap();
+        assert!(st.plays.is_empty());
+        assert_eq!(st.locked_plays.len(), 1);
+        for beat in [Beat::Draw, Beat::Deal, Beat::Diplomacy, Beat::Lock] {
+            st.beat = beat;
+            let view = st.public_view();
+            assert!(view.revealed.is_empty(), "beat={beat:?}");
+            let json = serde_json::to_string(&view).unwrap();
+            assert!(!json.contains("beer-01"), "beat={beat:?}");
+            assert!(!json.contains("Nudge"), "beat={beat:?}");
+            assert!(
+                view.seats[0].locked,
+                "the lock tick IS public, beat={beat:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_acting_after_lock_is_rejected() {
+        let mut st = at_lock();
+        st.lock_in(1).unwrap(); // locking nothing is legal
+        assert_eq!(st.arm(1, "beer-01"), Err(LcError::AlreadyLocked));
+        assert_eq!(st.disarm(1, "beer-01"), Err(LcError::AlreadyLocked));
+        assert_eq!(
+            st.set_target(1, "beer-01", None),
+            Err(LcError::AlreadyLocked)
+        );
     }
 
     #[test]

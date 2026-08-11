@@ -318,16 +318,16 @@ fn hand_pane_html(base_path: &str, code: &str, st: &LastCallState, player_id: i6
             let p = &st.players[seat];
             (
                 p.hand.as_slice(),
-                p.armed.as_slice(),
+                p.armed.iter().map(|a| a.card.clone()).collect::<Vec<_>>(),
                 p.locked,
                 p.handicap_pct,
             )
         }
-        None => (&[] as &[_], &[] as &[_], false, 100),
+        None => (&[] as &[_], Vec::new(), false, 100),
     };
     let hg = HandGroupView {
         hand,
-        armed,
+        armed: &armed,
         locked,
         handicap_pct,
     };

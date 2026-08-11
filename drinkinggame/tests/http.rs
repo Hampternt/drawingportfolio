@@ -4143,8 +4143,14 @@ async fn test_hand_fragment_carries_only_the_viewers_armed_cards() {
         .id;
 
     let mut st = LastCallState::new(vec![(alice_id, "alice".into()), (bob_id, "bob".into())], 1);
-    st.players[0].armed = vec![drinkinggame::lc_cards::card_by_id("beer-01").unwrap()];
-    st.players[1].armed = vec![drinkinggame::lc_cards::card_by_id("cider-01").unwrap()];
+    st.players[0].armed = vec![drinkinggame::last_call::ArmedCard {
+        card: drinkinggame::lc_cards::card_by_id("beer-01").unwrap(),
+        target: None,
+    }];
+    st.players[1].armed = vec![drinkinggame::last_call::ArmedCard {
+        card: drinkinggame::lc_cards::card_by_id("cider-01").unwrap(),
+        target: None,
+    }];
     st.players[1].locked = true;
     drinkinggame::db::set_game_state(&pool, game_id, &st.to_json()).await;
 
