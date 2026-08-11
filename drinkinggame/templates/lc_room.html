@@ -6,6 +6,7 @@
   <title>Last Call — Room {{ code }}</title>
   <link rel="stylesheet" href="{{ base_path }}/assets/lastcall.css">
   <script src="{{ base_path }}/assets/lc_motion.js" defer></script>
+  <script src="{{ base_path }}/assets/lc_wheel.js" defer></script>
 </head>
 <body class="lc" data-player-id="{{ player_id }}">
   <div class="lc-status">
@@ -135,6 +136,7 @@ function lcApply(html) {
       el.focus({ preventScroll: true });
     }
   }
+  if (window.lcWheelInit) window.lcWheelInit(pane);
 }
 
 // The TABLE pane has no live inputs to preserve, so its apply is the plain

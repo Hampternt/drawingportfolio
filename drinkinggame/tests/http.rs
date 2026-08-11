@@ -71,6 +71,7 @@ async fn test_assets_are_served() {
         ("/assets/lastcall.css", "text/css"),
         ("/assets/htmx.min.js", "application/javascript"),
         ("/assets/lc_motion.js", "application/javascript"),
+        ("/assets/lc_wheel.js", "application/javascript"),
     ] {
         let res = app
             .clone()
@@ -411,6 +412,22 @@ async fn test_lc_motion_js_binds_both_lifecycle_events() {
         "animationend",
         "data-flight-anchor",
     ] {
+        assert!(js.contains(needle), "missing {needle}");
+    }
+}
+
+#[tokio::test]
+async fn test_lc_wheel_js_is_served_and_binds_both_lifecycle_events() {
+    let app = test_app().await;
+    let res = get(&app, "/assets/lc_wheel.js").await;
+    assert_eq!(res.status(), StatusCode::OK);
+    assert_eq!(
+        res.headers()[header::CONTENT_TYPE],
+        "application/javascript"
+    );
+    let js = body_string(res).await;
+    assert!(!js.is_empty());
+    for needle in ["DOMContentLoaded", "htmx:afterSwap", "lcWheelInit"] {
         assert!(js.contains(needle), "missing {needle}");
     }
 }
@@ -3151,6 +3168,7 @@ async fn test_preview_page_is_public() {
     let html = body_string(res).await;
     assert!(html.contains(r#"href="/drinks/assets/lastcall.css""#));
     assert!(html.contains(r#"src="/drinks/assets/lc_motion.js""#));
+    assert!(html.contains(r#"src="/drinks/assets/lc_wheel.js""#));
 }
 
 #[tokio::test]
