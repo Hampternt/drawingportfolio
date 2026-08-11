@@ -33,16 +33,30 @@ invented.
 Slice 1 is four plans: **A → A-vis → A2 → B**. Everything after slice 1 was
 planned in one pass on 2026-08-11 — see "The rest of the game" below.
 
-## The rest of the game — eight plans, written 2026-08-11, none executed
+## The rest of the game — eight plans, written 2026-08-11; C executed
 
 All eight are in `docs/superpowers/plans/2026-08-11-last-call-plan-*.md`. Each
 was written by its own subagent against the spec, DDv2 and the earlier plans'
 Produces blocks, and each opens with a **`## Proposed design decisions —
-awaiting user review`** section — the design bundle is silent on most of what
-slices 2+ need, so every invented rule is flagged there with a rationale.
-**That section, across all eight files, is the user's design-review surface.
-Review before executing; a rejected decision is cheaper to change in the plan
-than in a fix wave.**
+awaiting user review`** section. All 106 proposed decisions were
+**user-approved 2026-08-11** ("as far as i can tell they seem good to me.
+approved") and the plans committed at `b5aa789`.
+
+- **Plan C — the hand group. EXECUTED 2026-08-12.** `856db68..83cccb9`,
+  8 commits, verify green, **381 tests**, `drinkinggame` clippy-clean.
+  Whole-plan review (the only review — all five tasks were Class A/B)
+  returned CHANGES_REQUIRED (0 critical, 2 important, 7 minor); one fix wave
+  fixed all nine; scoped re-review CLEAN. Ledger:
+  `.superpowers/sdd/2026-08-11-last-call-plan-c-hand-group/progress.md`.
+  **Two naming/contract notes for later plans:** the CostRail shipped as
+  `.lc-costrail*` (the plan's `.lc-rail*` collided with the big screen's
+  side rail — the STATUS seam's pre-approved rename); and `lc:arm` fires
+  *before* the wheel's glide settles — Plan E's listener must not assume
+  the wheel is at rest. **Owed to a human: the browser checkpoint** —
+  preview group 8 (`/drinks/lastcall/preview`) and the live phone HAND tab:
+  drag/snap/notch feel, rail tap-to-jump, armed tap dispatch (devtools:
+  `lc:arm` events logged), locked suppression, reduced-motion, and the
+  camera-not-card behavior when a hand shrinks mid-view.
 
 | Plan | File suffix | What it ships | Tasks |
 | --- | --- | --- | --- |
@@ -446,11 +460,11 @@ Then, in this order:
 3. ~~Write slice 2's plan.~~ **Done 2026-08-11 — and so is every other plan.**
    All eight remaining plans (C through J, covering every slice to completion)
    are written; see "The rest of the game" above.
-4. **User design review** of the eight `## Proposed design decisions` sections
-   — the plans invented every rule the bundle left blank, and the review is
-   cheapest before execution.
-5. **Execute, one plan per session**, in the binding order: C → D → F → E →
-   G/H/I → J. Each plan names its ledger at
+4. ~~User design review.~~ **Approved 2026-08-11**, all 106 decisions.
+5. **Execute, one plan per session**, in the binding order: ~~C~~ → **D next**
+   → F → E → G/H/I → J. Plan C executed and review-clean 2026-08-12 (see "The
+   rest of the game"); its browser checkpoint is owed to a human alongside
+   Plan B's checkpoint 2. Each plan names its ledger at
    `.superpowers/sdd/<plan-basename>/progress.md`.
 
 Spec §3.4.1 (nothing enters `plays` before it is revealable) is owned by Plan
