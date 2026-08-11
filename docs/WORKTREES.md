@@ -69,8 +69,8 @@ A design-system-driven redesign of `/artportfolio`.
 | Worktree | `~/projects/drawingportfolio.worktrees/artportfolio-visual-layer` |
 | Branch | `feat/artportfolio-visual-layer` (tracks `origin/feat/artportfolio-visual-layer`) |
 | Touches | `docs/`, `src/`, `static/`, `templates/`, `.sqlx/` |
-| Status | **Slice 1 complete**, 2026-08-10. Spec approved 2026-08-09. Slice 1 did not fit one plan under `plan-economics` sizing, so it was split — **Plan A and Plan B are both written, executed and browser-checkpointed**, last slice-1 commit `4c786a2`. `master` is merged in and `./scripts/verify.sh` is green. Pushed; not merged to `master`. |
-| Next | **Slice 2's spec is written** — `docs/superpowers/specs/2026-08-11-artportfolio-visibility-model-design.md`, pending user approval. Then `plan-economics` and the plan(s). |
+| Status | **Slices 1 and 2 complete** — slice 1 on 2026-08-10 (`4c786a2`), slice 2 on 2026-08-11 (`cadabbc`). `./scripts/verify.sh` is green at 312 tests. Pushed; **not merged to `master`**. |
+| Next | **Slice 3** — collections, tags and the full filter rail. `superpowers:brainstorming`, then a spec. Slice 2's plan (`docs/superpowers/plans/2026-08-11-artportfolio-visibility.md`, 8 tasks) is executed and green. Any work here needs `export DATABASE_URL=sqlite:portfolio.db` — **there is no `.env` in this worktree**, and the sqlx macros need a live DB whenever the queries change. |
 
 No ahead/behind counts live in this card on purpose — they are stale the moment
 anything moves. Run `git rev-list --left-right --count master...HEAD` if you
@@ -111,9 +111,39 @@ Two places execution contradicted the spec. Both are load-bearing:
   The spec's template description omits it; the multi-upload tray that replaces
   it is slice 4, so removing it now strips upload from the page for two slices.
 
-Independent of Last Call — different crates, no overlap. Slices 2–5 (visibility
-model, collections + tags, multi-upload tray, select mode + batch actions) are
-queued behind slice 1 and scoped in the spec.
+#### Slice 2 — the visibility model, complete 2026-08-11
+
+Spec `docs/superpowers/specs/2026-08-11-artportfolio-visibility-model-design.md`,
+plan `docs/superpowers/plans/2026-08-11-artportfolio-visibility.md` (one plan,
+8 tasks — it exceeds `plan-economics` §1 sizing at the user's direction).
+
+`public` / `unlisted` / `hidden`, migration 013, enforced on all four
+post-reading routes by a required `Viewer` parameter, plus a permalink
+(`GET /artportfolio/{id}`), a `PATCH` route, per-card badges and controls, split
+head counts and a `?visitor=1` preview.
+
+**The bug it actually fixed was pre-existing:** `htmx_posts` and `api_posts`
+never extracted `OptionalAuth`. Harmless while every post was public; the moment
+visibility existed, page 0 would render filtered and the first *Load more* would
+hand back everything.
+
+Two trade-offs accepted in the spec, so slice 3 does not refile them as bugs:
+
+- **Unlisted is enumerable.** Post ids are sequential, so unlisted means "not in
+  the feed and not in the API", not "secret". The upgrade if that ever changes is
+  additive: a `share_token` column and `/artportfolio/p/{token}`.
+- **`/admin` shows no badge**, because the dashboard still renders through
+  `admin_post_card_html()`, the legacy format string a later slice migrates.
+
+**No browser checkpoint was run for slice 2** — the whole slice was verified by
+312 passing tests, including sabotage checks proving the auth gate, the page-1
+filter and the session helper each fail when broken. The visual work (three badge
+tones, the hover cluster, the 900px always-visible fallback) is **unseen** and
+needs human eyes.
+
+Independent of Last Call — different crates, no overlap. Slices 3–5 (collections
++ tags, multi-upload tray, select mode + batch actions) remain scoped in slice
+1's spec.
 
 ### C · Portfolio drawing tasks — **closed 2026-08-09**
 
