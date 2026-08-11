@@ -69,8 +69,8 @@ A design-system-driven redesign of `/artportfolio`.
 | Worktree | `~/projects/drawingportfolio.worktrees/artportfolio-visual-layer` |
 | Branch | `feat/artportfolio-visual-layer` (tracks `origin/feat/artportfolio-visual-layer`) |
 | Touches | `docs/`, `src/`, `static/`, `templates/`, `.sqlx/` |
-| Status | **Slices 1 and 2 complete** — slice 1 on 2026-08-10 (`4c786a2`), slice 2 on 2026-08-11 (`cadabbc`). `./scripts/verify.sh` is green at 312 tests. Pushed; **not merged to `master`**. |
-| Next | **Slice 3** — collections, tags and the full filter rail. `superpowers:brainstorming`, then a spec. Slice 2's plan (`docs/superpowers/plans/2026-08-11-artportfolio-visibility.md`, 8 tasks) is executed and green. Any work here needs `export DATABASE_URL=sqlite:portfolio.db` — **there is no `.env` in this worktree**, and the sqlx macros need a live DB whenever the queries change. |
+| Status | **Slices 1 and 2 complete** — slice 1 on 2026-08-10 (`4c786a2`), slice 2 on 2026-08-11 (`cadabbc`). `./scripts/verify.sh` is green at 312 tests. Pushed; **not merged to `master`**. Slice 2's browser checkpoint has since been run and recorded (`1862428`); a permalink stretch bug it found is fixed (`b39f5c0`). **Slice 3 started 2026-08-12** — spec committed (`b32707e`, `docs/superpowers/specs/2026-08-12-artportfolio-collections-tags-design.md`); scope: collections + tags + full filter rail + per-card assignment editing; mobile filter sheet deferred; collection create+delete, no rename. |
+| Next | Execute slice 3's plan(s) (`docs/superpowers/plans/2026-08-12-artportfolio-collections-tags*.md` on the branch). Slice 4 must code against the frozen `#art-head-label` OOB seam named in the spec. Any work here needs `export DATABASE_URL=sqlite:portfolio.db` — **there is no `.env` in this worktree**, and the sqlx macros need a live DB whenever the queries change. |
 
 No ahead/behind counts live in this card on purpose — they are stale the moment
 anything moves. Run `git rev-list --left-right --count master...HEAD` if you
