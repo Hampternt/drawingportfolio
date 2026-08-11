@@ -1,6 +1,6 @@
 use crate::models::{
     AuthChallengeState, DrawingTaskWithImage, FoodItem, MealEntryWithFood, PasskeyCredential, Post,
-    Session, Targets, TaskImage,
+    PostCounts, Session, Targets, TaskImage, Viewer, Visibility,
 };
 use sqlx::{
     sqlite::{SqliteConnectOptions, SqlitePoolOptions},
@@ -129,14 +129,32 @@ pub fn like_pattern(q: &str) -> String {
 /// Two query branches rather than one `?1 IS NULL` query: sqlx's SQLite macro
 /// does not reliably support reusing a numbered placeholder, and a match needs
 /// no argument about NULL semantics at all.
-pub async fn get_posts_page(pool: &DbPool, q: Option<&str>, page: i64) -> Vec<Post> {
+///
+/// The **viewer** is a bool bind rather than a third and fourth branch. Four
+/// near-identical SQL literals is the naive cost of crossing `q` with the
+/// viewer, and the reasoning that justified splitting into two above does not
+/// extend to doubling again.
+///
+/// The trade is an index: SQLite cannot use `posts(visibility, created_at DESC)`
+/// against an OR-with-a-parameter predicate, so none is created. At a few
+/// hundred posts the scan is free. **If this ever becomes four literal branches,
+/// add the index in the same commit** — the visitor branch would then be a plain
+/// `WHERE visibility = 'public' ORDER BY created_at DESC` and would use it
+/// perfectly. The two decisions are one decision.
+pub async fn get_posts_page(
+    pool: &DbPool,
+    q: Option<&str>,
+    page: i64,
+    viewer: Viewer,
+) -> Vec<Post> {
     let offset = page * 20;
+    let all = viewer.is_admin();
     match q {
         Some(q) => {
             let pattern = like_pattern(q);
             sqlx::query_as!(Post,
-                "SELECT id, caption, image_url, webp_url, avif_url, format, file_size_bytes, created_at, image_width, image_height, visibility FROM posts WHERE caption LIKE ? ESCAPE '\\' ORDER BY created_at DESC LIMIT 21 OFFSET ?",
-                pattern, offset
+                "SELECT id, caption, image_url, webp_url, avif_url, format, file_size_bytes, created_at, image_width, image_height, visibility FROM posts WHERE (? OR visibility = 'public') AND caption LIKE ? ESCAPE '\\' ORDER BY created_at DESC LIMIT 21 OFFSET ?",
+                all, pattern, offset
             )
             .fetch_all(pool)
             .await
@@ -144,8 +162,8 @@ pub async fn get_posts_page(pool: &DbPool, q: Option<&str>, page: i64) -> Vec<Po
         }
         None => {
             sqlx::query_as!(Post,
-                "SELECT id, caption, image_url, webp_url, avif_url, format, file_size_bytes, created_at, image_width, image_height, visibility FROM posts ORDER BY created_at DESC LIMIT 21 OFFSET ?",
-                offset
+                "SELECT id, caption, image_url, webp_url, avif_url, format, file_size_bytes, created_at, image_width, image_height, visibility FROM posts WHERE (? OR visibility = 'public') ORDER BY created_at DESC LIMIT 21 OFFSET ?",
+                all, offset
             )
             .fetch_all(pool)
             .await
@@ -159,25 +177,91 @@ pub async fn get_posts_page(pool: &DbPool, q: Option<&str>, page: i64) -> Vec<Po
 /// Called only on a full page render — never on HTMX pagination, where the head
 /// is not re-rendered and the COUNT would be wasted work on every Load more.
 ///
-/// The `as "count: i64"` override is load-bearing: sqlx infers SQLite's
-/// `COUNT(*)` as `i32`.
-pub async fn count_posts(pool: &DbPool, q: Option<&str>) -> i64 {
-    match q {
+/// The `AS "n: i64"` override is load-bearing: sqlx infers SQLite's `COUNT(*)`
+/// as `i32`.
+///
+/// Note there is **no viewer branch in the SQL at all**. The query counts every
+/// state and the viewer decides only what `total` means, which keeps the
+/// viewer-dependence to one line of Rust instead of a second pair of branches.
+pub async fn count_posts(pool: &DbPool, q: Option<&str>, viewer: Viewer) -> PostCounts {
+    struct Row {
+        visibility: String,
+        n: i64,
+    }
+
+    let rows: Vec<Row> = match q {
         Some(q) => {
             let pattern = like_pattern(q);
-            sqlx::query_scalar!(
-                r#"SELECT COUNT(*) AS "count: i64" FROM posts WHERE caption LIKE ? ESCAPE '\'"#,
+            sqlx::query_as!(
+                Row,
+                r#"SELECT visibility AS "visibility!: String", COUNT(*) AS "n: i64" FROM posts WHERE caption LIKE ? ESCAPE '\' GROUP BY visibility"#,
                 pattern
             )
-            .fetch_one(pool)
+            .fetch_all(pool)
             .await
-            .unwrap_or(0)
+            .unwrap_or_default()
         }
-        None => sqlx::query_scalar!(r#"SELECT COUNT(*) AS "count: i64" FROM posts"#)
-            .fetch_one(pool)
-            .await
-            .unwrap_or(0),
+        None => sqlx::query_as!(
+            Row,
+            r#"SELECT visibility AS "visibility!: String", COUNT(*) AS "n: i64" FROM posts GROUP BY visibility"#
+        )
+        .fetch_all(pool)
+        .await
+        .unwrap_or_default(),
+    };
+
+    let mut counts = PostCounts::default();
+    // GROUP BY returns no row for a state with zero posts, so accumulate into
+    // defaults rather than indexing the result. A portfolio with nothing hidden
+    // is the normal case, not an edge one.
+    for row in rows {
+        match Visibility::from_row(&row.visibility) {
+            Visibility::Public => counts.public = row.n,
+            Visibility::Unlisted => counts.unlisted = row.n,
+            Visibility::Hidden => counts.hidden = row.n,
+        }
     }
+    counts.total = if viewer.is_admin() {
+        counts.public + counts.unlisted + counts.hidden
+    } else {
+        counts.public
+    };
+    counts
+}
+
+/// One post, or `None` when this viewer may not have it.
+///
+/// A missing id and a hidden post are the same answer on purpose: the caller
+/// turns both into a 404, so from outside they are indistinguishable. A
+/// distinguishable error would confirm the row exists, which is the one fact
+/// hiding it is meant to withhold.
+///
+/// `unlisted` is deliberately **not** filtered here — reachable by permalink
+/// while absent from the feed is the entire definition of the state.
+pub async fn get_post_by_id(pool: &DbPool, id: i64, viewer: Viewer) -> Option<Post> {
+    let post = sqlx::query_as!(Post,
+        "SELECT id, caption, image_url, webp_url, avif_url, format, file_size_bytes, created_at, image_width, image_height, visibility FROM posts WHERE id = ?", id
+    )
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten()?;
+
+    match (Visibility::from_row(&post.visibility), viewer) {
+        (Visibility::Hidden, Viewer::Visitor) => None,
+        _ => Some(post),
+    }
+}
+
+/// Sets one post's state. `false` means no such id, which the route turns into
+/// a 404.
+pub async fn set_post_visibility(pool: &DbPool, id: i64, visibility: Visibility) -> bool {
+    let value = visibility.as_str();
+    sqlx::query!("UPDATE posts SET visibility = ? WHERE id = ?", value, id)
+        .execute(pool)
+        .await
+        .map(|r| r.rows_affected() == 1)
+        .unwrap_or(false)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1089,7 +1173,7 @@ mod tests {
         )
         .await;
         assert_eq!(post.caption, "test caption");
-        let posts = get_posts_page(&pool, None, 0).await;
+        let posts = get_posts_page(&pool, None, 0, Viewer::Admin).await;
         assert_eq!(posts.len(), 1);
         assert_eq!(posts[0].id, post.id);
     }
@@ -1115,7 +1199,9 @@ mod tests {
         assert_eq!(urls.image_url, "https://example.com/img.jpg");
         assert_eq!(urls.webp_url, "https://example.com/img-webp.webp");
         assert_eq!(urls.avif_url, "https://example.com/img-avif.avif");
-        assert!(get_posts_page(&pool, None, 0).await.is_empty());
+        assert!(get_posts_page(&pool, None, 0, Viewer::Admin)
+            .await
+            .is_empty());
     }
 
     #[tokio::test]
@@ -1198,7 +1284,9 @@ mod tests {
         // SQLite has no ADD COLUMN IF NOT EXISTS, so every re-run returns a
         // duplicate-column error that the `let _ =` in run_migrations discards.
         run_migrations(&pool).await;
-        assert!(get_posts_page(&pool, None, 0).await.is_empty());
+        assert!(get_posts_page(&pool, None, 0, Viewer::Admin)
+            .await
+            .is_empty());
     }
 
     #[tokio::test]
@@ -1219,7 +1307,7 @@ mod tests {
         assert_eq!(post.image_width, 1600);
         assert_eq!(post.image_height, 900);
 
-        let fetched = &get_posts_page(&pool, None, 0).await[0];
+        let fetched = &get_posts_page(&pool, None, 0, Viewer::Admin).await[0];
         assert_eq!(
             fetched.image_width, 1600,
             "dimensions survive the insert/select round trip"
@@ -1242,7 +1330,7 @@ mod tests {
         .await
         .expect("legacy-shaped insert succeeds");
 
-        let post = &get_posts_page(&pool, None, 0).await[0];
+        let post = &get_posts_page(&pool, None, 0, Viewer::Admin).await[0];
         assert_eq!(post.image_width, 0, "legacy rows read back as 0, not NULL");
         assert_eq!(post.image_height, 0);
     }
@@ -1281,8 +1369,11 @@ mod tests {
         }
         // 21 rows come back on page 0: 20 to render plus the has_more probe,
         // which the caller truncates. Page 1 holds the single leftover.
-        assert_eq!(get_posts_page(&pool, None, 0).await.len(), 21);
-        assert_eq!(get_posts_page(&pool, None, 1).await.len(), 1);
+        assert_eq!(
+            get_posts_page(&pool, None, 0, Viewer::Admin).await.len(),
+            21
+        );
+        assert_eq!(get_posts_page(&pool, None, 1, Viewer::Admin).await.len(), 1);
     }
 
     #[tokio::test]
@@ -1291,7 +1382,7 @@ mod tests {
         seed_caption(&pool, "Loomis head").await;
         seed_caption(&pool, "figure drawing").await;
 
-        let hits = get_posts_page(&pool, Some("loomis"), 0).await;
+        let hits = get_posts_page(&pool, Some("loomis"), 0, Viewer::Admin).await;
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].caption, "Loomis head");
     }
@@ -1304,7 +1395,7 @@ mod tests {
 
         // Unescaped, the pattern would be %100%% — two wildcards around a
         // literal, which matches every row in the table.
-        let hits = get_posts_page(&pool, Some("100%"), 0).await;
+        let hits = get_posts_page(&pool, Some("100%"), 0, Viewer::Admin).await;
         assert_eq!(hits.len(), 1, "a literal % must not act as a wildcard");
         assert_eq!(hits[0].caption, "100% cotton paper");
     }
@@ -1315,7 +1406,7 @@ mod tests {
         seed_caption(&pool, "study_01").await;
         seed_caption(&pool, "studyA01").await;
 
-        let hits = get_posts_page(&pool, Some("study_0"), 0).await;
+        let hits = get_posts_page(&pool, Some("study_0"), 0, Viewer::Admin).await;
         assert_eq!(hits.len(), 1, "_ must match itself, not any character");
         assert_eq!(hits[0].caption, "study_01");
     }
@@ -1327,12 +1418,22 @@ mod tests {
         seed_caption(&pool, "hand study").await;
         seed_caption(&pool, "colour thumbnail").await;
 
-        assert_eq!(count_posts(&pool, None).await, 3);
-        assert_eq!(count_posts(&pool, Some("study")).await, 2);
-        assert_eq!(count_posts(&pool, Some("nothing here")).await, 0);
+        assert_eq!(count_posts(&pool, None, Viewer::Admin).await.total, 3);
         assert_eq!(
-            count_posts(&pool, Some("study")).await as usize,
-            get_posts_page(&pool, Some("study"), 0).await.len(),
+            count_posts(&pool, Some("study"), Viewer::Admin).await.total,
+            2
+        );
+        assert_eq!(
+            count_posts(&pool, Some("nothing here"), Viewer::Admin)
+                .await
+                .total,
+            0
+        );
+        assert_eq!(
+            count_posts(&pool, Some("study"), Viewer::Admin).await.total as usize,
+            get_posts_page(&pool, Some("study"), 0, Viewer::Admin)
+                .await
+                .len(),
             "the head count and the rendered page must not disagree"
         );
     }
@@ -1964,5 +2065,173 @@ mod tests {
             .unwrap();
         let entries = get_meal_entries_for_date(&pool, "2026-04-09").await;
         assert!(entries.is_empty());
+    }
+
+    // ===== Visibility model (migration 013) =====
+
+    /// Inserts a post and sets its state.
+    ///
+    /// Two steps because `insert_post` does not take a visibility yet — the
+    /// upload's field arrives with the PATCH route. Every post therefore starts
+    /// `public` and is moved, which also exercises `set_post_visibility` on the
+    /// way to every other assertion.
+    async fn post_with(pool: &DbPool, caption: &str, visibility: Visibility) -> Post {
+        let post = insert_post(
+            pool,
+            caption,
+            "https://example.com/img.jpg",
+            "",
+            "",
+            crate::models::PostFormat::Single.as_str(),
+            0,
+            0,
+            0,
+        )
+        .await;
+        set_post_visibility(pool, post.id, visibility).await;
+        post
+    }
+
+    async fn one_of_each(pool: &DbPool) {
+        post_with(pool, "shown", Visibility::Public).await;
+        post_with(pool, "linked", Visibility::Unlisted).await;
+        post_with(pool, "secret", Visibility::Hidden).await;
+    }
+
+    #[tokio::test]
+    async fn test_get_posts_page_visitor_sees_only_public() {
+        let pool = test_pool().await;
+        one_of_each(&pool).await;
+        let posts = get_posts_page(&pool, None, 0, Viewer::Visitor).await;
+        assert_eq!(posts.len(), 1);
+        assert_eq!(posts[0].caption, "shown");
+    }
+
+    #[tokio::test]
+    async fn test_get_posts_page_admin_sees_all() {
+        let pool = test_pool().await;
+        one_of_each(&pool).await;
+        assert_eq!(get_posts_page(&pool, None, 0, Viewer::Admin).await.len(), 3);
+    }
+
+    #[tokio::test]
+    async fn test_get_posts_page_visitor_filter_applies_with_search() {
+        let pool = test_pool().await;
+        post_with(&pool, "a cat study", Visibility::Public).await;
+        post_with(&pool, "a cat secret", Visibility::Hidden).await;
+        let hits = get_posts_page(&pool, Some("cat"), 0, Viewer::Visitor).await;
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].caption, "a cat study");
+    }
+
+    #[tokio::test]
+    async fn test_count_posts_visitor_total_is_public_only() {
+        let pool = test_pool().await;
+        post_with(&pool, "shown", Visibility::Public).await;
+        post_with(&pool, "linked", Visibility::Unlisted).await;
+        post_with(&pool, "secret one", Visibility::Hidden).await;
+        post_with(&pool, "secret two", Visibility::Hidden).await;
+        let counts = count_posts(&pool, None, Viewer::Visitor).await;
+        assert_eq!(counts.total, 1);
+        assert_eq!(counts.public, 1);
+    }
+
+    #[tokio::test]
+    async fn test_count_posts_admin_total_is_everything() {
+        let pool = test_pool().await;
+        post_with(&pool, "shown", Visibility::Public).await;
+        post_with(&pool, "linked", Visibility::Unlisted).await;
+        post_with(&pool, "secret one", Visibility::Hidden).await;
+        post_with(&pool, "secret two", Visibility::Hidden).await;
+        let counts = count_posts(&pool, None, Viewer::Admin).await;
+        assert_eq!(counts.total, 4);
+        assert_eq!(counts.public, 1);
+        assert_eq!(counts.unlisted, 1);
+        assert_eq!(counts.hidden, 2);
+    }
+
+    /// `GROUP BY` returns no row for a state with zero posts, so the struct has
+    /// to accumulate into defaults rather than index the result. A portfolio
+    /// with nothing hidden is the normal case, not an edge one.
+    #[tokio::test]
+    async fn test_count_posts_absent_states_are_zero() {
+        let pool = test_pool().await;
+        post_with(&pool, "one", Visibility::Public).await;
+        post_with(&pool, "two", Visibility::Public).await;
+        let counts = count_posts(&pool, None, Viewer::Admin).await;
+        assert_eq!(counts.public, 2);
+        assert_eq!(counts.unlisted, 0);
+        assert_eq!(counts.hidden, 0);
+        assert_eq!(counts.total, 2);
+    }
+
+    #[tokio::test]
+    async fn test_get_post_by_id_hidden_is_none_for_visitor() {
+        let pool = test_pool().await;
+        let post = post_with(&pool, "secret", Visibility::Hidden).await;
+        assert!(get_post_by_id(&pool, post.id, Viewer::Visitor)
+            .await
+            .is_none());
+        assert!(get_post_by_id(&pool, post.id, Viewer::Admin)
+            .await
+            .is_some());
+    }
+
+    /// The whole point of the state: out of the feed, still served by its
+    /// permalink.
+    #[tokio::test]
+    async fn test_get_post_by_id_unlisted_is_some_for_visitor() {
+        let pool = test_pool().await;
+        let post = post_with(&pool, "linked", Visibility::Unlisted).await;
+        assert!(get_post_by_id(&pool, post.id, Viewer::Visitor)
+            .await
+            .is_some());
+        assert!(get_post_by_id(&pool, post.id, Viewer::Admin)
+            .await
+            .is_some());
+    }
+
+    #[tokio::test]
+    async fn test_get_post_by_id_unknown_id_is_none() {
+        let pool = test_pool().await;
+        assert!(get_post_by_id(&pool, 9999, Viewer::Admin).await.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_visibility_from_row_fails_closed() {
+        assert_eq!(Visibility::from_row("bogus"), Visibility::Hidden);
+        assert_eq!(Visibility::from_row(""), Visibility::Hidden);
+        assert_eq!(Visibility::from_row("public"), Visibility::Public);
+    }
+
+    #[tokio::test]
+    async fn test_visibility_from_str_rejects_unknown() {
+        assert!(Visibility::from_str("bogus").is_none());
+        assert_eq!(Visibility::from_str("unlisted"), Some(Visibility::Unlisted));
+    }
+
+    #[tokio::test]
+    async fn test_set_post_visibility_round_trip() {
+        let pool = test_pool().await;
+        let post = post_with(&pool, "moves", Visibility::Public).await;
+        assert!(set_post_visibility(&pool, post.id, Visibility::Hidden).await);
+        let stored = get_post_by_id(&pool, post.id, Viewer::Admin).await.unwrap();
+        assert_eq!(Visibility::from_row(&stored.visibility), Visibility::Hidden);
+    }
+
+    #[tokio::test]
+    async fn test_set_post_visibility_unknown_id_is_false() {
+        let pool = test_pool().await;
+        assert!(!set_post_visibility(&pool, 9999, Visibility::Hidden).await);
+    }
+
+    /// Guards `admin.rs`'s dashboard call site. Passing `Viewer::Visitor` there
+    /// still compiles and still renders — it just silently stops listing the
+    /// posts an admin most needs to see.
+    #[tokio::test]
+    async fn test_admin_dashboard_query_sees_all_states() {
+        let pool = test_pool().await;
+        one_of_each(&pool).await;
+        assert_eq!(get_posts_page(&pool, None, 0, Viewer::Admin).await.len(), 3);
     }
 }

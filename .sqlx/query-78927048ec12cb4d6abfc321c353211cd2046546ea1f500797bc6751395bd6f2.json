@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT visibility AS \"visibility!: String\", COUNT(*) AS \"n: i64\" FROM posts WHERE caption LIKE ? ESCAPE '\\' GROUP BY visibility",
+  "describe": {
+    "columns": [
+      {
+        "name": "visibility!: String",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "n: i64",
+        "ordinal": 1,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "78927048ec12cb4d6abfc321c353211cd2046546ea1f500797bc6751395bd6f2"
+}

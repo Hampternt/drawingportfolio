@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT id, caption, image_url, webp_url, avif_url, format, file_size_bytes, created_at, image_width, image_height, visibility FROM posts ORDER BY created_at DESC LIMIT 21 OFFSET ?",
+  "query": "SELECT id, caption, image_url, webp_url, avif_url, format, file_size_bytes, created_at, image_width, image_height, visibility FROM posts WHERE (? OR visibility = 'public') ORDER BY created_at DESC LIMIT 21 OFFSET ?",
   "describe": {
     "columns": [
       {
@@ -60,7 +60,7 @@
       }
     ],
     "parameters": {
-      "Right": 1
+      "Right": 2
     },
     "nullable": [
       false,
@@ -76,5 +76,5 @@
       false
     ]
   },
-  "hash": "c1fb34b94fca294adffc6d8a33f400e6abc4f48dfb0f1e5153e74dcbd38a0d69"
+  "hash": "8d7377a2ae1d09efa4d6c7164fac41dc036ce62d3026c781b73e535ca5f1becf"
 }

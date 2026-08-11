@@ -1,6 +1,6 @@
 use crate::{
     middleware::OptionalAuth,
-    models::{MonthGroup, Post},
+    models::{MonthGroup, Post, Viewer},
     AppState,
 };
 use askama::Template;
@@ -173,7 +173,7 @@ async fn render_grid(
     last_month: Option<&str>,
     head_label_oob: Option<String>,
 ) -> String {
-    let mut posts = crate::db::get_posts_page(&state.pool, q, page).await;
+    let mut posts = crate::db::get_posts_page(&state.pool, q, page, Viewer::Visitor).await;
     let has_more = posts.len() > 20;
     if has_more {
         posts.truncate(20);
@@ -213,12 +213,12 @@ async fn feed_page(
     // request to /artportfolio/htmx/posts?page=0 before anything was visible.
     // No out-of-band label here: the shell renders the head itself.
     let initial_posts_html = render_grid(&state, 0, q.as_deref(), None, None).await;
-    let total = crate::db::count_posts(&state.pool, q.as_deref()).await;
+    let counts = crate::db::count_posts(&state.pool, q.as_deref(), Viewer::Visitor).await;
 
     Html(
         FeedTemplate {
             is_admin,
-            head_label: head_label(total, q.as_deref()),
+            head_label: head_label(counts.total, q.as_deref()),
             initial_posts_html,
             q: q.unwrap_or_default(),
         }
@@ -237,8 +237,8 @@ async fn htmx_posts(
     // Page 0 replaces the whole feed, so the head's total has to move with it.
     // Load more only appends, and pays no COUNT.
     let oob = if page == 0 {
-        let total = crate::db::count_posts(&state.pool, q.as_deref()).await;
-        Some(head_label(total, q.as_deref()))
+        let counts = crate::db::count_posts(&state.pool, q.as_deref(), Viewer::Visitor).await;
+        Some(head_label(counts.total, q.as_deref()))
     } else {
         None
     };
@@ -272,7 +272,8 @@ async fn api_posts(
     // The same filter the HTML feed applies, so the two cannot drift on what
     // "matching" means.
     let q = normalize_q(query.q.as_deref());
-    let mut posts = crate::db::get_posts_page(&state.pool, q.as_deref(), page).await;
+    let mut posts =
+        crate::db::get_posts_page(&state.pool, q.as_deref(), page, Viewer::Visitor).await;
     let has_more = posts.len() > 20;
     if has_more {
         posts.truncate(20);
@@ -354,7 +355,7 @@ mod tests {
             }
             pool
         };
-        let posts = crate::db::get_posts_page(&pool, None, 0).await;
+        let posts = crate::db::get_posts_page(&pool, None, 0, Viewer::Admin).await;
         assert!(posts.len() > 20, "expected 21 rows with has_more=true");
     }
 
@@ -710,7 +711,7 @@ mod tests {
             )
             .await;
         }
-        let hits = crate::db::get_posts_page(&pool, Some("loomis"), 0).await;
+        let hits = crate::db::get_posts_page(&pool, Some("loomis"), 0, Viewer::Admin).await;
         assert_eq!(
             hits.len(),
             1,

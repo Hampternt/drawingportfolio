@@ -49,7 +49,10 @@ async fn htmx_admin_posts(
     _session: crate::middleware::AuthSession,
     State(state): State<Arc<AppState>>,
 ) -> impl IntoResponse {
-    let posts = crate::db::get_posts_page(&state.pool, None, 0).await;
+    // `Viewer::Admin`, and this is the call site that fails quietly if it is
+    // not: `Visitor` still compiles, still renders, and simply stops listing the
+    // posts an admin most needs to see from the dashboard.
+    let posts = crate::db::get_posts_page(&state.pool, None, 0, crate::models::Viewer::Admin).await;
     let mut html = String::new();
     for post in &posts {
         html.push_str(&admin_post_card_html(post));

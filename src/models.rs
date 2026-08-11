@@ -116,6 +116,37 @@ impl Default for Visibility {
     }
 }
 
+/// Who is asking.
+///
+/// Built once at the handler edge from `OptionalAuth` and the `?visitor=1`
+/// preview flag, then used for **both** the db call and the template flags.
+/// Deriving those two separately is how a preview ends up rendering a visitor's
+/// post set with admin badges and controls over it — getting wrong precisely the
+/// thing the preview exists to show.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Viewer {
+    Visitor,
+    Admin,
+}
+
+impl Viewer {
+    pub fn is_admin(&self) -> bool {
+        matches!(self, Self::Admin)
+    }
+}
+
+/// The page head's numbers.
+///
+/// `total` is viewer-dependent: an admin's total is every post, a visitor's is
+/// the public count. The other three are rendered for an admin only.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct PostCounts {
+    pub total: i64,
+    pub public: i64,
+    pub unlisted: i64,
+    pub hidden: i64,
+}
+
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct Session {
     pub id: String,
