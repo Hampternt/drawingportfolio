@@ -16,6 +16,14 @@ pub struct Post {
     /// `width="0"` would collapse the image.
     pub image_width: i64,
     pub image_height: i64,
+    /// The raw `visibility` column text, from migration 013 — parse it with
+    /// [`Visibility::from_row`] wherever behaviour depends on it.
+    ///
+    /// A `String` rather than the enum because six queries select the posts
+    /// columns and each would otherwise need a sqlx type override. It is also
+    /// `Serialize`, so it appears in the JSON API — harmless, since that route
+    /// serves a visitor nothing but `public` rows.
+    pub visibility: String,
 }
 
 /// One month's worth of the feed, computed in the handler.
@@ -57,6 +65,54 @@ impl PostFormat {
 impl Default for PostFormat {
     fn default() -> Self {
         Self::Single
+    }
+}
+
+/// A post's visibility state.
+///
+/// `public` is listed everywhere; `unlisted` is excluded from the feed and the
+/// JSON API but still served by its permalink; `hidden` is served to nobody but
+/// an admin.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Visibility {
+    Public,
+    Unlisted,
+    Hidden,
+}
+
+impl Visibility {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Public => "public",
+            Self::Unlisted => "unlisted",
+            Self::Hidden => "hidden",
+        }
+    }
+
+    /// Strict parse, for input arriving from outside — a PATCH body or a
+    /// multipart field. `None` is a 400 at the call site, never a default:
+    /// silently coercing a typo to some state would look like the request
+    /// succeeded.
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "public" => Some(Self::Public),
+            "unlisted" => Some(Self::Unlisted),
+            "hidden" => Some(Self::Hidden),
+            _ => None,
+        }
+    }
+
+    /// Lenient parse, for a value read back out of the database — and it fails
+    /// **closed**. A corrupt row, or one written by a future version that knows
+    /// a state this build does not, must not render to the public.
+    pub fn from_row(s: &str) -> Self {
+        Self::from_str(s).unwrap_or(Self::Hidden)
+    }
+}
+
+impl Default for Visibility {
+    fn default() -> Self {
+        Self::Public
     }
 }
 

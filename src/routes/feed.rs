@@ -379,6 +379,7 @@ mod tests {
             created_at: "2024-01-01T00:00:00".to_string(),
             image_width: 0,
             image_height: 0,
+            visibility: crate::models::Visibility::Public.as_str().to_string(),
         }
     }
 
@@ -395,6 +396,7 @@ mod tests {
             created_at: "2024-01-01T00:00:00".to_string(),
             image_width: 0,
             image_height: 0,
+            visibility: crate::models::Visibility::Public.as_str().to_string(),
         };
         let html = card(&post, false);
         assert!(
@@ -416,6 +418,7 @@ mod tests {
             created_at: "2024-01-01T00:00:00".to_string(),
             image_width: 0,
             image_height: 0,
+            visibility: crate::models::Visibility::Public.as_str().to_string(),
         };
         let html = card(&post, false);
         // The security property, and the only part that must never change: no
@@ -450,6 +453,7 @@ mod tests {
             created_at: "2024-01-01T00:00:00".to_string(),
             image_width: 0,
             image_height: 0,
+            visibility: crate::models::Visibility::Public.as_str().to_string(),
         };
         let html = card(&post, false);
         assert!(html.contains("<picture>"), "should contain picture element");
@@ -478,6 +482,7 @@ mod tests {
             created_at: "2024-01-01T00:00:00".to_string(),
             image_width: 0,
             image_height: 0,
+            visibility: crate::models::Visibility::Public.as_str().to_string(),
         };
         let html = card(&post, false);
         assert!(

@@ -92,6 +92,15 @@ pub async fn run_migrations(pool: &DbPool) {
     let _ = sqlx::query(include_str!("../migrations/012_image_dimensions.sql"))
         .execute(pool)
         .await;
+
+    // Migration 013: visibility model — public / unlisted / hidden.
+    //
+    // Existing rows default to 'public'. Slice 1 took 012 for image dimensions,
+    // so this is 013 even though the design handoff reserved 012 for it —
+    // migration numbers follow ship order, not the order a document listed them.
+    let _ = sqlx::query(include_str!("../migrations/013_post_visibility.sql"))
+        .execute(pool)
+        .await;
 }
 
 /// Builds the `LIKE` pattern for a caption search.
@@ -126,7 +135,7 @@ pub async fn get_posts_page(pool: &DbPool, q: Option<&str>, page: i64) -> Vec<Po
         Some(q) => {
             let pattern = like_pattern(q);
             sqlx::query_as!(Post,
-                "SELECT id, caption, image_url, webp_url, avif_url, format, file_size_bytes, created_at, image_width, image_height FROM posts WHERE caption LIKE ? ESCAPE '\\' ORDER BY created_at DESC LIMIT 21 OFFSET ?",
+                "SELECT id, caption, image_url, webp_url, avif_url, format, file_size_bytes, created_at, image_width, image_height, visibility FROM posts WHERE caption LIKE ? ESCAPE '\\' ORDER BY created_at DESC LIMIT 21 OFFSET ?",
                 pattern, offset
             )
             .fetch_all(pool)
@@ -135,7 +144,7 @@ pub async fn get_posts_page(pool: &DbPool, q: Option<&str>, page: i64) -> Vec<Po
         }
         None => {
             sqlx::query_as!(Post,
-                "SELECT id, caption, image_url, webp_url, avif_url, format, file_size_bytes, created_at, image_width, image_height FROM posts ORDER BY created_at DESC LIMIT 21 OFFSET ?",
+                "SELECT id, caption, image_url, webp_url, avif_url, format, file_size_bytes, created_at, image_width, image_height, visibility FROM posts ORDER BY created_at DESC LIMIT 21 OFFSET ?",
                 offset
             )
             .fetch_all(pool)
@@ -193,7 +202,7 @@ pub async fn insert_post(
     .id;
 
     sqlx::query_as!(Post,
-        "SELECT id, caption, image_url, webp_url, avif_url, format, file_size_bytes, created_at, image_width, image_height FROM posts WHERE id = ?", id
+        "SELECT id, caption, image_url, webp_url, avif_url, format, file_size_bytes, created_at, image_width, image_height, visibility FROM posts WHERE id = ?", id
     )
     .fetch_one(pool)
     .await

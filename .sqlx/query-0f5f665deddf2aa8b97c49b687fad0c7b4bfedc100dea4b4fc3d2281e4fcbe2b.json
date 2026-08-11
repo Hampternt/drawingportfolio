@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT id, caption, image_url, webp_url, avif_url, format, file_size_bytes, created_at, image_width, image_height FROM posts WHERE id = ?",
+  "query": "SELECT id, caption, image_url, webp_url, avif_url, format, file_size_bytes, created_at, image_width, image_height, visibility FROM posts WHERE caption LIKE ? ESCAPE '\\' ORDER BY created_at DESC LIMIT 21 OFFSET ?",
   "describe": {
     "columns": [
       {
@@ -52,12 +52,18 @@
         "name": "image_height",
         "ordinal": 9,
         "type_info": "Integer"
+      },
+      {
+        "name": "visibility",
+        "ordinal": 10,
+        "type_info": "Text"
       }
     ],
     "parameters": {
-      "Right": 1
+      "Right": 2
     },
     "nullable": [
+      false,
       false,
       false,
       false,
@@ -70,5 +76,5 @@
       false
     ]
   },
-  "hash": "7b2b43db0bd03eee0f10983b32c85073440c905aa3e6c93b9f6eb11e91691c0b"
+  "hash": "0f5f665deddf2aa8b97c49b687fad0c7b4bfedc100dea4b4fc3d2281e4fcbe2b"
 }
