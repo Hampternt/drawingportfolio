@@ -30,7 +30,53 @@ invented.
 
 ## Status
 
-Slice 1 is four plans: **A → A-vis → A2 → B**.
+Slice 1 is four plans: **A → A-vis → A2 → B**. Everything after slice 1 was
+planned in one pass on 2026-08-11 — see "The rest of the game" below.
+
+## The rest of the game — eight plans, written 2026-08-11, none executed
+
+All eight are in `docs/superpowers/plans/2026-08-11-last-call-plan-*.md`. Each
+was written by its own subagent against the spec, DDv2 and the earlier plans'
+Produces blocks, and each opens with a **`## Proposed design decisions —
+awaiting user review`** section — the design bundle is silent on most of what
+slices 2+ need, so every invented rule is flagged there with a rationale.
+**That section, across all eight files, is the user's design-review surface.
+Review before executing; a rejected decision is cheaper to change in the plan
+than in a fix wave.**
+
+| Plan | File suffix | What it ships | Tasks |
+| --- | --- | --- | --- |
+| **C** | `plan-c-hand-group` | HandWheel + ArmedColumn + CostRail on the HAND tab; `lc_wheel.js`; `lc:arm`/`lc:disarm` CustomEvent hooks for E | 5 (all A/B) |
+| **D** | `plan-d-loop-engine` | The stubbed transitions implemented, pure-engine: draw/deal, arm/disarm/`set_target`/lock, `advance_beat`, `resolve()`; `EffectOp {Damage, Heal, Shield, Dot}`; `LcOutcome`; hidden `locked_plays` (§3.4.1); `from_json` seat cap (the pre-deploy item) | 5 (all B) |
+| **F** | `plan-f-catalog` | The REAL catalog: 5 decks × 8 distinct cards, copies to `LC_DECK_SIZE` 40; effects as catalog-side `card_fx(id)` lookup (no blob migration); new op `PullDrain` with engine support; balance: par 2 dmg/pull vs HP 15 | 4 (B/A) |
+| **E** | `plan-e-loop-wiring` | Playable game: action routes under `RoomLocks`, beat clock on the 1 Hz ticker (`beat_deadline_ms`), F.1 action bar, reveal flights, minimal game-over; closes the flight-layer debt and the `Err(_) => None` lag arm | 5 (3 C, 2 B) |
+| **G** | `plan-g-pacts` | Pacts: secretly negotiated during Diplomacy, rewire the endgame to a shared two-player win (`LcOutcome::Pact`); betrayal is public by name | 4 (3 B, 1 C) |
+| **H** | `plan-h-events-tabs` | 7 public round events + 7 private tab objectives, both as id+lookup catalogs; deterministic seed-stepped event selection; rewards pay HP/pulls, never winning | 5 (3 B, 2 C) |
+| **I** | `plan-i-reactions-ghosts` | The Reveal beat becomes the response window (opens unconditionally — a conditional window would leak who holds reactions); `ReactionFx {Cancel, Reduce, Reflect}` arms F's five inert reaction cards; ghosts get DDv2 §9.2 verbatim: one +1 haunt per round | 5 (4 B, 1 C) |
+| **J** | `plan-j-finish` | Public-only game log (capped 80) filling the LOG tab; the designed end-of-game screen + REMATCH; lobby polish; verdict on every carried cosmetic (plaque → 196px, deck list row built, redirects fixed) | 5 (2 C, 3 B) |
+
+**Execution order — binding:** C → D → F → E, then G / H / I in any order
+(they commute: G is beat 3, H is beat 2, I is beat 5, and all three add only
+container-default fields), then **J last** (its log emission and end-screen
+stats hook into whatever G/H/I shipped). F runs before E so E's wiring samples
+the real shoe; F deliberately keeps beer/cider/soft magnitudes coincident with
+D's placeholder mapping so D's resolve suite survives unedited.
+
+**Cross-plan seams, found during writing — the executor of the *second* plan
+in each pair owns the reconciliation:**
+
+- **C ↔ existing CSS:** Plan C's CostRail root class `.lc-rail` collides with
+  the big screen's existing `.lc-rail` (`lastcall.css:700`). Owned by Plan C's
+  execution/fix wave — rename one.
+- **C ↔ D:** D17 proposes `armed: Vec<ArmedCard>`; C's `HandGroupView` takes
+  `armed: &[Card]`. Whichever executes second reconciles `hand_pane_html`.
+- **J's public-only log binds G/H/I:** no log line may carry secret content —
+  G routes pact lines through the private fetch, H announces tab completion
+  name-only, I is safe by construction (reactions/haunts are public the moment
+  they exist). J may need a small task adding log-emission calls into G/H/I's
+  shipped transitions; it says so.
+- **H ↔ E:** H's `effective_pull_cost`/`charged_pulls` seam retunes Plan E's
+  DRINK chip. H runs after E; H owns it.
 
 - **Plan A — component library. DONE.** `85f2552..f80615a`, 7 commits,
   `verify.sh` green, 275 tests. Object model + `PublicView`, `lastcall.css`,
@@ -397,16 +443,19 @@ Then, in this order:
    in the fix wave**, so this is now also the first human look at the corrected
    geometry: seats should sit ON the felt's inner hairline ellipse, with the
    bottom seat pulled slightly inward (r ≈ 0.85, D.2's local-player rule).
-3. **Write slice 2's plan** — the hand group: **HandWheel, ArmedColumn and
-   CostRail**, which the Module Spec calls *"one widget in three parts, and they
-   always ship together."* Invoke `plan-economics` before writing it. Read
-   "Carried out of Plan B" above first. Its ledger goes at
+3. ~~Write slice 2's plan.~~ **Done 2026-08-11 — and so is every other plan.**
+   All eight remaining plans (C through J, covering every slice to completion)
+   are written; see "The rest of the game" above.
+4. **User design review** of the eight `## Proposed design decisions` sections
+   — the plans invented every rule the bundle left blank, and the review is
+   cheapest before execution.
+5. **Execute, one plan per session**, in the binding order: C → D → F → E →
+   G/H/I → J. Each plan names its ledger at
    `.superpowers/sdd/<plan-basename>/progress.md`.
 
-Slice 3 (the beat loop — arm / lock / reveal / resolve, and the damage that
-makes any of these numbers move) follows slice 2, and still owns spec §3.4.1:
-`public_view()` decides revelation from the beat alone, so **nothing may enter
-`plays` before it is revealable**.
+Spec §3.4.1 (nothing enters `plays` before it is revealable) is owned by Plan
+D, which holds locked plays in a hidden `locked_plays` field and carries the
+mandatory secrecy test.
 
 **Still owed on Plan A-vis:** browser checkpoint 2 items 6–7 — press every
 REPLAY and watch a flight actually travel, then turn on devtools' "Emulate CSS
