@@ -546,10 +546,15 @@ impl LastCallState {
 
     /// Registers the player's drink. `pulls_max` is a DECK constant
     /// (DDv2 §3.2); `container` is a free-text label and never affects it.
+    /// Draw-beat-gated (D15) — game setup happens at round 1 Draw, so the
+    /// route flow that calls this at table setup is unaffected.
     ///
-    /// Slice-1 stub deal: the vessel also seeds the player's hand with that
-    /// deck's placeholder cards, because no Draw beat exists yet to do it.
-    /// The Draw beat replaces this in slice 3.
+    /// Placeholder deal (still slice-1 mechanics, kept verbatim by D15): the
+    /// vessel also seeds the player's hand with that deck's placeholder
+    /// cards. New here: if no player currently holds a vessel of `deck`, its
+    /// shoe activates at `LC_DECK_SIZE` (D6) before the deal, and the cards
+    /// actually pushed to the hand (the same-deck-replace dedupe can push
+    /// zero) are debited from the shoe.
     pub fn set_vessel(
         &mut self,
         player_id: i64,
@@ -559,6 +564,23 @@ impl LastCallState {
         let Some(seat) = self.seat_of(player_id) else {
             return Err(LcError::NotSeated);
         };
+        if self.players[seat].status != Status::Alive {
+            return Err(LcError::NotAlive);
+        }
+        if self.beat != Beat::Draw {
+            return Err(LcError::WrongBeat);
+        }
+        if !self
+            .players
+            .iter()
+            .any(|p| p.vessels.iter().any(|v| v.deck == deck))
+        {
+            if let Some(entry) = self.deck_counts.iter_mut().find(|(d, _)| *d == deck) {
+                entry.1 = LC_DECK_SIZE;
+            } else {
+                self.deck_counts.push((deck, LC_DECK_SIZE));
+            }
+        }
         let p = &mut self.players[seat];
         p.vessels.retain(|v| v.deck != deck);
         p.vessels.push(Vessel {
@@ -567,10 +589,69 @@ impl LastCallState {
             pulls_left: deck.pulls(),
             container: container.to_string(),
         });
+        let mut dealt: u16 = 0;
         for card in crate::lc_cards::deck_cards(deck) {
             if !p.hand.iter().any(|c| c.id == card.id) {
                 p.hand.push(card);
+                dealt += 1;
             }
+        }
+        if let Some(entry) = self.deck_counts.iter_mut().find(|(d, _)| *d == deck) {
+            entry.1 = entry.1.saturating_sub(dealt);
+        }
+        self.seq += 1;
+        Ok(())
+    }
+
+    /// DDv2 4.3 finish-&-draw, beat 1 only, once per player per round
+    /// (TBD-5). `drawn` is decided by the caller (no RNG here): its length
+    /// MUST equal `min(DRAW_PER_VESSEL, shoe count for the vessel's deck)`
+    /// and every card MUST belong to that deck (D7: the min is what makes a
+    /// short shoe legal). Empties-and-refills the vessel to `pulls_max`,
+    /// debits the shoe, extends the hand, sets `drawing` and
+    /// `draws_this_round`.
+    pub fn finish_and_draw(
+        &mut self,
+        player_id: i64,
+        vessel_idx: usize,
+        drawn: Vec<Card>,
+    ) -> Result<(), LcError> {
+        let Some(seat) = self.seat_of(player_id) else {
+            return Err(LcError::NotSeated);
+        };
+        if self.players[seat].status != Status::Alive {
+            return Err(LcError::NotAlive);
+        }
+        if self.beat != Beat::Draw {
+            return Err(LcError::WrongBeat);
+        }
+        let p = &self.players[seat];
+        if vessel_idx >= p.vessels.len() {
+            return Err(LcError::BadDraw);
+        }
+        if p.drawing {
+            return Err(LcError::BadDraw);
+        }
+        let deck = p.vessels[vessel_idx].deck;
+        let shoe = self
+            .deck_counts
+            .iter()
+            .find(|(d, _)| *d == deck)
+            .map(|&(_, c)| c)
+            .unwrap_or(0);
+        let expected = (DRAW_PER_VESSEL as u16).min(shoe) as usize;
+        if drawn.len() != expected || drawn.iter().any(|c| c.deck != deck) {
+            return Err(LcError::BadDraw);
+        }
+
+        let p = &mut self.players[seat];
+        p.vessels[vessel_idx].pulls_left = p.vessels[vessel_idx].pulls_max;
+        let drawn_count = drawn.len() as u16;
+        p.hand.extend(drawn);
+        p.draws_this_round += drawn_count;
+        p.drawing = true;
+        if let Some(entry) = self.deck_counts.iter_mut().find(|(d, _)| *d == deck) {
+            entry.1 = entry.1.saturating_sub(drawn_count);
         }
         self.seq += 1;
         Ok(())
@@ -700,7 +781,6 @@ pub fn preview_state() -> LastCallState {
         0xC0FFEE,
     );
     st.round = 6;
-    st.beat = Beat::Lock;
     st.set_vessel(1, Deck::Beer, "50cl can").unwrap();
     st.set_vessel(2, Deck::Cider, "50cl bottle").unwrap();
     st.set_vessel(3, Deck::Wine, "15cl glass").unwrap();
@@ -736,6 +816,7 @@ pub fn preview_state() -> LastCallState {
         .collect();
     st.players[0].draws_this_round = 3; // the plaque's draw badge
     st.set_vessel(8, Deck::Soft, "any").unwrap(); // 8th seat: MAX_SEATS ceiling
+    st.beat = Beat::Lock;
     st.deck_counts = vec![
         (Deck::Beer, 21),
         (Deck::Cider, 17),
@@ -757,6 +838,18 @@ mod tests {
             vec![(1, "alice".into()), (2, "bob".into()), (3, "cara".into())],
             42,
         )
+    }
+
+    fn deck_count(st: &LastCallState, deck: Deck) -> u16 {
+        st.deck_counts.iter().find(|(d, _)| *d == deck).unwrap().1
+    }
+
+    fn set_deck_count(st: &mut LastCallState, deck: Deck, count: u16) {
+        st.deck_counts
+            .iter_mut()
+            .find(|(d, _)| *d == deck)
+            .unwrap()
+            .1 = count;
     }
 
     #[test]
@@ -1141,5 +1234,92 @@ mod tests {
 
         assert!(st.deck_counts.iter().any(|&(_, c)| c == 0));
         assert!(st.deck_counts.iter().any(|&(_, c)| (1..5).contains(&c)));
+    }
+
+    #[test]
+    fn test_set_vessel_activates_and_debits_the_shoe() {
+        let mut st = seated();
+        st.set_vessel(1, Deck::Beer, "can").unwrap();
+        // 40 in, 4 catalog cards dealt out.
+        assert_eq!(deck_count(&st, Deck::Beer), LC_DECK_SIZE - 4); // 36
+        st.set_vessel(2, Deck::Beer, "can").unwrap();
+        // No reactivation — same shoe, four more cards dealt.
+        assert_eq!(deck_count(&st, Deck::Beer), LC_DECK_SIZE - 8); // 32
+                                                                   // Same-deck re-registration replaces the vessel; the dedupe deals 0
+                                                                   // new cards, so the shoe is untouched.
+        st.set_vessel(1, Deck::Beer, "bigger can").unwrap();
+        assert_eq!(deck_count(&st, Deck::Beer), LC_DECK_SIZE - 8);
+        assert_eq!(st.players[0].vessels.len(), 1);
+    }
+
+    #[test]
+    fn test_set_vessel_outside_draw_is_rejected() {
+        let mut st = seated();
+        st.beat = Beat::Lock;
+        assert_eq!(st.set_vessel(1, Deck::Beer, "can"), Err(LcError::WrongBeat));
+    }
+
+    #[test]
+    fn test_finish_and_draw_refills_and_draws() {
+        let mut st = seated();
+        st.set_vessel(1, Deck::Beer, "can").unwrap(); // shoe 36, hand 4, 8/8
+        st.players[0].vessels[0].pulls_left = 2; // most of the can is gone
+        let before_seq = st.seq;
+        let mut drawn = crate::lc_cards::deck_cards(Deck::Beer); // 4
+        drawn.push(crate::lc_cards::card_by_id("beer-01").unwrap()); // 5 — dups fine
+        st.finish_and_draw(1, 0, drawn).unwrap();
+        let p = &st.players[0];
+        assert_eq!(p.vessels[0].pulls_left, 8); // fresh can
+        assert_eq!(p.hand.len(), 9);
+        assert_eq!(p.draws_this_round, 5);
+        assert!(p.drawing);
+        assert_eq!(deck_count(&st, Deck::Beer), 31);
+        assert_eq!(st.seq, before_seq + 1);
+    }
+
+    #[test]
+    fn test_one_finish_and_draw_per_round() {
+        // TBD-5
+        let mut st = seated();
+        st.set_vessel(1, Deck::Beer, "can").unwrap();
+        let mut drawn = crate::lc_cards::deck_cards(Deck::Beer);
+        drawn.push(crate::lc_cards::card_by_id("beer-01").unwrap());
+        st.finish_and_draw(1, 0, drawn.clone()).unwrap();
+        assert_eq!(st.finish_and_draw(1, 0, drawn), Err(LcError::BadDraw));
+    }
+
+    #[test]
+    fn test_finish_and_draw_validates_the_batch() {
+        let mut st = seated();
+        st.set_vessel(1, Deck::Beer, "can").unwrap(); // shoe 36 → expects 5
+                                                      // Too few:
+        assert_eq!(
+            st.finish_and_draw(1, 0, crate::lc_cards::deck_cards(Deck::Beer)),
+            Err(LcError::BadDraw)
+        );
+        // Right count, wrong deck in the batch:
+        let mut bad = crate::lc_cards::deck_cards(Deck::Beer);
+        bad.push(crate::lc_cards::card_by_id("cider-01").unwrap());
+        assert_eq!(st.finish_and_draw(1, 0, bad), Err(LcError::BadDraw));
+        // Bad vessel index:
+        assert_eq!(st.finish_and_draw(1, 5, vec![]), Err(LcError::BadDraw));
+        // Wrong beat:
+        st.beat = Beat::Deal;
+        assert_eq!(st.finish_and_draw(1, 0, vec![]), Err(LcError::WrongBeat));
+    }
+
+    #[test]
+    fn test_short_shoe_draws_partial() {
+        // D7
+        let mut st = seated();
+        st.set_vessel(1, Deck::Beer, "can").unwrap();
+        set_deck_count(&mut st, Deck::Beer, 3); // shoe nearly out → expects 3
+        let mut five = crate::lc_cards::deck_cards(Deck::Beer);
+        five.push(crate::lc_cards::card_by_id("beer-01").unwrap());
+        assert_eq!(st.finish_and_draw(1, 0, five), Err(LcError::BadDraw));
+        let three = crate::lc_cards::deck_cards(Deck::Beer)[..3].to_vec();
+        st.finish_and_draw(1, 0, three).unwrap();
+        assert_eq!(deck_count(&st, Deck::Beer), 0);
+        assert_eq!(st.players[0].hand.len(), 7);
     }
 }
