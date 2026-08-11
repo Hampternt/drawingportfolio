@@ -3616,7 +3616,7 @@ async fn test_lastcall_vessel_sets_deck_constant_pulls() {
     // pulls_max is the deck constant (liquor = 4), never anything derived
     // from the deliberately contradictory "pint glass" container label.
     assert_eq!(st.players[seat].vessels[0].pulls_max, 4);
-    assert_eq!(st.players[seat].hand.len(), 4);
+    assert_eq!(st.players[seat].hand.len(), 5); // F6 opener, not the old 4-card deal
 }
 
 #[tokio::test]
@@ -4387,13 +4387,14 @@ async fn test_lastcall_vessel_broadcasts_public_and_tick() {
 /// (not just `lcpublic` ones) — the spectator screen subscribes to the
 /// whole thing, so a leak via `room`/`game`/`screen` would be just as real.
 ///
-/// `set_vessel` (`last_call.rs`) pushes the *entire* chosen deck into the
-/// player's hand — `crate::lc_cards::deck_cards(deck)` — so registering
-/// `beer` deterministically puts `beer-01`..`beer-04` in alice's hand with
-/// no dependence on the rng seed. That's what makes `beer-01` etc. a real
-/// needle rather than an assumed one: the positive control below fetches
-/// alice's own hand fragment and confirms `beer-01` is actually there
-/// before trusting its absence from the broadcast frames as meaningful.
+/// `set_vessel` (`last_call.rs`) pushes the chosen deck's curated opening
+/// hand into the player's hand — `crate::lc_cards::opening_hand(deck)` —
+/// so registering `beer` deterministically puts `beer-01` (among the
+/// opener's other four cards) in alice's hand with no dependence on the rng
+/// seed. That's what makes `beer-01` etc. a real needle rather than an
+/// assumed one: the positive control below fetches alice's own hand
+/// fragment and confirms `beer-01` is actually there before trusting its
+/// absence from the broadcast frames as meaningful.
 #[tokio::test]
 async fn test_lcpublic_never_carries_hand_cards() {
     let app = test_app().await;

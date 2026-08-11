@@ -265,6 +265,7 @@ pub struct Play {
 /// | `Heal` | no | add `magnitude` to subject HP; no ceiling (TBD-3) |
 /// | `Shield` | yes | absorbs damage up to `magnitude` until `expires_round`; `magnitude` is consumed as it absorbs; removed at 0 |
 /// | `Dot` | yes | `magnitude` damage to subject at each `resolve()` after its creation round, through `expires_round` |
+/// | `PullDrain` | no | Plan F catalog data only — `resolve()` does not act on it yet (Task 2) |
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum EffectOp {
@@ -272,6 +273,7 @@ pub enum EffectOp {
     Heal,
     Shield,
     Dot,
+    PullDrain,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -584,12 +586,12 @@ impl LastCallState {
     /// Draw-beat-gated (D15) — game setup happens at round 1 Draw, so the
     /// route flow that calls this at table setup is unaffected.
     ///
-    /// Placeholder deal (still slice-1 mechanics, kept verbatim by D15): the
-    /// vessel also seeds the player's hand with that deck's placeholder
-    /// cards. New here: if no player currently holds a vessel of `deck`, its
-    /// shoe activates at `LC_DECK_SIZE` (D6) before the deal, and the cards
-    /// actually pushed to the hand (the same-deck-replace dedupe can push
-    /// zero) are debited from the shoe.
+    /// The vessel also seeds the player's hand with that deck's curated
+    /// opening hand (F6) — no longer a slice-1 all-cards-in-the-deck stub.
+    /// If no player currently holds a vessel of `deck`, its shoe activates
+    /// at `LC_DECK_SIZE` (D6) before the deal, and the cards actually pushed
+    /// to the hand (the same-deck-replace dedupe can push zero) are debited
+    /// from the shoe.
     pub fn set_vessel(
         &mut self,
         player_id: i64,
@@ -625,7 +627,7 @@ impl LastCallState {
             container: container.to_string(),
         });
         let mut dealt: u16 = 0;
-        for card in crate::lc_cards::deck_cards(deck) {
+        for card in crate::lc_cards::opening_hand(deck) {
             if !p.hand.iter().any(|c| c.id == card.id) {
                 p.hand.push(card);
                 dealt += 1;
@@ -1396,23 +1398,26 @@ pub fn preview_state() -> LastCallState {
     st.players[6].hp = 0;
     st.players[3].hp = 4; // dev: low HP
 
-    // 12 cards: four distinct Cider ids repeated three times. Deliberate —
-    // it bypasses set_vessel's dedupe so the n > 8 hand-strip split has a
-    // hand to split, and the strip only ever reads a COUNT. The wheel now
-    // indexes by DOM position, not card id (decision 10) — but three
-    // visually identical card triples would still make the preview's
-    // oversized wheel look broken, so the second and third rep's ids are
-    // suffixed to stay distinct.
-    st.players[1].hand = (0..3)
-        .flat_map(|rep| {
-            crate::lc_cards::deck_cards(Deck::Cider)
-                .into_iter()
-                .map(move |mut c| {
-                    if rep > 0 {
-                        c.id = format!("{}-r{rep}", c.id);
-                    }
-                    c
-                })
+    // 12 cards: the first 4 Cider ids repeated three times. Deliberate — it
+    // bypasses set_vessel's dedupe so the n > 10 hand-strip split has a hand
+    // to split, and the strip only ever reads a COUNT. The wheel now indexes
+    // by DOM position, not card id (decision 10) — but three visually
+    // identical card triples would still make the preview's oversized wheel
+    // look broken, so the second and third rep's ids are suffixed to stay
+    // distinct.
+    let opener_four = crate::lc_cards::deck_cards(Deck::Cider)
+        .into_iter()
+        .take(4)
+        .collect::<Vec<_>>();
+    st.players[1].hand = std::iter::repeat_n(opener_four, 3)
+        .enumerate()
+        .flat_map(|(rep, cards)| {
+            cards.into_iter().map(move |mut c| {
+                if rep > 0 {
+                    c.id = format!("{}-r{rep}", c.id);
+                }
+                c
+            })
         })
         .collect();
     st.players[0].draws_this_round = 3; // the plaque's draw badge
@@ -1425,7 +1430,10 @@ pub fn preview_state() -> LastCallState {
         (Deck::Liquor, 0),
         (Deck::Soft, 12),
     ];
-    st.discards = crate::lc_cards::deck_cards(Deck::Beer); // discard count 4
+    st.discards = crate::lc_cards::deck_cards(Deck::Beer)
+        .into_iter()
+        .take(4)
+        .collect(); // discard count 4
     st.seq = 42;
     st
 }
@@ -1565,7 +1573,7 @@ mod tests {
 
         let view = st.public_view();
         assert_eq!(view.seats.len(), 3);
-        assert_eq!(view.seats[0].hand_len, 4);
+        assert_eq!(view.seats[0].hand_len, 5); // F6 opener, not the old 4-card deal
         assert!(view.revealed.is_empty());
         let json = serde_json::to_string(&view).unwrap();
         assert!(!json.contains("Corked"));
@@ -1633,7 +1641,7 @@ mod tests {
             vec![(Deck::Beer, 8, 8), (Deck::Wine, 6, 6)]
         );
         assert_eq!(seat0.decks(), vec![Deck::Beer, Deck::Wine]);
-        assert_eq!(seat0.hand_len, 8);
+        assert_eq!(seat0.hand_len, 10); // two 5-card F6 openers, no id overlap
     }
 
     #[test]
@@ -1737,6 +1745,10 @@ mod tests {
             serde_json::to_string(&EffectOp::Damage).unwrap(),
             "\"damage\""
         );
+        assert_eq!(
+            serde_json::to_string(&EffectOp::PullDrain).unwrap(),
+            "\"pull_drain\""
+        );
     }
 
     #[test]
@@ -1835,7 +1847,7 @@ mod tests {
         let mut st = at_lock();
         let before = st.seq;
         st.arm(1, "beer-01").unwrap();
-        assert_eq!(st.players[0].hand.len(), 3);
+        assert_eq!(st.players[0].hand.len(), 4);
         assert_eq!(st.players[0].armed.len(), 1);
         assert_eq!(st.players[0].armed[0].card.id, "beer-01");
         assert_eq!(st.players[0].armed[0].target, None);
@@ -1847,6 +1859,12 @@ mod tests {
         let mut st = at_lock();
         assert_eq!(st.arm(999, "beer-01"), Err(LcError::NotSeated));
         assert_eq!(st.arm(1, "nope"), Err(LcError::UnknownCard));
+        // Soft's F6 opener excludes its reaction (soft-04), so it must be
+        // added to cara's hand by hand to reach the NotPlayable check —
+        // UnknownCard outranks NotPlayable in the guard order.
+        st.players[2]
+            .hand
+            .push(crate::lc_cards::card_by_id("soft-04").unwrap());
         assert_eq!(st.arm(3, "soft-04"), Err(LcError::NotPlayable)); // Reaction, D9
         st.players[0].status = Status::Eliminated;
         assert_eq!(st.arm(1, "beer-01"), Err(LcError::NotAlive));
@@ -1879,7 +1897,7 @@ mod tests {
         st.arm(1, "beer-01").unwrap();
         st.set_target(1, "beer-01", Some(1)).unwrap();
         st.disarm(1, "beer-01").unwrap();
-        assert_eq!(st.players[0].hand.len(), 4);
+        assert_eq!(st.players[0].hand.len(), 5);
         assert!(st.players[0].armed.is_empty());
         assert_eq!(st.disarm(1, "beer-01"), Err(LcError::UnknownCard));
     }
@@ -2071,7 +2089,7 @@ mod tests {
         assert_eq!(st.players[1].vessels[0].pulls_left, 7); // Cider 10-3
         assert_eq!(st.players[2].vessels[0].pulls_left, 6); // cara never locked
                                                             // cara's armed card went home, uncharged (§12):
-        assert_eq!(st.players[2].hand.len(), 4);
+        assert_eq!(st.players[2].hand.len(), 5);
         assert!(st.players[2].armed.is_empty());
         // 3 = 3 tie → seat order from first_seat 0 → alice first, arming order:
         assert_eq!(
@@ -2203,7 +2221,10 @@ mod tests {
         );
         assert_eq!(st.players.iter().filter(|p| p.locked).count(), 1);
         assert_eq!(st.players.iter().filter(|p| p.drawing).count(), 1);
-        assert_eq!(st.players.iter().filter(|p| p.hand.len() > 8).count(), 1);
+        // Two-deck players (bob's non-oversized 10-card double-opener) are
+        // legitimate now, not oversized — only the fixture's deliberate
+        // 12-card hand should trip this.
+        assert_eq!(st.players.iter().filter(|p| p.hand.len() > 10).count(), 1);
         assert_eq!(
             st.players.iter().filter(|p| p.draws_this_round > 0).count(),
             1
@@ -2217,15 +2238,15 @@ mod tests {
     fn test_set_vessel_activates_and_debits_the_shoe() {
         let mut st = seated();
         st.set_vessel(1, Deck::Beer, "can").unwrap();
-        // 40 in, 4 catalog cards dealt out.
-        assert_eq!(deck_count(&st, Deck::Beer), LC_DECK_SIZE - 4); // 36
+        // 40 in, 5 opener cards dealt out.
+        assert_eq!(deck_count(&st, Deck::Beer), LC_DECK_SIZE - 5); // 35
         st.set_vessel(2, Deck::Beer, "can").unwrap();
-        // No reactivation — same shoe, four more cards dealt.
-        assert_eq!(deck_count(&st, Deck::Beer), LC_DECK_SIZE - 8); // 32
-                                                                   // Same-deck re-registration replaces the vessel; the dedupe deals 0
-                                                                   // new cards, so the shoe is untouched.
+        // No reactivation — same shoe, five more cards dealt.
+        assert_eq!(deck_count(&st, Deck::Beer), LC_DECK_SIZE - 10); // 30
+                                                                    // Same-deck re-registration replaces the vessel; the dedupe deals 0
+                                                                    // new cards, so the shoe is untouched.
         st.set_vessel(1, Deck::Beer, "bigger can").unwrap();
-        assert_eq!(deck_count(&st, Deck::Beer), LC_DECK_SIZE - 8);
+        assert_eq!(deck_count(&st, Deck::Beer), LC_DECK_SIZE - 10);
         assert_eq!(st.players[0].vessels.len(), 1);
     }
 
@@ -2239,18 +2260,17 @@ mod tests {
     #[test]
     fn test_finish_and_draw_refills_and_draws() {
         let mut st = seated();
-        st.set_vessel(1, Deck::Beer, "can").unwrap(); // shoe 36, hand 4, 8/8
+        st.set_vessel(1, Deck::Beer, "can").unwrap(); // shoe 35, hand 5, 8/8
         st.players[0].vessels[0].pulls_left = 2; // most of the can is gone
         let before_seq = st.seq;
-        let mut drawn = crate::lc_cards::deck_cards(Deck::Beer); // 4
-        drawn.push(crate::lc_cards::card_by_id("beer-01").unwrap()); // 5 — dups fine
+        let drawn = crate::lc_cards::deck_cards(Deck::Beer)[..5].to_vec();
         st.finish_and_draw(1, 0, drawn).unwrap();
         let p = &st.players[0];
         assert_eq!(p.vessels[0].pulls_left, 8); // fresh can
-        assert_eq!(p.hand.len(), 9);
+        assert_eq!(p.hand.len(), 10);
         assert_eq!(p.draws_this_round, 5);
         assert!(p.drawing);
-        assert_eq!(deck_count(&st, Deck::Beer), 31);
+        assert_eq!(deck_count(&st, Deck::Beer), 30);
         assert_eq!(st.seq, before_seq + 1);
     }
 
@@ -2259,8 +2279,7 @@ mod tests {
         // TBD-5
         let mut st = seated();
         st.set_vessel(1, Deck::Beer, "can").unwrap();
-        let mut drawn = crate::lc_cards::deck_cards(Deck::Beer);
-        drawn.push(crate::lc_cards::card_by_id("beer-01").unwrap());
+        let drawn = crate::lc_cards::deck_cards(Deck::Beer)[..5].to_vec();
         st.finish_and_draw(1, 0, drawn.clone()).unwrap();
         assert_eq!(st.finish_and_draw(1, 0, drawn), Err(LcError::BadDraw));
     }
@@ -2268,14 +2287,14 @@ mod tests {
     #[test]
     fn test_finish_and_draw_validates_the_batch() {
         let mut st = seated();
-        st.set_vessel(1, Deck::Beer, "can").unwrap(); // shoe 36 → expects 5
+        st.set_vessel(1, Deck::Beer, "can").unwrap(); // shoe 35 → expects 5
                                                       // Too few:
         assert_eq!(
-            st.finish_and_draw(1, 0, crate::lc_cards::deck_cards(Deck::Beer)),
+            st.finish_and_draw(1, 0, crate::lc_cards::deck_cards(Deck::Beer)[..4].to_vec()),
             Err(LcError::BadDraw)
         );
         // Right count, wrong deck in the batch:
-        let mut bad = crate::lc_cards::deck_cards(Deck::Beer);
+        let mut bad = crate::lc_cards::deck_cards(Deck::Beer)[..4].to_vec();
         bad.push(crate::lc_cards::card_by_id("cider-01").unwrap());
         assert_eq!(st.finish_and_draw(1, 0, bad), Err(LcError::BadDraw));
         // Bad vessel index:
@@ -2291,13 +2310,12 @@ mod tests {
         let mut st = seated();
         st.set_vessel(1, Deck::Beer, "can").unwrap();
         set_deck_count(&mut st, Deck::Beer, 3); // shoe nearly out → expects 3
-        let mut five = crate::lc_cards::deck_cards(Deck::Beer);
-        five.push(crate::lc_cards::card_by_id("beer-01").unwrap());
+        let five = crate::lc_cards::deck_cards(Deck::Beer)[..5].to_vec();
         assert_eq!(st.finish_and_draw(1, 0, five), Err(LcError::BadDraw));
         let three = crate::lc_cards::deck_cards(Deck::Beer)[..3].to_vec();
         st.finish_and_draw(1, 0, three).unwrap();
         assert_eq!(deck_count(&st, Deck::Beer), 0);
-        assert_eq!(st.players[0].hand.len(), 7);
+        assert_eq!(st.players[0].hand.len(), 8);
     }
 
     /// M7 (D7 taken to its edge): an empty shoe makes `expected = 0`, so an
@@ -2446,7 +2464,7 @@ mod tests {
         st.lock_in(2).unwrap();
         st.advance_beat().unwrap();
         st.advance_beat().unwrap();
-        let _bob_hand = st.players[1].hand.len(); // 3 after arming cider-04
+        let _bob_hand = st.players[1].hand.len(); // 4 after arming cider-04
         st.resolve().unwrap();
         // Tie at 3 pulls, alice's seat leads: beer-02 lands, bob hits 0 —
         assert_eq!(st.players[1].hp, 0); // clamped, not negative
@@ -2456,8 +2474,8 @@ mod tests {
         assert_eq!(st.players[0].hp, 15);
         assert!(st.players[1].hand.is_empty()); // ghosts hold no cards (9.2)
         assert_eq!(st.players[0].vessels[0].pulls_left, 5); // 7.5: no refund
-                                                            // beer-01 + beer-02 + cider-04 + bob's 3 hand cards:
-        assert_eq!(st.discards.len(), 6);
+                                                            // beer-01 + beer-02 + cider-04 + bob's 4 hand cards:
+        assert_eq!(st.discards.len(), 7);
         assert_eq!(st.outcome(), None); // cara still stands
     }
 
@@ -2556,30 +2574,36 @@ mod tests {
         let mut st = at_lock();
         st.advance_beat().unwrap(); // Reveal (nobody locked, nothing staged)
         st.advance_beat().unwrap(); // Resolve
-                                    // Four reps of Cider's four ids, with reps 1..3 given distinct
-                                    // suffixes (the `preview_state` `-r{rep}` trick) so the 16-card hand
-                                    // is not four indistinguishable quadruples — a mutant that discards
-                                    // from the FRONT instead of the end would fail these id assertions
-                                    // (M2: the un-suffixed version passed either way).
-        st.players[1].hand = (0..4)
-            .flat_map(|rep| {
-                crate::lc_cards::deck_cards(Deck::Cider)
-                    .into_iter()
-                    .map(move |mut c| {
-                        if rep > 0 {
-                            c.id = format!("{}-r{rep}", c.id);
-                        }
-                        c
-                    })
-            })
+                                    // Two full copies of Cider's 8 distinct ids, concatenated (16 total)
+                                    // — a mutant that discards from the FRONT instead of the end would
+                                    // discard copy one's first four ids (cider-01..04) instead of copy
+                                    // two's last four (cider-05..08), and those two id sets are disjoint
+                                    // enough to catch it without any suffixing trick.
+        st.players[1].hand = std::iter::repeat_n(crate::lc_cards::deck_cards(Deck::Cider), 2)
+            .flatten()
             .collect(); // 16
         st.resolve().unwrap();
         assert_eq!(st.players[1].hand.len(), HAND_SOFT_CAP);
         assert_eq!(st.discards.len(), 4);
-        // Survivors are reps 0-2 (the oldest, kept); discards are rep 3
-        // (the newest, at the end of the hand — D12's "newest first"):
-        assert!(st.players[1].hand.iter().all(|c| !c.id.ends_with("-r3")));
-        assert!(st.discards.iter().all(|c| c.id.ends_with("-r3")));
+        // Survivors: all 8 of copy one plus copy two's first four
+        // (cider-01..04 again); discards: copy two's last four
+        // (cider-05..08) — the newest cards, dropped from the end of the
+        // hand (D12's "newest first"). Pinning both sides (not just the
+        // discard) catches a mutant that discards from the end AND mangles
+        // what it leaves behind:
+        let hand_ids: Vec<&str> = st.players[1].hand.iter().map(|c| c.id.as_str()).collect();
+        assert_eq!(
+            hand_ids,
+            vec![
+                "cider-01", "cider-02", "cider-03", "cider-04", "cider-05", "cider-06", "cider-07",
+                "cider-08", "cider-01", "cider-02", "cider-03", "cider-04",
+            ]
+        );
+        let discard_ids: Vec<&str> = st.discards.iter().map(|c| c.id.as_str()).collect();
+        assert_eq!(
+            discard_ids,
+            vec!["cider-05", "cider-06", "cider-07", "cider-08"]
+        );
     }
 
     #[test]

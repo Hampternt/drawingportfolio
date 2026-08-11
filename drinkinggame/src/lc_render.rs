@@ -932,7 +932,7 @@ mod tests {
     #[test]
     fn test_no_builder_emits_behaviour() {
         let view = preview_state().public_view();
-        let card = &lc_cards::deck_cards(Deck::Cider)[3]; // cider-04, 6 keywords
+        let card = &lc_cards::deck_cards(Deck::Cider)[3]; // cider-04, 5 keywords
         let cards = lc_cards::deck_cards(Deck::Cider);
         let outputs = [
             card_face(card),
@@ -1126,10 +1126,10 @@ mod tests {
         assert!(!html.contains("lc-kw-more"));
 
         let cider04 = lc_cards::card_by_id("cider-04").unwrap();
-        assert_eq!(cider04.keywords.len(), 6);
+        assert_eq!(cider04.keywords.len(), 5);
         let html = card_face(&cider04);
         assert_eq!(html.matches(r#"class="lc-kw""#).count(), 3);
-        assert!(html.contains(r#"class="lc-kw lc-kw-more">+3<"#));
+        assert!(html.contains(r#"class="lc-kw lc-kw-more">+2<"#));
         for kw in &cider04.keywords[..3] {
             assert!(html.contains(kw));
         }
