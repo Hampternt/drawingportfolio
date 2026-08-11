@@ -265,7 +265,7 @@ pub struct Play {
 /// | `Heal` | no | add `magnitude` to subject HP; no ceiling (TBD-3) |
 /// | `Shield` | yes | absorbs damage up to `magnitude` until `expires_round`; `magnitude` is consumed as it absorbs; removed at 0 |
 /// | `Dot` | yes | `magnitude` damage to subject at each `resolve()` after its creation round, through `expires_round` |
-/// | `PullDrain` | no | Plan F catalog data only — `resolve()` does not act on it yet (Task 2) |
+/// | `PullDrain` | no | `magnitude` times, decrement the subject's fullest vessel's `pulls_left` (tie: lowest index), floor at 0 (F4) — never touches HP |
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum EffectOp {
@@ -416,10 +416,6 @@ pub const REVEAL_SECS: u16 = 20; // DDv2 §5 beat 5
 pub const DRAW_PER_VESSEL: usize = 5; // DDv2 §4.3, TBD-4
 pub const HAND_SOFT_CAP: usize = 12; // DDv2 §8.2, TBD-2
 pub const LC_DECK_SIZE: u16 = 40; // placeholder shoe size (D6) — Plan F resets
-pub const DMG_PER_COST: i32 = 2; // placeholder mapping (D8)
-pub const HEAL_PER_COST: i32 = 2; // placeholder mapping (D8)
-pub const DOT_PER_COST: i32 = 1; // placeholder mapping (D8)
-pub const CURSE_ROUNDS: u32 = 2; // placeholder mapping (D8)
 
 /// Handicap is a percentage (100 = no handicap). Rounds UP, per DDv2 §11.
 /// Integer maths on purpose: a float handicap would let a form field carry
@@ -1086,11 +1082,16 @@ impl LastCallState {
     /// 1. Resolve `plays` in `order_key` order: a play whose source is now
     ///    `Eliminated` (7.6) is skipped; a `targets == "one"` play whose
     ///    target is `Eliminated` fizzles (7.5) — either way the card still
-    ///    ends in `discards` (8.4). Live plays apply the D8 mapping: Atk
-    ///    damages (via `apply_damage`, elimination checked immediately —
-    ///    D11), Buff heals with no ceiling (TBD-3), Curse queues a `Dot`
-    ///    effect (appended in step 3, so it cannot tick this round), Util/
-    ///    Reaction do nothing.
+    ///    ends in `discards` (8.4). Live plays look up their fx by card id in
+    ///    the Plan F catalog (`lc_cards::card_fx`, never the card's own kind)
+    ///    and apply it per subject: `Damage` (via `apply_damage`, elimination
+    ///    checked immediately — D11), `Heal` with no ceiling (TBD-3),
+    ///    `PullDrain` (`drain_pulls`, F4), `Shield` upserts into `effects`
+    ///    immediately — replace-not-stack by (op, subject), D10 — so it can
+    ///    absorb a later play in the same round's order (F8), and `Dot`
+    ///    queues (appended in step 3, so it cannot tick this round). An id
+    ///    the catalog doesn't recognize (a Reaction, or version skew, F1)
+    ///    resolves inert.
     /// 2. Tick every existing `Dot` effect on an `Alive` subject, in
     ///    creation order, through the same `apply_damage` path.
     /// 3. Append the queued curse effects with the no-stack replace rule
@@ -1152,10 +1153,12 @@ impl LastCallState {
             }
 
             // D2 subject resolution. "table" has no card in the current
-            // catalog and is treated as no direct subject — Util/Reaction
-            // ignore subjects anyway (D8). The "one" arm bounds-checks the
-            // target the same way (M3) — an out-of-range seat fizzles
-            // exactly like a dead one, instead of panicking.
+            // catalog and falls back to no subjects — a Reaction's id maps
+            // to `fx: None` regardless (F5), so an empty subject list here
+            // is otherwise moot until Plan F adds a "table" card. The "one"
+            // arm bounds-checks the target the same way (M3) — an
+            // out-of-range seat fizzles exactly like a dead one, instead of
+            // panicking.
             let subjects: Vec<usize> = match play.card.targets.as_str() {
                 "one" => match play.target.and_then(|t| self.players.get(t)) {
                     Some(p) if p.status == Status::Alive => vec![p.seat],
@@ -1176,32 +1179,50 @@ impl LastCallState {
                 _ => Vec::new(),
             };
 
-            match play.card.kind {
-                CardKind::Atk => {
-                    let dmg = play.card.cost as i32 * DMG_PER_COST;
-                    for subj in subjects {
-                        self.apply_damage(subj, dmg);
+            // Plan F: effects come from the binary's catalog, keyed by card
+            // id — never from the card's own (possibly blob-carried) kind.
+            // A reaction's id maps to `fx: None` in the catalog (D9/F5); an
+            // id the catalog no longer recognizes (version skew, F1) maps
+            // to `None` the same way — deliberate fail-soft, not a panic.
+            match crate::lc_cards::card_fx(&play.card.id) {
+                None => {}
+                Some(f) => {
+                    for subject in subjects {
+                        match f.op {
+                            EffectOp::Damage => self.apply_damage(subject, f.magnitude),
+                            EffectOp::Heal => self.players[subject].hp += f.magnitude, // TBD-3: no ceiling
+                            EffectOp::PullDrain => {
+                                drain_pulls(&mut self.players[subject], f.magnitude)
+                            }
+                            // F8: shields register NOW (not queued), so they
+                            // absorb later plays in this round's order.
+                            // Replace-not-stack by (op, subject) — D10.
+                            EffectOp::Shield => {
+                                self.effects.retain(|e| {
+                                    !(e.op == EffectOp::Shield && e.subject == subject)
+                                });
+                                self.effects.push(Effect {
+                                    source_play: play.order_key,
+                                    subject,
+                                    op: EffectOp::Shield,
+                                    magnitude: f.magnitude,
+                                    expires_round: self.round + f.rounds,
+                                });
+                            }
+                            // Dots still queue (appended at step 3): never
+                            // tick in their own creation round.
+                            EffectOp::Dot => {
+                                queued_effects.push(Effect {
+                                    source_play: play.order_key,
+                                    subject,
+                                    op: EffectOp::Dot,
+                                    magnitude: f.magnitude,
+                                    expires_round: self.round + f.rounds,
+                                });
+                            }
+                        }
                     }
                 }
-                CardKind::Buff => {
-                    let heal = play.card.cost as i32 * HEAL_PER_COST;
-                    for subj in subjects {
-                        self.players[subj].hp += heal;
-                    }
-                }
-                CardKind::Curse => {
-                    let magnitude = play.card.cost as i32 * DOT_PER_COST;
-                    for subj in subjects {
-                        queued_effects.push(Effect {
-                            source_play: play.order_key,
-                            subject: subj,
-                            op: EffectOp::Dot,
-                            magnitude,
-                            expires_round: self.round + CURSE_ROUNDS,
-                        });
-                    }
-                }
-                CardKind::Util | CardKind::Reaction => {}
             }
             self.discards.push(play.card);
         }
@@ -1324,6 +1345,26 @@ impl LastCallState {
             discarded.extend(std::mem::take(&mut p.armed).into_iter().map(|a| a.card));
             self.discards.extend(discarded);
             self.effects.retain(|e| e.subject != subject);
+        }
+    }
+}
+
+/// F4: `PullDrain`'s engine semantics. `n` times, pick the vessel with the
+/// greatest `pulls_left` (a tie keeps the lowest index), decrement it by 1;
+/// stop early once every vessel sits at 0 (or the player has none). Never
+/// touches HP — drains only ever move pulls, D-invariant apply_damage owns
+/// HP.
+fn drain_pulls(player: &mut LcPlayer, n: i32) {
+    for _ in 0..n.max(0) {
+        let best = player
+            .vessels
+            .iter()
+            .enumerate()
+            .max_by_key(|(idx, v)| (v.pulls_left, std::cmp::Reverse(*idx)))
+            .map(|(idx, v)| (idx, v.pulls_left));
+        match best {
+            Some((idx, pulls_left)) if pulls_left > 0 => player.vessels[idx].pulls_left -= 1,
+            _ => break,
         }
     }
 }
@@ -2445,7 +2486,7 @@ mod tests {
         st.advance_beat().unwrap();
         st.advance_beat().unwrap();
         st.resolve().unwrap();
-        assert_eq!(st.players[2].hp, 17); // 15 + 1×HEAL_PER_COST, past start
+        assert_eq!(st.players[2].hp, 17); // 15 + soft-01's Heal 2, past start
     }
 
     #[test]
@@ -2510,7 +2551,7 @@ mod tests {
         st.resolve().unwrap(); // round 1: created, no tick
         assert_eq!(st.players[0].hp, 15);
         assert_eq!(st.effects.len(), 1);
-        assert_eq!(st.effects[0].expires_round, 3); // 1 + CURSE_ROUNDS
+        assert_eq!(st.effects[0].expires_round, 3); // 1 + cider-01's 2 rounds
         for expected_hp in [14, 13] {
             // ticks in rounds 2 and 3
             for _ in 0..5 {
@@ -2619,5 +2660,210 @@ mod tests {
         st.resolve().unwrap();
         assert_eq!(deck_count(&st, Deck::Beer), 3);
         assert_eq!(st.discards.len(), 1); // the cider card stays put
+    }
+
+    #[test]
+    fn test_liquor_hits_above_par() {
+        // F3's burst premium is engine-real
+        let mut st = LastCallState::new(vec![(1, "alice".into()), (2, "bob".into())], 42);
+        st.set_vessel(1, Deck::Liquor, "shot").unwrap();
+        st.beat = Beat::Lock;
+        st.arm(1, "liquor-01").unwrap(); // cost 2, Damage 5 — not 2 x cost
+        st.set_target(1, "liquor-01", Some(1)).unwrap();
+        st.lock_in(1).unwrap();
+        st.advance_beat().unwrap();
+        st.advance_beat().unwrap();
+        st.resolve().unwrap();
+        assert_eq!(st.players[1].hp, 10); // 15 - 5
+        assert_eq!(st.players[0].vessels[0].pulls_left, 2); // 4 - 2: cost, not fx
+    }
+
+    #[test]
+    fn test_shield_card_protects_in_its_own_round_when_it_outspends() {
+        // F8
+        let mut st = at_lock();
+        // soft-07 is not in Soft's opener (F6) — deal it into cara's hand.
+        st.players[2]
+            .hand
+            .push(crate::lc_cards::card_by_id("soft-07").unwrap());
+        // cara (Soft) spends 3 pulls (soft-07 + soft-01), alice (Beer) spends 2:
+        // cara resolves first, Glass Wall lands on bob before Grind does.
+        st.arm(3, "soft-07").unwrap();
+        st.set_target(3, "soft-07", Some(1)).unwrap();
+        st.arm(3, "soft-01").unwrap();
+        st.set_target(3, "soft-01", Some(2)).unwrap();
+        st.lock_in(3).unwrap();
+        st.arm(1, "beer-02").unwrap(); // Damage 4 -> bob
+        st.set_target(1, "beer-02", Some(1)).unwrap();
+        st.lock_in(1).unwrap();
+        st.advance_beat().unwrap();
+        st.advance_beat().unwrap();
+        st.resolve().unwrap();
+        assert_eq!(st.players[1].hp, 15); // fully absorbed
+        assert_eq!(st.effects.len(), 1); // shield survives, worn
+        assert_eq!(st.effects[0].magnitude, 1); // 5 - 4
+        assert_eq!(st.players[2].hp, 17); // soft-01 healed cara
+    }
+
+    #[test]
+    fn test_a_cheap_shield_resolves_after_the_big_hit() {
+        // F8's tension
+        let mut st = at_lock();
+        st.arm(3, "soft-02").unwrap(); // 1 pull, Shield 3 -> bob
+        st.set_target(3, "soft-02", Some(1)).unwrap();
+        st.lock_in(3).unwrap();
+        st.arm(1, "beer-02").unwrap(); // 2 pulls, Damage 4 -> bob
+        st.set_target(1, "beer-02", Some(1)).unwrap();
+        st.lock_in(1).unwrap();
+        st.advance_beat().unwrap();
+        st.advance_beat().unwrap();
+        st.resolve().unwrap();
+        assert_eq!(st.players[1].hp, 11); // alice outspent: hit lands first
+        assert_eq!(st.effects[0].magnitude, 3); // the late shield arrives intact
+    }
+
+    #[test]
+    fn test_drain_hits_the_fullest_vessel_and_floors_at_zero() {
+        // F4
+        let mut st = at_lock();
+        // Alice's second vessel is built by hand: set_vessel is Draw-gated and
+        // the fixture is already at Lock.
+        st.players[0].vessels.push(Vessel {
+            deck: Deck::Soft,
+            pulls_max: 6,
+            pulls_left: 3,
+            container: "cup".into(),
+        });
+        st.arm(2, "cider-03").unwrap(); // Drain 3 -> alice
+        st.set_target(2, "cider-03", Some(0)).unwrap();
+        st.lock_in(2).unwrap();
+        st.advance_beat().unwrap();
+        st.advance_beat().unwrap();
+        st.resolve().unwrap();
+        // Beer vessel was fullest (8 vs 3): drained to 5, Soft cup untouched.
+        assert_eq!(st.players[0].vessels[0].pulls_left, 5);
+        assert_eq!(st.players[0].vessels[1].pulls_left, 3);
+        assert_eq!(st.players[0].hp, 15); // drains never touch HP
+
+        // Floor: drain more than remains.
+        let mut st = at_lock();
+        st.players[0].vessels[0].pulls_left = 2;
+        st.arm(2, "cider-03").unwrap();
+        st.set_target(2, "cider-03", Some(0)).unwrap();
+        st.lock_in(2).unwrap();
+        st.advance_beat().unwrap();
+        st.advance_beat().unwrap();
+        st.resolve().unwrap();
+        assert_eq!(st.players[0].vessels[0].pulls_left, 0);
+    }
+
+    #[test]
+    fn test_aoe_includes_the_source() {
+        // F9 / D2
+        let mut st = at_lock();
+        // beer-05 is not in Beer's opener (F6) — deal it into alice's hand.
+        st.players[0]
+            .hand
+            .push(crate::lc_cards::card_by_id("beer-05").unwrap());
+        st.arm(1, "beer-05").unwrap(); // Damage 1 to all, no target needed
+        st.lock_in(1).unwrap();
+        st.advance_beat().unwrap();
+        st.advance_beat().unwrap();
+        st.resolve().unwrap();
+        for p in &st.players {
+            assert_eq!(p.hp, 14, "seat {}", p.seat);
+        }
+    }
+
+    #[test]
+    fn test_a_reaction_play_resolves_inert() {
+        // F5 — even if one sneaks in
+        let mut st = at_lock();
+        st.plays.push(Play {
+            card: crate::lc_cards::card_by_id("beer-08").unwrap(),
+            source_seat: 0,
+            target: Some(1),
+            paid_from: Deck::Beer,
+            order_key: 1,
+        });
+        st.beat = Beat::Resolve;
+        st.resolve().unwrap();
+        assert!(st.players.iter().all(|p| p.hp == 15));
+        assert_eq!(st.discards.len(), 1); // still discarded (8.4)
+    }
+
+    #[test]
+    fn test_dot_duration_is_per_card() {
+        // F10: no CURSE_ROUNDS
+        // cider-07 (Dot 2 x 2) beside cider-01 (Dot 1 x 2): the magnitude comes
+        // from the card, not from cost x DOT_PER_COST. cider-07 is not in
+        // Cider's opener (F6) — deal it into bob's hand.
+        let mut st = at_lock();
+        st.players[1]
+            .hand
+            .push(crate::lc_cards::card_by_id("cider-07").unwrap());
+        st.arm(2, "cider-07").unwrap();
+        st.set_target(2, "cider-07", Some(0)).unwrap();
+        st.lock_in(2).unwrap();
+        st.advance_beat().unwrap();
+        st.advance_beat().unwrap();
+        st.resolve().unwrap();
+        assert_eq!(st.effects[0].magnitude, 2); // per-card, not 1 x cost
+        assert_eq!(st.effects[0].expires_round, 3); // round 1 + rounds 2
+    }
+
+    /// M8 (Plan D review, carried to Plan F): a same-resolve() double
+    /// elimination. Blocked under the placeholder catalog for lack of an AoE
+    /// Atk card — beer-05 ("One For The Table", Damage 1 to all) is real
+    /// now. All three seats are set to lethal HP before the AoE lands, so
+    /// every subject in the `"all"` list hits 0 within the same play's
+    /// subject loop (the list is snapshotted before any of them apply,
+    /// D2/M3) and the table collapses to a Draw in the same `resolve()` call
+    /// that killed them.
+    #[test]
+    fn test_same_resolve_double_elimination_collapses_to_draw() {
+        let mut st = at_lock();
+        st.players[0].hp = 1;
+        st.players[1].hp = 1;
+        st.players[2].hp = 1;
+        // beer-05 is not in Beer's opener (F6) — deal it into alice's hand.
+        st.players[0]
+            .hand
+            .push(crate::lc_cards::card_by_id("beer-05").unwrap());
+        st.arm(1, "beer-05").unwrap(); // Damage 1 to all, including the source
+        st.lock_in(1).unwrap();
+        st.advance_beat().unwrap();
+        st.advance_beat().unwrap();
+        st.resolve().unwrap();
+        assert!(st.players.iter().all(|p| p.status == Status::Eliminated));
+        assert!(st.players.iter().all(|p| p.hp == 0));
+        assert_eq!(st.outcome(), Some(LcOutcome::Draw));
+        assert_eq!(st.beat, Beat::Resolve); // frozen final tableau (D16)
+    }
+
+    /// M8 (Plan D review, carried to Plan F): the `"table"` targets-class
+    /// subject-resolution fallback. The catalog still has no `targets ==
+    /// "table"` card (`test_targets_are_a_known_class` enforces only
+    /// self/one/all), so this drives the `_ => Vec::new()` arm directly with
+    /// a constructed `Card` — id "beer-02" so `card_fx` returns a real,
+    /// non-`None` `Damage 4` effect, isolating the fallback (empty subject
+    /// list) from the separate fail-soft-unknown-id path (`None` effect)
+    /// that a made-up id would otherwise conflate it with.
+    #[test]
+    fn test_table_targets_class_resolves_no_subjects() {
+        let mut st = at_lock();
+        let mut card = crate::lc_cards::card_by_id("beer-02").unwrap(); // real Damage 4 fx
+        card.targets = "table".into(); // no card in the current catalog uses this class
+        st.plays.push(Play {
+            card,
+            source_seat: 0,
+            target: None,
+            paid_from: Deck::Beer,
+            order_key: 1,
+        });
+        st.beat = Beat::Resolve;
+        st.resolve().unwrap();
+        assert!(st.players.iter().all(|p| p.hp == 15)); // no subject resolved, nothing hit
+        assert_eq!(st.discards.len(), 1); // card still leaves play (8.4)
     }
 }
