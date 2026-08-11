@@ -225,20 +225,6 @@ pub fn armed_column(armed: &[Card], locked: bool) -> String {
     )
 }
 
-/// §7.8 `CostRail` — private, the viewer's hand priced through their own
-/// handicap. `pc = pull_cost(card.cost, handicap_pct)` — decision 1: the
-/// rail shows the true pull price, rounded up — and each group renders
-/// `pc` bars. `is-active` is emitted server-side on `data-idx="0"` only
-/// (the initial focus); the JS moves it thereafter. `lc-deck-{slug}` on
-/// the group supplies `--lc-ink` to its bars, same convention as every
-/// other `lc-deck-*` root in this file. `n == 0` renders the root with
-/// `data-count="0"`, label `00` above, `0` below and an empty
-/// `.lc-costrail-bars` — stable layout, no special casing downstream.
-///
-/// Named `.lc-costrail*`, not `.lc-rail*`: `.lc-rail` already names the
-/// big screen's side-rail class (lines 511, 537; `lastcall.css:700`) and
-/// `--lc-rail` is a colour token, so this unrelated component gets its
-/// own prefix instead of colliding with that surface.
 /// §7.8 `HandWheel` — private, wraps each `card_face` (unchanged) in a
 /// positioned `.lc-wheel-card` so the JS can drag/spin the wrapper without
 /// reaching into `CardFace` internals (spec §2: "slice 2 replaces the
@@ -276,11 +262,11 @@ pub struct HandGroupView<'a> {
 }
 
 /// §7.8 `Hand group` — private, `.lc-handgroup` with children `.lc-armed`,
-/// `.lc-wheel` (or the decision-5 empty message), `.lc-rail` in that order.
-/// The empty-hand copy depends on whether `armed` is also empty — the choice
-/// lives here rather than in `hand_wheel` because this is the one builder
-/// that sees both slices. `cost_rail` always renders, even in both empty
-/// cases (its own `n == 0` state, Task 1).
+/// `.lc-wheel` (or the decision-5 empty message), `.lc-costrail` in that
+/// order. The empty-hand copy depends on whether `armed` is also empty — the
+/// choice lives here rather than in `hand_wheel` because this is the one
+/// builder that sees both slices. `cost_rail` always renders, even in both
+/// empty cases (its own `n == 0` state, Task 1).
 pub fn hand_group(hg: &HandGroupView) -> String {
     let armed = armed_column(hg.armed, hg.locked);
     let wheel = if hg.hand.is_empty() {
@@ -297,9 +283,31 @@ pub fn hand_group(hg: &HandGroupView) -> String {
     format!(r#"<div class="lc-handgroup">{armed}{wheel}{rail}</div>"#)
 }
 
+/// §7.8 `CostRail` — private, the viewer's hand priced through their own
+/// handicap. `pc = pull_cost(card.cost, handicap_pct)` — decision 1: the
+/// rail shows the true pull price, rounded up — and each group renders
+/// `pc` bars. `is-active` is emitted server-side on `data-idx="0"` only
+/// (the initial focus); the JS moves it thereafter. `lc-deck-{slug}` on
+/// the group supplies `--lc-ink` to its bars, same convention as every
+/// other `lc-deck-*` root in this file. The above-label is the *focused
+/// card's ordinal*, not the hand size: `01` whenever `n > 0` (matching the
+/// server-emitted `is-active` on `data-idx="0"`), `00` only when `n == 0`.
+/// `lc_wheel.js`'s `syncRail` owns updating it live thereafter — this
+/// builder only ever paints the initial focus. `n == 0` renders the root
+/// with `data-count="0"`, label `00` above, `0` below and an empty
+/// `.lc-costrail-bars` — stable layout, no special casing downstream.
+///
+/// Named `.lc-costrail*`, not `.lc-rail*`: `.lc-rail` already names the
+/// big screen's side-rail class (lines 511, 537; `lastcall.css:700`) and
+/// `--lc-rail` is a colour token, so this unrelated component gets its
+/// own prefix instead of colliding with that surface.
 pub fn cost_rail(hand: &[Card], handicap_pct: u16) -> String {
     let n = hand.len();
-    let above = format!("{n:02}");
+    let above = if n == 0 {
+        "00".to_string()
+    } else {
+        "01".to_string()
+    };
     let groups: String = hand
         .iter()
         .enumerate()
@@ -954,7 +962,17 @@ mod tests {
             }),
         ];
         for out in &outputs {
-            for banned in ["hx-post", "hx-get", "hx-swap", "onclick", "href"] {
+            // `action="` (not bare `action`) — a placeholder card body
+            // contains the prose "A reaction, once reactions exist." and a
+            // bare substring match panics on that, not on markup.
+            for banned in [
+                "hx-post",
+                "hx-get",
+                "hx-swap",
+                "onclick",
+                "href",
+                "action=\"",
+            ] {
                 assert!(
                     !out.contains(banned),
                     "found forbidden `{banned}` in: {out}"
@@ -1819,6 +1837,10 @@ mod tests {
         // attribute right after the deck slug — no trailing ` is-active`.
         assert!(html.contains(r#"lc-costrail-group lc-deck-wine" data-idx="1""#));
         assert!(html.contains(r#"lc-costrail-group lc-deck-liquor" data-idx="2""#));
+        // Important 1 (fix wave): the above-label is the focused card's
+        // ordinal (01), never the hand size (3) — `syncRail` owns updating
+        // it thereafter, this builder only ever paints the initial focus.
+        assert!(html.contains(r#"<span class="lc-costrail-above">01</span>"#));
         no_hex(&html);
 
         let empty: [Card; 0] = [];
@@ -1828,6 +1850,22 @@ mod tests {
         assert!(html0.contains(">0<"));
         assert_eq!(html0.matches("lc-costrail-group").count(), 0);
         no_hex(&html0);
+    }
+
+    #[test]
+    fn test_cost_rail_above_label_is_the_focus_ordinal_not_the_hand_size() {
+        // Regression pin for Important 2: a 15-card hand's above-label must
+        // read "01" (the focused card's ordinal), never "15" (the hand
+        // size) — the bug this test would have caught rendered `{n:02}` for
+        // both the above and below labels.
+        let hand: Vec<Card> = (0..15)
+            .map(|i| rail_card(&format!("rail-{i}"), Deck::Beer, 1))
+            .collect();
+        let html = cost_rail(&hand, 100);
+        assert!(html.contains(r#"<span class="lc-costrail-above">01</span>"#));
+        assert!(!html.contains(r#"<span class="lc-costrail-above">15</span>"#));
+        assert!(html.contains(r#"<span class="lc-costrail-below">15</span>"#));
+        no_hex(&html);
     }
 
     #[test]

@@ -49,10 +49,20 @@
 
   // Suppression scope for arm/disarm: "no .lc-armed[data-locked] exists in
   // the same #lc-hand" (decision 7). Preview fixtures sit outside any
-  // #lc-hand, so they fall back to a document-wide check — harmless there,
-  // since nothing in this plan listens to the events anyway.
+  // #lc-hand — scope to the nearest .lc-handgroup (a wheel + its armed
+  // column) or, failing that, the nearest .lc-armed itself (a standalone
+  // armed-column swatch is its own scope, so a locked standalone sample
+  // still self-suppresses) before falling back to a document-wide check.
+  // Without this, one always-locked preview sample (group 8 row 3) would
+  // gag every other group's dispatch page-wide.
   function locked(el) {
-    var scope = el.closest("#lc-hand") || document;
+    var scope = el.closest("#lc-hand") ||
+      el.closest(".lc-handgroup") ||
+      el.closest(".lc-armed") ||
+      document;
+    if (scope.nodeType === 1 && scope.matches(".lc-armed[data-locked]")) {
+      return true;
+    }
     return !!scope.querySelector(".lc-armed[data-locked]");
   }
 
@@ -81,7 +91,7 @@
     var angle = persist ? wrapToN(savedAngle, N) : 0;
     var dragging = false;
     var raf = null;
-    var y0 = 0, a0 = 0, t0 = 0, downTarget = null;
+    var y0 = 0, x0 = 0, a0 = 0, t0 = 0, downTarget = null;
 
     function relayout(isDragging) {
       var focusedIdx = layout(cards, angle, isDragging);
@@ -110,11 +120,18 @@
         var p = Math.min(1, (now - start) / ms);
         var eased = 1 - Math.pow(1 - p, 3);
         angle = from + (to - from) * eased;
-        relayout(dragging);
+        // finding 3 (fix wave): relayout as if dragging for the duration
+        // of the glide — `.is-dragging` disables the 280ms CSS transform
+        // transition (lastcall.css:428), so the rAF loop's own cubic
+        // ease-out is the only easing in effect. Without this the CSS
+        // transition chases every per-frame write and the release snap
+        // settles in ~SNAP_MS + 280ms of exponential lag, not ~220ms.
+        relayout(true);
         if (p < 1) {
           raf = requestAnimationFrame(step);
         } else {
           raf = null;
+          relayout(dragging);
         }
       }
       raf = requestAnimationFrame(step);
@@ -135,6 +152,7 @@
       }
       try { stage.setPointerCapture(e.pointerId); } catch (_) {}
       y0 = e.clientY;
+      x0 = e.clientX;
       a0 = angle;
       t0 = Date.now();
       downTarget = e.target;
@@ -151,15 +169,26 @@
       if (!dragging) return;
       dragging = false;
       try { stage.releasePointerCapture(e.pointerId); } catch (_) {}
-      var travel = Math.abs(e.clientY - y0);
+      // finding 6 (fix wave): travel is the larger of the two axes, not
+      // vertical-only — a quick horizontal wobble with little vertical
+      // component must not read as a tap on the focused card.
+      var travel = Math.max(Math.abs(e.clientY - y0), Math.abs(e.clientX - x0));
       var elapsed = Date.now() - t0;
-      if (travel < 6 && elapsed < 250) {
+      // finding 5 (fix wave): only a genuine pointerup may qualify as a
+      // tap. `release` is also bound to pointercancel (so a drag that gets
+      // cancelled mid-gesture still stops cleanly), but an aborted touch
+      // must never arm a card — Plan D/E will POST on lc:arm.
+      if (e.type === "pointerup" && travel < 6 && elapsed < 250) {
         var cardEl = downTarget && downTarget.closest ?
           downTarget.closest(".lc-wheel-card") : null;
         if (cardEl && cardEl.classList.contains("is-focused")) {
           angle = a0;
-          relayout(false);
           dispatchArm(cardEl);
+          // finding 7 (fix wave): a tap that interrupted a mid-flight
+          // glide restores `a0`, which may itself be unsnapped — glide to
+          // the snapped angle instead of a bare relayout so the wheel is
+          // never left off-notch after a tap.
+          glide(snap(angle), SNAP_MS);
           return;
         }
       }
@@ -173,7 +202,18 @@
       glide(snap(angle + Math.sign(e.deltaY) * STEP), NOTCH_MS);
     }, { passive: false });
 
-    stage.lcWheelApi = { glide: glide };
+    // finding 4 (fix wave): glide to the congruent target nearest the
+    // current angle, not the absolute `idx * STEP`. `angle` is unbounded
+    // (only wrapped on re-init), so after a few full drag revolutions an
+    // absolute target would animate back through every revolution in
+    // SNAP_MS. Used by the rail's tap-to-jump (decision 2).
+    function glideToIndex(idx, ms) {
+      var target = idx * STEP;
+      var revs = Math.round((angle - target) / (N * STEP));
+      glide(target + revs * N * STEP, ms);
+    }
+
+    stage.lcWheelApi = { glide: glide, glideToIndex: glideToIndex };
 
     relayout(false);
   }
@@ -205,7 +245,7 @@
       });
       if (!nearest) return;
       var idx = Number(nearest.dataset.idx);
-      stage.lcWheelApi.glide(idx * STEP, SNAP_MS);
+      stage.lcWheelApi.glideToIndex(idx, SNAP_MS);
     });
   }
 
