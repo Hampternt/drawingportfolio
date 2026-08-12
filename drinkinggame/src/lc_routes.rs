@@ -754,7 +754,23 @@ pub(crate) fn arm_beat_clock(st: &mut LastCallState, now: i64) {
 /// until a timed beat or a game-over freeze, then re-arm the clock. The
 /// expects are structural: advance_beat only fails at Resolve, which both
 /// branches route to resolve(); resolve only fails off Resolve.
+///
+/// M3 mirror (review I1): `resolve()` deliberately no-ops on an empty
+/// `players` — `Ok(())`, `beat` untouched, `seq` not bumped (last_call.rs's
+/// own M3 hardening) — and `outcome()` is `None` below two players. Without
+/// this early return, empty players at `Beat::Resolve` would loop forever
+/// with no `.await` inside it: `outcome()` stays `None`, `beat` stays
+/// `Resolve`, `resolve()` keeps no-oping, next iteration is identical. No
+/// engine transition can produce an empty `players` (`from_json` truncates
+/// to `MAX_SEATS`, never to zero), but a hand-corrupted or pre-ceiling blob
+/// could, and the ticker calls this with no other bound on the loop — a spin
+/// here pegs a core, never yields, and never releases the room mutex, which
+/// is strictly worse than the panic this same case is elsewhere defended
+/// against with `expect`/bounds checks.
 pub(crate) fn lc_advance_chain(st: &mut LastCallState, now: i64) {
+    if st.players.is_empty() {
+        return; // M3: nothing to advance; resolve() no-ops here and would spin
+    }
     if st.beat == Beat::Resolve {
         st.resolve()
             .expect("resolve() at Beat::Resolve cannot fail");
@@ -953,5 +969,115 @@ mod tests {
         st.round = 2;
         arm_beat_clock(&mut st, 1_000_000);
         assert_eq!(st.beat_deadline_ms, Some(1_000_000 + 30_000));
+    }
+
+    /// I1 (review): `resolve()`'s M3 hardening makes an empty-`players`
+    /// state a permanent, silent no-op — `Ok(())`, `beat` untouched, `seq`
+    /// not bumped — and `outcome()` is `None` below two players. Without
+    /// `lc_advance_chain`'s own empty-players early return, a chain entered
+    /// at `Beat::Resolve` with no players would loop forever with no
+    /// `.await` inside it. Run on a background thread with a bounded
+    /// `recv_timeout` rather than calling directly in-test: against the
+    /// unfixed code this call never returns, and an in-test infinite loop
+    /// would hang the whole suite instead of failing this one test.
+    #[test]
+    fn test_advance_chain_returns_immediately_on_empty_players() {
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let mut st = LastCallState {
+                players: vec![],
+                beat: Beat::Resolve,
+                ..Default::default()
+            };
+            lc_advance_chain(&mut st, 1_000_000);
+            let _ = tx.send(st);
+        });
+        let st = rx
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .expect("lc_advance_chain spun instead of returning on empty players");
+        assert!(st.players.is_empty());
+        assert_eq!(st.beat, Beat::Resolve); // untouched — M3's no-op shape
+        assert_eq!(st.beat_deadline_ms, None); // never armed
+    }
+
+    /// I2 (review): a deterministic two-actor contention test for the
+    /// ticker/route race this task exists to get right. `lc_tick_room` is
+    /// `pub(crate)` — visible here, not from the external `tests/http.rs`
+    /// crate — so this lives in-crate rather than as an integration test.
+    ///
+    /// Determinism caveat, stated plainly so nobody chases a false
+    /// guarantee: the ASSERTION is deterministic regardless of scheduling —
+    /// the ticker cannot mutate `LastCallState` until this test body's guard
+    /// drops, and once it does, `lc_tick_room`'s post-lock reload sees the
+    /// already-advanced state and its recheck no-ops. The 50ms sleep below
+    /// only raises the probability that the branch actually exercised is
+    /// the LOCKED recheck (parked on `lock.lock().await`) rather than the
+    /// lock-free advisory early-return finishing first — four orders of
+    /// magnitude of headroom over one in-memory SQLite `SELECT`, so this
+    /// will not flake, but the sleep is not what makes the test correct.
+    #[tokio::test]
+    async fn test_ticker_and_a_route_do_not_double_advance() {
+        let pool = crate::db::test_pool().await;
+        let alice = db::insert_player(&pool, "alice", "h").await.unwrap();
+        let bob = db::insert_player(&pool, "bob", "h").await.unwrap();
+        let room = crate::rooms::create_room_with_unique_code(&pool).await;
+        db::join_room(&pool, room.id, alice).await;
+        db::join_room(&pool, room.id, bob).await;
+
+        let mut st = LastCallState::new(vec![(alice, "alice".into()), (bob, "bob".into())], 1);
+        st.set_vessel(alice, Deck::Beer, "can").unwrap();
+        st.set_vessel(bob, Deck::Cider, "bottle").unwrap();
+        st.beat = Beat::Lock;
+        st.beat_deadline_ms = Some(now_ms() - 2_000); // already expired
+        let game_id = db::start_game(&pool, room.id, "last_call", "", "", Some(&st.to_json()))
+            .await
+            .unwrap();
+
+        let state = crate::GameState {
+            pool: pool.clone(),
+            hub: crate::hub::RoomHub::new(),
+            base_path: std::sync::Arc::from("/drinks"),
+            locks: crate::RoomLocks::default(),
+        };
+
+        // The test body takes the room guard FIRST — it plays the winning
+        // route.
+        let guard_lock = state.locks.for_room(room.id);
+        let guard = guard_lock.lock().await;
+
+        let ticker_state = state.clone();
+        let room_id = room.id;
+        let ticker = tokio::spawn(async move {
+            lc_tick_room(&ticker_state, room_id).await;
+        });
+
+        // Let the ticker run its lock-free advisory read and park on the
+        // guard this test body is holding.
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+        // Act as the winning route: reload, advance Lock -> Reveal, persist
+        // — all still under the guard the ticker is waiting on.
+        let game = db::get_active_game(&pool, room.id).await.unwrap();
+        let mut route_st = LastCallState::from_json(game.state_json.as_deref().unwrap());
+        lc_advance_chain(&mut route_st, now_ms());
+        db::set_game_state(&pool, game_id, &route_st.to_json()).await;
+        drop(guard);
+
+        ticker.await.unwrap();
+
+        let after = LastCallState::from_json(
+            db::get_active_game(&pool, room.id)
+                .await
+                .unwrap()
+                .state_json
+                .as_deref()
+                .unwrap(),
+        );
+        // Exactly one advance — Lock -> Reveal, never Resolve and never a
+        // round+1 Draw — and the deadline the ticker's recheck saw is the
+        // route's freshly-armed one, still in the future: proof the ticker
+        // no-opped rather than double-advancing.
+        assert_eq!(after.beat, Beat::Reveal);
+        assert!(after.beat_deadline_ms.is_some_and(|d| d > now_ms()));
     }
 }
