@@ -531,6 +531,20 @@ pub fn pull_cost(cost: u8, handicap_pct: u16) -> u8 {
     (cost as u32 * handicap_pct as u32).div_ceil(100) as u8
 }
 
+/// `pull_cost` further halved (rounded up) when `halved` — the shared core
+/// behind `LastCallState::effective_pull_cost` (the engine's charging seam)
+/// and `lc_render::cost_rail`'s per-card prices (I1, Plan H review): both
+/// call through here so the rail's bars and the engine's charge can never
+/// drift apart during a cost-modifying event.
+pub fn effective_pull_cost_raw(cost: u8, handicap_pct: u16, halved: bool) -> u8 {
+    let base = pull_cost(cost, handicap_pct);
+    if halved {
+        base.div_ceil(2)
+    } else {
+        base
+    }
+}
+
 impl LastCallState {
     /// Seats `members` in the order given (`seat` = index), everyone starting
     /// at `STARTING_HP` with no handicap, empty vessels/hand/armed,
@@ -948,38 +962,69 @@ impl LastCallState {
             // during the resolve() call that produced the CURRENT `round` —
             // and once frozen, that's permanently the call that ended the
             // game. No earlier round's entry can coincide.
+            //
+            // M1 (Plan H review): the two arms are mutually exclusive, not
+            // OR'd — once `ended`, the `+1` arm would otherwise keep
+            // matching the round-(R-1) entries forever (every later read of
+            // this frozen state re-evaluates `t.round + 1 == self.round`
+            // against a `self.round` that never advances again), so the
+            // GAME OVER banner would announce last round's settles
+            // permanently alongside the terminal ones. `ended` gates the
+            // strip to `t.round == self.round` alone instead.
             settled: {
                 let ended = self.outcome().is_some();
                 self.tab_ledger
                     .iter()
-                    .filter(|t| t.round + 1 == self.round || (ended && t.round == self.round))
+                    .filter(|t| {
+                        if ended {
+                            t.round == self.round
+                        } else {
+                            t.round + 1 == self.round
+                        }
+                    })
                     .filter_map(|t| self.players.get(t.seat).map(|p| p.name.clone()))
                     .collect()
             },
         }
     }
 
+    /// Whether the active event halves pull costs (`happy-hour`, H12). The
+    /// single source of truth behind `effective_pull_cost` and the three
+    /// inline `halved` computations at `arm`/`lock_in`/the reveal charge —
+    /// and, per the Plan H review's I1, behind the CostRail's per-card
+    /// prices too, so a per-card bar and the DRINK chip can never disagree
+    /// about whether Happy Hour is on.
+    pub fn cost_halved(&self) -> bool {
+        matches!(
+            self.event
+                .as_deref()
+                .and_then(crate::lc_events::event_def)
+                .map(|e| e.hook),
+            Some(crate::lc_events::EventHook::CostHalf)
+        )
+    }
+
     /// `pull_cost` with the active event applied (H12) — the ONLY charging
     /// entry point from here on. `happy-hour` halves the charged pulls,
     /// rounded up.
     pub fn effective_pull_cost(&self, cost: u8, handicap_pct: u16) -> u8 {
-        let base = pull_cost(cost, handicap_pct);
-        match self.event.as_deref().and_then(crate::lc_events::event_def) {
-            Some(e) if e.hook == crate::lc_events::EventHook::CostHalf => base.div_ceil(2),
-            _ => base,
-        }
+        effective_pull_cost_raw(cost, handicap_pct, self.cost_halved())
     }
 
     /// The seat's total charged pulls over its plays in `self.plays` —
     /// event-aware. Plan E's DRINK chip and Task 3's `SpentAtLeast` read
-    /// this.
+    /// this. Folds with `saturating_add` rather than `.sum()` into `u8`
+    /// (M4, Plan H review): `HAND_SOFT_CAP` bounds the card count but not
+    /// `handicap_pct`, so a large-enough handicap on a near-cap hand could
+    /// overflow a plain sum and debug-panic; saturating at `u8::MAX` pulls
+    /// is a display-only clamp no real game state gets near.
     pub fn charged_pulls(&self, seat: usize) -> u8 {
         let h = self.players.get(seat).map_or(100, |p| p.handicap_pct);
         self.plays
             .iter()
             .filter(|p| p.source_seat == seat)
             .map(|p| self.effective_pull_cost(p.card.cost, h))
-            .sum()
+            .fold(0u8, u8::saturating_add)
     }
 
     // Slice 1 defines the shape; slice 3 (the loop) fills these in. The
@@ -1022,13 +1067,7 @@ impl LastCallState {
             card: card.clone(),
             target: None,
         });
-        let halved = matches!(
-            self.event
-                .as_deref()
-                .and_then(crate::lc_events::event_def)
-                .map(|e| e.hook),
-            Some(crate::lc_events::EventHook::CostHalf)
-        );
+        let halved = self.cost_halved();
         payment_plan(&trial, halved)?;
 
         let p = &mut self.players[seat];
@@ -1144,13 +1183,7 @@ impl LastCallState {
         {
             return Err(LcError::NeedsTarget(a.card.id.clone()));
         }
-        let halved = matches!(
-            self.event
-                .as_deref()
-                .and_then(crate::lc_events::event_def)
-                .map(|e| e.hook),
-            Some(crate::lc_events::EventHook::CostHalf)
-        );
+        let halved = self.cost_halved();
         payment_plan(p, halved)?;
 
         let plays: Vec<Play> = p
@@ -1410,10 +1443,29 @@ impl LastCallState {
                 // they've already settled, read off `tab_ledger`, so a
                 // replacement never repeats a tab this seat has seen before
                 // it wraps the 7-cycle.
+                //
+                // M3 (Plan H review): also refills a held id `tab_def`
+                // doesn't recognise (only reachable if a catalog entry is
+                // removed under a live blob) — Step 5.5's detection loop is
+                // fail-soft on an unknown id (skips it, never removes it),
+                // so without this an unknown id would sit in `tabs` forever:
+                // never empty, so never refilled, while
+                // `hand_pane_html`/`lc_tab_panel` renders the "TAB SETTLED —
+                // a new one comes at the deal" placeholder that then never
+                // arrives. Dropping it here first lets the ordinary refill
+                // below run unchanged.
                 for seat in 0..self.players.len() {
-                    if self.players[seat].status == Status::Alive
-                        && self.players[seat].tabs.is_empty()
+                    if self.players[seat].status != Status::Alive {
+                        continue;
+                    }
+                    if self.players[seat]
+                        .tabs
+                        .last()
+                        .is_some_and(|id| crate::lc_tabs::tab_def(id).is_none())
                     {
+                        self.players[seat].tabs.clear();
+                    }
+                    if self.players[seat].tabs.is_empty() {
                         let nth = self.tab_ledger.iter().filter(|t| t.seat == seat).count();
                         self.players[seat].tabs.push(
                             crate::lc_tabs::tab_for(self.rng_seed, seat, nth)
@@ -1431,8 +1483,10 @@ impl LastCallState {
                 self.pact_offers.clear();
             }
             Beat::Lock => self.reveal(),
-            // Deal→Diplomacy, Reveal→Resolve: events, tabs and the reaction
-            // window are hollow systems (D14, D9).
+            // Deal→Diplomacy, Reveal→Resolve: nothing happens on these
+            // edges. Events and tabs are no longer hollow systems (M2, Plan
+            // H review) — they're set on Draw→Deal above and read/settled
+            // inside resolve() — only the reaction window remains one (D9).
             _ => {}
         }
         self.seq += 1;
@@ -1467,13 +1521,7 @@ impl LastCallState {
         // both of which sit outside the Lock→Reveal edge this function
         // runs on — so the event `lock_in` saw and the event charged here
         // are structurally the same one.
-        let halved = matches!(
-            self.event
-                .as_deref()
-                .and_then(crate::lc_events::event_def)
-                .map(|e| e.hook),
-            Some(crate::lc_events::EventHook::CostHalf)
-        );
+        let halved = self.cost_halved();
         let locked_seats: Vec<usize> = self
             .players
             .iter()
@@ -2120,8 +2168,7 @@ fn payment_plan(player: &LcPlayer, halved: bool) -> Result<Vec<(usize, u8)>, LcE
     let mut sim: Vec<u8> = player.vessels.iter().map(|v| v.pulls_left).collect();
     let mut plan = Vec::with_capacity(player.armed.len());
     for a in &player.armed {
-        let base = pull_cost(a.card.cost, player.handicap_pct);
-        let cost = if halved { base.div_ceil(2) } else { base };
+        let cost = effective_pull_cost_raw(a.card.cost, player.handicap_pct, halved);
         let mut best: Option<usize> = None;
         for (i, v) in player.vessels.iter().enumerate() {
             if v.deck != a.card.deck {
@@ -4130,12 +4177,22 @@ mod tests {
         // H4, H12
         let mut st = at_lock();
         st.event = Some("happy-hour".into());
+        // I1 (Plan H review): before arming, the CostRail must already
+        // price this hand card at the halved cost — the same number the
+        // DRINK chip and the reveal charge land on below — not the raw
+        // unhalved `pull_cost` the pre-fix builder rendered.
+        let rail = crate::lc_render::cost_rail(
+            &st.players[0].hand,
+            st.players[0].handicap_pct,
+            st.cost_halved(),
+        );
+        assert!(rail.contains(r#"data-card-id="beer-02" data-cost="2" data-pull-cost="1""#));
         st.arm(1, "beer-02").unwrap(); // cost 2 -> pull_cost 2 -> halved 1
         st.set_target(1, "beer-02", Some(1)).unwrap();
         st.lock_in(1).unwrap();
         st.advance_beat().unwrap(); // the reveal charges
         assert_eq!(st.players[0].vessels[0].pulls_left, 7); // 8 - 1, not 8 - 2
-        assert_eq!(st.charged_pulls(0), 1); // what the DRINK chip will show
+        assert_eq!(st.charged_pulls(0), 1); // what the DRINK chip will show — matches the rail above
         assert_eq!(st.effective_pull_cost(3, 150), 3); // ceil(ceil(3*1.5)/2) = ceil(5/2)
     }
 
@@ -4176,6 +4233,75 @@ mod tests {
         assert_eq!(st.players[1].hp, 15); // aimed at, missed
         assert_eq!(st.players[2].hp, 13); // seat left of the target took it
         assert_eq!(st.players[0].hp, 17); // the heal landed where aimed
+    }
+
+    #[test]
+    fn test_double_vision_aiming_at_your_partner_still_breaks_the_pact() {
+        // I2 (Plan H review) / H15: betrayal is ruled INTENT-BASED — the
+        // AIMED target decides the break, even though `HostileRedirect`
+        // moves where the damage actually lands. Aiming a hostile card at
+        // your own partner is exactly the play double-vision's text invites
+        // ("aim wrong on purpose"), and it still dissolves the pact even
+        // though the hit itself lands on their neighbour, not them.
+        let mut st = at_diplomacy();
+        st.offer_pact(1, 1).unwrap();
+        st.accept_pact(2, 0).unwrap(); // alice(0)-bob(1)
+        for p in &mut st.players {
+            p.tabs.clear(); // unrelated to this test (H7 seating deal)
+        }
+        st.beat = Beat::Lock;
+        st.event = Some("double-vision".into());
+        st.arm(1, "beer-01").unwrap(); // Damage 2, targets "one"
+        st.set_target(1, "beer-01", Some(1)).unwrap(); // alice aims at bob, her partner
+        st.lock_in(1).unwrap();
+        st.advance_beat().unwrap(); // Reveal
+        st.advance_beat().unwrap(); // Resolve
+        st.resolve().unwrap();
+        // The hit redirected off bob (aimed at) onto cara, the next Alive
+        // seat clockwise — same mechanic as
+        // `test_double_vision_redirects_attacks_not_heals`.
+        assert_eq!(st.players[1].hp, 15); // bob: aimed at, missed the damage
+        assert_eq!(st.players[2].hp, 13); // cara: took the redirected hit
+                                          // But the pact broke on the AIM, not the landing.
+        assert!(st.pacts.is_empty());
+        assert_eq!(
+            st.pact_breaks,
+            vec![PactBreak {
+                betrayer: 0,
+                betrayed: 1,
+                round: 2, // non-terminal: re-stamped to the round rolled onto (G5)
+            }]
+        );
+        assert_eq!(st.pact_barred, vec![0]);
+    }
+
+    #[test]
+    fn test_double_vision_redirect_landing_on_your_partner_is_not_betrayal() {
+        // I2 (Plan H review) / H15 counterpart: a play aimed elsewhere —
+        // even at yourself — that merely REDIRECTS onto your partner is not
+        // betrayal. Only the aim decides the break; where the event sends
+        // the damage afterward is irrelevant to the pact.
+        let mut st = at_diplomacy();
+        st.offer_pact(1, 1).unwrap();
+        st.accept_pact(2, 0).unwrap(); // alice(0)-bob(1)
+        for p in &mut st.players {
+            p.tabs.clear(); // unrelated to this test (H7 seating deal)
+        }
+        st.beat = Beat::Lock;
+        st.event = Some("double-vision".into());
+        st.arm(1, "beer-01").unwrap(); // Damage 2, targets "one"
+        st.set_target(1, "beer-01", Some(0)).unwrap(); // alice aims at herself
+        st.lock_in(1).unwrap();
+        st.advance_beat().unwrap(); // Reveal
+        st.advance_beat().unwrap(); // Resolve
+        st.resolve().unwrap();
+        // The hit redirected off alice (aimed at herself) onto bob, the next
+        // Alive seat clockwise — who happens to be her own partner.
+        assert_eq!(st.players[0].hp, 15); // alice: aimed at herself, missed
+        assert_eq!(st.players[1].hp, 13); // bob: took the redirected hit
+                                          // No betrayal: the aim (alice's own seat) was never the partner.
+        assert_eq!(st.pacts.len(), 1);
+        assert!(st.pact_breaks.is_empty() && st.pact_barred.is_empty());
     }
 
     #[test]

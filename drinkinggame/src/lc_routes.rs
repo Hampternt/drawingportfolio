@@ -366,6 +366,11 @@ fn hand_pane_html(base_path: &str, code: &str, st: &LastCallState, player_id: i6
         armed: &armed,
         locked,
         handicap_pct,
+        // I1 (Plan H review): the CostRail prices through the same
+        // `cost_halved` seam `arm`/`lock_in`/the reveal charge/the DRINK
+        // chip all agree on, so a Happy Hour rail bar can't disagree with
+        // what the engine will actually charge.
+        halved: st.cost_halved(),
     };
     let pane = lc_render::lc_hand_pane(base_path, code, player_id, &hg, &rows, st.seq);
     let targets = seat

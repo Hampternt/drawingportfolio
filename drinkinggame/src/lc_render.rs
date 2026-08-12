@@ -5,7 +5,7 @@
 //! a breaking change for Plan A2 and Plan B.
 
 use crate::last_call::{
-    pull_cost, Beat, Card, Deck, LcOutcome, Play, PublicSeat, PublicView, Status,
+    effective_pull_cost_raw, Beat, Card, Deck, LcOutcome, Play, PublicSeat, PublicView, Status,
     DECK_LOW_THRESHOLD,
 };
 use crate::lc_events::event_def;
@@ -264,6 +264,12 @@ pub struct HandGroupView<'a> {
     pub armed: &'a [Card],
     pub locked: bool,
     pub handicap_pct: u16,
+    /// Whether the active event halves pull costs (`LastCallState::cost_halved`,
+    /// H12). I1 (Plan H review): threaded through so `cost_rail`'s per-card
+    /// prices price through the same seam as `arm`/`lock_in`/the reveal
+    /// charge/the DRINK chip — a Happy Hour round can no longer show a rail
+    /// price the engine won't actually charge.
+    pub halved: bool,
 }
 
 /// §7.8 `Hand group` — private, `.lc-handgroup` with children `.lc-armed`,
@@ -284,16 +290,19 @@ pub fn hand_group(hg: &HandGroupView) -> String {
     } else {
         hand_wheel(hg.hand)
     };
-    let rail = cost_rail(hg.hand, hg.handicap_pct);
+    let rail = cost_rail(hg.hand, hg.handicap_pct, hg.halved);
     format!(r#"<div class="lc-handgroup">{armed}{wheel}{rail}</div>"#)
 }
 
 /// §7.8 `CostRail` — private, the viewer's hand priced through their own
-/// handicap. `pc = pull_cost(card.cost, handicap_pct)` — decision 1: the
-/// rail shows the true pull price, rounded up — and each group renders
-/// `pc` bars. `is-active` is emitted server-side on `data-idx="0"` only
-/// (the initial focus); the JS moves it thereafter. `lc-deck-{slug}` on
-/// the group supplies `--lc-ink` to its bars, same convention as every
+/// handicap. `pc = effective_pull_cost_raw(card.cost, handicap_pct, halved)`
+/// — decision 1: the rail shows the true pull price, rounded up, further
+/// halved when `halved` (I1, Plan H review: the same seam
+/// `LastCallState::effective_pull_cost` charges through, so the rail and
+/// the DRINK chip can never disagree during Happy Hour) — and each group
+/// renders `pc` bars. `is-active` is emitted server-side on `data-idx="0"`
+/// only (the initial focus); the JS moves it thereafter. `lc-deck-{slug}`
+/// on the group supplies `--lc-ink` to its bars, same convention as every
 /// other `lc-deck-*` root in this file. The above-label is the *focused
 /// card's ordinal*, not the hand size: `01` whenever `n > 0` (matching the
 /// server-emitted `is-active` on `data-idx="0"`), `00` only when `n == 0`.
@@ -306,7 +315,7 @@ pub fn hand_group(hg: &HandGroupView) -> String {
 /// big screen's side-rail class (lines 511, 537; `lastcall.css:700`) and
 /// `--lc-rail` is a colour token, so this unrelated component gets its
 /// own prefix instead of colliding with that surface.
-pub fn cost_rail(hand: &[Card], handicap_pct: u16) -> String {
+pub fn cost_rail(hand: &[Card], handicap_pct: u16, halved: bool) -> String {
     let n = hand.len();
     let above = if n == 0 {
         "00".to_string()
@@ -318,7 +327,7 @@ pub fn cost_rail(hand: &[Card], handicap_pct: u16) -> String {
         .enumerate()
         .map(|(i, card)| {
             let slug = card.deck.slug();
-            let pc = pull_cost(card.cost, handicap_pct);
+            let pc = effective_pull_cost_raw(card.cost, handicap_pct, halved);
             let active = if i == 0 { " is-active" } else { "" };
             let bars: String = (0..pc)
                 .map(|_| r#"<i class="lc-costrail-bar"></i>"#)
@@ -1285,13 +1294,14 @@ mod tests {
             lc_banner(&settled_view),
             lc_banner(&outcome_settled_view),
             armed_column(&cards, false),
-            cost_rail(&cards, 150),
+            cost_rail(&cards, 150, false),
             hand_wheel(&cards),
             hand_group(&HandGroupView {
                 hand: &cards,
                 armed: &cards[..1],
                 locked: false,
                 handicap_pct: 150,
+                halved: false,
             }),
             // Plan E Task 4: a populated `lc_action_bar` call, deliberately
             // in the per-vessel Draw state so both `data-lc-post` and
@@ -1904,6 +1914,7 @@ mod tests {
             armed,
             locked: false,
             handicap_pct: 100,
+            halved: false,
         }
     }
 
@@ -2362,7 +2373,7 @@ mod tests {
             (300, [3, 6, 9], 18),
         ];
         for (pct, expected_costs, expected_bars) in cases {
-            let html = cost_rail(&hand, pct);
+            let html = cost_rail(&hand, pct, false);
             assert_eq!(
                 html.matches(r#"class="lc-costrail-bar""#).count(),
                 expected_bars,
@@ -2382,13 +2393,39 @@ mod tests {
     }
 
     #[test]
+    fn test_cost_rail_halved_matches_effective_pull_cost() {
+        // I1 (Plan H review): under a cost-halving event, the rail's
+        // per-card prices must price through the same seam as the engine
+        // charge — `pull_cost` further halved (rounded up) — not the raw
+        // unhalved `pull_cost` the pre-fix builder used.
+        let hand = [
+            rail_card("beer-fx", Deck::Beer, 1), // pull_cost 1 -> halved 1
+            rail_card("wine-fx", Deck::Wine, 2), // pull_cost 2 -> halved 1
+            rail_card("liquor-fx", Deck::Liquor, 3), // pull_cost 3 -> halved 2
+        ];
+        let html = cost_rail(&hand, 100, true);
+        let expected_costs = [1u8, 1, 2];
+        for (i, pc) in expected_costs.iter().enumerate() {
+            assert!(
+                html.contains(&format!(
+                    r#"data-idx="{i}" data-card-id="{}" data-cost="{}" data-pull-cost="{pc}""#,
+                    hand[i].id, hand[i].cost
+                )),
+                "idx={i} missing halved data-pull-cost={pc}: {html}"
+            );
+        }
+        assert_eq!(html.matches(r#"class="lc-costrail-bar""#).count(), 4); // 1+1+2
+        no_hex(&html);
+    }
+
+    #[test]
     fn test_cost_rail_marks_first_group_active_and_survives_empty() {
         let hand = [
             rail_card("beer-fx", Deck::Beer, 1),
             rail_card("wine-fx", Deck::Wine, 2),
             rail_card("liquor-fx", Deck::Liquor, 3),
         ];
-        let html = cost_rail(&hand, 100);
+        let html = cost_rail(&hand, 100, false);
         assert_eq!(html.matches("is-active").count(), 1);
         assert!(html.contains(r#"lc-costrail-group lc-deck-beer is-active" data-idx="0""#));
         // Negative check, not just a count: idx 1 and 2 close their class
@@ -2402,7 +2439,7 @@ mod tests {
         no_hex(&html);
 
         let empty: [Card; 0] = [];
-        let html0 = cost_rail(&empty, 100);
+        let html0 = cost_rail(&empty, 100, false);
         assert!(html0.contains(r#"data-count="0""#));
         assert!(html0.contains(">00<"));
         assert!(html0.contains(">0<"));
@@ -2419,7 +2456,7 @@ mod tests {
         let hand: Vec<Card> = (0..15)
             .map(|i| rail_card(&format!("rail-{i}"), Deck::Beer, 1))
             .collect();
-        let html = cost_rail(&hand, 100);
+        let html = cost_rail(&hand, 100, false);
         assert!(html.contains(r#"<span class="lc-costrail-above">01</span>"#));
         assert!(!html.contains(r#"<span class="lc-costrail-above">15</span>"#));
         assert!(html.contains(r#"<span class="lc-costrail-below">15</span>"#));

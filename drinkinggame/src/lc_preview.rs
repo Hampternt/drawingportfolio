@@ -626,6 +626,7 @@ fn hand_group_group(st: &LastCallState) -> PreviewGroup {
         armed: &live_armed,
         locked: false,
         handicap_pct: 100,
+        halved: false,
     };
     let live_frame = format!(
         r#"<div class="lc-preview-scroll"><div class="lc-preview-handframe">{}</div></div>"#,
@@ -651,6 +652,7 @@ fn hand_group_group(st: &LastCallState) -> PreviewGroup {
         armed: &[],
         locked: false,
         handicap_pct: 100,
+        halved: false,
     };
     let one_card: Vec<Card> = lc_cards::card_by_id("wine-03").into_iter().collect();
     let one_view = lc_render::HandGroupView {
@@ -658,12 +660,14 @@ fn hand_group_group(st: &LastCallState) -> PreviewGroup {
         armed: &[],
         locked: false,
         handicap_pct: 100,
+        halved: false,
     };
     let empty_no_armed = lc_render::HandGroupView {
         hand: &[],
         armed: &[],
         locked: false,
         handicap_pct: 100,
+        halved: false,
     };
     let empty_armed_cards: Vec<Card> = lc_cards::card_by_id("cider-01").into_iter().collect();
     let empty_all_armed = lc_render::HandGroupView {
@@ -671,6 +675,7 @@ fn hand_group_group(st: &LastCallState) -> PreviewGroup {
         armed: &empty_armed_cards,
         locked: false,
         handicap_pct: 100,
+        halved: false,
     };
     body.push_str(&row(
         "HandWheel — degenerate hand sizes",
@@ -744,7 +749,7 @@ fn hand_group_group(st: &LastCallState) -> PreviewGroup {
         "CostRail — every cost 1-3 in every deck",
         &[swatch(
             "5 decks x 3 costs — 30 bars, every ink ramp, Wine ink-not-fill",
-            &lc_render::cost_rail(&priced_all, 100),
+            &lc_render::cost_rail(&priced_all, 100, false),
         )],
     ));
 
@@ -760,7 +765,7 @@ fn hand_group_group(st: &LastCallState) -> PreviewGroup {
         .map(|(pct, bars)| {
             swatch(
                 &format!("handicap {pct} — {bars} bars"),
-                &lc_render::cost_rail(&handicap_hand, pct),
+                &lc_render::cost_rail(&handicap_hand, pct, false),
             )
         })
         .collect();

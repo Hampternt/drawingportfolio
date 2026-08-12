@@ -182,6 +182,9 @@ not exist. Every magnitude is table data a playtest can move.
   primality argument). A future entry-count change must revisit the
   coprimality of `step` (and `3·seat`) or the no-adjacent-repeat property
   silently dies; a test pins `EVENTS.len()`/`TABS.len()` at 7 and says why.
+- **H15 (added post-review — controller-ruled, awaiting user eyes) — Betrayal
+  is intent-based:** the aimed target decides the break; event redirection
+  changes only where damage lands.
 
 ---
 
