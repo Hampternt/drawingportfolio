@@ -1973,9 +1973,72 @@ impl LastCallState {
                 self.discards.push(play.card);
                 continue;
             }
+
+            // G4/G5/I-2 (Plan I review): a resolved single-target hostile
+            // play on your partner is betrayal — and per H15, betrayal is
+            // INTENT-BASED: the AIM decides, not whether the damage lands.
+            // Run this check on the raw aim BEFORE the `cancelled` gate
+            // below, so a Cancel can erase a play's effect without
+            // laundering the betrayal it declared. Requires the aimed
+            // target to still be Alive (G9: a play fizzling on an
+            // already-dead partner breaks nothing) — checked explicitly
+            // here since this now runs ahead of the subject-resolution
+            // match that used to supply that guarantee implicitly. AOE
+            // plays (`targets != "one"`) never reach this branch — the
+            // `card.targets == "one"` guard mirrors that.
+            //
+            // Incidental fix, disclosed (not asked for by I-2, caught in
+            // review): the old placement let a REFLECTED play skip this
+            // Alive gate entirely — `reflected`'s subject derivation
+            // bypasses the "one" match's fizzle continue, so a play
+            // reflected back at its own source, aimed at an
+            // already-dead-this-resolve partner, broke the pact under the
+            // old code with no test either way. The explicit `target_alive`
+            // check here now applies uniformly, so that case is no longer a
+            // break either — G9 now holds the same for a reflected play as
+            // for every other kind.
+            if play.card.targets == "one" {
+                if let (Some(target), Some(partner)) =
+                    (play.target, self.pact_partner(play.source_seat))
+                {
+                    let target_alive = self
+                        .players
+                        .get(target)
+                        .is_some_and(|p| p.status == Status::Alive);
+                    let hostile = crate::lc_cards::card_fx(&play.card.id).is_some_and(|f| {
+                        matches!(f.op, EffectOp::Damage | EffectOp::Dot | EffectOp::PullDrain)
+                    });
+                    if target_alive && target == partner && hostile {
+                        // Pact invariant (Task 1): a < b, so this is a
+                        // single sorted-pair comparison.
+                        let (lo, hi) = (play.source_seat.min(target), play.source_seat.max(target));
+                        self.pacts.retain(|p| !(p.a == lo && p.b == hi));
+                        self.pact_breaks.push(PactBreak {
+                            betrayer: play.source_seat,
+                            betrayed: target,
+                            round: self.round,
+                        });
+                        // M3-style defensive dedupe (Task 1's report,
+                        // carried concern): a corrupt/replayed blob could in
+                        // principle reach this arm twice for the same seat;
+                        // under normal play it can't (the pact this reads is
+                        // gone after the first hit), but the market ban is
+                        // "for the rest of the game" either way (G5), so a
+                        // repeat push must stay a no-op rather than pad the
+                        // list.
+                        if !self.pact_barred.contains(&play.source_seat) {
+                            self.pact_barred.push(play.source_seat);
+                        }
+                    }
+                }
+            }
+
             if cancelled.contains(&play.order_key) {
-                // I11/§12: cancelled resolves as nothing at all — no
-                // subject computation, no betrayal check, no fx. The card
+                // I11/§12 (Plan I review, I-2): cancelled resolves as
+                // nothing at all — no subject computation, no fx. The
+                // betrayal check above already ran on the raw aim, ahead of
+                // this gate, so a cancelled hostile play at your partner
+                // still breaks the pact even though nothing lands. The card
                 // still discards and the pulls already spent at reveal stay
                 // spent (7.5 parity); any haunt votes on it are wasted
                 // (Task 3).
@@ -2056,46 +2119,9 @@ impl LastCallState {
                 }
             };
 
-            // G4/G5: a resolved single-target hostile play on your partner
-            // is betrayal. After the fizzle gate on purpose — a play
-            // fizzling on an already-dead partner breaks nothing; the
-            // end-of-resolve sweep dissolves that pact silently instead
-            // (G9). AOE plays (`targets != "one"`) never reach this branch
-            // (G4) — the `subjects` match above already gives non-"one"
-            // cards `play.target == None`, but the explicit
-            // `card.targets == "one"` guard below keeps that invariant from
-            // being load-bearing.
-            if play.card.targets == "one" {
-                if let (Some(target), Some(partner)) =
-                    (play.target, self.pact_partner(play.source_seat))
-                {
-                    let hostile = crate::lc_cards::card_fx(&play.card.id).is_some_and(|f| {
-                        matches!(f.op, EffectOp::Damage | EffectOp::Dot | EffectOp::PullDrain)
-                    });
-                    if target == partner && hostile {
-                        // Pact invariant (Task 1): a < b, so this is a
-                        // single sorted-pair comparison.
-                        let (lo, hi) = (play.source_seat.min(target), play.source_seat.max(target));
-                        self.pacts.retain(|p| !(p.a == lo && p.b == hi));
-                        self.pact_breaks.push(PactBreak {
-                            betrayer: play.source_seat,
-                            betrayed: target,
-                            round: self.round,
-                        });
-                        // M3-style defensive dedupe (Task 1's report,
-                        // carried concern): a corrupt/replayed blob could in
-                        // principle reach this arm twice for the same seat;
-                        // under normal play it can't (the pact this reads is
-                        // gone after the first hit), but the market ban is
-                        // "for the rest of the game" either way (G5), so a
-                        // repeat push must stay a no-op rather than pad the
-                        // list.
-                        if !self.pact_barred.contains(&play.source_seat) {
-                            self.pact_barred.push(play.source_seat);
-                        }
-                    }
-                }
-            }
+            // G4/G5/I-2: the betrayal check now runs earlier in this loop
+            // (before the `cancelled` gate above) so a Cancel can't launder
+            // it — see the comment there. Nothing left to do here.
 
             // Plan F: effects come from the binary's catalog, keyed by card
             // id — never from the card's own (possibly blob-carried) kind.
@@ -2986,6 +3012,41 @@ mod tests {
     }
 
     #[test]
+    fn test_a_cancelled_knife_at_your_partner_still_betrays() {
+        // I-2 (Plan I review) / H15: betrayal is ruled INTENT-BASED — the
+        // AIM decides, not whether the play's effect actually lands. A
+        // Cancel erases the play's damage (I11/§12) but must not launder
+        // the betrayal it already declared by aiming at the partner.
+        let mut st = at_diplomacy();
+        st.offer_pact(1, 1).unwrap();
+        st.accept_pact(2, 0).unwrap(); // alice-bob
+        st.players[1]
+            .hand
+            .push(crate::lc_cards::card_by_id("cider-08").unwrap()); // Cancel
+        st.beat = Beat::Lock;
+        st.arm(1, "beer-01").unwrap(); // Damage 2, targets "one"
+        st.set_target(1, "beer-01", Some(1)).unwrap(); // alice aims at bob, her partner
+        st.lock_in(1).unwrap();
+        st.advance_beat().unwrap(); // Reveal
+        st.play_reaction(2, "cider-08", 1).unwrap(); // bob cancels the knife aimed at him
+        st.advance_beat().unwrap(); // Resolve
+        st.resolve().unwrap();
+        assert_eq!(st.players[1].hp, 15); // cancelled — no damage landed
+                                          // But the pact still broke, on the aim, exactly like the
+                                          // uncancelled case above:
+        assert!(st.pacts.is_empty());
+        assert_eq!(
+            st.pact_breaks,
+            vec![PactBreak {
+                betrayer: 0,
+                betrayed: 1,
+                round: 2
+            }]
+        );
+        assert_eq!(st.pact_barred, vec![0]);
+    }
+
+    #[test]
     fn test_aoe_splash_and_kindness_are_not_betrayal() {
         // G4
         // Splash: alice-bob pacted, alice plays beer-05 (aoe, hits bob too).
@@ -3131,6 +3192,54 @@ mod tests {
         assert_eq!(st.players[1].status, Status::Eliminated);
         assert!(st.pacts.is_empty()); // dissolved by the Step 6 sweep
         assert!(st.pact_breaks.is_empty()); // NOT a public break
+        assert!(st.pact_barred.is_empty()); // alice is not barred
+    }
+
+    #[test]
+    fn test_a_reflected_knife_at_an_already_dead_partner_does_not_betray() {
+        // Incidental fix, disclosed alongside I-2 (see the code comment at
+        // the betrayal check): the old placement gave a REFLECTED play no
+        // Alive gate on its aim at all — `reflected`'s subject derivation
+        // bypasses the "one" match's fizzle continue entirely, so unlike
+        // the non-reflected case just above, this scenario broke the pact
+        // under the old code. Moving the check earlier added an explicit
+        // `target_alive` gate that now applies uniformly: G9 ("fizzling on
+        // an already-dead partner breaks nothing") holds here too. dave
+        // reflects alice's knife home to herself — it still lands (on
+        // alice, not on the dead aim), but that's a damage question, not a
+        // betrayal one.
+        let mut st = at_diplomacy();
+        st.offer_pact(1, 1).unwrap();
+        st.accept_pact(2, 0).unwrap(); // alice-bob
+        st.players[3].vessels.push(Vessel {
+            deck: Deck::Wine,
+            pulls_max: 6,
+            pulls_left: 6,
+            container: "glass".into(),
+        });
+        st.players[3]
+            .hand
+            .push(crate::lc_cards::card_by_id("wine-08").unwrap()); // dave: Reflect
+        st.players[1].hp = 2;
+        st.beat = Beat::Lock;
+        // Same spend shape as the test above: cara out-spends alice, so bob
+        // is dead before alice's play (order_key 3) is ever reached.
+        st.arm(3, "soft-06").unwrap(); // Damage 2 -> bob, kills him outright
+        st.set_target(3, "soft-06", Some(1)).unwrap();
+        st.arm(3, "soft-01").unwrap(); // Heal 2 -> herself, pure padding spend
+        st.set_target(3, "soft-01", Some(2)).unwrap();
+        st.lock_in(3).unwrap();
+        st.arm(1, "beer-01").unwrap(); // alice's knife: Damage 2 -> her partner
+        st.set_target(1, "beer-01", Some(1)).unwrap();
+        st.lock_in(1).unwrap();
+        st.advance_beat().unwrap(); // Reveal
+        st.play_reaction(4, "wine-08", 3).unwrap(); // dave reflects alice's knife home
+        st.advance_beat().unwrap(); // Resolve
+        st.resolve().unwrap();
+        assert_eq!(st.players[1].status, Status::Eliminated);
+        assert_eq!(st.players[0].hp, 13); // reflected home: alice eats her own knife
+        assert!(st.pacts.is_empty()); // dissolved by the Step 6 sweep
+        assert!(st.pact_breaks.is_empty()); // NOT a public break — G9 uniformly
         assert!(st.pact_barred.is_empty()); // alice is not barred
     }
 
@@ -5049,6 +5158,20 @@ mod tests {
         assert_eq!(st.plays.len(), 1); // plays untouched (I8)
         assert_eq!(st.seq, seq + 1);
         assert_eq!(st.public_view().reactions.len(), 1); // public immediately (I9)
+    }
+
+    #[test]
+    fn test_happy_hour_halves_a_reactions_charge_too() {
+        // Promoted minor (Plan I review, ledger flag 5): `play_reaction`
+        // charges through `effective_pull_cost` (H12-aware — an upgrade on
+        // the plan's plain `pull_cost`), but nothing pinned it: a
+        // regression back to plain `pull_cost` would pass the whole suite.
+        // bob's cider-08 nominally costs 2; under happy-hour that's
+        // ceil(2/2) = 1.
+        let mut st = at_reveal();
+        st.event = Some("happy-hour".into());
+        st.play_reaction(2, "cider-08", 1).unwrap();
+        assert_eq!(st.players[1].vessels[0].pulls_left, 9); // Cider 10 − 1, not 10 − 2
     }
 
     /// MANDATORY — window-only legality, the exact error.

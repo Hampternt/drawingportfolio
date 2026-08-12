@@ -184,7 +184,8 @@ not exist. Every magnitude is table data a playtest can move.
   silently dies; a test pins `EVENTS.len()`/`TABS.len()` at 7 and says why.
 - **H15 (added post-review — controller-ruled, awaiting user eyes) — Betrayal
   is intent-based:** the aimed target decides the break; event redirection
-  changes only where damage lands.
+  changes only where damage lands. Applies through Cancel: a cancelled play
+  still betrays (ruled in Plan I's review).
 
 ---
 

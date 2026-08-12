@@ -7576,6 +7576,56 @@ async fn test_lc_react_is_private_until_played_then_public() {
     assert_eq!(after.public_view().reactions.len(), 1);
 }
 
+/// I-1 (Plan I review, chip half): a played reaction's pulls are deducted
+/// from the vessel at play time (`play_reaction`), but before the fix they
+/// never surfaced in the DRINK chip's number — the physical prompt silently
+/// diverged from the digital charge. This must be an ADD onto an existing
+/// charge, not a replace-if-zero coincidence — alice already has her own
+/// armed play priced at DRINK 2 (`beer-02`, cost 2, rig default 100%
+/// handicap) before she reacts at all, so a `max()`-shaped bug or a
+/// baseline of zero would not distinguish this from the naive fix. A Cider
+/// vessel and `cider-08` (cost 2) are hand-built onto alice directly (the
+/// `lc_state`/`set_game_state` pattern `test_reveal_charge_is_priced_per_
+/// viewer` uses, since arming/vessels are Draw-gated and reacting is
+/// Reveal-only); she then answers her own play, and her chip must read the
+/// SUM: 2 (her play) + 2 (her reaction) = DRINK 4.
+#[tokio::test]
+async fn test_a_played_reaction_raises_the_drink_chip() {
+    let (app, pool, code, alice, _bob, _cara, alice_id, _bob_id, _cara_id) =
+        lc_reveal_rig(unix_ms_now() + 20_000).await;
+
+    let before = body_string(get_hand(&app, &alice, &code).await).await;
+    assert!(before.contains("DRINK 2"), "{before}"); // her own play, nothing else yet
+
+    let mut st = lc_state(&pool, &code).await;
+    let alice_seat = st.seat_of(alice_id).unwrap();
+    st.players[alice_seat]
+        .vessels
+        .push(drinkinggame::last_call::Vessel {
+            deck: Deck::Cider,
+            pulls_max: 10,
+            pulls_left: 10,
+            container: "bottle".into(),
+        });
+    st.players[alice_seat]
+        .hand
+        .push(drinkinggame::lc_cards::card_by_id("cider-08").unwrap());
+    let game_id = lc_game_id(&pool, &code).await;
+    drinkinggame::db::set_game_state(&pool, game_id, &st.to_json()).await;
+
+    let res = post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/lastcall/react"),
+        "card_id=cider-08&play=1", // alice answers her own play
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+
+    let after = body_string(get_hand(&app, &alice, &code).await).await;
+    assert!(after.contains("DRINK 4"), "{after}"); // 2 (her play) + 2 (her reaction)
+}
+
 /// The shared `member_room` guard, exercised for `react` the same way
 /// `test_lc_haunt_is_for_ghosts_only_and_lands_public`'s `carol` case
 /// exercises it for `haunt` — coverage was asymmetric (fix round 1, M-3):

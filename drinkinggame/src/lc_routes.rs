@@ -429,7 +429,24 @@ fn action_bar_view(st: &LastCallState, player_id: i64) -> ActionBarView {
             let p = &st.players[seat];
             // H12: `charged_pulls` is event-aware — the DRINK chip and the
             // reveal charge must always agree on the same number.
-            let charged: u8 = st.charged_pulls(seat);
+            //
+            // I-1 (Plan I review, chip half): `charged_pulls` only sums
+            // `st.plays` — a reaction's pulls (`play_reaction`, also
+            // `effective_pull_cost`-priced) are deducted from the vessel at
+            // play time but never entered this total, so the physical
+            // prompt silently under-counted a seat that answered. `reactions`
+            // is public the instant it's played (I9/TBD-7, same as `plays`
+            // by reveal time), so summing it here leaks nothing new — add
+            // it on top without touching `charged_pulls` itself, which
+            // `SpentAtLeast`/`TopSpenderHit` also read (deliberately
+            // untouched; parked for the user, per the review).
+            let reaction_charged: u8 = st
+                .reactions
+                .iter()
+                .filter(|r| r.source_seat == seat)
+                .map(|r| st.effective_pull_cost(r.card.cost, p.handicap_pct))
+                .fold(0u8, u8::saturating_add);
+            let charged: u8 = st.charged_pulls(seat).saturating_add(reaction_charged);
             ActionBarView {
                 beat: st.beat,
                 round: st.round,
