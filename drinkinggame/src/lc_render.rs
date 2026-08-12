@@ -2075,6 +2075,7 @@ mod tests {
             pact_breaks: vec![],
             event: None,
             settled: Vec::new(),
+            reactions: Vec::new(),
         }
     }
 

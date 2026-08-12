@@ -13,6 +13,7 @@
 //! between requests.
 
 use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]
@@ -255,6 +256,16 @@ pub struct Play {
     pub order_key: u32,
 }
 
+/// A played reaction: public from the moment it exists (decision I9).
+/// `answers` is the order_key of the play it interrupts — plays are the only
+/// things with order keys, so a reaction can never be named (TBD-7, I8).
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct ReactionPlay {
+    pub card: Card,
+    pub source_seat: usize,
+    pub answers: u32,
+}
+
 /// The op vocabulary (Plan F authors real cards against this). "Persists"
 /// means it is stored as an `Effect` on the room; immediate ops apply during
 /// resolution and are never stored.
@@ -389,6 +400,15 @@ pub struct LastCallState {
     /// has no "round after" to wait for and is instead visible immediately,
     /// on the frozen tableau (H erratum, see `public_view()`'s `settled`).
     pub tab_ledger: Vec<TabSettle>,
+    /// Played `ReactionPlay`s answering plays revealed this round (I2/I9) —
+    /// the beat-5 sibling to `plays`/`locked_plays`. Unlike a `Play`, a
+    /// `ReactionPlay` never carries an `order_key` of its own (TBD-7, I8):
+    /// nothing can name it, so nothing can answer it in turn. Public the
+    /// instant it exists (see `play_reaction`'s doc comment) — unlike
+    /// `locked_plays`/`pacts`, `public_view()` projects this field verbatim.
+    /// Drained into `discards` at the end of `resolve()`'s Step 1 fold (8.4
+    /// parity): reactions die with the round, resolved or wasted alike.
+    pub reactions: Vec<ReactionPlay>,
 }
 
 /// One settled tab — who, which one, and when. New in Task 3: serde
@@ -458,6 +478,10 @@ pub struct PublicView {
     /// themselves are PRIVATE (H8) and never enter this projection in any
     /// other field.
     pub settled: Vec<String>,
+    /// Projected verbatim from `LastCallState::reactions` (I9): a reaction
+    /// is public from the moment it's played, not from reveal or resolve —
+    /// see `play_reaction`'s doc comment.
+    pub reactions: Vec<ReactionPlay>,
 }
 
 /// DDv2 9.3 — the two solo ways a game ends — plus the pact win (G2, Task 2).
@@ -602,6 +626,7 @@ impl LastCallState {
             pact_breaks: Vec::new(),
             event: None,
             tab_ledger: Vec::new(),
+            reactions: Vec::new(),
         }
     }
 
@@ -985,6 +1010,10 @@ impl LastCallState {
                     .filter_map(|t| self.players.get(t.seat).map(|p| p.name.clone()))
                     .collect()
             },
+            // I9: no gating by `beat` — unlike `revealed`, a played
+            // reaction is public in the same mutation that plays it,
+            // regardless of which beat the room is currently reading from.
+            reactions: self.reactions.clone(),
         }
     }
 
@@ -1033,7 +1062,10 @@ impl LastCallState {
     /// DDv2 6.1/6.2. Guard order (pinned by `test_arm_guard_order`):
     /// `NotSeated` -> `NotAlive` -> `WrongBeat` (arming lives in `Beat::Lock`,
     /// DDv2 §5 beat 4) -> `AlreadyLocked` -> `UnknownCard` (not in hand) ->
-    /// `NotPlayable` (a Reaction card, D9 — reactions never arm) ->
+    /// `NotPlayable` (a Reaction card — D9: reactions are beat-5 cards,
+    /// played only via `play_reaction` during `Beat::Reveal` (Plan I, Task
+    /// 2); arming one here is permanently illegal, not provisionally —
+    /// there is no beat in which this guard ever lets a Reaction through) ->
     /// `CantAfford` if `payment_plan` over the player's current armed cards
     /// plus this one fails (4.2 — checked early for UX; 6.3's lock-time check
     /// via the same helper remains authoritative).
@@ -1223,6 +1255,116 @@ impl LastCallState {
             .filter(|play| play.source_seat == seat)
             .map(|play| &play.card)
             .collect()
+    }
+
+    /// DDv2 §7.3/§12, I1/I2/I5/I7/I8/I9 — the sole way a Reaction card ever
+    /// moves (D9's mirror: reactions play only here, and never arm — see
+    /// `arm`'s doc comment). Guard order:
+    ///
+    /// `NotSeated` -> `NotAlive` (ghosts hold no cards, 9.2) -> `WrongBeat`
+    /// (`beat` must be `Beat::Reveal` — I1, the Reveal beat IS the response
+    /// window, nothing more; I2: this window opens every round, full
+    /// duration, unconditionally, so a conditionally-open window can never
+    /// leak who is holding a reaction) -> `UnknownCard` (id not in hand) ->
+    /// `NotPlayable` (`kind != CardKind::Reaction` — the mirror of D9: only
+    /// reactions play here, reactions play only here) -> `BadTarget` (no
+    /// play in `plays` with `order_key == answers` — TBD-7/I8, pinned
+    /// structurally: a `ReactionPlay` has no `order_key` of its own and
+    /// never enters `plays`, so a reaction can never be named as an
+    /// `answers` value in the first place — nothing runtime-checks this,
+    /// the type shape makes it impossible) -> `BadTarget` (scope, I5:
+    /// reaction scope reuses the card's own `targets` field. If
+    /// `targets == "self"`, the answered play's subject set — `play_subjects`
+    /// below, D2's derivation from the play's `target`/`card.targets`,
+    /// where `"all"` means every seat — must include the reactor's seat;
+    /// any other `targets` value carries no scope restriction here. This is
+    /// why `cider-08` — "cancel any revealed play, whoever it was aimed
+    /// at" — works even though its `targets` field is still `"one"`: that
+    /// field only matters to `set_target`, which a hand card played through
+    /// this path never goes through. [Copy/field mismatch flagged for the
+    /// fix wave, not a bug: `cider-08` was never going to be armed.]
+    /// Separately, and regardless of `targets`: if `card_rfx` is `Reflect`,
+    /// the play's `target` must be `Some(_)` — an AoE play has no single
+    /// seat to send it home to) -> `CantAfford(card_id)` (single-card D3
+    /// greedy: `effective_pull_cost(card.cost, handicap_pct)` — H12
+    /// event-aware, the same charging entry point `arm`/`lock_in` use, per
+    /// that method's doc comment — from the fullest vessel of `card.deck`,
+    /// tie -> lowest index).
+    ///
+    /// Success, one mutation: deduct the pulls, move the card from `hand`
+    /// into `reactions` as `ReactionPlay { card, source_seat, answers }`,
+    /// `seq += 1`. The card is revealed and stored in the same step —
+    /// nothing unrevealed ever sits in a projected field (I9);
+    /// `public_view()` projects `reactions` verbatim, immediately.
+    pub fn play_reaction(
+        &mut self,
+        player_id: i64,
+        card_id: &str,
+        answers: u32,
+    ) -> Result<(), LcError> {
+        let Some(seat) = self.seat_of(player_id) else {
+            return Err(LcError::NotSeated);
+        };
+        if self.players[seat].status != Status::Alive {
+            return Err(LcError::NotAlive);
+        }
+        if self.beat != Beat::Reveal {
+            return Err(LcError::WrongBeat);
+        }
+        let Some(idx) = self.players[seat].hand.iter().position(|c| c.id == card_id) else {
+            return Err(LcError::UnknownCard);
+        };
+        let card = self.players[seat].hand[idx].clone();
+        if card.kind != CardKind::Reaction {
+            return Err(LcError::NotPlayable);
+        }
+        let Some(play) = self.plays.iter().find(|p| p.order_key == answers) else {
+            return Err(LcError::BadTarget);
+        };
+        if card.targets == "self" {
+            let subjects = play_subjects(play, self.players.len());
+            if !subjects.contains(&seat) {
+                return Err(LcError::BadTarget);
+            }
+        }
+        if play.target.is_none()
+            && matches!(
+                crate::lc_cards::card_rfx(card_id),
+                Some(crate::lc_cards::ReactionFx::Reflect)
+            )
+        {
+            return Err(LcError::BadTarget);
+        }
+
+        let handicap = self.players[seat].handicap_pct;
+        let cost = self.effective_pull_cost(card.cost, handicap);
+        let vessels = &self.players[seat].vessels;
+        let mut best: Option<usize> = None;
+        for (i, v) in vessels.iter().enumerate() {
+            if v.deck != card.deck {
+                continue;
+            }
+            match best {
+                Some(bi) if v.pulls_left <= vessels[bi].pulls_left => {}
+                _ => best = Some(i),
+            }
+        }
+        let Some(bi) = best else {
+            return Err(LcError::CantAfford(card_id.to_string()));
+        };
+        if vessels[bi].pulls_left < cost {
+            return Err(LcError::CantAfford(card_id.to_string()));
+        }
+
+        self.players[seat].vessels[bi].pulls_left -= cost;
+        self.players[seat].hand.remove(idx);
+        self.reactions.push(ReactionPlay {
+            card,
+            source_seat: seat,
+            answers,
+        });
+        self.seq += 1;
+        Ok(())
     }
 
     /// The seat's current partner, if any. Reads `pacts` — callable only
@@ -1581,19 +1723,29 @@ impl LastCallState {
     /// The beat-6 program (DDv2 §7-9) plus the round rollover (D5). Requires
     /// `beat == Beat::Resolve`. In order:
     ///
+    /// 0. (I11, Plan I Task 2) Fold `reactions` — LIFO per answered play
+    ///    (§7.3) — into a cancelled set, a reflected set, and a per-
+    ///    `(answers, reactor_seat)` Reduce total. Precomputed before any
+    ///    play resolves, so a reactor eliminated mid-resolution still counts
+    ///    (I8).
     /// 1. Resolve `plays` in `order_key` order: a play whose source is now
     ///    `Eliminated` (7.6) is skipped; a `targets == "one"` play whose
-    ///    target is `Eliminated` fizzles (7.5) — either way the card still
-    ///    ends in `discards` (8.4). Live plays look up their fx by card id in
-    ///    the Plan F catalog (`lc_cards::card_fx`, never the card's own kind)
-    ///    and apply it per subject: `Damage` (via `apply_damage`, elimination
-    ///    checked immediately — D11), `Heal` with no ceiling (TBD-3),
-    ///    `PullDrain` (`drain_pulls`, F4), `Shield` upserts into `effects`
-    ///    immediately — replace-not-stack by (op, subject), D10 — so it can
-    ///    absorb a later play in the same round's order (F8), and `Dot`
-    ///    queues (appended in step 3, so it cannot tick this round). An id
-    ///    the catalog doesn't recognize (a Reaction, or version skew, F1)
-    ///    resolves inert.
+    ///    target is `Eliminated` fizzles (7.5); a play answered by a
+    ///    `Cancel` resolves as nothing at all (§12) — either way the card
+    ///    still ends in `discards` (8.4). A play answered by a `Reflect`
+    ///    resolves against its own source instead of its normal subjects.
+    ///    Live plays look up their fx by card id in the Plan F catalog
+    ///    (`lc_cards::card_fx`, never the card's own kind) and apply it per
+    ///    subject: `Damage` (via `apply_damage`, blunted first by any
+    ///    accrued Reduce total floored at 0 — I11 — elimination checked
+    ///    immediately — D11), `Heal` with no ceiling (TBD-3), `PullDrain`
+    ///    (`drain_pulls`, F4), `Shield` upserts into `effects` immediately —
+    ///    replace-not-stack by (op, subject), D10 — so it can absorb a later
+    ///    play in the same round's order (F8), and `Dot` queues (appended in
+    ///    step 3, so it cannot tick this round). An id the catalog doesn't
+    ///    recognize (a Reaction, or version skew, F1) resolves inert. Every
+    ///    `ReactionPlay` in `reactions` is then drained into `discards` —
+    ///    reactions die with the round, resolved or wasted alike.
     /// 2. Tick every existing `Dot` effect on an `Alive` subject, in
     ///    creation order, through the same `apply_damage` path.
     /// 3. Append the queued curse effects with the no-stack replace rule
@@ -1673,6 +1825,44 @@ impl LastCallState {
         // then ages out on the round after that — loud, not permanent (G5).
         let pact_breaks_start = self.pact_breaks.len();
         let plays = std::mem::take(&mut self.plays);
+
+        // Step 0 (I11): fold `reactions` before any play resolves, per
+        // answered play, in reverse played order (LIFO, §7.3): `Cancel`
+        // marks the play cancelled — a second `Cancel` on the same play is
+        // the §12 fizzle (re-inserting into a `HashSet` is already the
+        // no-op that produces, with no error either way); `Reduce(n)`
+        // accrues against `(answers, reactor_seat)` — Task 3 adds the
+        // haunt-vote term to the same total, and accrual is commutative so
+        // the reverse-order walk changes nothing about the sum, only about
+        // matching the spec's stated processing order; `Reflect` marks the
+        // play reflected (idempotent — a second `Reflect` just re-marks the
+        // same source). Folding here, before Step 1 below can eliminate
+        // anyone, is what makes I8 fall out for free: a reactor eliminated
+        // mid-resolution by an earlier play still has their already-paid
+        // reaction counted, because nothing here re-checks the reactor's
+        // current `Status` — only `resolve()`'s existing per-play source
+        // check (a few lines down) does that, and it checks the *play's*
+        // source, never the reaction's.
+        let mut cancelled: HashSet<u32> = HashSet::new();
+        let mut reflected: HashSet<u32> = HashSet::new();
+        let mut reduce_total: HashMap<(u32, usize), i32> = HashMap::new();
+        for rp in self.reactions.iter().rev() {
+            match crate::lc_cards::card_rfx(&rp.card.id) {
+                Some(crate::lc_cards::ReactionFx::Cancel) => {
+                    cancelled.insert(rp.answers);
+                }
+                Some(crate::lc_cards::ReactionFx::Reduce(n)) => {
+                    *reduce_total
+                        .entry((rp.answers, rp.source_seat))
+                        .or_insert(0) += n;
+                }
+                Some(crate::lc_cards::ReactionFx::Reflect) => {
+                    reflected.insert(rp.answers);
+                }
+                None => {} // version skew (F1): an unrecognised id folds inert
+            }
+        }
+
         // `NoPlayPenalty` (H4): which seats played at all this round, from
         // the round's plays as revealed — not who has a play left by the
         // time Step 1 finishes eliminating sources (M3: bounds-checked, a
@@ -1701,6 +1891,15 @@ impl LastCallState {
                 self.discards.push(play.card);
                 continue;
             }
+            if cancelled.contains(&play.order_key) {
+                // I11/§12: cancelled resolves as nothing at all — no
+                // subject computation, no betrayal check, no fx. The card
+                // still discards and the pulls already spent at reveal stay
+                // spent (7.5 parity); any haunt votes on it are wasted
+                // (Task 3).
+                self.discards.push(play.card);
+                continue;
+            }
 
             // D2 subject resolution. "table" has no card in the current
             // catalog and falls back to no subjects — a Reaction's id maps
@@ -1709,59 +1908,70 @@ impl LastCallState {
             // arm bounds-checks the target the same way (M3) — an
             // out-of-range seat fizzles exactly like a dead one, instead of
             // panicking.
-            let subjects: Vec<usize> = match play.card.targets.as_str() {
-                "one" => match play.target.and_then(|t| self.players.get(t)) {
-                    Some(p) if p.status == Status::Alive => {
-                        let target_seat = p.seat;
-                        // `double-vision`'s `HostileRedirect` (H4): only
-                        // hostile ops redirect — heals/shields land where
-                        // aimed. The subject becomes the next Alive seat
-                        // clockwise from the target, `(target + k) % n` for
-                        // the smallest `k >= 1`; `k` runs up to `n`
-                        // inclusive, so the walk always terminates back on
-                        // the target itself (still Alive, matched above) if
-                        // no other seat is Alive.
-                        let redirect = hook == Some(crate::lc_events::EventHook::HostileRedirect)
-                            && crate::lc_cards::card_fx(&play.card.id).is_some_and(|f| {
-                                matches!(
-                                    f.op,
-                                    EffectOp::Damage | EffectOp::Dot | EffectOp::PullDrain
-                                )
-                            });
-                        if redirect {
-                            let n = self.players.len();
-                            let mut subject = target_seat;
-                            for k in 1..=n {
-                                let candidate = (target_seat + k) % n;
-                                if self
-                                    .players
-                                    .get(candidate)
-                                    .is_some_and(|q| q.status == Status::Alive)
-                                {
-                                    subject = candidate;
-                                    break;
+            let subjects: Vec<usize> = if reflected.contains(&play.order_key) {
+                // I11: reflected sends the play home to its own source,
+                // bypassing the normal target/redirect/fizzle derivation
+                // below entirely — `play_reaction`'s BadTarget guard already
+                // required `play.target.is_some()` for a Reflect to be
+                // played at all, and the source's own aliveness was already
+                // checked above (the `Eliminated`/`cancelled` continues).
+                vec![play.source_seat]
+            } else {
+                match play.card.targets.as_str() {
+                    "one" => match play.target.and_then(|t| self.players.get(t)) {
+                        Some(p) if p.status == Status::Alive => {
+                            let target_seat = p.seat;
+                            // `double-vision`'s `HostileRedirect` (H4): only
+                            // hostile ops redirect — heals/shields land where
+                            // aimed. The subject becomes the next Alive seat
+                            // clockwise from the target, `(target + k) % n` for
+                            // the smallest `k >= 1`; `k` runs up to `n`
+                            // inclusive, so the walk always terminates back on
+                            // the target itself (still Alive, matched above) if
+                            // no other seat is Alive.
+                            let redirect = hook
+                                == Some(crate::lc_events::EventHook::HostileRedirect)
+                                && crate::lc_cards::card_fx(&play.card.id).is_some_and(|f| {
+                                    matches!(
+                                        f.op,
+                                        EffectOp::Damage | EffectOp::Dot | EffectOp::PullDrain
+                                    )
+                                });
+                            if redirect {
+                                let n = self.players.len();
+                                let mut subject = target_seat;
+                                for k in 1..=n {
+                                    let candidate = (target_seat + k) % n;
+                                    if self
+                                        .players
+                                        .get(candidate)
+                                        .is_some_and(|q| q.status == Status::Alive)
+                                    {
+                                        subject = candidate;
+                                        break;
+                                    }
                                 }
+                                vec![subject]
+                            } else {
+                                vec![target_seat]
                             }
-                            vec![subject]
-                        } else {
-                            vec![target_seat]
                         }
-                    }
-                    _ => {
-                        // 7.5: fizzle — no effect, pulls stay spent, the
-                        // card still occupied its slot.
-                        self.discards.push(play.card);
-                        continue;
-                    }
-                },
-                "self" => vec![play.source_seat],
-                "all" => self
-                    .players
-                    .iter()
-                    .filter(|p| p.status == Status::Alive)
-                    .map(|p| p.seat)
-                    .collect(),
-                _ => Vec::new(),
+                        _ => {
+                            // 7.5: fizzle — no effect, pulls stay spent, the
+                            // card still occupied its slot.
+                            self.discards.push(play.card);
+                            continue;
+                        }
+                    },
+                    "self" => vec![play.source_seat],
+                    "all" => self
+                        .players
+                        .iter()
+                        .filter(|p| p.status == Status::Alive)
+                        .map(|p| p.seat)
+                        .collect(),
+                    _ => Vec::new(),
+                }
             };
 
             // G4/G5: a resolved single-target hostile play on your partner
@@ -1815,7 +2025,21 @@ impl LastCallState {
                 Some(f) => {
                     for subject in subjects {
                         match f.op {
-                            EffectOp::Damage => self.apply_damage(subject, f.magnitude),
+                            // I11: Reduce blunts per (answered play,
+                            // subject) — Task 3 adds the haunt-vote term to
+                            // the same total. Non-damage ops never consult
+                            // `reduce_total` at all: a Reduce answering a
+                            // heal or a shield was wasted (I11) — see
+                            // `Heal`/`Shield`/`PullDrain`/`Dot` below, none
+                            // of which read the map.
+                            EffectOp::Damage => {
+                                let reduced = f.magnitude
+                                    - reduce_total
+                                        .get(&(play.order_key, subject))
+                                        .copied()
+                                        .unwrap_or(0);
+                                self.apply_damage(subject, reduced.max(0));
+                            }
                             EffectOp::Heal => self.players[subject].hp += f.magnitude, // TBD-3: no ceiling
                             EffectOp::PullDrain => {
                                 drain_pulls(&mut self.players[subject], f.magnitude)
@@ -1852,6 +2076,16 @@ impl LastCallState {
             }
             self.discards.push(play.card);
         }
+
+        // I11/8.4 parity: reactions die with the round, resolved or wasted
+        // alike — drained into `discards` once, after every answered play
+        // above has had its chance to read the fold at Step 0. This also
+        // covers a reaction that answered an `answers` value with no
+        // matching play left to fold against (there always is one, since
+        // `play_reaction`'s `BadTarget` guard requires it — but the drain
+        // doesn't need that invariant to hold to be correct).
+        self.discards
+            .extend(self.reactions.drain(..).map(|rp| rp.card));
 
         // Step 2: tick dots (10.4, creation order). Snapshotted before
         // applying: the no-stack rule (D10) guarantees at most one Dot
@@ -2164,6 +2398,22 @@ fn refill_pulls(player: &mut LcPlayer, n: u8) {
 /// from. Returns, per armed card in order, the `(vessel index, pulls)` it
 /// pays — or `CantAfford` naming the first card for which no vessel of its
 /// deck can cover the cost.
+/// D2's subject derivation, but for `play_reaction`'s scope validation only
+/// (I5) — never used by `resolve()`, which has its own copy that also
+/// accounts for `Status`/`HostileRedirect` (both resolution-time concerns
+/// that don't exist yet at Reveal). This one only answers "which seats could
+/// this play possibly have named," a fact fixed the moment the play was
+/// locked in. `"all"` means every seat, alive or not — the brief's "includes
+/// everyone".
+fn play_subjects(play: &Play, num_seats: usize) -> Vec<usize> {
+    match play.card.targets.as_str() {
+        "one" => play.target.into_iter().collect(),
+        "self" => vec![play.source_seat],
+        "all" => (0..num_seats).collect(),
+        _ => Vec::new(),
+    }
+}
+
 fn payment_plan(player: &LcPlayer, halved: bool) -> Result<Vec<(usize, u8)>, LcError> {
     let mut sim: Vec<u8> = player.vessels.iter().map(|v| v.pulls_left).collect();
     let mut plan = Vec::with_capacity(player.armed.len());
@@ -4668,5 +4918,318 @@ mod tests {
         assert_eq!(st.outcome(), None); // game continues — non-terminal
         assert_eq!(st.round, 2); // Step 8 rolled over in this same call
         assert_eq!(st.public_view().settled, vec!["alice".to_string()]);
+    }
+
+    // ---- Plan I, Task 2: play_reaction / the LIFO resolution pass ----
+
+    /// alice(1)/Beer locks beer-02 (Damage 4 → bob) and is revealed: one play,
+    /// order_key 1, alice charged 2 (Beer 8→6). bob(2)/Cider holds cider-08
+    /// (Cancel, any); cara(3)/Soft holds soft-04 (Reduce 4, self).
+    fn at_reveal() -> LastCallState {
+        let mut st = at_lock();
+        st.players[1]
+            .hand
+            .push(crate::lc_cards::card_by_id("cider-08").unwrap());
+        st.players[2]
+            .hand
+            .push(crate::lc_cards::card_by_id("soft-04").unwrap());
+        st.arm(1, "beer-02").unwrap();
+        st.set_target(1, "beer-02", Some(1)).unwrap();
+        st.lock_in(1).unwrap();
+        st.lock_in(2).unwrap();
+        st.lock_in(3).unwrap();
+        st.advance_beat().unwrap(); // Lock → Reveal
+        st
+    }
+
+    #[test]
+    fn test_play_reaction_charges_and_stores_public() {
+        let mut st = at_reveal();
+        let seq = st.seq;
+        st.play_reaction(2, "cider-08", 1).unwrap();
+        assert_eq!(st.players[1].hand.len(), 5); // 6 → 5
+        assert_eq!(st.players[1].vessels[0].pulls_left, 8); // Cider 10 − 2
+        assert_eq!(st.reactions.len(), 1);
+        assert_eq!(st.reactions[0].answers, 1);
+        assert_eq!(st.plays.len(), 1); // plays untouched (I8)
+        assert_eq!(st.seq, seq + 1);
+        assert_eq!(st.public_view().reactions.len(), 1); // public immediately (I9)
+    }
+
+    /// MANDATORY — window-only legality, the exact error.
+    #[test]
+    fn test_a_reaction_outside_the_window_is_rejected() {
+        let mut st = at_reveal();
+        for beat in [
+            Beat::Draw,
+            Beat::Deal,
+            Beat::Diplomacy,
+            Beat::Lock,
+            Beat::Resolve,
+        ] {
+            st.beat = beat;
+            assert_eq!(
+                st.play_reaction(2, "cider-08", 1),
+                Err(LcError::WrongBeat),
+                "beat={beat:?}"
+            );
+        }
+        st.beat = Beat::Reveal;
+        st.play_reaction(2, "cider-08", 1).unwrap(); // and the window itself works
+    }
+
+    /// MANDATORY — §3.4.1-shape secrecy: an unplayed reaction never reaches the
+    /// projection; a played one is public in the same mutation.
+    #[test]
+    fn test_an_unplayed_reaction_never_reaches_the_public_view() {
+        let mut st = at_reveal(); // bob HOLDS cider-08, nobody has played it
+        let json = serde_json::to_string(&st.public_view()).unwrap();
+        assert!(!json.contains("cider-08"));
+        assert!(!json.contains("Not So Fast"));
+        st.play_reaction(2, "cider-08", 1).unwrap();
+        let json = serde_json::to_string(&st.public_view()).unwrap();
+        assert!(json.contains("cider-08")); // revealed exactly when it exists
+    }
+
+    /// MANDATORY — TBD-7 / DDv2 7.4, pinned structurally: a reaction has no
+    /// order_key and never enters `plays`, so there is nothing to name.
+    #[test]
+    fn test_a_reaction_cannot_be_reacted_to() {
+        let mut st = at_reveal();
+        st.play_reaction(2, "cider-08", 1).unwrap();
+        assert_eq!(st.plays.len(), 1); // the reaction is NOT among the plays
+                                       // cara tries to answer it — the only names that exist are play keys, and
+                                       // the reaction has none. (BadTarget outranks CantAfford in the guard
+                                       // order, so cara's missing Cider vessel never masks the refusal.)
+        st.players[2]
+            .hand
+            .push(crate::lc_cards::card_by_id("cider-08").unwrap());
+        assert_eq!(st.play_reaction(3, "cider-08", 2), Err(LcError::BadTarget));
+    }
+
+    #[test]
+    fn test_reaction_guards() {
+        let mut st = at_reveal();
+        assert_eq!(
+            st.play_reaction(999, "cider-08", 1),
+            Err(LcError::NotSeated)
+        );
+        assert_eq!(st.play_reaction(2, "nope", 1), Err(LcError::UnknownCard));
+        // A non-reaction card in hand cannot ride the window:
+        assert_eq!(
+            st.play_reaction(2, "cider-01", 1),
+            Err(LcError::NotPlayable)
+        );
+        // Self-scope: the play targets bob, cara is not among its subjects:
+        assert_eq!(st.play_reaction(3, "soft-04", 1), Err(LcError::BadTarget));
+        // CantAfford names the card (cara holds a cider-08 but no Cider vessel):
+        st.players[2]
+            .hand
+            .push(crate::lc_cards::card_by_id("cider-08").unwrap());
+        assert_eq!(
+            st.play_reaction(3, "cider-08", 1),
+            Err(LcError::CantAfford("cider-08".into()))
+        );
+        // Ghosts hold no cards (9.2):
+        st.players[1].status = Status::Eliminated;
+        assert_eq!(st.play_reaction(2, "cider-08", 1), Err(LcError::NotAlive));
+    }
+
+    #[test]
+    fn test_cancel_voids_the_play_but_not_the_pulls() {
+        let mut st = at_reveal();
+        st.play_reaction(2, "cider-08", 1).unwrap();
+        st.advance_beat().unwrap(); // Reveal → Resolve
+        st.resolve().unwrap();
+        assert_eq!(st.players[1].hp, 15); // cancelled
+        assert_eq!(st.players[0].vessels[0].pulls_left, 6); // 7.5: no refund
+        assert_eq!(st.discards.len(), 2); // beer-02 + cider-08
+        assert!(st.reactions.is_empty());
+        assert_eq!(st.round, 2); // rollover unbothered
+    }
+
+    #[test]
+    fn test_reduce_blunts_for_the_reactor_and_floors_at_zero() {
+        // Full absorb: cider-05 (Damage 4) → cara, soft-04 Reduce 4 → 0.
+        let mut st = at_lock();
+        st.players[2]
+            .hand
+            .push(crate::lc_cards::card_by_id("soft-04").unwrap());
+        st.arm(2, "cider-05").unwrap();
+        st.set_target(2, "cider-05", Some(2)).unwrap();
+        st.lock_in(1).unwrap();
+        st.lock_in(2).unwrap();
+        st.lock_in(3).unwrap();
+        st.advance_beat().unwrap();
+        st.play_reaction(3, "soft-04", 1).unwrap(); // Soft 6 − 1 = 5
+        st.advance_beat().unwrap();
+        st.resolve().unwrap();
+        assert_eq!(st.players[2].hp, 15);
+
+        // Partial: cider-05 (4) → alice, beer-08 Reduce 3 → 1 through.
+        let mut st = at_lock();
+        // Alice's default-dealt "lie-low" (H7, NoPlays -> Hp(2)) would
+        // otherwise settle this round too — she plays nothing but a
+        // reaction, which doesn't count as a play — and silently pad her
+        // HP assertion below by 2. Cleared for the same reason the
+        // existing tab tests already clear it.
+        st.players[0].tabs.clear();
+        st.players[0]
+            .hand
+            .push(crate::lc_cards::card_by_id("beer-08").unwrap());
+        st.arm(2, "cider-05").unwrap();
+        st.set_target(2, "cider-05", Some(0)).unwrap();
+        st.lock_in(1).unwrap();
+        st.lock_in(2).unwrap();
+        st.lock_in(3).unwrap();
+        st.advance_beat().unwrap();
+        st.play_reaction(1, "beer-08", 1).unwrap(); // Beer 8 − 1 = 7
+        st.advance_beat().unwrap();
+        st.resolve().unwrap();
+        assert_eq!(st.players[0].hp, 14);
+        assert_eq!(st.players[0].vessels[0].pulls_left, 7);
+    }
+
+    #[test]
+    fn test_reflect_sends_it_home_and_refuses_aoe() {
+        // bob's Windfall (Damage 6) → alice; cara reflects with a hand-built
+        // Wine vessel (the Plan F drain-test precedent for mid-game vessels).
+        let mut st = at_lock();
+        // Same "lie-low" interference as the Reduce test above: alice plays
+        // nothing this round (bob is the one arming), so her seating-dealt
+        // NoPlays tab would otherwise pad her HP assertion below by 2.
+        st.players[0].tabs.clear();
+        st.players[2].vessels.push(Vessel {
+            deck: Deck::Wine,
+            pulls_max: 6,
+            pulls_left: 6,
+            container: "glass".into(),
+        });
+        st.players[2]
+            .hand
+            .push(crate::lc_cards::card_by_id("wine-08").unwrap());
+        st.arm(2, "cider-04").unwrap();
+        st.set_target(2, "cider-04", Some(0)).unwrap();
+        st.lock_in(1).unwrap();
+        st.lock_in(2).unwrap();
+        st.lock_in(3).unwrap();
+        st.advance_beat().unwrap();
+        st.play_reaction(3, "wine-08", 1).unwrap(); // Wine 6 − 2 = 4
+        st.advance_beat().unwrap();
+        st.resolve().unwrap();
+        assert_eq!(st.players[1].hp, 9); // bob ate his own Windfall
+        assert_eq!(st.players[0].hp, 15);
+
+        // Reflect needs a seat target — an aoe play has none (I5):
+        let mut st = at_lock();
+        st.players[0]
+            .hand
+            .push(crate::lc_cards::card_by_id("beer-05").unwrap());
+        st.players[2].vessels.push(Vessel {
+            deck: Deck::Wine,
+            pulls_max: 6,
+            pulls_left: 6,
+            container: "glass".into(),
+        });
+        st.players[2]
+            .hand
+            .push(crate::lc_cards::card_by_id("wine-08").unwrap());
+        st.arm(1, "beer-05").unwrap(); // targets "all"
+        st.lock_in(1).unwrap();
+        st.lock_in(2).unwrap();
+        st.lock_in(3).unwrap();
+        st.advance_beat().unwrap();
+        assert_eq!(st.play_reaction(3, "wine-08", 1), Err(LcError::BadTarget));
+    }
+
+    #[test]
+    fn test_two_cancels_resolve_lifo_and_the_second_fizzles() {
+        // DDv2 §12
+        let mut st = at_reveal();
+        st.players[1]
+            .hand
+            .push(crate::lc_cards::card_by_id("cider-08").unwrap());
+        st.play_reaction(2, "cider-08", 1).unwrap();
+        st.play_reaction(2, "cider-08", 1).unwrap(); // both legal, both paid
+        assert_eq!(st.players[1].vessels[0].pulls_left, 6); // 10 − 2 − 2
+        st.advance_beat().unwrap();
+        st.resolve().unwrap();
+        assert_eq!(st.players[1].hp, 15); // cancelled once; the echo fizzled
+        assert_eq!(st.discards.len(), 3); // the play + both reactions
+    }
+
+    /// Self-review: a reaction charged and folded in still gets wasted if
+    /// another reaction cancels the same play — cancellation short-circuits
+    /// the whole play before Damage is even computed (I11/§12), regardless
+    /// of what order the two reactions were paid in. Both stay charged
+    /// (I7): being wasted at resolution never earns a refund.
+    #[test]
+    fn test_a_reduce_is_wasted_when_another_reaction_cancels_the_same_play() {
+        let mut st = at_lock();
+        st.players[1].vessels.push(Vessel {
+            deck: Deck::Beer,
+            pulls_max: 8,
+            pulls_left: 8,
+            container: "can".into(),
+        });
+        st.players[1]
+            .hand
+            .push(crate::lc_cards::card_by_id("beer-08").unwrap());
+        st.players[1]
+            .hand
+            .push(crate::lc_cards::card_by_id("cider-08").unwrap());
+        st.arm(2, "cider-05").unwrap();
+        st.set_target(2, "cider-05", Some(1)).unwrap(); // bob targets himself
+        st.lock_in(1).unwrap();
+        st.lock_in(2).unwrap();
+        st.lock_in(3).unwrap();
+        st.advance_beat().unwrap();
+        st.play_reaction(2, "beer-08", 1).unwrap(); // Reduce 3, paid: Beer 8 → 7
+        st.play_reaction(2, "cider-08", 1).unwrap(); // Cancel, paid after: Cider 10 → 8
+        st.advance_beat().unwrap();
+        st.resolve().unwrap();
+        assert_eq!(st.players[1].hp, 15); // cancelled — the Reduce was never read
+        assert_eq!(st.players[1].vessels[1].pulls_left, 7); // Beer: still spent
+                                                            // Cider: cider-05's own reveal charge (10 − 2) plus cider-08's
+                                                            // reaction charge (− 2) — both still spent regardless of the
+                                                            // cancellation (I7).
+        assert_eq!(st.players[1].vessels[0].pulls_left, 6);
+    }
+
+    /// Self-review: I8 covers a reactor eliminated mid-resolution — this is
+    /// the mirror, a reflected play whose own SOURCE died earlier the same
+    /// resolve(). 7.6 already gates plays on their source's `Status` before
+    /// `reflected` is ever consulted, so this just confirms the ordering:
+    /// alice's cheaper-tied, first-priority hit kills bob outright before
+    /// his own (reflected) attack ever gets a turn to run.
+    #[test]
+    fn test_reflect_answering_a_play_whose_source_died_earlier_this_resolve_does_nothing() {
+        let mut st = at_lock();
+        st.players[1].hp = 4; // exactly one beer-02 (Damage 4) from elimination
+        st.players[2].vessels.push(Vessel {
+            deck: Deck::Wine,
+            pulls_max: 6,
+            pulls_left: 6,
+            container: "glass".into(),
+        });
+        st.players[2]
+            .hand
+            .push(crate::lc_cards::card_by_id("wine-08").unwrap());
+        st.arm(1, "beer-02").unwrap();
+        st.set_target(1, "beer-02", Some(1)).unwrap(); // alice -> bob
+        st.arm(2, "cider-05").unwrap();
+        st.set_target(2, "cider-05", Some(0)).unwrap(); // bob -> alice
+        st.lock_in(1).unwrap();
+        st.lock_in(2).unwrap();
+        st.lock_in(3).unwrap();
+        st.advance_beat().unwrap();
+        // Tied cost (2 each): alice's lower table priority sorts her first.
+        assert_eq!((st.plays[0].order_key, st.plays[0].source_seat), (1, 0));
+        assert_eq!((st.plays[1].order_key, st.plays[1].source_seat), (2, 1));
+        st.play_reaction(3, "wine-08", 2).unwrap(); // cara reflects bob's play
+        st.advance_beat().unwrap();
+        st.resolve().unwrap();
+        assert_eq!(st.players[1].status, Status::Eliminated); // bob died to alice's hit
+        assert_eq!(st.players[0].hp, 15); // his own reflected attack never ran
     }
 }
