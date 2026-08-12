@@ -991,6 +991,16 @@ pub async fn lc_draw_handler(
 // `PactFromForm` carry.
 // -------------------------------------------------------------
 
+#[derive(Deserialize)]
+pub struct PactOfferForm {
+    pub target: usize,
+}
+
+#[derive(Deserialize)]
+pub struct PactFromForm {
+    pub from: usize,
+}
+
 /// `POST /room/{code}/lastcall/pact/offer` — private (`LcTick` only, see the
 /// section comment above).
 pub async fn lc_pact_offer_handler(
@@ -1061,16 +1071,6 @@ pub async fn lc_pact_decline_handler(
     }
     persist_and_tick_lc(&state, &ctx).await;
     StatusCode::NO_CONTENT.into_response()
-}
-
-#[derive(Deserialize)]
-pub struct PactOfferForm {
-    pub target: usize,
-}
-
-#[derive(Deserialize)]
-pub struct PactFromForm {
-    pub from: usize,
 }
 
 // -------------------------------------------------------------

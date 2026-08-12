@@ -6756,6 +6756,13 @@ async fn test_a_pact_between_a_and_b_is_invisible_to_c_and_the_wire() {
         "cara's world must be byte-identical whether or not alice and bob pacted"
     );
 
+    // The third named surface: the spectator screen, which needs no session
+    // at all (`test_the_last_call_screen_needs_no_session`) — the pact must
+    // be invisible there too, not just to a fellow player.
+    let screen = body_string(get(&app, &format!("/room/{code}/screen")).await).await;
+    assert!(!screen.contains("PACT WITH"), "{screen}");
+    assert!(!screen.contains("lc-pact-standing"), "{screen}");
+
     // Force the beat to Draw via a direct state write (the pact itself is
     // beat-independent — only `formed_round` is stamped, not the beat it
     // formed in) so `/lastcall/handicap` — a full-publish route with
