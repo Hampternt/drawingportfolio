@@ -7757,7 +7757,11 @@ async fn test_the_response_section_is_per_viewer() {
     assert!(bob_hand.contains("CANCEL ALICE → BOB"), "{bob_hand}");
     assert!(bob_hand.contains(r#"data-lc-post="react""#), "{bob_hand}");
 
-    // alice holds no reaction card: no trace of the section at all.
+    // alice holds no reaction card: no trace of the section at all. Not
+    // seed-dependent — `set_vessel`'s opening hand (`lc_cards::
+    // opening_hand`) is a fixed per-deck list, and `lc_cards::tests::
+    // test_opening_hands` pins that no deck's opener ever includes a
+    // `CardKind::Reaction` card in the first place.
     let alice_hand = body_string(get_hand(&app, &alice, &code).await).await;
     assert!(!alice_hand.contains("lc-react"), "{alice_hand}");
 
