@@ -35,6 +35,28 @@ struct FeedTemplate {
     q: String,
 }
 
+/// One description, two consumers: the head label and (in plan B) the empty
+/// state. Pinned shape: tags in their given order, then the quoted search,
+/// then the collection slug, all joined by ` + ` — e.g.
+/// `perspective + ink + "loomis" + studies`, or `None` when nothing filters.
+///
+/// The `vis` subset is deliberately absent — it is admin plumbing, not a
+/// search a viewer typed.
+fn filter_desc(filter: &PostFilter) -> Option<String> {
+    let mut parts: Vec<String> = filter.tags.clone();
+    if let Some(q) = &filter.q {
+        parts.push(format!("\"{q}\""));
+    }
+    if let Some(c) = &filter.collection {
+        parts.push(c.clone());
+    }
+    if parts.is_empty() {
+        None
+    } else {
+        Some(parts.join(" + "))
+    }
+}
+
 /// Builds the page head's micro-label from the real counts.
 ///
 /// `count_posts` runs only on a full page render — never on HTMX pagination,
@@ -48,7 +70,7 @@ struct FeedTemplate {
 /// It matters that the out-of-band label on the page-0 path passes the same
 /// effective viewer: a search made while previewing would otherwise paint an
 /// admin-shaped head (`· 7 hidden`) above a visitor-shaped feed.
-fn head_label(counts: &PostCounts, q: Option<&str>, viewer: Viewer) -> String {
+fn head_label(counts: &PostCounts, filter: &PostFilter, viewer: Viewer) -> String {
     let total = counts.total;
     let noun = if total == 1 { "drawing" } else { "drawings" };
 
@@ -64,11 +86,11 @@ fn head_label(counts: &PostCounts, q: Option<&str>, viewer: Viewer) -> String {
         String::new()
     };
 
-    match q {
-        // Deliberately unescaped: the template renders this through `{{ }}` and
-        // Askama escapes it on the way out. Escaping here too would paint
-        // entities on the page.
-        Some(q) => format!("{total} {noun} · matching \"{q}\"{tail}"),
+    // Deliberately unescaped: the template renders this through `{{ }}` and
+    // Askama escapes it on the way out. Escaping here too would paint
+    // entities on the page.
+    match filter_desc(filter) {
+        Some(desc) => format!("{total} {noun} · matching {desc}{tail}"),
         None if viewer.is_admin() => format!("{total} {noun}{tail}"),
         None => format!("{total} {noun} · newest first"),
     }
@@ -118,51 +140,76 @@ fn group_by_month(posts: Vec<Post>, last_month: Option<&str>) -> Vec<MonthGroup>
     groups
 }
 
+/// Writes the URL contract's query pairs onto an in-progress serializer, in
+/// this order and only when present: `q`, `tags` (comma-joined — the
+/// serializer percent-encodes the commas to `%2C`, which is fine), `collection`,
+/// `vis` (comma-joined), then `visitor=1` when `preview`.
+///
+/// The single producer for both `load_more_url` and `page_url`, so the two
+/// cannot drift — and plan B's rail-toggle URLs build on this same helper. The
+/// pair order is a contract, not a style choice.
+fn append_filter_pairs(
+    s: &mut url::form_urlencoded::Serializer<'_, String>,
+    filter: &PostFilter,
+    preview: bool,
+) {
+    if let Some(q) = &filter.q {
+        s.append_pair("q", q);
+    }
+    if !filter.tags.is_empty() {
+        s.append_pair("tags", &filter.tags.join(","));
+    }
+    if let Some(c) = &filter.collection {
+        s.append_pair("collection", c);
+    }
+    if let Some(vis) = &filter.vis {
+        s.append_pair("vis", &vis.join(","));
+    }
+    if preview {
+        s.append_pair("visitor", "1");
+    }
+}
+
 /// The Load more URL, built in Rust because Askama escapes HTML, not URLs — a
 /// query containing `&` or `%` must be percent-encoded before it reaches an
 /// attribute.
 ///
-/// The preview flag rides along with `q` and `last_month`. Without it, page 0
-/// renders as a visitor and the first Load more renders as an admin — hidden
-/// posts appear mid-feed, in the middle of the preview that exists to prove they
-/// do not.
+/// The preview flag rides along with the filter and `last_month`. Without it,
+/// page 0 renders as a visitor and the first Load more renders as an admin —
+/// hidden posts appear mid-feed, in the middle of the preview that exists to
+/// prove they do not.
 fn load_more_url(
     next_page: i64,
-    q: Option<&str>,
+    filter: &PostFilter,
     last_month: Option<&str>,
     preview: bool,
 ) -> String {
     let mut s = url::form_urlencoded::Serializer::new(String::new());
     s.append_pair("page", &next_page.to_string());
-    if let Some(q) = q {
-        s.append_pair("q", q);
-    }
+    append_filter_pairs(&mut s, filter, preview);
     if let Some(m) = last_month {
         s.append_pair("last_month", m);
-    }
-    if preview {
-        s.append_pair("visitor", "1");
     }
     format!("/artportfolio/htmx/posts?{}", s.finish())
 }
 
-/// The URL the address bar should show for a search — a real page, not the
-/// fragment endpoint that produced the swap. See `htmx_posts`.
+/// The URL the address bar should show for a filtered page — a real page, not
+/// the fragment endpoint that produced the swap. See `htmx_posts`.
 ///
-/// Carries the preview flag for the same reason `load_more_url` does — a search
-/// while previewing must push a URL that reloads back into the preview, not out
-/// of it.
-fn page_url(q: Option<&str>, preview: bool) -> String {
-    if q.is_none() && !preview {
+/// Carries the preview flag for the same reason `load_more_url` does — a
+/// search while previewing must push a URL that reloads back into the
+/// preview, not out of it.
+fn page_url(filter: &PostFilter, preview: bool) -> String {
+    if filter.q.is_none()
+        && filter.tags.is_empty()
+        && filter.collection.is_none()
+        && filter.vis.is_none()
+        && !preview
+    {
         return "/artportfolio".to_string();
     }
     let mut s = url::form_urlencoded::Serializer::new(String::new());
-    if let Some(q) = q {
-        s.append_pair("q", q);
-    }
-    if preview {
-        s.append_pair("visitor", "1");
-    }
+    append_filter_pairs(&mut s, filter, preview);
     format!("/artportfolio?{}", s.finish())
 }
 
@@ -224,6 +271,61 @@ pub struct PageQuery {
     /// A string rather than a bool: serde parses `Option<bool>` from
     /// `true`/`false`, not from `1`.
     pub visitor: Option<String>,
+    /// Comma-separated, raw — normalized by `filter()`.
+    pub tags: Option<String>,
+    /// A collection slug, raw.
+    pub collection: Option<String>,
+    /// Comma-separated subset of `public,unlisted,hidden`, raw — admin-only in
+    /// effect. `filter()` drops it entirely for a non-admin viewer.
+    pub vis: Option<String>,
+}
+
+impl PageQuery {
+    /// The single owner of the parse. `viewer` must be the EFFECTIVE
+    /// viewer — a previewing admin has already been downgraded to
+    /// `Viewer::Visitor` by the time this runs, so `vis` is silently dropped
+    /// for them the same as any other visitor.
+    pub fn filter(&self, viewer: Viewer) -> PostFilter {
+        let vis = if viewer.is_admin() {
+            self.vis
+                .as_deref()
+                .map(|raw| {
+                    let mut list: Vec<String> = Vec::new();
+                    for v in raw.split(',').map(str::trim) {
+                        // unknown states are dropped, duplicates kept once,
+                        // first-occurrence order preserved
+                        if ["public", "unlisted", "hidden"].contains(&v)
+                            && !list.iter().any(|x| x == v)
+                        {
+                            list.push(v.to_string());
+                        }
+                    }
+                    list
+                })
+                .filter(|v| !v.is_empty())
+        } else {
+            // Silently ignored for visitors — the feed is public, and a 4xx
+            // here would leak that the param exists. A previewing admin is a
+            // visitor by the time this runs, because the caller passes the
+            // EFFECTIVE viewer.
+            None
+        };
+        PostFilter {
+            q: normalize_q(self.q.as_deref()),
+            tags: self
+                .tags
+                .as_deref()
+                .map(crate::db::normalize_tags)
+                .unwrap_or_default(),
+            collection: self
+                .collection
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_string),
+            vis,
+        }
+    }
 }
 
 fn is_preview(query: &PageQuery) -> bool {
@@ -273,7 +375,7 @@ async fn render_grid(
     PostGridTemplate {
         has_more,
         is_admin: viewer.is_admin(),
-        load_more_url: load_more_url(page + 1, q, next_last_month.as_deref(), preview),
+        load_more_url: load_more_url(page + 1, filter, next_last_month.as_deref(), preview),
         is_first_page: page == 0,
         q: q.unwrap_or_default().to_string(),
         head_label_oob: head_label_oob.unwrap_or_default(),
@@ -290,18 +392,14 @@ async fn feed_page(
 ) -> impl IntoResponse {
     let preview = is_preview(&query);
     let viewer = effective_viewer(session_is_admin, preview);
-    // `?q=` is read here as well as on the fragment route, so a searched feed
-    // survives a reload and is linkable.
+    // `?q=`/`?tags=`/`?collection=`/`?vis=` are read here as well as on the
+    // fragment route, so a filtered feed survives a reload and is linkable.
     //
     // `?page=` is deliberately ignored: the inlined first page is always page 0,
     // and deep-linking into the middle of an append-only feed would render a
     // page with no way back to the top of it. PageQuery carries the field for
     // the fragment route's sake.
-    let q = normalize_q(query.q.as_deref());
-    let filter = PostFilter {
-        q: q.clone(),
-        ..Default::default()
-    };
+    let filter = query.filter(viewer);
 
     // Fetch first page here so posts arrive in the very first HTTP response.
     // Without this, the browser would load the page and then fire a second
@@ -321,9 +419,9 @@ async fn feed_page(
             // The one thing the raw session bool is for. A real visitor must
             // never see the "exit preview" affordance.
             is_previewing: session_is_admin && preview,
-            head_label: head_label(&counts, q.as_deref(), viewer),
+            head_label: head_label(&counts, &filter, viewer),
             initial_posts_html,
-            q: q.unwrap_or_default(),
+            q: filter.q.clone().unwrap_or_default(),
         }
         .render()
         .unwrap(),
@@ -336,19 +434,15 @@ async fn htmx_posts(
     Query(query): Query<PageQuery>,
 ) -> Response {
     let page = query.page.unwrap_or(0);
-    let q = normalize_q(query.q.as_deref());
-    let filter = PostFilter {
-        q: q.clone(),
-        ..Default::default()
-    };
     let preview = is_preview(&query);
     let viewer = effective_viewer(session_is_admin, preview);
+    let filter = query.filter(viewer);
 
     // Page 0 replaces the whole feed, so the head's total has to move with it.
     // Load more only appends, and pays no COUNT.
     let oob = if page == 0 {
         let counts = crate::db::count_posts(&state.pool, &filter, viewer).await;
-        Some(head_label(&counts, q.as_deref(), viewer))
+        Some(head_label(&counts, &filter, viewer))
     } else {
         None
     };
@@ -371,11 +465,7 @@ async fn htmx_posts(
         //
         // Load more (page >= 1) pushes nothing: it appends to what is already
         // on screen and must not rewrite history.
-        (
-            [("HX-Push-Url", page_url(q.as_deref(), preview))],
-            Html(html),
-        )
-            .into_response()
+        ([("HX-Push-Url", page_url(&filter, preview))], Html(html)).into_response()
     } else {
         Html(html).into_response()
     }
@@ -447,16 +537,13 @@ async fn api_posts(
     Query(query): Query<PageQuery>,
 ) -> impl IntoResponse {
     let page = query.page.unwrap_or(0);
-    // The same filter the HTML feed applies, so the two cannot drift on what
-    // "matching" means.
-    let q = normalize_q(query.q.as_deref());
-    let filter = PostFilter {
-        q,
-        ..Default::default()
-    };
     // Reads the session but deliberately not the preview flag: the API has no
     // head, no pagination UI and nothing to preview.
     let viewer = effective_viewer(session_is_admin, false);
+    // The same filter the HTML feed applies, so the two cannot drift on what
+    // "matching" means. Same params, no preview, JSON shape unchanged — the
+    // recorded trade-off is no tags/collections in the payload.
+    let filter = query.filter(viewer);
     let mut posts = crate::db::get_posts_page(&state.pool, &filter, page, viewer).await;
     let has_more = posts.len() > 20;
     if has_more {
@@ -700,21 +787,34 @@ mod tests {
         }
     }
 
+    /// A `PostFilter` with only `q` set — mirrors `db.rs`'s own `q_filter` test
+    /// helper.
+    fn q_filter(q: &str) -> PostFilter {
+        PostFilter {
+            q: Some(q.to_string()),
+            ..Default::default()
+        }
+    }
+
     #[test]
     fn test_head_label_states_the_real_total() {
         // Replaces the pre-count_posts version of this test, which pinned a
         // vaguer fallback ("newest first" with no number) that existed only
         // because there was no COUNT to state a total with.
         assert_eq!(
-            head_label(&visitor_counts(117), None, Viewer::Visitor),
+            head_label(
+                &visitor_counts(117),
+                &PostFilter::default(),
+                Viewer::Visitor
+            ),
             "117 drawings · newest first"
         );
         assert_eq!(
-            head_label(&visitor_counts(1), None, Viewer::Visitor),
+            head_label(&visitor_counts(1), &PostFilter::default(), Viewer::Visitor),
             "1 drawing · newest first"
         );
         assert_eq!(
-            head_label(&visitor_counts(0), None, Viewer::Visitor),
+            head_label(&visitor_counts(0), &PostFilter::default(), Viewer::Visitor),
             "0 drawings · newest first"
         );
     }
@@ -722,11 +822,11 @@ mod tests {
     #[test]
     fn test_head_label_names_the_active_search() {
         assert_eq!(
-            head_label(&visitor_counts(12), Some("loomis"), Viewer::Visitor),
+            head_label(&visitor_counts(12), &q_filter("loomis"), Viewer::Visitor),
             "12 drawings · matching \"loomis\""
         );
         assert_eq!(
-            head_label(&visitor_counts(1), Some("loomis"), Viewer::Visitor),
+            head_label(&visitor_counts(1), &q_filter("loomis"), Viewer::Visitor),
             "1 drawing · matching \"loomis\""
         );
     }
@@ -811,24 +911,50 @@ mod tests {
     #[test]
     fn test_load_more_url_percent_encodes_the_query() {
         assert_eq!(
-            load_more_url(1, Some("100%"), Some("2026-07"), false),
+            load_more_url(1, &q_filter("100%"), Some("2026-07"), false),
             "/artportfolio/htmx/posts?page=1&q=100%25&last_month=2026-07"
         );
         assert_eq!(
-            load_more_url(1, None, None, false),
+            load_more_url(1, &PostFilter::default(), None, false),
             "/artportfolio/htmx/posts?page=1"
         );
         assert_eq!(
-            load_more_url(3, Some("a&b"), None, false),
+            load_more_url(3, &q_filter("a&b"), None, false),
             "/artportfolio/htmx/posts?page=3&q=a%26b"
         );
     }
 
     #[test]
     fn test_page_url_is_the_page_not_the_fragment_endpoint() {
-        assert_eq!(page_url(None, false), "/artportfolio");
-        assert_eq!(page_url(Some("loomis"), false), "/artportfolio?q=loomis");
-        assert_eq!(page_url(Some("100%"), false), "/artportfolio?q=100%25");
+        assert_eq!(page_url(&PostFilter::default(), false), "/artportfolio");
+        assert_eq!(
+            page_url(&q_filter("loomis"), false),
+            "/artportfolio?q=loomis"
+        );
+        assert_eq!(page_url(&q_filter("100%"), false), "/artportfolio?q=100%25");
+    }
+
+    #[test]
+    fn test_load_more_url_carries_filters() {
+        let f = PostFilter {
+            q: Some("loomis".to_string()),
+            tags: vec!["ink".to_string(), "perspective".to_string()],
+            collection: Some("studies".to_string()),
+            vis: None,
+        };
+        assert_eq!(
+            load_more_url(1, &f, None, false),
+            "/artportfolio/htmx/posts?page=1&q=loomis&tags=ink%2Cperspective&collection=studies"
+        );
+    }
+
+    #[test]
+    fn test_page_url_carries_filters() {
+        let f = PostFilter {
+            tags: vec!["ink".to_string()],
+            ..Default::default()
+        };
+        assert_eq!(page_url(&f, true), "/artportfolio?tags=ink&visitor=1");
     }
 
     #[tokio::test]
@@ -1133,17 +1259,20 @@ mod tests {
 
     #[tokio::test]
     async fn test_load_more_url_carries_visitor_flag() {
-        assert!(load_more_url(1, None, None, true).contains("visitor=1"));
-        assert!(!load_more_url(1, None, None, false).contains("visitor"));
+        assert!(load_more_url(1, &PostFilter::default(), None, true).contains("visitor=1"));
+        assert!(!load_more_url(1, &PostFilter::default(), None, false).contains("visitor"));
     }
 
     #[tokio::test]
     async fn test_page_url_carries_visitor_flag() {
-        let url = page_url(Some("cat"), true);
+        let url = page_url(&q_filter("cat"), true);
         assert!(url.contains("q=cat"), "{url}");
         assert!(url.contains("visitor=1"), "{url}");
-        assert_eq!(page_url(None, false), "/artportfolio");
-        assert_eq!(page_url(None, true), "/artportfolio?visitor=1");
+        assert_eq!(page_url(&PostFilter::default(), false), "/artportfolio");
+        assert_eq!(
+            page_url(&PostFilter::default(), true),
+            "/artportfolio?visitor=1"
+        );
     }
 
     #[tokio::test]
@@ -1355,7 +1484,11 @@ mod tests {
     #[test]
     fn test_head_label_visitor_no_search() {
         assert_eq!(
-            head_label(&counts(117, 117, 0, 0), None, Viewer::Visitor),
+            head_label(
+                &counts(117, 117, 0, 0),
+                &PostFilter::default(),
+                Viewer::Visitor
+            ),
             "117 drawings · newest first"
         );
     }
@@ -1363,7 +1496,7 @@ mod tests {
     #[test]
     fn test_head_label_visitor_with_search() {
         assert_eq!(
-            head_label(&counts(12, 12, 0, 0), Some("cat"), Viewer::Visitor),
+            head_label(&counts(12, 12, 0, 0), &q_filter("cat"), Viewer::Visitor),
             "12 drawings · matching \"cat\""
         );
     }
@@ -1373,7 +1506,11 @@ mod tests {
     #[test]
     fn test_head_label_admin_no_search() {
         assert_eq!(
-            head_label(&counts(128, 117, 4, 7), None, Viewer::Admin),
+            head_label(
+                &counts(128, 117, 4, 7),
+                &PostFilter::default(),
+                Viewer::Admin
+            ),
             "128 drawings · 117 public · 4 unlisted · 7 hidden"
         );
     }
@@ -1382,7 +1519,7 @@ mod tests {
     #[test]
     fn test_head_label_admin_with_search() {
         assert_eq!(
-            head_label(&counts(12, 9, 2, 1), Some("cat"), Viewer::Admin),
+            head_label(&counts(12, 9, 2, 1), &q_filter("cat"), Viewer::Admin),
             "12 drawings · matching \"cat\" · 9 public · 2 unlisted · 1 hidden"
         );
     }
@@ -1390,11 +1527,11 @@ mod tests {
     #[test]
     fn test_head_label_singular() {
         assert_eq!(
-            head_label(&counts(1, 1, 0, 0), None, Viewer::Visitor),
+            head_label(&counts(1, 1, 0, 0), &PostFilter::default(), Viewer::Visitor),
             "1 drawing · newest first"
         );
         assert_eq!(
-            head_label(&counts(1, 1, 0, 0), None, Viewer::Admin),
+            head_label(&counts(1, 1, 0, 0), &PostFilter::default(), Viewer::Admin),
             "1 drawing · 1 public · 0 unlisted · 0 hidden"
         );
     }
@@ -1404,9 +1541,46 @@ mod tests {
     /// not easier.
     #[test]
     fn test_head_label_admin_zero_states_still_render() {
-        let label = head_label(&counts(2, 2, 0, 0), None, Viewer::Admin);
+        let label = head_label(&counts(2, 2, 0, 0), &PostFilter::default(), Viewer::Admin);
         assert!(label.contains("0 unlisted"), "{label}");
         assert!(label.contains("0 hidden"), "{label}");
+    }
+
+    #[test]
+    fn test_head_label_with_tags_and_search() {
+        let f = PostFilter {
+            q: Some("loomis".to_string()),
+            tags: vec!["ink".to_string(), "perspective".to_string()],
+            collection: None,
+            vis: None,
+        };
+        assert_eq!(
+            head_label(&visitor_counts(12), &f, Viewer::Visitor),
+            "12 drawings · matching ink + perspective + \"loomis\""
+        );
+    }
+
+    #[test]
+    fn test_head_label_collection_only() {
+        let f = PostFilter {
+            collection: Some("studies".to_string()),
+            ..Default::default()
+        };
+        assert_eq!(
+            head_label(&visitor_counts(3), &f, Viewer::Visitor),
+            "3 drawings · matching studies"
+        );
+    }
+
+    /// The exact string slice 2 pinned — a search-only filter's `desc` is just
+    /// the quoted term, so this label must not gain a byte from tags/collection
+    /// support existing.
+    #[test]
+    fn test_head_label_plain_search_unchanged() {
+        assert_eq!(
+            head_label(&visitor_counts(12), &q_filter("cat"), Viewer::Visitor),
+            "12 drawings · matching \"cat\""
+        );
     }
 
     #[tokio::test]
@@ -1466,5 +1640,180 @@ mod tests {
         let body = body_of(get(&app, "/artportfolio?visitor=1", Some(&cookie)).await).await;
         assert!(body.contains("Previewing as a visitor"), "no preview flag");
         assert!(body.contains("Exit preview"), "no way out");
+    }
+
+    // ===== PageQuery::filter — the URL contract (Task 4) ====================
+
+    /// A `PageQuery` with every field absent, so a test only has to override
+    /// the one field it cares about.
+    fn empty_query() -> PageQuery {
+        PageQuery {
+            page: None,
+            q: None,
+            last_month: None,
+            visitor: None,
+            tags: None,
+            collection: None,
+            vis: None,
+        }
+    }
+
+    #[test]
+    fn test_pagequery_filter_drops_vis_for_visitor() {
+        let query = PageQuery {
+            vis: Some("hidden".to_string()),
+            ..empty_query()
+        };
+        assert_eq!(query.filter(Viewer::Visitor).vis, None);
+    }
+
+    #[test]
+    fn test_pagequery_filter_keeps_vis_for_admin() {
+        let query = PageQuery {
+            vis: Some("hidden".to_string()),
+            ..empty_query()
+        };
+        assert_eq!(
+            query.filter(Viewer::Admin).vis,
+            Some(vec!["hidden".to_string()])
+        );
+    }
+
+    #[test]
+    fn test_pagequery_filter_drops_junk_vis() {
+        let query = PageQuery {
+            vis: Some("public,bogus".to_string()),
+            ..empty_query()
+        };
+        assert_eq!(
+            query.filter(Viewer::Admin).vis,
+            Some(vec!["public".to_string()])
+        );
+
+        let query = PageQuery {
+            vis: Some("bogus".to_string()),
+            ..empty_query()
+        };
+        assert_eq!(query.filter(Viewer::Admin).vis, None);
+    }
+
+    #[test]
+    fn test_pagequery_filter_normalizes_tags() {
+        let query = PageQuery {
+            tags: Some("Ink, ink,,PERSPECTIVE".to_string()),
+            ..empty_query()
+        };
+        assert_eq!(
+            query.filter(Viewer::Visitor).tags,
+            vec!["ink".to_string(), "perspective".to_string()]
+        );
+    }
+
+    #[tokio::test]
+    async fn test_route_vis_is_ignored_for_visitors() {
+        let (app, pool) = app_with_pool().await;
+        seed(&pool, "pub-cat", crate::models::Visibility::Public).await;
+        seed(&pool, "hid-cat", crate::models::Visibility::Hidden).await;
+        let body = body_of(get(&app, "/artportfolio/htmx/posts?vis=hidden", None).await).await;
+        assert!(body.contains("pub-cat"));
+        assert!(!body.contains("hid-cat"));
+    }
+
+    #[tokio::test]
+    async fn test_route_vis_subset_for_admin() {
+        let (app, pool) = app_with_pool().await;
+        seed(&pool, "pub-cat", crate::models::Visibility::Public).await;
+        seed(&pool, "hid-cat", crate::models::Visibility::Hidden).await;
+        let cookie = admin_cookie(&pool).await;
+        let body =
+            body_of(get(&app, "/artportfolio/htmx/posts?vis=hidden", Some(&cookie)).await).await;
+        assert!(!body.contains("pub-cat"));
+        assert!(body.contains("hid-cat"));
+    }
+
+    /// The auth-adjacent wiring itself: `filter()` must be handed the
+    /// EFFECTIVE viewer, not the raw session bool, so a previewing admin gets
+    /// `vis` stripped exactly like a visitor. Every other vis test here would
+    /// still pass if the handler passed `session_is_admin` straight through —
+    /// this is the one that would catch it.
+    #[tokio::test]
+    async fn test_route_vis_is_ignored_for_previewing_admin() {
+        let (app, pool) = app_with_pool().await;
+        seed(&pool, "pub-cat", crate::models::Visibility::Public).await;
+        seed(&pool, "hid-cat", crate::models::Visibility::Hidden).await;
+        let cookie = admin_cookie(&pool).await;
+        let body = body_of(
+            get(
+                &app,
+                "/artportfolio/htmx/posts?vis=hidden&visitor=1",
+                Some(&cookie),
+            )
+            .await,
+        )
+        .await;
+        assert!(body.contains("pub-cat"), "{body}");
+        assert!(!body.contains("hid-cat"), "{body}");
+    }
+
+    /// A post carrying the caption + tags this section's tests seed.
+    async fn seed_tagged(pool: &crate::db::DbPool, caption: &str, tags: &[&str]) -> i64 {
+        let post = crate::db::insert_post(
+            pool,
+            caption,
+            "https://example.com/img.jpg",
+            "",
+            "",
+            crate::models::PostFormat::Single.as_str(),
+            0,
+            0,
+            0,
+            crate::models::Visibility::Public,
+        )
+        .await;
+        let tags: Vec<String> = tags.iter().map(|t| t.to_string()).collect();
+        crate::db::set_post_tags(pool, post.id, &tags).await;
+        post.id
+    }
+
+    #[tokio::test]
+    async fn test_route_tags_filter_applies() {
+        let (app, pool) = app_with_pool().await;
+        seed_tagged(&pool, "tagged one", &["ink"]).await;
+        seed(&pool, "untagged", crate::models::Visibility::Public).await;
+        let body = body_of(get(&app, "/artportfolio/htmx/posts?tags=ink", None).await).await;
+        assert!(body.contains("tagged one"));
+        assert!(!body.contains("untagged"));
+    }
+
+    #[tokio::test]
+    async fn test_pagination_carries_the_filter() {
+        let (app, pool) = app_with_pool().await;
+        for i in 0..21 {
+            seed_tagged(&pool, &format!("ink drawing {i}"), &["ink"]).await;
+        }
+        let body = body_of(get(&app, "/artportfolio/htmx/posts?page=0&tags=ink", None).await).await;
+        assert!(body.contains("tags=ink"), "{body}");
+        assert!(body.contains("page=1"), "{body}");
+    }
+
+    #[tokio::test]
+    async fn test_api_posts_honours_tags() {
+        let (app, pool) = app_with_pool().await;
+        seed_tagged(&pool, "tagged", &["ink"]).await;
+        seed(&pool, "untagged", crate::models::Visibility::Public).await;
+        let body = body_of(get(&app, "/artportfolio/api/posts?tags=ink", None).await).await;
+        let parsed: serde_json::Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(parsed["posts"].as_array().unwrap().len(), 1, "{body}");
+    }
+
+    #[tokio::test]
+    async fn test_oob_label_keeps_the_frozen_seam() {
+        let (app, pool) = app_with_pool().await;
+        seed_tagged(&pool, "tagged", &["ink"]).await;
+        let body = body_of(get(&app, "/artportfolio/htmx/posts?page=0&tags=ink", None).await).await;
+        assert!(
+            body.contains(r#"id="art-head-label" hx-swap-oob="true""#),
+            "{body}"
+        );
     }
 }
