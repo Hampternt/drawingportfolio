@@ -2142,4 +2142,66 @@ mod tests {
         assert!(body.contains("Figure Studies"), "{body}");
         assert!(body.contains("ink"), "{body}");
     }
+
+    /// The unfiltered render above proves the rail exists; it proves nothing
+    /// about `is-active`/`is-checked` or `#art-rail-state`, since every one of
+    /// those is empty on an unfiltered page. This test drives real filters
+    /// through so both are actually exercised end to end.
+    #[tokio::test]
+    async fn test_rail_reflects_active_filters_and_state_inputs() {
+        let (app, pool) = app_with_pool().await;
+        let post_id = seed_id(&pool, "a study", crate::models::Visibility::Public).await;
+        crate::db::set_post_tags(&pool, post_id, &["ink".to_string()]).await;
+        let collection = crate::db::create_collection(&pool, "Figure Studies")
+            .await
+            .unwrap();
+        crate::db::add_post_to_collection(&pool, post_id, collection.id).await;
+        seed(&pool, "kept back", crate::models::Visibility::Hidden).await;
+        let cookie = admin_cookie(&pool).await;
+
+        let body = body_of(
+            get(
+                &app,
+                "/artportfolio?tags=ink&collection=figure-studies&q=cat",
+                None,
+            )
+            .await,
+        )
+        .await;
+        assert!(
+            body.contains(r#"class="art-rail__tag is-active""#),
+            "the ink pill must render active: {body}"
+        );
+        assert!(
+            body.contains(r#"class="art-rail__collection is-active""#),
+            "the collection row must render active: {body}"
+        );
+        assert!(
+            body.contains(r#"name="tags" value="ink""#),
+            "the hidden state input must carry the active tag: {body}"
+        );
+        assert!(
+            body.contains(r#"name="collection" value="figure-studies""#),
+            "the hidden state input must carry the active collection: {body}"
+        );
+        // The active collection's OWN row is the deselect toggle: no
+        // `collection=` in its href, but the search and tag still ride along.
+        // Askama HTML-escapes the `&` inside the attribute (`&#38;`).
+        assert!(
+            body.contains("href=\"/artportfolio/htmx/posts?q=cat&#38;tags=ink\""),
+            "clicking the active collection row must deselect it while keeping q and tags: {body}"
+        );
+
+        let admin_body = body_of(get(&app, "/artportfolio?vis=hidden", Some(&cookie)).await).await;
+        assert!(
+            admin_body.contains(r#"name="vis" value="hidden""#),
+            "the hidden state input must carry the active vis subset: {admin_body}"
+        );
+
+        let preview_body = body_of(get(&app, "/artportfolio?visitor=1", Some(&cookie)).await).await;
+        assert!(
+            preview_body.contains(r#"name="visitor" value="1""#),
+            "the hidden state input must carry the preview flag: {preview_body}"
+        );
+    }
 }
