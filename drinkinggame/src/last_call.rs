@@ -384,7 +384,10 @@ pub struct LastCallState {
     /// The durable history of settled tabs — Plan J's LOG and end-of-game
     /// reveal read this. NEVER projected in full by `public_view()` (tabs
     /// are PRIVATE, H8): only the settling seat's NAME, for exactly the
-    /// round after it settled, escapes via `PublicView::settled` (H11).
+    /// round after it settled, escapes via `PublicView::settled` (H11) —
+    /// except a settle in the round the game ends on (D16 freeze), which
+    /// has no "round after" to wait for and is instead visible immediately,
+    /// on the frozen tableau (H erratum, see `public_view()`'s `settled`).
     pub tab_ledger: Vec<TabSettle>,
 }
 
@@ -919,12 +922,40 @@ impl LastCallState {
             // H11: names only, previous round only — "announced after the
             // fact, never before", and never what it was. The tab id must
             // not enter this projection.
-            settled: self
-                .tab_ledger
-                .iter()
-                .filter(|t| t.round + 1 == self.round)
-                .filter_map(|t| self.players.get(t.seat).map(|p| p.name.clone()))
-                .collect(),
+            //
+            // H erratum (found alongside G5, same class, different fix
+            // shape): Step 5.5 stamps a `TabSettle` with `self.round` — the
+            // round it settled in — before Step 7/8 run. For a non-terminal
+            // resolve(), Step 8's rollover bumps `self.round` past that
+            // stamp within the very same call, so by the time anyone reads
+            // `public_view()` the `+1` arm below is already true — no
+            // re-stamp needed, unlike `PactBreak`. But a resolve() that ends
+            // the game (D16) returns at Step 7, before Step 8 ever runs, so
+            // `self.round` never leaves the round the tab was stamped
+            // with — the `+1` arm can never fire, and a final-round settle
+            // would silently never be announced. Unlike `PactBreak`, tabs
+            // don't get a re-stamp fix: `tab_ledger` is durable history
+            // (Plan J's LOG reads it) and its `round` field means "the round
+            // it settled in", full stop — redefining it to "the round it's
+            // visible in" would falsify that log. Instead, render it too:
+            // once the game is over, an entry stamped with exactly the
+            // frozen round is that round's settle, by the monotonicity
+            // argument below.
+            //
+            // Only one round number is ever "current" at a time (`round`
+            // only advances via Step 8, one resolve() at a time), so
+            // `t.round == self.round` can only be true for entries pushed
+            // during the resolve() call that produced the CURRENT `round` —
+            // and once frozen, that's permanently the call that ended the
+            // game. No earlier round's entry can coincide.
+            settled: {
+                let ended = self.outcome().is_some();
+                self.tab_ledger
+                    .iter()
+                    .filter(|t| t.round + 1 == self.round || (ended && t.round == self.round))
+                    .filter_map(|t| self.players.get(t.seat).map(|p| p.name.clone()))
+                    .collect()
+            },
         }
     }
 
@@ -4422,5 +4453,61 @@ mod tests {
         assert_eq!(st.public_view().settled, vec!["alice".to_string()]);
         st.round = 3; // one round later the announcement expires
         assert!(st.public_view().settled.is_empty());
+    }
+
+    /// H erratum (same class as G5's pact-break fix, found reviewing Task
+    /// 3): a tab settled in the resolve() that ends the game must still be
+    /// announced — on the frozen tableau, since there's no "following
+    /// round" for a D16 freeze to roll over into. Mirrors
+    /// `test_last_player_standing_freezes_the_table`, but the kill comes
+    /// from a pre-existing Dot tick rather than a play, so alice's own
+    /// round stays empty and her seating-dealt "lie-low" (NoPlays) settles
+    /// in the very call that ends the game.
+    #[test]
+    fn test_a_final_round_tab_settle_is_announced_on_the_frozen_tableau() {
+        let mut st = LastCallState::new(vec![(1, "alice".into()), (2, "bob".into())], 42);
+        assert_eq!(st.players[0].tabs, vec!["lie-low".to_string()]); // seed 42, seat 0
+        st.players[1].hp = 5;
+        st.effects.push(Effect {
+            source_play: 0,
+            subject: 1,
+            op: EffectOp::Dot,
+            magnitude: 10, // kills bob at Step 2's tick, before anyone plays
+            expires_round: 5,
+        });
+        st.beat = Beat::Resolve; // nobody plays — alice's round stays empty
+        st.resolve().unwrap();
+        assert_eq!(st.players[1].status, Status::Eliminated);
+        assert_eq!(st.outcome(), Some(LcOutcome::Winner(0)));
+        assert_eq!(st.beat, Beat::Resolve); // frozen (D16) — no rollover
+        assert_eq!(st.round, 1); // never advanced past the round it froze on
+        assert_eq!(
+            st.tab_ledger,
+            vec![TabSettle {
+                seat: 0,
+                tab: "lie-low".into(),
+                round: 1, // stamped with the frozen round, per the field's contract
+            }]
+        );
+        // The fix under test: visible immediately, despite no rollover ever
+        // having run to satisfy the ordinary `round + 1 == self.round` arm.
+        assert_eq!(st.public_view().settled, vec!["alice".to_string()]);
+    }
+
+    /// Discharges the "should already work" half of the erratum: a
+    /// non-terminal settle is announced starting the very next fetch, via
+    /// a real `resolve()` (not hand-crafted `tab_ledger`/`round` values, as
+    /// the secrecy pin above uses).
+    #[test]
+    fn test_a_non_terminal_tab_settle_is_announced_immediately_after_resolve() {
+        let mut st = at_lock(); // alice holds lie-low (seed 42, seat 0); 3 seats stay alive
+        st.lock_in(1).unwrap(); // locking nothing is legal — and is the tab
+        st.advance_beat().unwrap();
+        st.advance_beat().unwrap();
+        assert!(st.public_view().settled.is_empty()); // nothing settled yet
+        st.resolve().unwrap();
+        assert_eq!(st.outcome(), None); // game continues — non-terminal
+        assert_eq!(st.round, 2); // Step 8 rolled over in this same call
+        assert_eq!(st.public_view().settled, vec!["alice".to_string()]);
     }
 }

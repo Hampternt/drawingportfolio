@@ -922,17 +922,40 @@ objectives; the void is permanent because refills are Alive-only (H10).
 
 - [ ] **Step 3: the announcement projection**
 
-`public_view()` gains:
+> **ERRATUM (2026-08-12, seam fix after Task 3).** The filter below,
+> `t.round + 1 == self.round`, is correct for the common case but incomplete:
+> it goes permanently unreachable for a tab settled in the round that ends
+> the game. `resolve()`'s Step 5.5 (Task 3's Step 2 above) stamps a
+> `TabSettle` with `self.round` — the round it settled in — before Step
+> 7/8 run. For a non-terminal `resolve()`, Step 8's rollover bumps
+> `self.round` past that stamp within the very same call, so by the time
+> anyone reads `public_view()` the `+1` arm is already true; no code change
+> was needed there, and no re-stamp step exists for tabs (unlike G5's
+> `PactBreak`, see that plan's own erratum). But a `resolve()` that ends the
+> game (D16) returns at Step 7, before Step 8 ever runs — `self.round` never
+> leaves the round the tab was stamped with, so `+1` can never fire, and a
+> final-round settle was silently never announced. Found reviewing Task 3's
+> own "Recorded, not fixed" note, same bug class as G5, different fix shape:
+> `tab_ledger` is durable history (Plan J's LOG reads it) and its `round`
+> field means "the round it settled in" — full stop — so unlike `PactBreak`
+> it does NOT get re-stamped to "the round it's visible in." Instead the
+> filter grew a second arm: once the game is over, an entry stamped with
+> exactly the frozen round is rendered too (only one round is ever "current"
+> at a time, so this can't misfire on some earlier round's entry). Shipped:
 
 ```rust
 // H11: names only, previous round only — "announced after the fact, never
 // before", and never what it was. The tab id must not enter this projection.
-settled: self
-    .tab_ledger
-    .iter()
-    .filter(|t| t.round + 1 == self.round)
-    .filter_map(|t| self.players.get(t.seat).map(|p| p.name.clone()))
-    .collect(),
+// H erratum: a settle in the round the game ends on has no "round after" to
+// wait for — render it on the frozen tableau too (see comment above).
+settled: {
+    let ended = self.outcome().is_some();
+    self.tab_ledger
+        .iter()
+        .filter(|t| t.round + 1 == self.round || (ended && t.round == self.round))
+        .filter_map(|t| self.players.get(t.seat).map(|p| p.name.clone()))
+        .collect()
+},
 ```
 
 Add `settled: Vec::new(),` to `ring_fixture()`'s literal.
