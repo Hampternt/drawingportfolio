@@ -22,12 +22,16 @@
   Same idiom `filter_rail.html`'s search form already uses.
 #}
 <div class="art-edit-popover" id="art-edit-{{ post_id }}">
-  <form onsubmit="return false">
-    <label class="hm-field__label" for="art-edit-caption-{{ post_id }}">Caption</label>
-    <textarea class="hm-input" id="art-edit-caption-{{ post_id }}" name="caption">{{ caption }}</textarea>
-    <label class="hm-field__label" for="art-edit-tags-{{ post_id }}">Tags</label>
-    <input class="hm-input" type="text" id="art-edit-tags-{{ post_id }}" name="tags" value="{{ tags_joined }}">
-    <button type="button" class="art-edit-popover__save"
+  <form class="art-pop__form" onsubmit="return false">
+    <div class="hm-field">
+      <label class="hm-field__label" for="art-edit-caption-{{ post_id }}">Caption</label>
+      <textarea class="hm-input" id="art-edit-caption-{{ post_id }}" name="caption">{{ caption }}</textarea>
+    </div>
+    <div class="hm-field">
+      <label class="hm-field__label" for="art-edit-tags-{{ post_id }}">Tags</label>
+      <input class="hm-input" type="text" id="art-edit-tags-{{ post_id }}" name="tags" value="{{ tags_joined }}">
+    </div>
+    <button type="button" class="hm-btn hm-btn--sm hm-btn--primary art-pop__save"
             hx-patch="/api/admin/posts/{{ post_id }}"
             hx-target="closest .hm-post"
             hx-swap="outerHTML">Save</button>

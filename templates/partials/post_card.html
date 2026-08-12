@@ -51,7 +51,22 @@
               hx-vals='{"visibility": "public"}'
               hx-target="closest .hm-post" hx-swap="outerHTML">👁</button>
       {% endif %}
+      {#- Popover triggers. Task 4 wires the show/hide + "one popover at a
+          time" behaviour off `data-art-pop`; here they are plain HTMX GETs
+          that fill the shared `.art-pop` container below. -#}
+      <button type="button" class="art-card-controls__btn" title="Edit caption & tags" aria-label="Edit caption and tags"
+              data-art-pop="edit"
+              hx-get="/api/admin/posts/{{ post.id }}/edit"
+              hx-target="#art-pop-{{ post.id }}" hx-swap="innerHTML">✎</button>
+      <button type="button" class="art-card-controls__btn" title="Collections" aria-label="Manage collections"
+              data-art-pop="collections"
+              hx-get="/api/admin/posts/{{ post.id }}/collections"
+              hx-target="#art-pop-{{ post.id }}" hx-swap="innerHTML">⊞</button>
     </div>
+    {#- Shared popover container: one per card, filled by whichever fragment
+        was last fetched. Starts `hidden` — Task 4's JS reveals it on
+        trigger click and is the only thing that ever removes `hidden`. -#}
+    <div class="art-pop" id="art-pop-{{ post.id }}" hidden></div>
     {% endif %}
     {#- tabindex="-1" on the anchor as well as the article. The article carries
         it so J/K navigation does not push twenty cards into the Tab order; an
