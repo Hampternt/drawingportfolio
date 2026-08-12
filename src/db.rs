@@ -101,6 +101,14 @@ pub async fn run_migrations(pool: &DbPool) {
     let _ = sqlx::query(include_str!("../migrations/013_post_visibility.sql"))
         .execute(pool)
         .await;
+
+    // Migration 014: collections + tags (slice 3). Four new tables and two
+    // indexes; no existing row is touched. The REFERENCES clauses are
+    // documentation — the pool does not enable foreign_keys, so deletes clean
+    // their own join rows in Rust.
+    let _ = sqlx::query(include_str!("../migrations/014_collections_tags.sql"))
+        .execute(pool)
+        .await;
 }
 
 /// Builds the `LIKE` pattern for a caption search.
@@ -118,6 +126,46 @@ pub fn like_pattern(q: &str) -> String {
         .replace('%', "\\%")
         .replace('_', "\\_");
     format!("%{escaped}%")
+}
+
+/// Normalizes a comma-separated tag list from a form field: trims, lowercases,
+/// drops empties, dedupes preserving first occurrence, drops tags over 40
+/// chars, and caps the result at 20 tags — all silently, no error path.
+pub fn normalize_tags(raw: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for part in raw.split(',') {
+        let tag = part.trim().to_lowercase();
+        if tag.is_empty() || tag.chars().count() > 40 || out.contains(&tag) {
+            continue; // empties, over-length and duplicates are silently dropped
+        }
+        out.push(tag);
+        if out.len() == 20 {
+            break; // max 20 tags per post — excess silently dropped
+        }
+    }
+    out
+}
+
+/// Turns a collection name into a URL-safe slug: lowercase, runs of
+/// non-alphanumerics collapsed to a single '-', with no leading or trailing
+/// dash.
+pub fn slugify(name: &str) -> String {
+    let mut slug = String::new();
+    let mut pending_dash = false;
+    for c in name.chars() {
+        if c.is_alphanumeric() {
+            if pending_dash && !slug.is_empty() {
+                slug.push('-');
+            }
+            pending_dash = false;
+            for lc in c.to_lowercase() {
+                slug.push(lc);
+            }
+        } else {
+            pending_dash = true; // runs of non-alphanumerics collapse to one '-'
+        }
+    }
+    slug // leading/trailing '-' never appear by construction
 }
 
 /// One page of posts, optionally filtered by caption.
@@ -1367,6 +1415,77 @@ mod tests {
         // literal rather than escaping whatever follows it.
         assert_eq!(like_pattern("c:\\x"), "%c:\\\\x%");
         assert_eq!(like_pattern("loomis"), "%loomis%");
+    }
+
+    #[test]
+    fn test_normalize_tags_trims_and_lowercases() {
+        assert_eq!(
+            normalize_tags(" Ink , PERSPECTIVE "),
+            vec!["ink".to_string(), "perspective".to_string()]
+        );
+    }
+
+    #[test]
+    fn test_normalize_tags_drops_empties_and_dupes() {
+        assert_eq!(
+            normalize_tags("ink,,Ink, ink ,wash"),
+            vec!["ink".to_string(), "wash".to_string()]
+        );
+    }
+
+    #[test]
+    fn test_normalize_tags_drops_over_40_chars() {
+        let long_tag = "a".repeat(41);
+        let raw = format!("{long_tag},ok");
+        assert_eq!(normalize_tags(&raw), vec!["ok".to_string()]);
+    }
+
+    #[test]
+    fn test_normalize_tags_caps_at_20() {
+        let raw = (1..=25)
+            .map(|i| format!("t{i}"))
+            .collect::<Vec<_>>()
+            .join(",");
+        let result = normalize_tags(&raw);
+        assert_eq!(result.len(), 20);
+        let expected: Vec<String> = (1..=20).map(|i| format!("t{i}")).collect();
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_normalize_tags_empty_input() {
+        assert_eq!(normalize_tags(""), Vec::<String>::new());
+    }
+
+    #[test]
+    fn test_slugify_basic() {
+        assert_eq!(slugify("Figure Studies"), "figure-studies");
+    }
+
+    #[test]
+    fn test_slugify_collapses_runs_and_trims() {
+        assert_eq!(slugify("  Ink & Wash!  "), "ink-wash");
+    }
+
+    #[test]
+    fn test_slugify_leading_trailing() {
+        assert_eq!(slugify("--Inks--"), "inks");
+    }
+
+    #[test]
+    fn test_slugify_all_junk_is_empty() {
+        assert_eq!(slugify("!!!"), "");
+    }
+
+    #[tokio::test]
+    async fn test_migration_014_is_idempotent() {
+        let pool = test_pool().await;
+        // test_pool() has already run migrations (including 014) once.
+        run_migrations(&pool).await;
+        sqlx::query("INSERT INTO tags (name) VALUES ('x')")
+            .execute(&pool)
+            .await
+            .expect("insert into tags should succeed after idempotent re-run");
     }
 
     #[tokio::test]

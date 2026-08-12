@@ -147,6 +147,43 @@ pub struct PostCounts {
     pub hidden: i64,
 }
 
+/// A row of the `collections` table.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct Collection {
+    pub id: i64,
+    pub name: String,
+    pub slug: String,
+    pub created_at: String,
+}
+
+/// A collection joined with its post count.
+///
+/// `count` is viewer-aware: it is computed by Task 2's queries, scoped to
+/// whatever posts the current viewer (admin vs. visitor) is allowed to see.
+#[derive(Debug, Clone)]
+pub struct CollectionWithCount {
+    pub id: i64,
+    pub name: String,
+    pub slug: String,
+    pub count: i64,
+}
+
+/// A tag name joined with its post count.
+///
+/// `count` is viewer-aware: it is computed by Task 2's queries, scoped to
+/// whatever posts the current viewer (admin vs. visitor) is allowed to see.
+#[derive(Debug, Clone)]
+pub struct TagWithCount {
+    pub name: String,
+    pub count: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CreateCollectionError {
+    InvalidName,
+    DuplicateSlug(String), // payload: existing name
+}
+
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct Session {
     pub id: String,
