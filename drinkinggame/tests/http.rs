@@ -4420,6 +4420,52 @@ async fn test_hand_fragment_prices_the_rail_by_the_viewers_own_handicap() {
     assert!(bob_hand.contains(r#"data-pull-cost="2""#));
 }
 
+/// I1 (Plan H review): the rail must price through the SAME cost-halving
+/// seam as the engine's charge during `happy-hour`, over the real
+/// `hand_pane_html` route — not just the `cost_rail`/`HandGroupView` unit
+/// tests, which call the builder directly and would stay green even if
+/// `hand_pane_html`'s wiring (`halved: st.cost_halved()`) were dropped or
+/// hardcoded to `false` again. This is the regression the pre-fix rail
+/// actually had: unhalved bars while `arm`/`lock_in`/the reveal charge/the
+/// DRINK chip all agreed at the halved number.
+#[tokio::test]
+async fn test_hand_fragment_rail_halves_under_happy_hour_like_the_engine_charge() {
+    let (app, pool) = test_app_with_pool().await;
+    let alice = login(&app, "alice", "1234").await;
+    let bob = login(&app, "bob", "5678").await;
+    let code = create_room(&app, &alice).await;
+    room_page_html(&app, &bob, &code).await;
+    post_form(&app, &alice, &format!("/room/{code}/lastcall/start"), "").await;
+
+    let alice_id = drinkinggame::db::get_player_by_name(&pool, "alice")
+        .await
+        .unwrap()
+        .id;
+    let bob_id = drinkinggame::db::get_player_by_name(&pool, "bob")
+        .await
+        .unwrap()
+        .id;
+    let room = drinkinggame::db::get_open_room(&pool, &code).await.unwrap();
+    let game_id = drinkinggame::db::get_active_game(&pool, room.id)
+        .await
+        .unwrap()
+        .id;
+
+    let card = drinkinggame::lc_cards::card_by_id("beer-02").unwrap();
+    assert_eq!(card.cost, 2, "fixture assumes beer-02 costs 2");
+
+    let mut st = LastCallState::new(vec![(alice_id, "alice".into()), (bob_id, "bob".into())], 1);
+    st.players[0].hand = vec![card];
+    st.event = Some("happy-hour".into());
+    drinkinggame::db::set_game_state(&pool, game_id, &st.to_json()).await;
+
+    let alice_hand = body_string(get_hand(&app, &alice, &code).await).await;
+    // Unhalved would be data-pull-cost="2" (cost 2, handicap 100) — the
+    // pre-fix rail's number. Halved is "1", matching effective_pull_cost.
+    assert!(alice_hand.contains(r#"data-card-id="beer-02" data-cost="2" data-pull-cost="1""#));
+    assert!(!alice_hand.contains(r#"data-pull-cost="2""#));
+}
+
 // -------------------------------------------------------------
 // Last Call (Task 3): the SSE contract (`lcpublic`/`lctick`) and the
 // client-side stale-drop rule. The privacy invariant this task exists to

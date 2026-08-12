@@ -4620,6 +4620,39 @@ mod tests {
         assert_eq!(st.public_view().settled, vec!["alice".to_string()]);
     }
 
+    /// M1 (Plan H review): once frozen, `settled` must show ONLY the round
+    /// the game froze on — not ALSO a leftover round-(R-1) entry. Before the
+    /// fix, the two filter arms were OR'd (`t.round + 1 == self.round ||
+    /// (ended && t.round == self.round)`), so a frozen tableau with
+    /// `self.round == 2` would keep matching a stale round-1 entry via the
+    /// first arm forever, alongside the real terminal (round-2) entry via
+    /// the second — the GAME OVER banner would permanently announce last
+    /// round's settle too. Hand-crafted `tab_ledger`/`round`/`status`
+    /// (`outcome()` is pure over player status, so no `resolve()` call is
+    /// needed to freeze it), mirroring the secrecy pin above.
+    #[test]
+    fn test_frozen_tableau_does_not_announce_a_stale_prior_round_settle() {
+        let mut st = LastCallState::new(vec![(1, "alice".into()), (2, "bob".into())], 42);
+        st.players[1].status = Status::Eliminated; // outcome() now Some(Winner(0))
+        st.round = 2;
+        st.tab_ledger = vec![
+            TabSettle {
+                seat: 1,
+                tab: "showboat".into(),
+                round: 1, // stale — would falsely match the old `+1` arm
+            },
+            TabSettle {
+                seat: 0,
+                tab: "lie-low".into(),
+                round: 2, // the actual terminal settle
+            },
+        ];
+        assert_eq!(st.outcome(), Some(LcOutcome::Winner(0)));
+        // NOT vec!["bob", "alice"] — bob's stale round-1 entry must not
+        // resurface just because it happens to satisfy `1 + 1 == 2`.
+        assert_eq!(st.public_view().settled, vec!["alice".to_string()]);
+    }
+
     /// Discharges the "should already work" half of the erratum: a
     /// non-terminal settle is announced starting the very next fetch, via
     /// a real `resolve()` (not hand-crafted `tab_ledger`/`round` values, as
