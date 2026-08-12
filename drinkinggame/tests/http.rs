@@ -6462,3 +6462,70 @@ async fn test_reveal_charge_is_priced_per_viewer() {
     let bob_hand = body_string(get_hand(&app, &bob, &code).await).await;
     assert!(bob_hand.contains("DRINK 3"), "{bob_hand}");
 }
+
+// -------------------------------------------------------------
+// Last Call (Plan E Task 5): the reveal on the felt — end to end through the
+// real routes, not just the renderer's own unit tests.
+// -------------------------------------------------------------
+
+/// Mirrors `test_locking_the_whole_table_advances_early`'s rig (alice arms
+/// and targets beer-01, bob locks nothing), but checks what the SAME
+/// all-locked advance publishes on the wire: the Lock -> Reveal frame must
+/// carry the felt centre with the played card's title, public exactly now
+/// (§3.4.1) — and the existing end-of-game handoff
+/// (`test_ending_last_call_keeps_the_room_open`'s property) must still hold
+/// with the loop live, not just at the untouched Draw lobby that test rig
+/// used.
+#[tokio::test]
+async fn test_the_reveal_frame_carries_the_plays_and_the_end_still_hands_off() {
+    let (app, _pool, code, alice, bob, _alice_id, _bob_id) = lc_action_rig().await;
+
+    post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/lastcall/arm"),
+        "card_id=beer-01",
+    )
+    .await;
+    post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/lastcall/target"),
+        "card_id=beer-01&target=1", // bob's seat
+    )
+    .await;
+    let res = post_form(&app, &alice, &format!("/room/{code}/lastcall/lock"), "").await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+
+    let res = get(&app, &format!("/room/{code}/sse")).await;
+    let mut body = res.into_body().into_data_stream();
+    read_sse_until(&mut body, "event: lcpublic").await; // drain the snapshot
+
+    // bob locks nothing armed — legal — which is also the all-locked seat
+    // and triggers the E3 early advance (Lock -> Reveal) inside the handler.
+    let res = post_form(&app, &bob, &format!("/room/{code}/lastcall/lock"), "").await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+
+    // Frame filtered by content, never by position (Task 4's own fix
+    // applies here too — the second lock's publish may not be the very
+    // next chunk). Waits on "Nudge" (beer-01's title), not the earlier
+    // "lc-centre-plays" wrapper class: a big fragment can split across SSE
+    // chunks (`read_sse_until`'s own doc comment), and the title sits later
+    // in the same string, so waiting on it guarantees both substrings have
+    // actually arrived by the time this returns.
+    let seen = read_sse_until(&mut body, "Nudge").await;
+    let frame = &seen[seen.find("event: lcpublic").unwrap()..];
+    assert!(frame.contains("lc-centre-plays"), "{frame}");
+    assert!(frame.contains("Nudge"), "{frame}"); // beer-01's title — identity is public exactly now
+
+    let end_res = post_form(&app, &alice, &format!("/room/{code}/lastcall/end"), "").await;
+    assert_eq!(end_res.status(), StatusCode::NO_CONTENT);
+
+    let seen = read_sse_until(&mut body, "event: game").await;
+    let game_frame = &seen[seen.find("event: game").unwrap()..];
+    assert!(
+        matches_the_game_idle_selector(game_frame),
+        "the existing .game-idle handoff must still fire with the loop \
+         live: {game_frame}"
+    );
+}

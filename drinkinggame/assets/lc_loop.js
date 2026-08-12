@@ -8,8 +8,104 @@
 (function () {
   "use strict";
 
-  var NOTE_MS = 2600, URGENT_MS = 5000;
+  var NOTE_MS = 2600, URGENT_MS = 5000, REVEAL_STAGGER_MS = 220;
   var urgentTimer = null;
+
+  // The motion pass's own memory of "what the DOM said last time" — beat,
+  // per-seat HP, per-seat draw count. Module-level (not read off the DOM
+  // fresh on both sides of a diff) because the diff itself needs a BEFORE
+  // and an AFTER, and the DOM only ever holds the AFTER by the time
+  // lcLoopPublic runs. Starts empty: the very first call can only ever see
+  // increases/decreases against "nothing recorded yet", which the `!==
+  // undefined` guards below treat as "no change to report", not as a fake
+  // 0 -> n hit/draw.
+  var prev = { beat: null, hp: {}, draws: {} };
+
+  // Every seat-keyed number this pass cares about, read off whichever
+  // surface is actually in the DOM — the big screen's `.lc-plaque` carries
+  // both `data-hp` and `data-draws` (Plan A/E5); the phone's mini table has
+  // no plaque at all, so on that page this simply finds nothing and the
+  // maps stay empty, which is correct: hits and draw flights are plaque-only
+  // effects (see the Hits comment below).
+  function seatNumbers(attr) {
+    var out = {};
+    document.querySelectorAll(".lc-plaque[data-seat]").forEach(function (el) {
+      var v = el.dataset[attr];
+      if (v !== undefined) out[el.dataset.seat] = Number(v);
+    });
+    return out;
+  }
+
+  function snapshot() {
+    var banner = document.getElementById("lc-banner");
+    return {
+      beat: banner ? banner.dataset.beat : null,
+      hp: seatNumbers("hp"),
+      draws: seatNumbers("draws"),
+    };
+  }
+
+  // Both anchors must resolve to an on-screen element: `lcAnchor` finds the
+  // first DOM match regardless of visibility, and the phone's TABLE pane is
+  // usually `hidden` (decision E17) — a flight between a real rect and a
+  // zero-rect anchor is garbage, not merely invisible, so this is a hard
+  // skip, not a degrade.
+  function visible(el) {
+    return !!el && el.offsetParent !== null;
+  }
+
+  function fireRevealFlights() {
+    var felt = window.lcAnchor && window.lcAnchor("felt");
+    document.querySelectorAll(".lc-centre-play").forEach(function (el, i) {
+      var from = window.lcAnchor("seat-" + el.dataset.seat);
+      if (!visible(from) || !visible(felt)) return;
+      var mini = el.querySelector(".lc-mini");
+      window.lcFlight(from, felt, {
+        direction: "play",
+        deck: mini && mini.dataset.deck,
+        delay: i * REVEAL_STAGGER_MS,
+      });
+    });
+  }
+
+  function fireDrawFlights(next) {
+    var firstDeck = document.querySelector(".lc-deckstack[data-deck]");
+    var from = firstDeck && window.lcAnchor("deck-" + firstDeck.dataset.deck);
+    if (!visible(from)) return;
+    Object.keys(next.draws).forEach(function (seat) {
+      if (prev.draws[seat] === undefined || next.draws[seat] <= prev.draws[seat]) return;
+      var to = window.lcAnchor("seat-" + seat);
+      if (!visible(to)) return;
+      window.lcFlight(from, to, { direction: "draw" });
+    });
+  }
+
+  // Mini-table chips carry no `.lc-plaque`/`is-hit` rule at all (only the HP
+  // number itself repaints there) — `seatNumbers` already scopes the hp
+  // read to `.lc-plaque`, so this only ever finds a match, and therefore
+  // only ever shakes, a big-screen plaque.
+  function fireHits(next) {
+    Object.keys(next.hp).forEach(function (seat) {
+      if (prev.hp[seat] === undefined || next.hp[seat] >= prev.hp[seat]) return;
+      var plaque = document.querySelector('.lc-plaque[data-seat="' + seat + '"]');
+      if (!plaque) return;
+      plaque.classList.add("is-hit");
+      // `.is-hit` drives two animations at once — `lc-shake` on the plaque
+      // itself (190ms) and `lc-hp-flash` on the nested `.lc-hp` (560ms,
+      // lastcall.css's own reduced-motion block groups both). animationend
+      // bubbles from whichever finishes; filtering on the LONGER one is
+      // what keeps the class (and therefore the flash) alive for its full
+      // 560ms instead of the shake's earlier end yanking it off both at
+      // 190ms. Under reduced motion neither animation ever plays, so this
+      // listener simply never fires and the class sits inert — harmless,
+      // since no other rule selects on `.is-hit`.
+      plaque.addEventListener("animationend", function onEnd(e) {
+        if (e.animationName !== "lc-hp-flash") return;
+        plaque.classList.remove("is-hit");
+        plaque.removeEventListener("animationend", onEnd);
+      });
+    });
+  }
 
   function post(action, body) {
     return fetch(BP + "/room/" + CODE + "/lastcall/" + action, {
@@ -99,23 +195,34 @@
 
   // Arms (or re-arms) the live beat timer from its own data-deadline-ms —
   // both shells share the one #lc-beat-timer id, so this one function
-  // serves the phone banner and the big-screen banner alike.
+  // serves the phone banner and the big-screen banner alike. Task 5 adds
+  // the motion pass on top: a beat flip to "reveal" fires the E.1 flights
+  // from every locking seat to the felt, a `data-draws` increase fires a
+  // deck-to-seat flight, and a `data-hp` decrease shakes that seat's
+  // plaque — all diffed against `prev`, the previous call's own snapshot.
   window.lcLoopPublic = function () {
     var timer = document.getElementById("lc-beat-timer");
     window.clearTimeout(urgentTimer);
     urgentTimer = null;
-    if (!timer || timer.dataset.deadlineMs === undefined) return;
-    var deadline = Number(timer.dataset.deadlineMs);
-    var remaining = Math.max(0, deadline - Date.now());
-    timer.style.setProperty("--lc-beat-ms", remaining + "ms");
-    timer.classList.remove("is-urgent");
-    if (remaining <= URGENT_MS) {
-      timer.classList.add("is-urgent");
-    } else {
-      urgentTimer = window.setTimeout(function () {
+    if (timer && timer.dataset.deadlineMs !== undefined) {
+      var deadline = Number(timer.dataset.deadlineMs);
+      var remaining = Math.max(0, deadline - Date.now());
+      timer.style.setProperty("--lc-beat-ms", remaining + "ms");
+      timer.classList.remove("is-urgent");
+      if (remaining <= URGENT_MS) {
         timer.classList.add("is-urgent");
-      }, remaining - URGENT_MS);
+      } else {
+        urgentTimer = window.setTimeout(function () {
+          timer.classList.add("is-urgent");
+        }, remaining - URGENT_MS);
+      }
     }
+
+    var next = snapshot();
+    if (prev.beat !== "reveal" && next.beat === "reveal") fireRevealFlights();
+    fireDrawFlights(next);
+    fireHits(next);
+    prev = next;
   };
 
   // Double-injection guard: binds the four delegated listeners exactly once

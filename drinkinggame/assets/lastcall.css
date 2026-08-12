@@ -856,6 +856,22 @@ body.lc-screen .lc-timer { height: 3px; }
   gap: 10px;
 }
 
+/* Plan E — the reveal on the felt (decision E15). Two absolute layers over
+   the felt, siblings of #lc-felt inside .lc-stage (already position:
+   relative, above) — never both present at once (lc_render.rs picks one). */
+.lc-centre-plays { position: absolute; inset: 0; display: flex; gap: 14px;
+                   align-items: center; justify-content: center;
+                   pointer-events: none; }
+.lc-centre-play { display: flex; flex-direction: column; align-items: center;
+                  gap: 6px; }
+.lc-centre-cap { font-family: var(--font-ui); font-weight: 700; font-size: 11px;
+                 letter-spacing: .14em; color: var(--lc-faint); }
+.lc-centre-victory { position: absolute; inset: 0; display: flex;
+                     align-items: center; justify-content: center;
+                     font-family: var(--font-display); font-weight: 900;
+                     font-size: 40px; letter-spacing: -.02em;
+                     color: var(--lc-text); }
+
 /* F.3 MiniTable — the same felt at 466px tall for a room with no TV.
    Same state, same events, one order of magnitude less detail: seats
    become name/HP chips and flights become CardDots. It is its own scene

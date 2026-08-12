@@ -5,7 +5,8 @@
 //! a breaking change for Plan A2 and Plan B.
 
 use crate::last_call::{
-    pull_cost, Beat, Card, Deck, LcOutcome, PublicSeat, PublicView, Status, DECK_LOW_THRESHOLD,
+    pull_cost, Beat, Card, Deck, LcOutcome, Play, PublicSeat, PublicView, Status,
+    DECK_LOW_THRESHOLD,
 };
 use crate::lc_layout::{seat_positions, view_index, SeatPos};
 use crate::render::html_escape;
@@ -442,9 +443,10 @@ pub fn player_plaque(seat: &PublicSeat) -> String {
     let decks_attr = decks.iter().map(|d| d.slug()).collect::<Vec<_>>().join(",");
 
     format!(
-        r#"<div class="lc-plaque lc-deck-{first_slug}{state_classes}" data-seat="{seat_n}" data-decks="{decks_attr}" data-hp="{hp}" data-status="{status}" data-hand-size="{hand_len}" data-flight-anchor="plaque-seat-{seat_n}">{rule}<div class="lc-identity"><span class="lc-name">{name}{lock_tick}</span><span class="lc-hp">{hp_display}</span></div><div class="lc-drinks">{dots}<span class="lc-decknames">{deck_names}</span>{draws_badge}</div>{hand_strip}</div>"#,
+        r#"<div class="lc-plaque lc-deck-{first_slug}{state_classes}" data-seat="{seat_n}" data-decks="{decks_attr}" data-hp="{hp}" data-draws="{draws}" data-status="{status}" data-hand-size="{hand_len}" data-flight-anchor="plaque-seat-{seat_n}">{rule}<div class="lc-identity"><span class="lc-name">{name}{lock_tick}</span><span class="lc-hp">{hp_display}</span></div><div class="lc-drinks">{dots}<span class="lc-decknames">{deck_names}</span>{draws_badge}</div>{hand_strip}</div>"#,
         seat_n = seat.seat,
         hp = seat.hp,
+        draws = seat.draws,
         status = seat.status.slug(),
         hand_len = seat.hand_len,
         rule = deck_rule(&decks),
@@ -508,6 +510,20 @@ pub fn lc_banner(view: &PublicView) -> String {
         (Some(deadline), Some(secs)) => beat_timer_live(u32::from(secs) * 1000, deadline),
         _ => String::new(),
     };
+    // Plan E, decision E13: game over is the frozen Resolve tableau (D16),
+    // but the banner switches to a dedicated GAME OVER state rather than
+    // going on saying RESOLVE — the beat name stops meaning anything once
+    // the round stopped mid-cycle. `view.outcome` alone gates this, not
+    // `beat == Resolve` (which the freeze always is anyway, but that is not
+    // the reason): no timer is emitted either way, since `beat_deadline_ms`
+    // is `None` at the freeze regardless of which branch runs here.
+    if view.outcome.is_some() {
+        return format!(
+            r#"<div class="lc-banner lc-beat-rose" id="lc-banner" data-beat="{slug}" data-round="{round}"><span class="lc-banner-beat">GAME OVER</span><span class="lc-banner-meta">ROUND {round} &middot; LAST CALL</span></div>"#,
+            slug = beat.slug(),
+            round = view.round,
+        );
+    }
     format!(
         r#"<div class="lc-banner lc-beat-{hue}" id="lc-banner" data-beat="{slug}" data-round="{round}"><span class="lc-banner-beat">{label}</span><span class="lc-banner-meta">ROUND {round} &middot; BEAT {index} OF 6</span>{timer}</div>"#,
         hue = beat.hue(),
@@ -638,6 +654,49 @@ fn seat_pos(n: usize, seat: usize, me: Option<usize>) -> Option<SeatPos> {
     seat_positions(n).get(view_index(seat, me, n)).copied()
 }
 
+/// A seat name, uppercased and escaped, or `""` if `view.seats` no longer
+/// carries that seat (defensive: `Play::source_seat`/`target` are validated
+/// at lock time, but nothing re-validates them against a `view` built from a
+/// different, later state).
+fn seat_name_upper(view: &PublicView, seat: usize) -> String {
+    view.seats
+        .iter()
+        .find(|s| s.seat == seat)
+        .map(|s| html_escape(&s.name.to_uppercase()))
+        .unwrap_or_default()
+}
+
+/// Plan E, decision E15: one revealed play's caption plus its `card_mini`,
+/// the felt centre's one row. `SRC` is always a seat name; `TGT` is the
+/// target seat's name when the play has one (`self` plays name the caster
+/// twice, which is correct — spec D2), or the card's own `targets` value
+/// uppercased for a `None` target ("all"/"table" cards, whatever the
+/// catalog calls them).
+fn centre_play(view: &PublicView, play: &Play) -> String {
+    let src = seat_name_upper(view, play.source_seat);
+    let tgt = match play.target {
+        Some(t) => seat_name_upper(view, t),
+        None => html_escape(&play.card.targets.to_uppercase()),
+    };
+    format!(
+        r#"<div class="lc-centre-play" data-seat="{seat}"><span class="lc-centre-cap">{src} &rarr; {tgt}</span>{mini}</div>"#,
+        seat = play.source_seat,
+        mini = card_mini(&play.card),
+    )
+}
+
+/// Plan E, decision E13: the frozen Resolve tableau's one line, in place of
+/// the felt-centre plays once the game has an `outcome`.
+fn victory_line(view: &PublicView, outcome: LcOutcome) -> String {
+    let line = match outcome {
+        LcOutcome::Winner(seat) => {
+            format!("{} OUTLASTS THE TABLE", seat_name_upper(view, seat))
+        }
+        LcOutcome::Draw => "EVERYBODY'S OUT".to_string(),
+    };
+    format!(r#"<div class="lc-centre-victory">{line}</div>"#)
+}
+
 /// F.2 big-screen body — the three-column grid (seat-order rail, felt
 /// ring, deck rail). The flight layer is no longer built here: Plan E
 /// Task 3 moved `#lc-flights` out to the static shell (`lc_screen.html`),
@@ -687,8 +746,25 @@ pub fn lc_screen_panel(view: &PublicView) -> String {
             })
         })
         .collect();
+    // Plan E, decision E15: the felt centre. Priority — a decided game shows
+    // the frozen tableau's victory line; otherwise `revealed` (populated
+    // only at Reveal/Resolve, per `public_view`'s own gate — Plan D's
+    // projection tests are the authority on secrecy, not this renderer)
+    // shows the ordered plays; empty either way renders nothing. The two
+    // are mutually exclusive in practice (an outcome only turns `Some`
+    // inside `resolve()`, which drains `plays` before returning), but
+    // `outcome` is checked first regardless — the frozen tableau is never
+    // allowed to show stale plays.
+    let centre = if let Some(outcome) = view.outcome {
+        victory_line(view, outcome)
+    } else if !view.revealed.is_empty() {
+        let plays: String = view.revealed.iter().map(|p| centre_play(view, p)).collect();
+        format!(r#"<div class="lc-centre-plays">{plays}</div>"#)
+    } else {
+        String::new()
+    };
     let stage = format!(
-        r#"<div class="lc-stage"><div id="lc-felt"></div><div class="lc-ring">{seats_html}</div></div>"#
+        r#"<div class="lc-stage"><div id="lc-felt" data-flight-anchor="felt"></div>{centre}<div class="lc-ring">{seats_html}</div></div>"#
     );
 
     let deck_stacks: String = view
@@ -769,7 +845,7 @@ pub fn lc_mini_table(view: &PublicView, me: Option<usize>) -> String {
     );
 
     format!(
-        r#"<div class="lc-minitable"><div id="lc-felt"></div><div class="lc-minitable-ring">{chips}</div>{centre}</div>"#
+        r#"<div class="lc-minitable"><div id="lc-felt" data-flight-anchor="felt"></div><div class="lc-minitable-ring">{chips}</div>{centre}</div>"#
     )
 }
 
@@ -991,6 +1067,7 @@ mod tests {
         assert!(plaque.contains("data-seat"));
         assert!(plaque.contains("data-decks"));
         assert!(plaque.contains("data-hp"));
+        assert!(plaque.contains("data-draws"));
         assert!(plaque.contains("data-status"));
         assert!(plaque.contains("data-hand-size"));
 
@@ -1024,6 +1101,25 @@ mod tests {
         let view = preview_state().public_view();
         let card = &lc_cards::deck_cards(Deck::Cider)[3]; // cider-04, 5 keywords
         let cards = lc_cards::deck_cards(Deck::Cider);
+
+        // Plan E Task 5: `preview_state()` sits at Beat::Lock with no
+        // outcome, so it never exercises the felt centre's revealed-plays
+        // or game-over branches — cover those here too, or the loop below
+        // would only ever scan `lc_screen_panel`/`lc_banner` output that
+        // never took either new path.
+        let mut revealed_view = ring_fixture(4);
+        revealed_view.revealed = vec![Play {
+            card: card.clone(),
+            source_seat: 0,
+            target: Some(1),
+            paid_from: card.deck,
+            order_key: 1,
+        }];
+        let mut outcome_view = ring_fixture(4);
+        outcome_view.beat = Beat::Resolve;
+        outcome_view.beat_deadline_ms = None;
+        outcome_view.outcome = Some(LcOutcome::Winner(0));
+
         let outputs = [
             card_face(card),
             card_face_expanded(card),
@@ -1041,6 +1137,9 @@ mod tests {
             lc_public_panel(&view),
             lc_screen_panel(&view),
             lc_mini_table(&view, Some(0)),
+            lc_screen_panel(&revealed_view),
+            lc_banner(&outcome_view),
+            lc_screen_panel(&outcome_view),
             armed_column(&cards, false),
             cost_rail(&cards, 150),
             hand_wheel(&cards),
@@ -1478,10 +1577,15 @@ mod tests {
         };
         let html = player_plaque(&seat);
         assert!(html.contains(r#"<span class="lc-draws">3</span>"#));
+        // Plan E Task 5: `data-draws` is the motion pass's own read of
+        // `PublicSeat::draws` — the badge span is decorative and Task 5's
+        // JS reads the attribute, not the span's text.
+        assert!(html.contains(r#"data-draws="3""#));
 
         let seat0 = PublicSeat { draws: 0, ..seat };
         let html0 = player_plaque(&seat0);
         assert!(!html0.contains("lc-draws"));
+        assert!(html0.contains(r#"data-draws="0""#)); // the attribute stays even with no badge
     }
 
     #[test]
@@ -1846,45 +1950,90 @@ mod tests {
         }
     }
 
+    /// Bare-bones fixture `Card` for the felt-centre tests — only `id`,
+    /// `deck`, `targets` and `title` vary per call site.
+    fn centre_card(id: &str, deck: Deck, targets: &str, title: &str) -> Card {
+        Card {
+            id: id.to_string(),
+            deck,
+            kind: crate::last_call::CardKind::Atk,
+            cost: 2,
+            targets: targets.to_string(),
+            title: title.to_string(),
+            text: "text".to_string(),
+            keywords: Vec::new(),
+            duration: None,
+        }
+    }
+
     #[test]
-    fn test_the_felt_centre_holds_no_plays() {
-        // Spec 3.4.1 binds slice 3, not this one: nothing may enter `plays`
-        // before it is revealable, and this plan renders no plays at all.
-        // If this test starts failing, someone has begun slice 3 inside Plan B.
-        //
-        // `revealed` is deliberately NON-empty. An earlier version of this
-        // test cleared it and then asserted no card face was rendered, which
-        // held for the trivial reason that there was nothing to render — it
-        // stayed green even against a panel that rendered `card_face` for
-        // every entry in `view.revealed`. Give it something to leak first, or
-        // the assertion is about the fixture rather than the renderer.
+    fn test_the_felt_centre_shows_revealed_plays_in_order() {
+        // REPLACES test_the_felt_centre_holds_no_plays — that test pinned the
+        // slice-1 boundary ("someone has begun slice 3 inside Plan B"); slice
+        // 3 is now deliberately here. Secrecy no longer rests on the
+        // renderer: `public_view()` only populates `revealed` at
+        // Reveal/Resolve, pinned by `last_call.rs`'s own projection tests
+        // (Plan D's mandatory §3.4.1 test) — this test only pins what the
+        // renderer does with a `revealed` vec once handed one.
         let mut view = ring_fixture(4);
-        view.revealed = vec![crate::last_call::Play {
-            card: Card {
-                id: "leak-01".to_string(),
-                deck: Deck::Wine,
-                kind: crate::last_call::CardKind::Atk,
-                cost: 2,
-                targets: "one".to_string(),
-                title: "Should Not Appear".to_string(),
-                text: "If this renders, the felt centre has begun showing plays.".to_string(),
-                keywords: Vec::new(),
-                duration: None,
+        let targeted = centre_card("cider-target", Deck::Cider, "one", "Targeted Play");
+        let untargeted = centre_card("wine-all", Deck::Wine, "all", "Table Play");
+        view.revealed = vec![
+            Play {
+                card: targeted.clone(),
+                source_seat: 1,
+                target: Some(2),
+                paid_from: Deck::Cider,
+                order_key: 1,
             },
-            source_seat: 1,
-            target: Some(2),
-            paid_from: Deck::Wine,
-            order_key: 1,
-        }];
+            Play {
+                card: untargeted.clone(),
+                source_seat: 0,
+                target: None,
+                paid_from: Deck::Wine,
+                order_key: 2,
+            },
+        ];
         let html = lc_screen_panel(&view);
-        assert!(
-            !html.contains("lc-cardface"),
-            "the felt centre rendered a card face"
-        );
-        assert!(
-            !html.contains("Should Not Appear"),
-            "a revealed play's text reached the big screen"
-        );
+        assert!(html.contains("lc-centre-plays"));
+        assert!(html.contains(&targeted.title));
+        assert!(html.contains(&untargeted.title));
+        // vec order (order_key 1, 2) is render order.
+        assert!(html.find(&targeted.title).unwrap() < html.find(&untargeted.title).unwrap());
+        // ring_fixture names seats "player{n+1}" — seat 1 -> PLAYER2, seat 2
+        // -> PLAYER3, seat 0 -> PLAYER1.
+        assert!(html.contains("PLAYER2 &rarr; PLAYER3"));
+        // The None-target play's caption ends "&rarr; ALL" — the card's own
+        // `targets`, uppercased, standing in for a seat name.
+        assert!(html.contains("PLAYER1 &rarr; ALL"));
+        no_hex(&html);
+
+        // revealed empty -> no "lc-centre-plays" at all.
+        assert!(!lc_screen_panel(&ring_fixture(4)).contains("lc-centre-plays"));
+    }
+
+    #[test]
+    fn test_game_over_takes_over_banner_and_centre() {
+        let mut view = ring_fixture(4);
+        view.beat = Beat::Resolve;
+        view.beat_deadline_ms = None;
+        view.outcome = Some(LcOutcome::Winner(1));
+
+        let banner = lc_banner(&view);
+        assert!(banner.contains("GAME OVER"));
+        assert!(banner.contains("lc-beat-rose"));
+        assert!(!banner.contains("data-deadline-ms"));
+
+        let screen = lc_screen_panel(&view);
+        assert!(screen.contains("PLAYER2 OUTLASTS THE TABLE"));
+        assert!(!screen.contains("lc-centre-plays"));
+        no_hex(&banner);
+        no_hex(&screen);
+
+        view.outcome = Some(LcOutcome::Draw);
+        let screen_draw = lc_screen_panel(&view);
+        assert!(screen_draw.contains("EVERYBODY'S OUT"));
+        assert!(!screen_draw.contains("lc-centre-plays"));
     }
 
     // -------------------------------------------------------------
