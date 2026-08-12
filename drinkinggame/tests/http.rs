@@ -7342,21 +7342,27 @@ async fn test_a_final_round_settle_reaches_the_frozen_game_over_banner() {
         round: st.round, // settled in the game-ending round itself
     });
     assert!(st.outcome().is_some());
-    // Premise for the ghost-viewer assertion below: this rig sets
+    // Premise, unchanged from review fix I1: this rig sets
     // `Status::Eliminated` by direct field write, bypassing the engine's own
     // elimination path (`tabs.clear()`, `last_call.rs`) — so bob still HAS a
-    // tabs entry. That makes the absence of his tab card unexplainable by
-    // `lc_tab_panel(None)`'s placeholder branch; only `hand_pane_html`'s
-    // `Status::Alive` gate (`lc_routes.rs`) can suppress it (review fix I1 —
-    // `test_a_settled_tab_shows_the_placeholder_card` used an Alive viewer
-    // with empty tabs, which exercises the builder's `None` branch, not this
-    // gate).
+    // tabs entry, and the absence of his tab card below is unexplainable by
+    // `lc_tab_panel(None)`'s placeholder branch.
+    //
+    // Plan J Task 3 update: with `st.outcome().is_some()` (asserted above),
+    // `hand_pane_html` now takes the game-over branch wholesale — the whole
+    // pane becomes `lc_end_card`, dropping the tab card (and the setup/
+    // targets/response/pacts sections) unconditionally, not via the old
+    // `Status::Alive` gate that review fix I1 introduced. That gate is still
+    // live for a LIVE game with an eliminated seat — see
+    // `test_the_response_section_is_per_viewer`'s cara assertion for its
+    // coverage now that this fixture no longer exercises it.
     assert!(!st.players[1].tabs.is_empty());
     let game_id = lc_game_id(&pool, &code).await;
     drinkinggame::db::set_game_state(&pool, game_id, &st.to_json()).await;
 
-    // Review fix I1: bob (seat 1) is Eliminated — no panel at all, not even
-    // the settled placeholder, even though he still holds a live tab id.
+    // bob (seat 1) is Eliminated in a game that's now over — no panel at
+    // all, not even the settled placeholder, even though he still holds a
+    // live tab id (Plan J Task 3: the outcome branch drops it wholesale).
     let bob_hand = body_string(get_hand(&app, &bob, &code).await).await;
     assert!(!bob_hand.contains("lc-tabcard"), "{bob_hand}");
 
@@ -7867,6 +7873,17 @@ async fn test_the_response_section_is_per_viewer() {
         "{cara_hand}"
     );
     assert!(cara_hand.contains("HAUNT ALICE → BOB +1"), "{cara_hand}");
+    // Plan J Task 3 review: `hand_pane_html`'s `Status::Alive` gate on the
+    // tab card (review fix I1) needs a LIVE game with an eliminated seat to
+    // exercise at all — every fixture that also has an outcome now takes
+    // the Task 3 outcome branch instead, which drops the tab card
+    // unconditionally along with the rest of the setup/targets/response/
+    // pacts markup, and would pass this assertion vacuously. This rig is
+    // live (alice and bob both alive) and cara really does hold a tab —
+    // `LastCallState::new` assigns one to every seat, and this hand-built
+    // state sets `status = Eliminated` directly rather than through
+    // `apply_damage`, which is what actually clears `tabs` on elimination.
+    assert!(!cara_hand.contains("lc-tabcard"), "{cara_hand}");
 }
 
 // -------------------------------------------------------------
