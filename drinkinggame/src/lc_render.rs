@@ -958,10 +958,11 @@ fn centre_chips(view: &PublicView, play: &Play) -> String {
     }
 }
 
-/// Plan E, decision E13: the frozen Resolve tableau's one line, in place of
-/// the felt-centre plays once the game has an `outcome`.
-fn victory_line(view: &PublicView, outcome: LcOutcome) -> String {
-    let line = match outcome {
+/// The one-line victory headline, shared by the felt centre (`victory_line`)
+/// and the phone end card (`lc_end_card`) so the two surfaces can never
+/// disagree on the wording.
+fn outcome_headline(view: &PublicView, outcome: LcOutcome) -> String {
+    match outcome {
         LcOutcome::Winner(seat) => {
             format!("{} OUTLASTS THE TABLE", seat_name_upper(view, seat))
         }
@@ -973,8 +974,110 @@ fn victory_line(view: &PublicView, outcome: LcOutcome) -> String {
             seat_name_upper(view, a),
             seat_name_upper(view, b)
         ),
+    }
+}
+
+/// J6 order: alive by hp desc, then eliminated by elim_order desc; ties by
+/// lower seat. Pure — the end card and the screen board share it.
+pub fn final_standings(view: &PublicView) -> Vec<&PublicSeat> {
+    let mut seats: Vec<&PublicSeat> = view.seats.iter().collect();
+    seats.sort_by_key(|s| {
+        let rank = if s.status == Status::Alive {
+            -(s.hp as i64)
+        } else {
+            -(s.elim_order.unwrap_or(0) as i64)
+        };
+        (s.status != Status::Alive, rank, s.seat)
+    });
+    seats
+}
+
+/// One `<li class="lc-standing">` row — shared by the phone's full table
+/// (`lc_end_card`) and the felt centre's capped-to-4 board (`victory_line`).
+/// `me` is `None` on the broadcast surface (no single viewer to mark).
+/// `data-winner` marks the `Winner(seat)` row only — a pact names two
+/// winners in the headline, but the row attribute is singular by contract.
+fn standing_row_html(
+    seat: &PublicSeat,
+    place: usize,
+    outcome: LcOutcome,
+    me: Option<usize>,
+) -> String {
+    let me_attr = if me == Some(seat.seat) {
+        " data-me"
+    } else {
+        ""
     };
-    format!(r#"<div class="lc-centre-victory">{line}</div>"#)
+    let winner_attr = if matches!(outcome, LcOutcome::Winner(w) if w == seat.seat) {
+        " data-winner"
+    } else {
+        ""
+    };
+    let fate = if seat.status == Status::Alive {
+        format!("HP {}", seat.hp)
+    } else {
+        format!("OUT #{}", seat.elim_order.unwrap_or(0))
+    };
+    format!(
+        r#"<li class="lc-standing" data-seat="{s}"{me_attr}{winner_attr}><span class="lc-standing-place">{place}</span><span class="lc-standing-name">{name}</span><span class="lc-standing-fate">{fate}</span><span class="lc-standing-stats">DMG {dmg} · PULLS {pulls} · CARDS {cards}</span></li>"#,
+        s = seat.seat,
+        name = html_escape(&seat.name.to_uppercase()),
+        dmg = seat.damage_dealt,
+        pulls = seat.pulls_spent,
+        cards = seat.cards_played,
+    )
+}
+
+/// Plan E, decision E13: the frozen Resolve tableau's one line, in place of
+/// the felt-centre plays once the game has an `outcome`. Plan J Task 3: now
+/// also the broadcast standings board beneath it — capped to the first 4
+/// rows plus a "+N MORE" tail (the felt centre is not a spreadsheet; phones
+/// carry the full table via `lc_end_card`).
+fn victory_line(view: &PublicView, outcome: LcOutcome) -> String {
+    let line = outcome_headline(view, outcome);
+    let standings = final_standings(view);
+    let total = standings.len();
+    const CAP: usize = 4;
+    let rows: String = standings
+        .iter()
+        .copied()
+        .take(CAP)
+        .enumerate()
+        .map(|(i, seat)| standing_row_html(seat, i + 1, outcome, None))
+        .collect();
+    let more = if total > CAP {
+        format!(
+            r#"<span class="lc-standings-more">+{} MORE</span>"#,
+            total - CAP
+        )
+    } else {
+        String::new()
+    };
+    format!(
+        r#"<div class="lc-centre-victory">{line}<ol class="lc-standings">{rows}</ol>{more}</div>"#
+    )
+}
+
+/// The phone's game-over pane body — everything inside `#lc-hand` once the
+/// game has an outcome. Root is the pane body, not `#lc-hand` itself:
+/// `hand_pane_html` (lc_routes.rs) wraps it in that div so the root id and
+/// `data-seq` keep `lcApply`'s stale-drop gate working unchanged. Full
+/// standings, one row per seat, no cap (the phone is not the felt centre);
+/// `me` marks the viewer's own row via `data-me`. `""` if called without an
+/// outcome — defensive only, `hand_pane_html` never does.
+pub fn lc_end_card(view: &PublicView, me: Option<usize>) -> String {
+    let Some(outcome) = view.outcome else {
+        return String::new();
+    };
+    let victory = outcome_headline(view, outcome);
+    let rows: String = final_standings(view)
+        .into_iter()
+        .enumerate()
+        .map(|(i, seat)| standing_row_html(seat, i + 1, outcome, me))
+        .collect();
+    format!(
+        r#"<section class="lc-endcard"><span class="lc-endcard-kicker">GAME OVER</span><h2 class="lc-endcard-victory">{victory}</h2><ol class="lc-standings">{rows}</ol></section>"#
+    )
 }
 
 /// F.2 big-screen body — the three-column grid (seat-order rail, felt
@@ -1196,7 +1299,13 @@ pub struct ActionBarView {
 /// does not forbid it, only `hx-*`/`onclick`/`href`/`action="`.
 pub fn lc_action_bar(ab: &ActionBarView) -> String {
     if ab.outcome.is_some() {
-        return r#"<button class="lc-btn lc-btn-drink" data-lc-post="end">END GAME</button>"#
+        // Plan J Task 3 / J8: REMATCH (any member, gated game-over server-
+        // side by `lc_rematch_handler`) replaces the old solitary END GAME
+        // button; END NIGHT (still `data-lc-post="end"`, `lc_end_handler`
+        // unchanged) is the exit that closes the table for good. Both post
+        // through the same delegated `[data-lc-post]` listener — no JS
+        // change needed.
+        return r#"<button class="lc-btn lc-btn-drink" data-lc-post="rematch">REMATCH</button><button class="lc-btn lc-btn-secondary" data-lc-post="end">END NIGHT</button>"#
             .to_string();
     }
     if !ab.seated {
@@ -1552,6 +1661,22 @@ mod tests {
             },
         ];
 
+        // Plan J Task 3: a content-bearing end-card fixture — `outcome_view`
+        // alone never sets stats or `elim_order`, so the sweep below would
+        // only ever scan `lc_end_card` output with every seat at its
+        // `ring_fixture` defaults (HP, zero stats, no eliminated row) —
+        // never the "OUT #n" fate branch, a populated stats line, or
+        // `data-me`.
+        let mut end_card_view = ring_fixture(3);
+        end_card_view.beat = Beat::Resolve;
+        end_card_view.beat_deadline_ms = None;
+        end_card_view.outcome = Some(LcOutcome::Winner(0));
+        end_card_view.seats[1].status = Status::Eliminated;
+        end_card_view.seats[1].elim_order = Some(1);
+        end_card_view.seats[0].damage_dealt = 7;
+        end_card_view.seats[0].pulls_spent = 3;
+        end_card_view.seats[0].cards_played = 2;
+
         let outputs = [
             card_face(card),
             card_face_expanded(card),
@@ -1629,6 +1754,27 @@ mod tests {
             // round showed a strip-free fixture covers nothing).
             lc_tab_panel(Some(crate::lc_tabs::tab_def("lie-low").unwrap())),
             lc_tab_panel(None),
+            // Plan J Task 3: the outcome branch's REMATCH/END NIGHT row —
+            // the two `lc_action_bar` fixtures above are both `outcome:
+            // None`, so this is the sweep's only exercise of the game-over
+            // row's markup.
+            lc_action_bar(&ActionBarView {
+                beat: Beat::Resolve,
+                round: 3,
+                seated: true,
+                alive: true,
+                locked: false,
+                drawing: false,
+                vessels: Vec::new(),
+                charged: 0,
+                vessels_registered: 2,
+                outcome: Some(LcOutcome::Winner(0)),
+                haunt_plays: Vec::new(),
+                haunted: false,
+            }),
+            // Plan J Task 3: the end card itself, me = the eliminated seat
+            // (data-me AND the "OUT #n" fate branch in the same output).
+            lc_end_card(&end_card_view, Some(1)),
         ];
         for out in &outputs {
             // `action="` (not bare `action`) — a placeholder card body
@@ -1902,6 +2048,10 @@ mod tests {
             locked: false,
             drawing: false,
             draws: 0,
+            damage_dealt: 0,
+            pulls_spent: 0,
+            cards_played: 0,
+            elim_order: None,
         };
         let plaque = player_plaque(&seat);
         // both the plaque's own data-decks and the nested strip's must read
@@ -2037,6 +2187,10 @@ mod tests {
             locked: false,
             drawing: false,
             draws: 3,
+            damage_dealt: 0,
+            pulls_spent: 0,
+            cards_played: 0,
+            elim_order: None,
         };
         let html = player_plaque(&seat);
         assert!(html.contains(r#"<span class="lc-draws">3</span>"#));
@@ -2362,6 +2516,10 @@ mod tests {
                 locked: false,
                 drawing: false,
                 draws: 0,
+                damage_dealt: 0,
+                pulls_spent: 0,
+                cards_played: 0,
+                elim_order: None,
             })
             .collect();
         PublicView {
@@ -2805,6 +2963,14 @@ mod tests {
         let screen = lc_screen_panel(&view);
         assert!(screen.contains("PLAYER2 OUTLASTS THE TABLE"));
         assert!(!screen.contains("lc-centre-plays"));
+        // Plan J Task 3: the broadcast standings board rides beneath the
+        // victory line — no data-me (no single viewer on this surface), the
+        // Winner(seat) row alone carries data-winner, and 4 seats fit under
+        // the cap with no "MORE" tail.
+        assert!(screen.contains(r#"<ol class="lc-standings">"#));
+        assert!(screen.contains(r#"data-seat="1" data-winner"#));
+        assert!(!screen.contains("data-me"));
+        assert!(!screen.contains("lc-standings-more"));
         no_hex(&banner);
         no_hex(&screen);
 
@@ -2812,16 +2978,91 @@ mod tests {
         let screen_draw = lc_screen_panel(&view);
         assert!(screen_draw.contains("EVERYBODY'S OUT"));
         assert!(!screen_draw.contains("lc-centre-plays"));
+        assert!(!screen_draw.contains("data-winner")); // nobody to mark
 
         // G2/Task 2: the pact win, banner unchanged, names uppercased.
         view.outcome = Some(LcOutcome::Pact(0, 2));
         let screen_pact = lc_screen_panel(&view);
         assert!(screen_pact.contains("PLAYER1 & PLAYER3 — THE PACT HOLDS"));
         assert!(!screen_pact.contains("lc-centre-plays"));
+        assert!(!screen_pact.contains("data-winner")); // a pact names two winners, marks neither row
         let banner_pact = lc_banner(&view);
         assert!(banner_pact.contains("GAME OVER"));
         no_hex(&screen_pact);
         no_hex(&banner_pact);
+
+        // Plan J Task 3: a fifth seat pushes the broadcast board past its
+        // 4-row cap.
+        let mut five = ring_fixture(5);
+        five.beat = Beat::Resolve;
+        five.beat_deadline_ms = None;
+        five.outcome = Some(LcOutcome::Winner(0));
+        let screen_five = lc_screen_panel(&five);
+        assert!(screen_five.contains(r#"<span class="lc-standings-more">+1 MORE</span>"#));
+        assert_eq!(screen_five.matches("lc-standing\"").count(), 4);
+        no_hex(&screen_five);
+    }
+
+    // -------------------------------------------------------------
+    // Plan J Task 3 — the end-of-game screen: final_standings and lc_end_card.
+    // -------------------------------------------------------------
+
+    /// J6: alive by hp desc, then eliminated by elim_order desc; ties by
+    /// lower seat.
+    #[test]
+    fn test_final_standings_order() {
+        let mut view = ring_fixture(4);
+        view.seats[0].hp = 9; // a
+        view.seats[1].hp = 12; // b
+        view.seats[2].status = Status::Eliminated; // c
+        view.seats[2].elim_order = Some(1);
+        view.seats[3].status = Status::Eliminated; // d
+        view.seats[3].elim_order = Some(2);
+
+        let order: Vec<usize> = final_standings(&view).iter().map(|s| s.seat).collect();
+        assert_eq!(order, vec![1, 0, 3, 2]); // b, a, d, c
+
+        // Draw case: all eliminated, orders 1..4 -> reverse elim order.
+        let mut draw = ring_fixture(4);
+        for (i, seat) in draw.seats.iter_mut().enumerate() {
+            seat.status = Status::Eliminated;
+            seat.elim_order = Some(i as u32 + 1);
+        }
+        let draw_order: Vec<usize> = final_standings(&draw).iter().map(|s| s.seat).collect();
+        assert_eq!(draw_order, vec![3, 2, 1, 0]);
+
+        // Tie: two alive at hp 9 -> lower seat first.
+        let mut tie = ring_fixture(4);
+        tie.seats[0].hp = 9;
+        tie.seats[2].hp = 9;
+        let tie_order: Vec<usize> = final_standings(&tie).iter().map(|s| s.seat).collect();
+        // seats 0 and 2 (both hp 9) must appear in seat order, ahead of
+        // whatever untouched hp-15 seats sort as (1, 3 at hp 15 outrank 9).
+        assert_eq!(tie_order, vec![1, 3, 0, 2]);
+    }
+
+    #[test]
+    fn test_end_card_shows_standings_and_stats() {
+        let mut view = ring_fixture(2);
+        view.beat = Beat::Resolve;
+        view.beat_deadline_ms = None;
+        view.outcome = Some(LcOutcome::Winner(1));
+        view.seats[0].status = Status::Eliminated;
+        view.seats[0].elim_order = Some(1);
+        view.seats[1].damage_dealt = 11;
+        view.seats[1].pulls_spent = 4;
+        view.seats[1].cards_played = 3;
+
+        let html = lc_end_card(&view, Some(0));
+        assert!(html.contains("GAME OVER"));
+        assert!(html.contains("PLAYER2 OUTLASTS THE TABLE"));
+        assert!(html.contains(r#"data-seat="1" data-winner"#)); // b's row
+        assert!(html.contains(r#"data-seat="0" data-me"#)); // me = seat 0
+        assert!(html.contains("DMG 11"));
+        assert!(html.contains("PULLS 4"));
+        assert!(html.contains("CARDS 3"));
+        assert!(html.contains("OUT #1"));
+        no_hex(&html);
     }
 
     // -------------------------------------------------------------
@@ -3019,12 +3260,16 @@ mod tests {
             }
         }
 
-        // outcome wins over beat, from any beat.
+        // outcome wins over beat, from any beat. Plan J Task 3 / J8:
+        // REMATCH replaces the old solitary END GAME button; END NIGHT
+        // (still `data-lc-post="end"`) is the exit.
         let mut ab = base();
         ab.beat = Beat::Lock;
         ab.outcome = Some(LcOutcome::Winner(0));
         let html = lc_action_bar(&ab);
-        assert!(html.contains("END GAME"));
+        assert!(html.contains("REMATCH"));
+        assert!(html.contains(r#"data-lc-post="rematch""#));
+        assert!(html.contains("END NIGHT"));
         assert!(html.contains(r#"data-lc-post="end""#));
         assert!(!html.contains("LOCK IN"));
         no_hex(&html);

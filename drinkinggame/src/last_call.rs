@@ -598,6 +598,15 @@ pub struct PublicSeat {
     /// Projected from `LcPlayer::draws_this_round`, which the Draw beat sets
     /// in slice 3 and nothing sets here.
     pub draws: u16,
+    /// J5 stat counters and elimination order — public by design (Plan J
+    /// Task 3): the end screen's standings/stats board reads these straight
+    /// off `PublicSeat`, the same projection every other public surface
+    /// reads, rather than a second private-only channel. Copied verbatim
+    /// from `LcPlayer` in `public_view()`.
+    pub damage_dealt: u32,
+    pub pulls_spent: u32,
+    pub cards_played: u32,
+    pub elim_order: Option<u32>,
 }
 
 impl PublicSeat {
@@ -1135,6 +1144,10 @@ impl LastCallState {
                     locked: p.locked,
                     drawing: p.drawing,
                     draws: p.draws_this_round,
+                    damage_dealt: p.damage_dealt,
+                    pulls_spent: p.pulls_spent,
+                    cards_played: p.cards_played,
+                    elim_order: p.elim_order,
                 })
                 .collect(),
             round: self.round,

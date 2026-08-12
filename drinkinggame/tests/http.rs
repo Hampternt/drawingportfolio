@@ -7868,3 +7868,92 @@ async fn test_the_response_section_is_per_viewer() {
     );
     assert!(cara_hand.contains("HAUNT ALICE → BOB +1"), "{cara_hand}");
 }
+
+// -------------------------------------------------------------
+// Plan J Task 3 — REMATCH, and J13's canonical-code redirect fix.
+// -------------------------------------------------------------
+
+/// `lc_rematch_handler`: 409 while the game is still live (the same
+/// `OutOfTurn` mapping every other "not now" case in this file uses), 204
+/// once it's over — a fresh round 1, no lingering outcome, both members
+/// seated, and exactly one active game left for the room (the end-then-
+/// start pair never leaves two rows open at once).
+#[tokio::test]
+async fn test_rematch_is_refused_while_the_game_is_live_and_works_after() {
+    let (app, pool, code, alice, _bob, alice_id, bob_id) = lc_action_rig().await;
+
+    // Live game (lc_action_rig's own Beat::Lock, nobody eliminated): refused.
+    let res = post_form(&app, &alice, &format!("/room/{code}/lastcall/rematch"), "").await;
+    assert_eq!(res.status(), StatusCode::CONFLICT);
+
+    // Freeze it: bob eliminated -> alice (seat 0) wins.
+    let mut st = lc_state(&pool, &code).await;
+    st.players[1].status = drinkinggame::last_call::Status::Eliminated;
+    st.players[1].elim_order = Some(1);
+    assert!(st.outcome().is_some());
+    let game_id_before = lc_game_id(&pool, &code).await;
+    drinkinggame::db::set_game_state(&pool, game_id_before, &st.to_json()).await;
+
+    let res = get(&app, &format!("/room/{code}/sse")).await;
+    let mut body = res.into_body().into_data_stream();
+    read_sse_until(&mut body, "event: lcpublic").await; // drain the frozen snapshot
+
+    let res = post_form(&app, &alice, &format!("/room/{code}/lastcall/rematch"), "").await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+
+    let seen = read_sse_until(&mut body, "event: lcpublic").await;
+    let frame = &seen[seen.find("event: lcpublic").unwrap()..];
+    assert!(frame.contains("ROUND 1"), "{frame}");
+    assert!(!frame.contains("GAME OVER"), "{frame}");
+    assert!(frame.contains("alice"), "{frame}"); // both members seated
+    assert!(frame.contains("bob"), "{frame}");
+
+    let after = lc_state(&pool, &code).await;
+    assert!(after.outcome().is_none());
+    assert_eq!(after.round, 1);
+    let ids: Vec<i64> = after.players.iter().map(|p| p.player_id).collect();
+    assert_eq!(ids.len(), 2);
+    assert!(ids.contains(&alice_id));
+    assert!(ids.contains(&bob_id));
+
+    // Exactly one active game for the room — the end and the start ran
+    // under the same lock, so no window existed for a second row.
+    let room = drinkinggame::db::get_open_room(&pool, &code).await.unwrap();
+    let active_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM games WHERE room_id = ?1 AND ended_at IS NULL")
+            .bind(room.id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(active_count, 1);
+}
+
+/// J13: `lc_vessel_handler`/`lc_handicap_handler` used to interpolate the
+/// raw `code` path segment into their `Redirect::to` — a lowercase link
+/// would redirect right back to a lowercase URL, which every other
+/// case-insensitive room route tolerates but this one didn't need to.
+/// `ctx.room.code` is `member_room`'s own canonical (uppercase) code; this
+/// pins the fix on the vessel route (the handicap route shares the same
+/// one-line change).
+#[tokio::test]
+async fn test_vessel_redirect_uses_the_canonical_room_code() {
+    let app = test_app().await;
+    let alice = login(&app, "alice", "1234").await;
+    let bob = login(&app, "bob", "5678").await;
+    let code = create_room(&app, &alice).await; // canonical, e.g. "QKAM"
+    room_page_html(&app, &bob, &code).await;
+    post_form(&app, &alice, &format!("/room/{code}/lastcall/start"), "").await;
+
+    let res = post_form(
+        &app,
+        &alice,
+        &format!("/room/{}/lastcall/vessel", code.to_lowercase()),
+        "deck=beer&container=can",
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+    assert_eq!(
+        res.headers()[header::LOCATION],
+        format!("/room/{code}/lastcall")
+    );
+}

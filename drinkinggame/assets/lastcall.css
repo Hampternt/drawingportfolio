@@ -943,10 +943,58 @@ body.lc-screen .lc-timer { height: 3px; }
            color: var(--lc-text); }
 .lc-chip-haunt { color: var(--lc-rose); }
 .lc-centre-victory { position: absolute; inset: 0; display: flex;
-                     align-items: center; justify-content: center;
+                     flex-direction: column; align-items: center;
+                     justify-content: center; gap: 16px; padding: 0 24px;
+                     text-align: center;
                      font-family: var(--font-display); font-weight: 900;
                      font-size: 40px; letter-spacing: -.02em;
                      color: var(--lc-text); }
+
+/* Plan J Task 3 — the end-of-game screen (§7.8's GameOver component). The
+   standings/stats board renders on two surfaces off the same builder shape
+   (`standing_row_html`, lc_render.rs): the felt centre gets it capped to 4
+   rows plus a "+N MORE" tail beneath the victory line above
+   (.lc-centre-victory, now a column rather than one centred line), and the
+   phone's #lc-hand pane gets it uncapped inside .lc-endcard once
+   `lc_action_bar`'s outcome row (REMATCH / END NIGHT) is the only thing
+   left in the thumb zone. */
+.lc-endcard { display: flex; flex-direction: column; gap: 14px;
+              padding: 24px 16px 8px; text-align: center; }
+.lc-endcard-kicker { font-family: var(--font-ui); font-weight: 800;
+                     font-size: 12px; letter-spacing: .22em;
+                     color: var(--lc-faint); }
+.lc-endcard-victory { font-family: var(--font-display); font-weight: 900;
+                      font-size: 28px; letter-spacing: -.02em; margin: 0;
+                      color: var(--lc-text); }
+.lc-standings { list-style: none; margin: 0; padding: 0; display: flex;
+                flex-direction: column; gap: 8px; text-align: left; }
+.lc-standing { display: flex; align-items: baseline; gap: 10px;
+               padding: 10px 12px; border-radius: 8px;
+               background: var(--lc-panel); border: 1px solid var(--lc-hair);
+               font-family: var(--font-ui); }
+.lc-standing[data-winner] { border-color: var(--lc-amber); }
+.lc-standing[data-me] { border-color: var(--lc-hair-strong); }
+.lc-standing-place { flex: 0 0 20px; font-family: var(--font-display);
+                     font-weight: 900; font-size: 15px;
+                     color: var(--lc-label); }
+.lc-standing[data-winner] .lc-standing-place { color: var(--lc-amber); }
+.lc-standing-name { flex: 1; font-weight: 800; font-size: 13px;
+                    letter-spacing: .02em; color: var(--lc-text);
+                    min-width: 0; overflow: hidden; text-overflow: ellipsis;
+                    white-space: nowrap; }
+.lc-standing-fate { font-weight: 700; font-size: 12px;
+                    color: var(--lc-body); }
+.lc-standing-stats { flex-basis: 100%; font-family: var(--font-mono);
+                     font-size: 11px; letter-spacing: .02em;
+                     color: var(--lc-faint); }
+/* Broadcast rows (felt centre) run at a fixed, narrower width and a
+   smaller face than the phone's full-bleed card — the felt has a lot less
+   room to give a row than a scrolling pane does. */
+.lc-centre-victory .lc-standings { width: min(560px, 90vw); }
+.lc-centre-victory .lc-standing { font-size: 13px; }
+.lc-standings-more { font-family: var(--font-ui); font-weight: 700;
+                     font-size: 11px; letter-spacing: .14em;
+                     color: var(--lc-faint); }
 
 /* F.3 MiniTable — the same felt at 466px tall for a room with no TV.
    Same state, same events, one order of magnitude less detail: seats

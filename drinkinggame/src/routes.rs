@@ -911,6 +911,10 @@ pub fn router() -> Router<GameState> {
             post(crate::lc_routes::lc_end_handler),
         )
         .route(
+            "/room/{code}/lastcall/rematch",
+            post(crate::lc_routes::lc_rematch_handler),
+        )
+        .route(
             "/room/{code}/lastcall/arm",
             post(crate::lc_routes::lc_arm_handler),
         )

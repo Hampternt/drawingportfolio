@@ -209,6 +209,72 @@ pub async fn lc_end_handler(
     StatusCode::NO_CONTENT.into_response()
 }
 
+/// `POST /room/{code}/lastcall/rematch`. J8: any member may call it, gated
+/// on the finished game actually being over — `ctx.st.outcome().is_none()`
+/// maps to the same 409 `OutOfTurn` every other "not now" case in this file
+/// uses. From `db::end_game` down this is `lc_start_handler`'s body
+/// verbatim (member-count check, fresh `LastCallState::new`, `db::
+/// start_game`, re-`load_lc`, `persist_and_broadcast_lc`, 204) — the whole
+/// end-then-start sequence runs under the one room lock acquired below, so
+/// no ticker tick and no concurrent action (including a second REMATCH tap)
+/// can land between the old game ending and the new one starting. Unlike
+/// `lc_end_handler`, this never touches `idle_panel`/`current_screen_panel`
+/// or publishes a bare `Game`/`Screen` frame — `persist_and_broadcast_lc`'s
+/// `broadcast_game`/`broadcast_room`/`broadcast_lc` trio is the entire
+/// publish, exactly as it is for `lc_start_handler`, because nobody needs
+/// to leave the Last Call shell: every phone and the big screen are still
+/// subscribed to the same room and simply repaint into round 1.
+pub async fn lc_rematch_handler(
+    State(state): State<GameState>,
+    PlayerSession(player): PlayerSession,
+    Path(code): Path<String>,
+) -> axum::response::Response {
+    let room = match crate::game::member_room(&state, &code, &player).await {
+        Ok(r) => r,
+        Err(resp) => return resp,
+    };
+    let lock = state.locks.for_room(room.id);
+    let _guard = lock.lock().await;
+
+    let ctx = match load_lc(&state, &code, &player).await {
+        Ok(c) => c,
+        Err(resp) => return resp,
+    };
+    if ctx.st.outcome().is_none() {
+        return GameError::OutOfTurn.into_response();
+    }
+    db::end_game(&state.pool, ctx.game.id).await;
+
+    let members = db::room_members(&state.pool, room.id).await;
+    if members.len() < 2 {
+        return GameError::TooFewPlayers.into_response();
+    }
+    let rng_seed = rand::thread_rng().gen::<u64>();
+    let st = LastCallState::new(
+        members.iter().map(|m| (m.id, m.name.clone())).collect(),
+        rng_seed,
+    );
+    if let Err(e) = db::start_game(
+        &state.pool,
+        room.id,
+        "last_call",
+        "",
+        "",
+        Some(&st.to_json()),
+    )
+    .await
+    {
+        return e.into_response();
+    }
+
+    let ctx = match load_lc(&state, &code, &player).await {
+        Ok(c) => c,
+        Err(resp) => return resp,
+    };
+    persist_and_broadcast_lc(&state, &ctx).await;
+    StatusCode::NO_CONTENT.into_response()
+}
+
 #[derive(Deserialize)]
 pub struct VesselForm {
     pub deck: String,
@@ -256,7 +322,14 @@ pub async fn lc_vessel_handler(
         return map_lc(e);
     }
     persist_and_broadcast_lc(&state, &ctx).await;
-    Redirect::to(&format!("{}/room/{}/lastcall", state.base_path, code)).into_response()
+    // J13: `ctx.room.code` is the canonical (uppercase) code `member_room`
+    // resolved, not the raw `code` path segment a lowercase-cased link could
+    // carry — a Plan A2 minor closed here.
+    Redirect::to(&format!(
+        "{}/room/{}/lastcall",
+        state.base_path, ctx.room.code
+    ))
+    .into_response()
 }
 
 #[derive(Deserialize)]
@@ -306,7 +379,12 @@ pub async fn lc_handicap_handler(
         };
     }
     persist_and_broadcast_lc(&state, &ctx).await;
-    Redirect::to(&format!("{}/room/{}/lastcall", state.base_path, code)).into_response()
+    // J13: same canonical-code fix as `lc_vessel_handler` above.
+    Redirect::to(&format!(
+        "{}/room/{}/lastcall",
+        state.base_path, ctx.room.code
+    ))
+    .into_response()
 }
 
 /// The rows come from the state itself, not a second `room_members` query —
@@ -347,7 +425,28 @@ fn setup_rows(st: &LastCallState) -> Vec<SetupRow> {
 /// being `Status::Alive` (an unseated spectator never held a tab; an
 /// Eliminated one had theirs voided at elimination, H10). Rides the same
 /// private fetch, seq gate and stale-drop as the target picker above it.
+///
+/// Plan J Task 3: once `st.outcome()` is `Some`, the pane body switches
+/// wholesale to `lc_end_card` — the vessel/handicap setup section, targets,
+/// response window, pacts and tab card all stop applying to a finished game
+/// (`targets_section_html`'s own `Beat::Lock` gate, for one, is already moot
+/// once the beat is frozen at Resolve). The root id and `data-seq` stay put
+/// so `lcApply`'s `querySelector("#lc-hand")` stale-drop gate keeps working
+/// unchanged, and the `<template data-lc-actions>` sibling is still
+/// appended — `lc_action_bar`'s own `outcome.is_some()` branch (REMATCH /
+/// END NIGHT) supplies its content.
 fn hand_pane_html(base_path: &str, code: &str, st: &LastCallState, player_id: i64) -> String {
+    if st.outcome().is_some() {
+        let view = st.public_view();
+        let me = st.seat_of(player_id);
+        let pane = format!(
+            r#"<div id="lc-hand" data-seq="{seq}" data-count="0">{card}</div>"#,
+            seq = view.seq,
+            card = lc_render::lc_end_card(&view, me),
+        );
+        let bar = lc_render::lc_action_bar(&action_bar_view(st, player_id));
+        return format!(r#"{pane}<template data-lc-actions>{bar}</template>"#);
+    }
     let rows = setup_rows(st);
     let seat = st.seat_of(player_id);
     let (hand, armed, locked, handicap_pct) = match seat {
