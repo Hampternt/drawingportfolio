@@ -740,16 +740,21 @@ pub async fn lc_hand_handler(
 // tick (`PublicSeat::locked`) and, for draw, the deck counts.
 // -------------------------------------------------------------
 
-/// Engine error -> HTTP. NotSeated/NotAlive are "you have no say here" (403,
-/// like tm's NotYourCall); WrongBeat/AlreadyLocked/MustResolve are "not now"
-/// (409, like tm's OutOfTurn); the two named-card refusals carry their
-/// message as a plain-text 422 body the action bar shows verbatim (DDv2 6.3
-/// "naming the card"); everything else (UnknownCard, NotPlayable, BadTarget,
-/// BadDraw) is a bare 422. `lock_in` replay after a beat tick has already
-/// moved past `Beat::Lock` returns `WrongBeat`, not the idempotent `Ok(())`
-/// lock_in gives a same-beat replay — that's still "not now" from the
-/// caller's side, so it takes the same 409 as every other WrongBeat case
-/// rather than a special-cased mapping.
+/// Engine error -> HTTP. NotSeated/NotAlive/NotAGhost are "you have no say
+/// here" (403, like tm's NotYourCall — NotAGhost is haunt's mirror of
+/// NotAlive: a live seat has no vote to cast, I10); WrongBeat/AlreadyLocked/
+/// MustResolve/AlreadyHaunted are "not now" (409, like tm's OutOfTurn —
+/// AlreadyHaunted is the once-per-round guard, 9.2, and WrongBeat is the
+/// react/haunt window's own transport face: a response after Reveal has
+/// closed is "not now", not "never you", decision I3); the two named-card
+/// refusals carry their message as a plain-text 422 body the action bar
+/// shows verbatim (DDv2 6.3 "naming the card"); everything else
+/// (UnknownCard, NotPlayable, BadTarget, BadDraw) is a bare 422. `lock_in`
+/// replay after a beat tick has already moved past `Beat::Lock` returns
+/// `WrongBeat`, not the idempotent `Ok(())` lock_in gives a same-beat
+/// replay — that's still "not now" from the caller's side, so it takes the
+/// same 409 as every other WrongBeat case rather than a special-cased
+/// mapping.
 pub(crate) fn map_lc(e: LcError) -> axum::response::Response {
     match e {
         LcError::NotSeated | LcError::NotAlive | LcError::NotAGhost => {
@@ -1302,6 +1307,8 @@ pub async fn lc_begin_handler(
 // the beat having actually moved.
 // -------------------------------------------------------------
 
+pub(crate) const REACT_GRACE_SECS: u16 = 10;
+
 /// Decision I3: a public response keeps the window open at least
 /// REACT_GRACE_SECS longer — never shortens it. Route-owned deadline data,
 /// the arm_beat_clock precedent (E2); called only under the room guard, so
@@ -1312,7 +1319,6 @@ pub(crate) fn extend_response_window(st: &mut LastCallState, now: i64) {
         st.beat_deadline_ms = Some(st.beat_deadline_ms.map_or(floor, |d| d.max(floor)));
     }
 }
-pub(crate) const REACT_GRACE_SECS: u16 = 10;
 
 #[derive(Deserialize)]
 pub struct ReactForm {

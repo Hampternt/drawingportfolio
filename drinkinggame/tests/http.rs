@@ -7527,14 +7527,14 @@ async fn lc_reveal_rig(
 /// Task 5's chip text isn't rendered yet (see the section comment above).
 #[tokio::test]
 async fn test_lc_react_is_private_until_played_then_public() {
-    // A deadline inside the grace floor (4s < REACT_GRACE_SECS's 10) so the
-    // extension this test also checks is an observable change, not a no-op
-    // against an already-longer window — same reasoning as
-    // `test_a_response_extends_the_window`'s 3s rig. Still comfortably
-    // longer than this test's own request round-trips, so the 1 Hz ticker
-    // has no real chance to win a race against it.
+    // The brief's own 20s: comfortably open, so this test stays purely
+    // "private until played, then a full public publish" — it does not
+    // also depend on grace arithmetic (that's `test_a_response_extends_the_
+    // window`'s job) or on the request sequence below finishing inside any
+    // particular wall-clock budget under the live 1 Hz ticker (fix round 1,
+    // I-1: a 4s rig here made a passing test depend on that margin).
     let (app, pool, code, alice, bob, _cara, _alice_id, _bob_id, _cara_id) =
-        lc_reveal_rig(unix_ms_now() + 4_000).await;
+        lc_reveal_rig(unix_ms_now() + 20_000).await;
 
     // Bob's unplayed reaction never reaches alice's hand fragment.
     let alice_hand = body_string(get_hand(&app, &alice, &code).await).await;
@@ -7544,7 +7544,6 @@ async fn test_lc_react_is_private_until_played_then_public() {
     let res = get(&app, &format!("/room/{code}/sse")).await;
     let mut body = res.into_body().into_data_stream();
     read_sse_until(&mut body, "event: lcpublic").await; // drain the snapshot
-    let before = lc_state(&pool, &code).await.beat_deadline_ms.unwrap();
 
     let res = post_form(
         &app,
@@ -7559,15 +7558,6 @@ async fn test_lc_react_is_private_until_played_then_public() {
     // same broadcast policy as lock/draw).
     let seen = read_sse_until(&mut body, "event: lcpublic").await;
     assert!(seen.contains("event: lcpublic"), "{seen}");
-    // The banner's live timer (`lc_render::beat_timer_live`) already rides
-    // every `lcpublic` frame (Plan E, decision E10) — its `data-deadline-ms`
-    // is a genuine public-surface trace of decision I3's extension, visible
-    // today even without Task 5's chip.
-    let marker = "data-deadline-ms=\"";
-    let start = seen.find(marker).unwrap() + marker.len();
-    let rest = &seen[start..];
-    let after_deadline: i64 = rest[..rest.find('"').unwrap()].parse().unwrap();
-    assert!(after_deadline > before, "{after_deadline} vs {before}");
 
     // Bob's card left his hand...
     let bob_hand = body_string(get_hand(&app, &bob, &code).await).await;
@@ -7580,6 +7570,27 @@ async fn test_lc_react_is_private_until_played_then_public() {
     assert_eq!(after.reactions[0].source_seat, 1); // bob
     assert_eq!(after.reactions[0].answers, 1);
     assert_eq!(after.public_view().reactions.len(), 1);
+}
+
+/// The shared `member_room` guard, exercised for `react` the same way
+/// `test_lc_haunt_is_for_ghosts_only_and_lands_public`'s `carol` case
+/// exercises it for `haunt` — coverage was asymmetric (fix round 1, M-3):
+/// the guard is shared code (`load_lc` -> `member_room`), so the gap wasn't
+/// a real hole, but the asymmetry was arbitrary.
+#[tokio::test]
+async fn test_lc_react_route_is_guarded_against_non_members() {
+    let (app, _pool, code, _alice, _bob, _cara, _alice_id, _bob_id, _cara_id) =
+        lc_reveal_rig(unix_ms_now() + 20_000).await;
+    let carol = login(&app, "carol", "2222").await; // never joins the room
+
+    let res = post_form(
+        &app,
+        &carol,
+        &format!("/room/{code}/lastcall/react"),
+        "card_id=cider-08&play=1",
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::FORBIDDEN);
 }
 
 /// The race this task's Class C exists for, from the outside: subscribe SSE
@@ -7642,6 +7653,20 @@ async fn test_a_response_extends_the_window() {
         "{after} vs now+8000={}",
         unix_ms_now() + 8_000
     );
+
+    // The banner's live timer (`lc_render::beat_timer_live`) rides every
+    // `lcpublic` frame (Plan E, decision E10) — its `data-deadline-ms` is a
+    // genuine already-rendered public-surface trace of decision I3's
+    // extension, visible today even without Task 5's chip. Fetched fresh
+    // via the shell page rather than another SSE frame: this test
+    // deliberately never subscribes SSE (see the doc comment above), so
+    // there is no stream to read a frame off.
+    let shell = body_string(get_shell(&app, &bob, &code).await).await;
+    let marker = "data-deadline-ms=\"";
+    let start = shell.find(marker).unwrap() + marker.len();
+    let rest = &shell[start..];
+    let rendered_deadline: i64 = rest[..rest.find('"').unwrap()].parse().unwrap();
+    assert_eq!(rendered_deadline, after, "{shell}");
 }
 
 /// I10: haunt is the sole ghost action, `Status::Eliminated` only — an
