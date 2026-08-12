@@ -69,8 +69,8 @@ A design-system-driven redesign of `/artportfolio`.
 | Worktree | `~/projects/drawingportfolio.worktrees/artportfolio-visual-layer` |
 | Branch | `feat/artportfolio-visual-layer` (tracks `origin/feat/artportfolio-visual-layer`) |
 | Touches | `docs/`, `src/`, `static/`, `templates/`, `.sqlx/` |
-| Status | **Slices 1–2 complete; slice 3 plan A (backend) complete** — filter contract + admin routes live, no UI yet. Slice 1 on 2026-08-10 (`4c786a2`), slice 2 on 2026-08-11 (`cadabbc`), slice 3 plan A on 2026-08-12 (`3afd6a5`). `./scripts/verify.sh` is green at 375 tests. Slices 1–2 pushed; slice 3 plan A committed locally, not yet pushed — **not merged to `master`**. |
-| Next | **Slice 3 plan B** — the UI: `filter_rail.html`, tag pills, the collections/visibility admin controls, active-filter row, empty-state echo. Spec `docs/superpowers/specs/2026-08-12-artportfolio-collections-tags-design.md`, plan `docs/superpowers/plans/2026-08-12-artportfolio-collections-tags-plan-b.md`. Any work here needs `export DATABASE_URL=sqlite:portfolio.db` — **there is no `.env` in this worktree**, and the sqlx macros need a live DB whenever the queries change. |
+| Status | **Slices 1–3 complete.** Slice 1 on 2026-08-10 (`4c786a2`), slice 2 on 2026-08-11 (`cadabbc`), slice 3 plan A (backend) on 2026-08-12 (`3afd6a5`), slice 3 plan B (the UI) on 2026-08-12 (`137b52f`) — the rail, tag pills, active-filter row, per-card pencil/folder-plus popovers and palette entries are all live. `./scripts/verify.sh` is green at 393 tests. Slices 1–2 pushed; slice 3 (both plans) committed locally, not yet pushed — **not merged to `master`**. |
+| Next | **Slice 4 — the multi-upload tray**, replacing the single-file composer. It codes against the frozen `#art-head-label` OOB seam (`post_grid.html`) the same way `htmx_posts` already does for page 0 — return that OOB label alongside every new card so the head never goes stale after a multi-upload. Rail counts going stale after a card edit (tag/collection changes via the pencil or folder-plus popovers, until the next filter action or page load) is slice 3's accepted trade-off, not slice-4 debt — leave it. Any work here needs `export DATABASE_URL=sqlite:portfolio.db` — **there is no `.env` in this worktree**, and the sqlx macros need a live DB whenever the queries change. |
 
 No ahead/behind counts live in this card on purpose — they are stale the moment
 anything moves. Run `git rev-list --left-right --count master...HEAD` if you
@@ -169,7 +169,7 @@ plan A `docs/superpowers/plans/2026-08-12-artportfolio-collections-tags-plan-a.m
 `post_tags`), the `PostFilter`/`Collection`/`CollectionWithCount`/`TagWithCount`
 data layer, one query answering every `tags`/`collection`/`vis` combination, the
 URL contract on all three read routes, and seven admin mutation/fragment routes.
-Plan B (the UI) is scoped separately and has not started.
+Plan B (the UI) is scoped separately — see below.
 
 Three resolved ambiguities, recorded so plan B and slice 4 do not re-litigate
 them:
@@ -199,6 +199,63 @@ them:
   counts — they self-correct on the next filter action or page load. Recorded
   in the spec as a single-user trade-off; the additive fix, if it ever grates,
   is an OOB rail fragment riding the same response.
+
+#### Slice 3 plan B — the UI, complete 2026-08-12
+
+Plan B `docs/superpowers/plans/2026-08-12-artportfolio-collections-tags-plan-b.md`
+(5 tasks). `filter_rail.html` and `rail_collections.html` — collections and tag
+pills as viewer-scoped toggle links, the admin-only `+` new-collection input and
+visibility trio (`b7de771`, `03e5d68`); the active-filter pill row and the
+`#art-rail-state` hidden input that every rail control's `hx-include` reads, so
+toggling one filter never drops another (`99449c0`); a pencil and a folder-plus
+on every card opening the caption/tags edit popover and the collection-membership
+checklist (`09fb2fa`); the popover JS — Esc-to-close, one popover open at a time,
+click-outside-to-close, palette entries for jumping straight to a collection or
+tag (`137b52f`). `./scripts/verify.sh` is green at 393 tests (up from 375 —
+plan B added 18).
+
+**Browser checkpoint 2 run 2026-08-12, curl-only — the Chrome extension did not
+connect after three attempts.** Against a seeded dev DB (29 posts: 27 public / 1
+unlisted / 1 hidden; two collections; three tags) with a manually inserted
+session row standing in for a logged-in admin, every item was driven through the
+actual HTTP contract and its response bytes inspected:
+
+- Logged out: the rail lists only the one collection and the two tags that have
+  a public member; no `+` input, no visibility trio, no card cluster in the
+  markup; `?vis=hidden` produces byte-identical output to no `?vis` at all.
+- Logged in: the head splits `29 drawings · 27 public · 1 unlisted · 1 hidden`;
+  `vis=public,hidden` subsets both the head (`28 drawings · 27 public · 0
+  unlisted · 1 hidden`) and the card badges (19 public + 1 hidden + 0 unlisted
+  on page 0, counted by badge class); `POST /api/admin/collections` returns 201
+  with the new collection in the rail fragment at count 0, and repeating the
+  same name returns 409 with the expected message.
+- Pencil: `PATCH /api/admin/posts/{id}` re-renders the card with the new caption
+  (the response the `hx-swap="outerHTML"` on `closest .hm-post` consumes);
+  reopening `GET .../edit` shows the new caption and both tags prefilled
+  (`checkpoint-tag, ink`).
+- Folder-plus: `POST .../collections/{cid}` re-renders the checklist with
+  `checked` and swaps the control to `hx-delete`; the main rail's count for that
+  collection stays at its old value in a page fetched immediately after (the
+  `/htmx/posts` fragment doesn't carry the rail at all, confirming why it can't
+  self-correct until then) and updates correctly on the next full `/artportfolio`
+  load — the accepted staleness behaves exactly as documented.
+- Combine: `?tags=ink&q=bulk` filtered 24/29 posts, held across `page=1` (4 more,
+  all matching), and each active-filter pill's own `hx-get` href omits itself
+  while keeping the others — down to a `Clear filters` link hitting the bare
+  fragment route. Confirmed the push-url contract underneath: every filtered
+  fragment response carries `HX-Push-Url` pointing at the clean `/artportfolio`
+  page URL (`?q=bulk`, then bare `/artportfolio` once all filters clear), not
+  the `/artportfolio/htmx/posts` fragment URL the `hx-get` itself targets.
+- Esc / single-popover-at-a-time: **not exercised** — this is keyboard/DOM
+  interaction curl cannot drive. Read `static/artfeed.js` and confirmed the
+  logic exists (an `openPop` guard closes any other open popover before opening
+  one, and the popover's own Esc branch is checked before the search-field Esc
+  branch) but this is code inspection, not a behavioral observation.
+
+**Needs human eyes**, same wall as slices 1–2: colour tones, hover/focus fades,
+and every item above pixels can't confirm — plus, new to this slice, the actual
+Esc-key and single-popover behavior, and watching an HTMX swap and address-bar
+push happen live rather than inferring it from response headers.
 
 ### C · Portfolio drawing tasks — **closed 2026-08-09**
 
