@@ -374,14 +374,16 @@ pub struct PactBreak {
 /// evicts the oldest once it's exceeded.
 pub const LC_LOG_CAP: usize = 80;
 
-/// One public round-log entry (Plan J). J2 invariant: the only String params
-/// are card titles, and a variant carrying one may be appended only at or
-/// after its play's reveal — nothing here ever names a card still staged in
-/// `locked_plays`, a pact (secret until a `PactBreak`, which this vocabulary
-/// doesn't carry at all — Task 1's sweep never touches pacts/tabs/reactions/
-/// haunts; those stay `public_view()`-only surfaces), or a private tab. Seats
-/// are indices; names are resolved at render time so a rename never rewrites
-/// history.
+/// One public round-log entry (Plan J; Task 1 erratum adds the four social
+/// events — pact breaks, tab settles, reactions, haunts — per Task 2's
+/// adjudication). J2 invariant: the only String params are card titles, and
+/// a variant carrying one may be appended only at or after its play's
+/// reveal — nothing here ever names a card still staged in `locked_plays`, a
+/// pact's identity beyond the two seats already public via `PactBreak`
+/// (G5), a tab's id or reward (H8/H11 — `LogEntry::TabSettle` carries `seat`
+/// ONLY, never `TabSettle::tab` or its round-ledger sibling), or anything
+/// else staged and unrevealed. Seats are indices; names are resolved at
+/// render time so a rename never rewrites history.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(tag = "t", rename_all = "snake_case")]
 pub enum LogEntry {
@@ -442,6 +444,35 @@ pub enum LogEntry {
     },
     GameOver {
         winner: Option<usize>,
+    },
+    /// Task 1 erratum (Task 2's adjudication): a pact betrayal (G5, "loud,
+    /// by name") — the knife and the victim, mirroring the seats
+    /// `pact_breaks` already records at this same site.
+    PactBreak {
+        betrayer: usize,
+        betrayed: usize,
+    },
+    /// Task 1 erratum: a settled tab (H10). `seat` ONLY — never the tab id
+    /// or its reward (`TabSettle::tab` on `tab_ledger`'s entry), which stay
+    /// private forever (H8/H11): "{NAME} SETTLED A TAB", never what it was.
+    TabSettle {
+        seat: usize,
+    },
+    /// Task 1 erratum: a reaction card played in answer to a play in flight
+    /// (I2/I9) — public from the moment it's cast, so the title is safe here
+    /// even though the play it answers may still be unrevealed.
+    ReactionPlay {
+        seat: usize,
+        title: String,
+    },
+    /// Task 1 erratum: a ghost's haunt vote (I10). `target` is the ridden
+    /// play's *seat*, resolved at cast time — not its `order_key`, which
+    /// resets every round (see `Effect::source_play`'s caution) and is unfit
+    /// to keep as a standalone log identity. `None` when the ridden play has
+    /// no single target.
+    Haunt {
+        seat: usize,
+        target: Option<usize>,
     },
 }
 
@@ -1544,11 +1575,15 @@ impl LastCallState {
 
         self.players[seat].vessels[bi].pulls_left -= cost;
         self.players[seat].hand.remove(idx);
+        let title = card.title.clone();
         self.reactions.push(ReactionPlay {
             card,
             source_seat: seat,
             answers,
         });
+        // Task 1 erratum (Task 2 adjudication): public from the moment it's
+        // cast (I2/I9) — safe to log the title here.
+        self.push_log(LogEntry::ReactionPlay { seat, title });
         self.seq += 1;
         Ok(())
     }
@@ -1591,11 +1626,17 @@ impl LastCallState {
         if !is_damage {
             return Err(LcError::BadTarget);
         }
+        // Task 1 erratum (Task 2 adjudication): the ridden play's *seat*,
+        // not its `order_key` — an order_key resets every round and is
+        // unfit as a standalone log identity (see `Effect::source_play`'s
+        // caution). Read before the push below moves `play`'s borrow out.
+        let target = play.target;
 
         self.haunts.push(Haunt {
             seat,
             play: order_key,
         });
+        self.push_log(LogEntry::Haunt { seat, target });
         self.seq += 1;
         Ok(())
     }
@@ -2203,6 +2244,12 @@ impl LastCallState {
                             betrayed: target,
                             round: self.round,
                         });
+                        // Task 1 erratum (Task 2 adjudication): the same
+                        // betrayal, now in the round log too.
+                        self.push_log(LogEntry::PactBreak {
+                            betrayer: play.source_seat,
+                            betrayed: target,
+                        });
                         // M3-style defensive dedupe (Task 1's report,
                         // carried concern): a corrupt/replayed blob could in
                         // principle reach this arm twice for the same seat;
@@ -2583,6 +2630,9 @@ impl LastCallState {
                 tab: tab.clone(),
                 round: self.round,
             });
+            // Task 1 erratum (Task 2 adjudication): `seat` ONLY — never
+            // `tab` or its reward, which stay private forever (H8/H11).
+            self.push_log(LogEntry::TabSettle { seat });
             // Remove the settled id — the next Deal (Draw→Deal) replaces
             // it, since `tabs` is now empty for this seat.
             self.players[seat].tabs.retain(|t| t != &tab);
@@ -3290,6 +3340,12 @@ mod tests {
         assert_eq!(st.pact_barred, vec![0]);
         // The break is the one public trace (G5):
         assert_eq!(st.public_view().pact_breaks, st.pact_breaks);
+        // Task 1 erratum (Task 2 adjudication): the same seats, now in the
+        // round log too.
+        assert!(st.log.contains(&LogEntry::PactBreak {
+            betrayer: 0,
+            betrayed: 1,
+        }));
         // Secrecy holds even now that pact_barred/pact_breaks are both
         // populated (not just in the all-intact case
         // `test_pacts_and_offers_never_reach_the_public_view` covers):
@@ -5178,6 +5234,12 @@ mod tests {
             }]
         );
         assert_eq!(st.players[1].tabs, vec!["high-roller".to_string()]); // unmet: kept
+                                                                         // Task 1 erratum (Task 2 adjudication): `seat` ONLY — never the tab
+                                                                         // id or its reward (H8/H11). Exact-value assert, not `.contains`, so
+                                                                         // a stray `tab` field on the variant would fail this test.
+        assert!(st.log.contains(&LogEntry::TabSettle { seat: 0 }));
+        let log_json = serde_json::to_string(&st.log).unwrap();
+        assert!(!log_json.contains("lie-low")); // the tab id never leaks
         st.advance_beat().unwrap(); // round 2's Deal
         assert_eq!(st.players[0].tabs, vec!["showboat".to_string()]); // nth 1 (Task 1 pin)
     }
@@ -5468,6 +5530,15 @@ mod tests {
         assert_eq!(st.plays.len(), 1); // plays untouched (I8)
         assert_eq!(st.seq, seq + 1);
         assert_eq!(st.public_view().reactions.len(), 1); // public immediately (I9)
+                                                         // Task 1 erratum (Task 2 adjudication): the log gets the title too —
+                                                         // public the instant it's cast, same as `reactions` itself.
+        assert_eq!(
+            st.log.last(),
+            Some(&LogEntry::ReactionPlay {
+                seat: 1,
+                title: "Not So Fast, Friend".to_string(),
+            })
+        );
     }
 
     #[test]
@@ -5781,6 +5852,16 @@ mod tests {
         st.haunt(3, 1).unwrap();
         assert_eq!(st.haunts, vec![Haunt { seat: 2, play: 1 }]);
         assert_eq!(st.seq, seq + 1);
+        // Task 1 erratum (Task 2 adjudication): the log gets the ghost's
+        // seat and the ridden play's *seat* target — never its order_key
+        // (see the variant's doc comment for why).
+        assert_eq!(
+            st.log.last(),
+            Some(&LogEntry::Haunt {
+                seat: 2,
+                target: Some(1),
+            })
+        );
         assert_eq!(st.haunt(3, 1), Err(LcError::AlreadyHaunted)); // one per round
         st.advance_beat().unwrap();
         st.resolve().unwrap();
@@ -5983,14 +6064,15 @@ mod tests {
         assert_eq!(p.elim_order, None);
     }
 
-    /// J1: the log is public-only. Scripts a full round — a pact formed and
-    /// betrayed (G), a tab settled (H), a played reaction (I) — through to
-    /// resolve, then serializes the log alone and asserts no secret token
-    /// (a tab id, an armed-but-unrevealed card, a pact-market word) escapes.
-    /// The log vocabulary itself structurally can't carry
-    /// pacts/tabs/reactions/haunts (no such `LogEntry` variant exists) —
-    /// this test is the proof that holds even as the surrounding systems
-    /// change.
+    /// J1/erratum: the log is public-only. Scripts a full round — a pact
+    /// formed and betrayed (G), a tab settled (H), a played reaction (I) —
+    /// through to resolve, then serializes the log alone. Since the Task 1
+    /// erratum (Task 2's adjudication), the vocabulary DOES carry these four
+    /// social events — so this is no longer "no variant exists to carry
+    /// them"; it is a proof that each variant carries only its public shape
+    /// (seats, a revealed title) and never the private payload behind it (a
+    /// tab id, an armed-but-unrevealed card id, any pact-market internal
+    /// beyond the two seats `PactBreak` already makes public, G5).
     #[test]
     fn test_the_log_never_carries_a_secret_across_a_scripted_game() {
         let mut st = LastCallState::new(
@@ -6033,17 +6115,38 @@ mod tests {
 
         // Confirm the scripted secrets actually exist in the state, so this
         // test would fail loudly if the script above stopped exercising
-        // them (a pact break, a settled tab) rather than silently passing
-        // on an empty log.
+        // them (a pact break, a settled tab, a played reaction) rather than
+        // silently passing on an empty log.
         assert!(!st.pact_breaks.is_empty());
         assert!(!st.tab_ledger.is_empty());
+        // `reactions` itself is drained into `discards` by `resolve()`
+        // (transient, per-round) — the log below is what actually survives
+        // to prove the reaction happened at all.
+
+        // Positive: the four social events now DO reach the log, each with
+        // only its public shape.
+        assert!(st.log.contains(&LogEntry::PactBreak {
+            betrayer: 0,
+            betrayed: 1,
+        }));
+        assert!(st.log.contains(&LogEntry::TabSettle { seat: 1 }));
+        assert!(st.log.contains(&LogEntry::ReactionPlay {
+            seat: 1,
+            title: "Not So Fast, Friend".to_string(),
+        }));
 
         let json = serde_json::to_string(&st.log).unwrap();
-        // No tab id, no pact-market word, no reaction/card-still-secret
-        // token — the vocabulary has no variant for pacts/tabs/reactions/
-        // haunts at all, so this is really a sweep for stray secret-bearing
-        // strings that shouldn't be reachable in the first place.
-        for secret in ["lie-low", "cider-08", "pact", "tab"] {
+        // Negative: no tab id, no card id (only the revealed title, which is
+        // meant to be public), no pact-market internal beyond the two seats
+        // `PactBreak` already exposes (G5) — the private payload behind each
+        // public event never rides along.
+        for secret in [
+            "lie-low",
+            "cider-08",
+            "formed_round",
+            "pact_offers",
+            "pact_barred",
+        ] {
             assert!(!json.to_lowercase().contains(secret), "{secret} in {json}");
         }
     }

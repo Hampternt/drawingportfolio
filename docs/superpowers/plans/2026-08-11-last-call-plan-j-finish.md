@@ -289,6 +289,12 @@ impl LastCallState {
 
   Arm, disarm, set_target and the timer append **nothing** (J2).
 
+  > **ERRATUM:** this table omitted the game's four social events — pact
+  > breaks, tab settles, reactions, haunts; added post-review per Task 2's
+  > adjudication (`PactBreak`/`TabSettle`(`seat` only)/`ReactionPlay`/`Haunt`
+  > variants, `push_log` at the betrayal check, the Step 5.5 settle loop,
+  > `play_reaction`, and `haunt`).
+
 - [ ] **Step 3: tests.** In `last_call.rs`'s `mod tests` (fixtures from the
   landed Plan D test module — `at_lock()` or equivalent; adjust names to what
   landed):

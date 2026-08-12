@@ -682,6 +682,10 @@ fn log_tag(entry: &LogEntry) -> &'static str {
         LogEntry::Eliminated { .. } => "eliminated",
         LogEntry::Reshuffle { .. } => "reshuffle",
         LogEntry::GameOver { .. } => "game_over",
+        LogEntry::PactBreak { .. } => "pact_break",
+        LogEntry::TabSettle { .. } => "tab_settle",
+        LogEntry::ReactionPlay { .. } => "reaction_play",
+        LogEntry::Haunt { .. } => "haunt",
     }
 }
 
@@ -750,6 +754,27 @@ fn log_line(view: &PublicView, entry: &LogEntry) -> String {
         LogEntry::GameOver { winner } => match winner {
             Some(w) => format!("GAME OVER — {} OUTLASTS THE TABLE", log_seat_name(view, *w)),
             None => "GAME OVER — EVERYBODY'S OUT".to_string(),
+        },
+        // Task 1 erratum (Task 2 adjudication) — the four social events.
+        LogEntry::PactBreak { betrayer, betrayed } => format!(
+            "{} BROKE THEIR PACT WITH {}",
+            log_seat_name(view, *betrayer),
+            log_seat_name(view, *betrayed)
+        ),
+        // `seat` ONLY — never the tab or its reward (H8/H11).
+        LogEntry::TabSettle { seat } => format!("{} SETTLED A TAB", log_seat_name(view, *seat)),
+        LogEntry::ReactionPlay { seat, title } => format!(
+            "{} ANSWERS WITH {}",
+            log_seat_name(view, *seat),
+            html_escape(title)
+        ),
+        LogEntry::Haunt { seat, target } => match target {
+            Some(t) => format!(
+                "{} HAUNTS {}",
+                log_seat_name(view, *seat),
+                log_seat_name(view, *t)
+            ),
+            None => format!("{} HAUNTS THE TABLE", log_seat_name(view, *seat)),
         },
     }
 }
@@ -1506,6 +1531,25 @@ mod tests {
                 amount: 3,
             },
             LogEntry::GameOver { winner: None },
+            // Task 1 erratum (Task 2 adjudication): the four social events —
+            // otherwise this sweep never scans their `log_line` arms either.
+            LogEntry::PactBreak {
+                betrayer: 0,
+                betrayed: 1,
+            },
+            LogEntry::TabSettle { seat: 0 },
+            LogEntry::ReactionPlay {
+                seat: 1,
+                title: "<b>y</b>".to_string(),
+            },
+            LogEntry::Haunt {
+                seat: 0,
+                target: Some(1),
+            },
+            LogEntry::Haunt {
+                seat: 1,
+                target: None,
+            },
         ];
 
         let outputs = [
@@ -2404,13 +2448,40 @@ mod tests {
             // The `SEAT {n+1}` fallback (brief's Produces block): seat 5
             // doesn't exist in this two-seat fixture's `view.seats`.
             LogEntry::Joined { seat: 5 },
+            // Task 1 erratum (Task 2 adjudication): the four social events.
+            LogEntry::PactBreak {
+                betrayer: 0,
+                betrayed: 1,
+            },
+            LogEntry::TabSettle { seat: 1 },
+            LogEntry::ReactionPlay {
+                seat: 0,
+                title: "<i>y</i>".to_string(),
+            },
+            LogEntry::Haunt {
+                seat: 1,
+                target: Some(0),
+            },
+            LogEntry::Haunt {
+                seat: 0,
+                target: None,
+            },
         ];
 
         let html = lc_log(&view);
         no_hex(&html);
-        assert!(html.contains(r#"data-count="18""#), "{html}");
+        assert!(html.contains(r#"data-count="23""#), "{html}");
         assert!(html.contains(r#"data-t="round""#), "{html}");
+        // Review Minor 2: the three styled tags (`lastcall.css:560-561`) —
+        // asserted individually so a typo in any `log_tag` arm loses the
+        // emphasis styling loudly, not silently under a green suite.
+        assert!(html.contains(r#"data-t="hit""#), "{html}");
+        assert!(html.contains(r#"data-t="eliminated""#), "{html}");
         assert!(html.contains(r#"data-t="game_over""#), "{html}");
+        assert!(html.contains(r#"data-t="pact_break""#), "{html}");
+        assert!(html.contains(r#"data-t="tab_settle""#), "{html}");
+        assert!(html.contains(r#"data-t="reaction_play""#), "{html}");
+        assert!(html.contains(r#"data-t="haunt""#), "{html}");
 
         // oldest -> newest push order; rendering is newest-first, so the
         // find() position of each line must strictly DECREASE down this list.
@@ -2433,6 +2504,11 @@ mod tests {
             "GAME OVER — ALICE OUTLASTS THE TABLE",
             "GAME OVER — EVERYBODY'S OUT",
             "SEAT 6 TAKES A SEAT",
+            "ALICE BROKE THEIR PACT WITH BOB",
+            "BOB SETTLED A TAB",
+            "ALICE ANSWERS WITH &lt;i&gt;y&lt;/i&gt;",
+            "BOB HAUNTS ALICE",
+            "ALICE HAUNTS THE TABLE",
         ];
         let positions: Vec<usize> = lines
             .iter()
