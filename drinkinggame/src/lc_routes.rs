@@ -212,11 +212,11 @@ pub async fn lc_end_handler(
 /// `POST /room/{code}/lastcall/rematch`. J8: any member may call it, gated
 /// on the finished game actually being over — `ctx.st.outcome().is_none()`
 /// maps to the same 409 `OutOfTurn` every other "not now" case in this file
-/// uses. From `db::end_game` down this is `lc_start_handler`'s body
-/// verbatim (member-count check, fresh `LastCallState::new`, `db::
-/// start_game`, re-`load_lc`, `persist_and_broadcast_lc`, 204) — the whole
-/// end-then-start sequence runs under the one room lock acquired below, so
-/// no ticker tick and no concurrent action (including a second REMATCH tap)
+/// uses. From `db::end_game` down this is `lc_start_handler`'s body (member-
+/// count check, fresh `LastCallState::new`, `db::start_game`, re-`load_lc`,
+/// `persist_and_broadcast_lc`, 204) with one deliberate departure — see the
+/// `st.seq` line below — under the one room lock acquired below, so no
+/// ticker tick and no concurrent action (including a second REMATCH tap)
 /// can land between the old game ending and the new one starting. Unlike
 /// `lc_end_handler`, this never touches `idle_panel`/`current_screen_panel`
 /// or publishes a bare `Game`/`Screen` frame — `persist_and_broadcast_lc`'s
@@ -224,6 +224,21 @@ pub async fn lc_end_handler(
 /// publish, exactly as it is for `lc_start_handler`, because nobody needs
 /// to leave the Last Call shell: every phone and the big screen are still
 /// subscribed to the same room and simply repaint into round 1.
+///
+/// Review fix round 1 (C1, plan erratum — the brief's "start flow verbatim"
+/// prescription had this defect, not the implementation): a bare
+/// `LastCallState::new` starts `seq` at 0, which is exactly what
+/// `lc_start_handler` wants (nobody is on the shell yet when a game starts
+/// fresh — `lc_room.html`'s `lcSeq` and `lc_screen.html`'s twin both seed
+/// from the page that redirected them there). REMATCH is different: J8
+/// keeps every phone on the shell and the big screen on the felt, and each
+/// already holds the FINISHED game's seq as its stale-drop floor
+/// (`lcApply`/`lcApplyTable` in `lc_room.html`, the `lcpublic` frame check
+/// in `lc_screen.html`). A fresh game restarting at seq 0 would land below
+/// that floor and get silently dropped by every one of them, forever (no
+/// `.game-idle` fires either, since nobody left the room) — the seq counter
+/// is scoped to the ROOM's connected clients, not to any one game, so it
+/// has to carry forward across the end/start boundary instead of resetting.
 pub async fn lc_rematch_handler(
     State(state): State<GameState>,
     PlayerSession(player): PlayerSession,
@@ -243,17 +258,26 @@ pub async fn lc_rematch_handler(
     if ctx.st.outcome().is_none() {
         return GameError::OutOfTurn.into_response();
     }
-    db::end_game(&state.pool, ctx.game.id).await;
 
+    // Review fix round 1, minor 1: checked before `db::end_game` (was
+    // after) so a failure here never ends the finished game while starting
+    // nothing. Currently unreachable either way — no leave/kick route
+    // exists, and a running game already implies >= 2 members — but free to
+    // get right while this function is already open for C1.
     let members = db::room_members(&state.pool, room.id).await;
     if members.len() < 2 {
         return GameError::TooFewPlayers.into_response();
     }
+    db::end_game(&state.pool, ctx.game.id).await;
+
     let rng_seed = rand::thread_rng().gen::<u64>();
-    let st = LastCallState::new(
+    let mut st = LastCallState::new(
         members.iter().map(|m| (m.id, m.name.clone())).collect(),
         rng_seed,
     );
+    // C1: carry the room's stale-drop floor across the game boundary — see
+    // the doc comment above.
+    st.seq = ctx.st.seq + 1;
     if let Err(e) = db::start_game(
         &state.pool,
         room.id,

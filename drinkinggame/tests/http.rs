@@ -7890,11 +7890,37 @@ async fn test_the_response_section_is_per_viewer() {
 // Plan J Task 3 — REMATCH, and J13's canonical-code redirect fix.
 // -------------------------------------------------------------
 
+/// Pulls the `data-seq` off the `data-lc-public` root of an `lcpublic`
+/// frame — the wire-side twin of `hand_seq`/`table_seq` above, needed to
+/// pin review fix C1: a fresh game's `LastCallState::new` seq (0) must not
+/// cross the boundary unmodified, or it lands below every already-connected
+/// client's stale-drop floor.
+fn public_seq(frame: &str) -> u64 {
+    let marker = "data-lc-public data-seq=\"";
+    let start = frame.find(marker).unwrap() + marker.len();
+    let rest = &frame[start..];
+    rest[..rest.find('"').unwrap()].parse().unwrap()
+}
+
 /// `lc_rematch_handler`: 409 while the game is still live (the same
 /// `OutOfTurn` mapping every other "not now" case in this file uses), 204
 /// once it's over — a fresh round 1, no lingering outcome, both members
 /// seated, and exactly one active game left for the room (the end-then-
 /// start pair never leaves two rows open at once).
+///
+/// Review fix round 1 (C1): the wire frame's banner/log text alone only
+/// proves the *ungated* half of the handoff — `broadcast_game`/
+/// `broadcast_room`/the banner+log templates inside `lcpublic` all repaint
+/// unconditionally on the client. The half that actually broke is the
+/// *gated* refetch: `lcApply`/`lcApplyTable` stale-drop any pane whose
+/// `data-seq` is below the room's high-water mark, and the big screen does
+/// the same against the `lcpublic` frame's own `data-seq`. A fresh
+/// `LastCallState::new` restarting at seq 0 (the finished game was
+/// necessarily at seq ≥ 1) would silently freeze every already-connected
+/// hand/table pane and the big screen — the SSE assertions below alone
+/// would still pass. Pinned by asserting every one of the three seq
+/// sources strictly increases across the rematch, not just that the wire
+/// text reads "ROUND 1".
 #[tokio::test]
 async fn test_rematch_is_refused_while_the_game_is_live_and_works_after() {
     let (app, pool, code, alice, _bob, alice_id, bob_id) = lc_action_rig().await;
@@ -7911,9 +7937,17 @@ async fn test_rematch_is_refused_while_the_game_is_live_and_works_after() {
     let game_id_before = lc_game_id(&pool, &code).await;
     drinkinggame::db::set_game_state(&pool, game_id_before, &st.to_json()).await;
 
+    // The pre-rematch floor every already-connected client would be
+    // sitting on: the frozen game's own hand/table pane seq, and the wire
+    // frame's `data-lc-public` seq.
+    let pre_hand_seq = hand_seq(&body_string(get_hand(&app, &alice, &code).await).await);
+    let pre_table_seq = table_seq(&body_string(get_table(&app, &alice, &code).await).await);
+
     let res = get(&app, &format!("/room/{code}/sse")).await;
     let mut body = res.into_body().into_data_stream();
-    read_sse_until(&mut body, "event: lcpublic").await; // drain the frozen snapshot
+    let snapshot = read_sse_until(&mut body, "event: lcpublic").await; // drain the frozen snapshot
+    let pre_frame = &snapshot[snapshot.find("event: lcpublic").unwrap()..];
+    let pre_public_seq = public_seq(pre_frame);
 
     let res = post_form(&app, &alice, &format!("/room/{code}/lastcall/rematch"), "").await;
     assert_eq!(res.status(), StatusCode::NO_CONTENT);
@@ -7924,6 +7958,26 @@ async fn test_rematch_is_refused_while_the_game_is_live_and_works_after() {
     assert!(!frame.contains("GAME OVER"), "{frame}");
     assert!(frame.contains("alice"), "{frame}"); // both members seated
     assert!(frame.contains("bob"), "{frame}");
+
+    // C1's actual pin: the gated path, not the wire text.
+    let post_public_seq = public_seq(frame);
+    assert!(
+        post_public_seq > pre_public_seq,
+        "post-rematch wire seq {post_public_seq} did not exceed the pre-rematch floor \
+         {pre_public_seq} — the big screen would stale-drop the whole frame"
+    );
+    let post_hand_seq = hand_seq(&body_string(get_hand(&app, &alice, &code).await).await);
+    assert!(
+        post_hand_seq > pre_hand_seq,
+        "post-rematch hand data-seq {post_hand_seq} did not exceed the pre-rematch floor \
+         {pre_hand_seq} — every already-connected phone would stale-drop the fresh round"
+    );
+    let post_table_seq = table_seq(&body_string(get_table(&app, &alice, &code).await).await);
+    assert!(
+        post_table_seq > pre_table_seq,
+        "post-rematch table data-seq {post_table_seq} did not exceed the pre-rematch floor \
+         {pre_table_seq}"
+    );
 
     let after = lc_state(&pool, &code).await;
     assert!(after.outcome().is_none());

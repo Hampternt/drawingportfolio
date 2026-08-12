@@ -614,6 +614,21 @@ The TABLE pane's static END GAME form stays — it is the mid-game escape.)
   route. Fix both `Redirect::to` sites (vessel ~line 253, handicap ~line 293)
   to interpolate `ctx.room.code` instead of `code`.
 
+> **ERRATUM (2026-08-12, Task 3 review, C1).** "The `lc_start_handler` body
+> verbatim" above is **wrong on one line**: a bare `LastCallState::new` starts
+> `seq` at 0, which is correct for `/start` (nobody is on the shell yet when a
+> game starts fresh) but wrong for REMATCH, because J8 keeps every phone and
+> the big screen in place. Each already holds the FINISHED game's seq as its
+> client-side stale-drop floor (`lcApply`/`lcApplyTable` in `lc_room.html`,
+> the `lcpublic` frame's own check in `lc_screen.html`) — a fresh game
+> restarting at seq 0 lands below that floor and is silently dropped by every
+> already-connected surface, forever (no `.game-idle` fires either, since
+> nobody left the room). Read the verbatim instruction as "…except carry the
+> seq counter forward: `st.seq = ctx.st.seq + 1` (the pre-`end_game` `ctx`,
+> still in scope) between constructing the fresh `LastCallState` and calling
+> `db::start_game`." The seq counter is scoped to the room's connected
+> clients, not to any one game.
+
 - [ ] **Step 4: tests.** `lc_render.rs`:
 
 ```rust
