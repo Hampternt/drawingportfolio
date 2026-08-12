@@ -5960,10 +5960,14 @@ fn unix_ms_now() -> i64 {
 /// `beat_deadline_ms` directly onto the persisted blob (no route call —
 /// nothing else has set this deadline yet, Task 1's rig doesn't arm the
 /// clock), then subscribe SSE and wait for the ticker's own 1 Hz sweep to
-/// pick it up. The advanced frame must be the FULL publish
-/// (`persist_and_broadcast_lc`, carrying `data-lc-public`), not a bare tick
-/// — the ticker runs the same chain and the same broadcast the lock route
-/// would have run had a human clicked LOCK on time.
+/// pick it up. The `reveal` marker alone would also match the room's initial
+/// SSE snapshot if that snapshot happened to say `reveal` (it can't here,
+/// since it's taken before the tick fires, but nothing about the marker
+/// proves the ticker actually ran the chain) — so the real assertion reads
+/// the persisted row straight from the DB afterwards and checks BOTH that
+/// the beat moved AND that `arm_beat_clock` re-armed a live, future
+/// deadline for it. That's what pins "the ticker ran the same chain a human
+/// clicking LOCK on time would have", not just "some frame arrived".
 #[tokio::test]
 async fn test_the_ticker_advances_an_expired_beat() {
     let (app, pool, code, _alice, _bob, _alice_id, _bob_id) = lc_action_rig().await;
@@ -5976,18 +5980,27 @@ async fn test_the_ticker_advances_an_expired_beat() {
 
     let res = get(&app, &format!("/room/{code}/sse")).await;
     let mut body = res.into_body().into_data_stream();
-    let seen = read_sse_until(&mut body, r#"data-beat="reveal""#).await;
-    assert!(seen.contains("data-lc-public"), "{seen}");
+    read_sse_until(&mut body, r#"data-beat="reveal""#).await;
+
+    let after = lc_state(&pool, &code).await;
+    assert_eq!(after.beat, Beat::Reveal);
+    assert!(
+        after.beat_deadline_ms.is_some_and(|d| d > unix_ms_now()),
+        "{:?}",
+        after.beat_deadline_ms
+    );
 }
 
 /// Round 1's Draw is the untimed registration lobby (E1) — `begin` is what
 /// arms the clock for the first time. Rigged with no `beat` override: just
 /// `start` plus both members registering a vessel through the real routes,
 /// the same lobby state a table actually sits in before anyone presses the
-/// button.
+/// button. Also covers the brief's other `begin` gate (too few registered):
+/// a lone alice presses `begin` and gets 409 before bob has even registered
+/// a vessel.
 #[tokio::test]
 async fn test_begin_starts_the_round_and_arms_diplomacy() {
-    let (app, _pool) = test_app_with_pool().await;
+    let (app, pool) = test_app_with_pool().await;
     let alice = login(&app, "alice", "1234").await;
     let bob = login(&app, "bob", "5678").await;
     let code = create_room(&app, &alice).await;
@@ -6000,6 +6013,13 @@ async fn test_begin_starts_the_round_and_arms_diplomacy() {
         "deck=beer&container=can",
     )
     .await;
+
+    // Only one of two registered: TooFewPlayers, same "not now" 409 as the
+    // wrong-beat case below.
+    let res = post_form(&app, &alice, &format!("/room/{code}/lastcall/begin"), "").await;
+    assert_eq!(res.status(), StatusCode::CONFLICT);
+    assert_eq!(lc_state(&pool, &code).await.beat, Beat::Draw); // untouched
+
     post_form(
         &app,
         &bob,
@@ -6016,8 +6036,17 @@ async fn test_begin_starts_the_round_and_arms_diplomacy() {
     let res = post_form(&app, &bob, &format!("/room/{code}/lastcall/begin"), "").await;
     assert_eq!(res.status(), StatusCode::NO_CONTENT);
 
-    let seen = read_sse_until(&mut body, r#"data-beat="diplomacy""#).await;
-    assert!(seen.contains("data-deadline-ms"), "{seen}"); // the timer is live
+    read_sse_until(&mut body, r#"data-beat="diplomacy""#).await;
+    let after = lc_state(&pool, &code).await;
+    assert_eq!(after.beat, Beat::Diplomacy);
+    let now = unix_ms_now();
+    assert!(
+        after
+            .beat_deadline_ms
+            .is_some_and(|d| d > now && d <= now + 60_000),
+        "{:?}",
+        after.beat_deadline_ms
+    ); // 60s DIPLOMACY_SECS armed
 
     // Not round-1 Draw any more: a second press is "not now".
     let res = post_form(&app, &alice, &format!("/room/{code}/lastcall/begin"), "").await;
@@ -6029,7 +6058,7 @@ async fn test_begin_starts_the_round_and_arms_diplomacy() {
 /// this test pins is the lock route's own early exit, not the ticker's).
 #[tokio::test]
 async fn test_locking_the_whole_table_advances_early() {
-    let (app, _pool, code, alice, bob, _alice_id, _bob_id) = lc_action_rig().await;
+    let (app, pool, code, alice, bob, _alice_id, _bob_id) = lc_action_rig().await;
 
     post_form(
         &app,
@@ -6050,13 +6079,57 @@ async fn test_locking_the_whole_table_advances_early() {
     let mut body = res.into_body().into_data_stream();
     read_sse_until(&mut body, "event: lcpublic").await; // drain the snapshot
 
-    post_form(&app, &alice, &format!("/room/{code}/lastcall/lock"), "").await;
+    let res = post_form(&app, &alice, &format!("/room/{code}/lastcall/lock"), "").await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+    // alice locking alone must not advance — bob hasn't locked yet.
+    assert_eq!(lc_state(&pool, &code).await.beat, Beat::Lock);
+
     // bob locks nothing armed — legal (`lock_in`'s own doc comment).
     let res = post_form(&app, &bob, &format!("/room/{code}/lastcall/lock"), "").await;
     assert_eq!(res.status(), StatusCode::NO_CONTENT);
 
     // Frame filtered by content, never by position — the second lock's own
     // publish may or may not be the very next SSE chunk.
-    let seen = read_sse_until(&mut body, r#"data-beat="reveal""#).await;
-    assert!(seen.contains("data-lc-public"), "{seen}");
+    read_sse_until(&mut body, r#"data-beat="reveal""#).await;
+    let after = lc_state(&pool, &code).await;
+    assert_eq!(after.beat, Beat::Reveal);
+    assert!(
+        after.beat_deadline_ms.is_some_and(|d| d > unix_ms_now()),
+        "{:?}",
+        after.beat_deadline_ms
+    ); // 20s REVEAL_SECS armed
+}
+
+/// D16 belt-and-suspenders: `lc_advance_chain` itself clears
+/// `beat_deadline_ms` on an outcome, so a game that ends through the normal
+/// chain never leaves a live deadline behind for the ticker to trip over.
+/// This test forces the OTHER path: a state that (only a hand-corrupted or
+/// legacy blob could produce this pairing naturally) carries an EXPIRED
+/// deadline *and* an already-decided outcome at the same time, to prove the
+/// ticker's own `|| outcome().is_some()` guard — present on both the
+/// lock-free advisory pre-check and the locked recheck — is what actually
+/// keeps a finished game frozen, not merely the absence of a deadline.
+#[tokio::test]
+async fn test_ticker_leaves_a_finished_game_frozen() {
+    let (app, pool, code, _alice, _bob, _alice_id, _bob_id) = lc_action_rig().await;
+
+    let mut st = lc_state(&pool, &code).await;
+    st.beat = Beat::Resolve;
+    st.players[1].status = drinkinggame::last_call::Status::Eliminated;
+    assert!(st.outcome().is_some());
+    let stale_deadline = unix_ms_now() - 2_000;
+    st.beat_deadline_ms = Some(stale_deadline);
+    let game_id = lc_game_id(&pool, &code).await;
+    drinkinggame::db::set_game_state(&pool, game_id, &st.to_json()).await;
+
+    // Subscribing puts the room in active_rooms(), same as every other test
+    // here — the ticker only ever looks at hub-active rooms.
+    let _res = get(&app, &format!("/room/{code}/sse")).await;
+    // Give the 1 Hz ticker several sweeps' worth of real time to (not) act.
+    tokio::time::sleep(std::time::Duration::from_millis(2_500)).await;
+
+    let after = lc_state(&pool, &code).await;
+    assert_eq!(after.beat, Beat::Resolve);
+    assert_eq!(after.round, st.round);
+    assert_eq!(after.beat_deadline_ms, Some(stale_deadline)); // untouched
 }
