@@ -292,6 +292,38 @@ pub struct Effect {
     pub expires_round: u32,
 }
 
+/// A formed pact between two seats — mutual and symmetric; the invariant
+/// `a < b` makes the value order-independent of which seat's offer closed it
+/// (Step 2/3 of `offer_pact`/`accept_pact`). NEVER projected by
+/// `public_view()` (G13; the §3.4.1 pattern applied to pacts) — pacts stay
+/// secret until a betrayal or the win exposes them.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Pact {
+    pub a: usize,
+    pub b: usize,
+    pub formed_round: u32,
+}
+
+/// A pending, one-directional pact proposal made during `Beat::Diplomacy`.
+/// Beat-scoped (G8): `advance_beat`'s Diplomacy→Lock edge clears every
+/// pending offer unconditionally, so none can ever dangle into another beat.
+/// NEVER projected by `public_view()`.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PactOffer {
+    pub from: usize,
+    pub to: usize,
+}
+
+/// A record of a pact broken by betrayal (Task 2). Unlike `Pact` and
+/// `PactOffer`, this one IS read by `public_view()` (G5) — the single pact
+/// field the room is allowed to see.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PactBreak {
+    pub betrayer: usize,
+    pub betrayed: usize,
+    pub round: u32,
+}
+
 /// `#[serde(default)]` at the container level: a slice-3 field addition to
 /// `LastCallState` (never mind `LcPlayer`/`Card`/`Play` themselves, which
 /// stay strict — see `from_json`) makes an in-flight room's stored blob,
@@ -327,6 +359,22 @@ pub struct LastCallState {
     /// `lc_routes` (the ticker and the action routes) — the engine itself
     /// never calls a clock function or reads this field.
     pub beat_deadline_ms: Option<i64>,
+    /// Secret, mutual pacts (G13). NEVER projected by `public_view()` — the
+    /// same structural move as `locked_plays`: the method simply never reads
+    /// this field. See `test_pacts_and_offers_never_reach_the_public_view`.
+    pub pacts: Vec<Pact>,
+    /// Pending, one-directional offers made during `Beat::Diplomacy`.
+    /// Beat-scoped (G8): cleared unconditionally at the Diplomacy→Lock edge
+    /// in `advance_beat`. NEVER projected by `public_view()`.
+    pub pact_offers: Vec<PactOffer>,
+    /// Seats barred from the pact market by a betrayal (Task 2). NEVER
+    /// projected as a field in its own right — it is fully derivable from
+    /// `pact_breaks`, which IS public (G5), so exposing this one too would
+    /// be redundant, not merely secret.
+    pub pact_barred: Vec<usize>,
+    /// Betrayal records. The ONE pact field `public_view()` may read (G5,
+    /// Task 2).
+    pub pact_breaks: Vec<PactBreak>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -410,6 +458,11 @@ pub enum LcError {
     BadDraw,
     /// advance_beat at Resolve — call resolve() instead.
     MustResolve,
+    /// offer_pact/accept_pact/decline_pact: the actor is pacted or barred,
+    /// or (offer_pact only) fewer than `PACT_MIN_ALIVE` players are Alive.
+    PactBlocked,
+    /// accept_pact/decline_pact: no pending offer from that seat to this one.
+    NoOffer,
 }
 
 pub const STARTING_HP: i32 = 15; // DDv2 §2.4, TBD-1
@@ -426,6 +479,9 @@ pub const REVEAL_SECS: u16 = 20; // DDv2 §5 beat 5
 pub const DRAW_PER_VESSEL: usize = 5; // DDv2 §4.3, TBD-4
 pub const HAND_SOFT_CAP: usize = 12; // DDv2 §8.2, TBD-2
 pub const LC_DECK_SIZE: u16 = 40; // 40-card shoe size, test-pinned per Plan F
+/// Fewer than this many Alive players and the pact market is closed (G7) —
+/// `offer_pact` refuses even a valid target once this floor is breached.
+pub const PACT_MIN_ALIVE: usize = 4;
 
 /// Handicap is a percentage (100 = no handicap). Rounds UP, per DDv2 §11.
 /// Integer maths on purpose: a float handicap would let a form field carry
@@ -483,6 +539,10 @@ impl LastCallState {
             deck_counts: Deck::ALL.iter().map(|&d| (d, 0)).collect(),
             seq: 0,
             beat_deadline_ms: None, // E1: round 1's Draw is the untimed lobby
+            pacts: Vec::new(),
+            pact_offers: Vec::new(),
+            pact_barred: Vec::new(),
+            pact_breaks: Vec::new(),
         }
     }
 
@@ -995,6 +1055,180 @@ impl LastCallState {
             .collect()
     }
 
+    /// The seat's current partner, if any. Reads `pacts` — callable only
+    /// from engine internals (`resolve()`, Task 2) and per-viewer code (the
+    /// private section renderer, Task 3), never from a public renderer.
+    pub fn pact_partner(&self, seat: usize) -> Option<usize> {
+        self.pacts.iter().find_map(|p| {
+            if p.a == seat {
+                Some(p.b)
+            } else if p.b == seat {
+                Some(p.a)
+            } else {
+                None
+            }
+        })
+    }
+
+    /// DDv2 pacts (G-series). Guard order: `NotSeated` -> `NotAlive` ->
+    /// `WrongBeat` (must be `Beat::Diplomacy`) -> `BadTarget` (target is
+    /// self, out of range, or not `Alive`) -> `PactBlocked` (the *offeror*
+    /// is pacted or barred, or fewer than `PACT_MIN_ALIVE` players are
+    /// Alive — all three are facts the offeror already knows, so refusing
+    /// leaks nothing; target-side unavailability deliberately does NOT
+    /// refuse, per G11).
+    ///
+    /// Mutual offer (G8): if `pact_offers` already contains the reverse
+    /// offer, the pact forms immediately — both directions of the offer
+    /// between the two seats are removed (third-party offers stay pending,
+    /// per G11), `seq` bumps once. An identical pending offer already
+    /// present is an idempotent no-op (`Ok(())`, no bump — the `add_player`
+    /// precedent). Otherwise any other outgoing offer from this seat is
+    /// replaced (retarget, G8) and the new one recorded, `seq` bumps. Offers
+    /// to a secretly-pacted or barred target are recorded too — they are
+    /// no-ops that expire at Diplomacy's end (G11).
+    pub fn offer_pact(&mut self, player_id: i64, target_seat: usize) -> Result<(), LcError> {
+        let Some(seat) = self.seat_of(player_id) else {
+            return Err(LcError::NotSeated);
+        };
+        if self.players[seat].status != Status::Alive {
+            return Err(LcError::NotAlive);
+        }
+        if self.beat != Beat::Diplomacy {
+            return Err(LcError::WrongBeat);
+        }
+        if target_seat == seat {
+            return Err(LcError::BadTarget);
+        }
+        match self.players.get(target_seat) {
+            Some(tp) if tp.status == Status::Alive => {}
+            _ => return Err(LcError::BadTarget),
+        }
+        let alive = self
+            .players
+            .iter()
+            .filter(|p| p.status == Status::Alive)
+            .count();
+        if self.pact_partner(seat).is_some()
+            || self.pact_barred.contains(&seat)
+            || alive < PACT_MIN_ALIVE
+        {
+            return Err(LcError::PactBlocked);
+        }
+
+        if self
+            .pact_offers
+            .iter()
+            .any(|o| o.from == target_seat && o.to == seat)
+        {
+            let (a, b) = if seat < target_seat {
+                (seat, target_seat)
+            } else {
+                (target_seat, seat)
+            };
+            self.pacts.push(Pact {
+                a,
+                b,
+                formed_round: self.round,
+            });
+            self.pact_offers.retain(|o| {
+                !((o.from == seat && o.to == target_seat)
+                    || (o.from == target_seat && o.to == seat))
+            });
+            self.seq += 1;
+            return Ok(());
+        }
+
+        if self
+            .pact_offers
+            .iter()
+            .any(|o| o.from == seat && o.to == target_seat)
+        {
+            return Ok(());
+        }
+
+        self.pact_offers.retain(|o| o.from != seat);
+        self.pact_offers.push(PactOffer {
+            from: seat,
+            to: target_seat,
+        });
+        self.seq += 1;
+        Ok(())
+    }
+
+    /// Guard order: `NotSeated` -> `NotAlive` -> `WrongBeat` -> `PactBlocked`
+    /// (the accepter is pacted or barred — such players are never *shown*
+    /// offers, so this is route-level defence) -> `NoOffer` (no pending
+    /// `PactOffer { from: from_seat, to: my_seat }`). Success: forms the
+    /// pact, removes the offers between the two seats (both directions
+    /// only, as in `offer_pact`'s mutual-offer case), `seq` bumps.
+    pub fn accept_pact(&mut self, player_id: i64, from_seat: usize) -> Result<(), LcError> {
+        let Some(seat) = self.seat_of(player_id) else {
+            return Err(LcError::NotSeated);
+        };
+        if self.players[seat].status != Status::Alive {
+            return Err(LcError::NotAlive);
+        }
+        if self.beat != Beat::Diplomacy {
+            return Err(LcError::WrongBeat);
+        }
+        if self.pact_partner(seat).is_some() || self.pact_barred.contains(&seat) {
+            return Err(LcError::PactBlocked);
+        }
+        if !self
+            .pact_offers
+            .iter()
+            .any(|o| o.from == from_seat && o.to == seat)
+        {
+            return Err(LcError::NoOffer);
+        }
+        let (a, b) = if seat < from_seat {
+            (seat, from_seat)
+        } else {
+            (from_seat, seat)
+        };
+        self.pacts.push(Pact {
+            a,
+            b,
+            formed_round: self.round,
+        });
+        self.pact_offers.retain(|o| {
+            !((o.from == seat && o.to == from_seat) || (o.from == from_seat && o.to == seat))
+        });
+        self.seq += 1;
+        Ok(())
+    }
+
+    /// Guard order: same chain as `accept_pact` including `PactBlocked`,
+    /// then `NoOffer`. Success: removes that one offer, `seq` bumps. (The
+    /// offeror's WAITING line reverting to a propose button is the answer
+    /// they are owed — a decline is a signal from someone who saw the
+    /// offer, which only an available player can be.)
+    pub fn decline_pact(&mut self, player_id: i64, from_seat: usize) -> Result<(), LcError> {
+        let Some(seat) = self.seat_of(player_id) else {
+            return Err(LcError::NotSeated);
+        };
+        if self.players[seat].status != Status::Alive {
+            return Err(LcError::NotAlive);
+        }
+        if self.beat != Beat::Diplomacy {
+            return Err(LcError::WrongBeat);
+        }
+        if self.pact_partner(seat).is_some() || self.pact_barred.contains(&seat) {
+            return Err(LcError::PactBlocked);
+        }
+        let Some(idx) = self
+            .pact_offers
+            .iter()
+            .position(|o| o.from == from_seat && o.to == seat)
+        else {
+            return Err(LcError::NoOffer);
+        };
+        self.pact_offers.remove(idx);
+        self.seq += 1;
+        Ok(())
+    }
+
     /// One beat forward. Draw→Deal clears `drawing`; Lock→Reveal is the
     /// reveal: unlocked players' armed cards return to hand (DDv2 §12,
     /// disconnect at lock), locked plays are charged (6.4) and moved into
@@ -1013,9 +1247,16 @@ impl LastCallState {
                     p.drawing = false;
                 }
             }
+            Beat::Diplomacy => {
+                // G8: offers are beat-scoped. Clearing here is the decline
+                // nobody had to press — and it is why no offer can ever
+                // dangle across an elimination (eliminations happen at
+                // Resolve, offers never survive past Diplomacy).
+                self.pact_offers.clear();
+            }
             Beat::Lock => self.reveal(),
-            // Deal→Diplomacy, Diplomacy→Lock, Reveal→Resolve: events, tabs,
-            // the swap and the reaction window are hollow systems (D14, D9).
+            // Deal→Diplomacy, Reveal→Resolve: events, tabs and the reaction
+            // window are hollow systems (D14, D9).
             _ => {}
         }
         self.seq += 1;
@@ -1515,6 +1756,26 @@ mod tests {
         )
     }
 
+    /// alice(1)/Beer, bob(2)/Cider, cara(3)/Soft, dave(4)/Liquor — seats 0-3.
+    /// Vessels registered at Draw, then moved to Diplomacy.
+    fn at_diplomacy() -> LastCallState {
+        let mut st = LastCallState::new(
+            vec![
+                (1, "alice".into()),
+                (2, "bob".into()),
+                (3, "cara".into()),
+                (4, "dave".into()),
+            ],
+            42,
+        );
+        st.set_vessel(1, Deck::Beer, "can").unwrap();
+        st.set_vessel(2, Deck::Cider, "bottle").unwrap();
+        st.set_vessel(3, Deck::Soft, "glass").unwrap();
+        st.set_vessel(4, Deck::Liquor, "shot").unwrap();
+        st.beat = Beat::Diplomacy;
+        st
+    }
+
     fn deck_count(st: &LastCallState, deck: Deck) -> u16 {
         st.deck_counts.iter().find(|(d, _)| *d == deck).unwrap().1
     }
@@ -1618,8 +1879,160 @@ mod tests {
             .push(crate::lc_cards::card_by_id("cider-01").unwrap());
         st.beat = Beat::Lock;
         st.seq = 7;
+        st.pacts.push(Pact {
+            a: 0,
+            b: 1,
+            formed_round: 1,
+        });
+        st.pact_offers.push(PactOffer { from: 1, to: 2 });
+        st.pact_barred.push(2);
+        st.pact_breaks.push(PactBreak {
+            betrayer: 0,
+            betrayed: 1,
+            round: 1,
+        });
 
         assert_eq!(LastCallState::from_json(&st.to_json()), st);
+    }
+
+    #[test]
+    fn test_offer_and_accept_form_a_pact() {
+        let mut st = at_diplomacy();
+        let before = st.seq;
+        st.offer_pact(1, 1).unwrap(); // alice (seat 0) -> bob (seat 1)
+        assert_eq!(st.pact_offers, vec![PactOffer { from: 0, to: 1 }]);
+        assert_eq!(st.seq, before + 1);
+        st.accept_pact(2, 0).unwrap(); // bob accepts alice's offer
+        assert_eq!(
+            st.pacts,
+            vec![Pact {
+                a: 0,
+                b: 1,
+                formed_round: 1
+            }]
+        );
+        assert!(st.pact_offers.is_empty());
+        assert_eq!(st.pact_partner(0), Some(1));
+        assert_eq!(st.pact_partner(1), Some(0));
+        assert_eq!(st.pact_partner(2), None);
+        assert_eq!(st.seq, before + 2);
+    }
+
+    #[test]
+    fn test_offer_guard_order() {
+        let mut st = at_diplomacy();
+        assert_eq!(st.offer_pact(999, 1), Err(LcError::NotSeated));
+        assert_eq!(st.offer_pact(1, 0), Err(LcError::BadTarget)); // self
+        assert_eq!(st.offer_pact(1, 9), Err(LcError::BadTarget)); // no such seat
+        st.players[2].status = Status::Eliminated;
+        assert_eq!(st.offer_pact(1, 2), Err(LcError::BadTarget)); // dead target
+                                                                  // 3 alive < PACT_MIN_ALIVE — even a valid target is refused (G7):
+        assert_eq!(st.offer_pact(1, 1), Err(LcError::PactBlocked));
+        st.players[2].status = Status::Alive;
+        st.players[0].status = Status::Eliminated;
+        assert_eq!(st.offer_pact(1, 1), Err(LcError::NotAlive));
+        st.players[0].status = Status::Alive;
+        st.beat = Beat::Lock;
+        assert_eq!(st.offer_pact(1, 1), Err(LcError::WrongBeat));
+    }
+
+    #[test]
+    fn test_one_outgoing_offer_retargets_and_repeats_are_free() {
+        let mut st = at_diplomacy();
+        st.offer_pact(1, 1).unwrap();
+        let seq = st.seq;
+        st.offer_pact(1, 1).unwrap(); // identical repeat: Ok, no bump (G8)
+        assert_eq!((st.seq, st.pact_offers.len()), (seq, 1));
+        st.offer_pact(1, 2).unwrap(); // retarget replaces (G8)
+        assert_eq!(st.pact_offers, vec![PactOffer { from: 0, to: 2 }]);
+        assert_eq!(st.seq, seq + 1);
+    }
+
+    #[test]
+    fn test_mutual_offers_form_the_pact_directly() {
+        // G8
+        let mut st = at_diplomacy();
+        st.offer_pact(1, 1).unwrap();
+        st.offer_pact(2, 0).unwrap(); // bob offers alice back
+        assert_eq!(
+            st.pacts,
+            vec![Pact {
+                a: 0,
+                b: 1,
+                formed_round: 1
+            }]
+        );
+        assert!(st.pact_offers.is_empty());
+    }
+
+    #[test]
+    fn test_offers_to_the_unavailable_go_quietly_nowhere() {
+        // G11
+        let mut st = at_diplomacy();
+        st.offer_pact(1, 1).unwrap();
+        st.accept_pact(2, 0).unwrap(); // alice-bob pacted
+                                       // cara offers pacted alice: recorded, not refused — no pact detector.
+        st.offer_pact(3, 0).unwrap();
+        assert_eq!(st.pact_offers, vec![PactOffer { from: 2, to: 0 }]);
+        // alice (pacted) cannot accept it:
+        assert_eq!(st.accept_pact(1, 2), Err(LcError::PactBlocked));
+        // pacted alice cannot offer either:
+        assert_eq!(st.offer_pact(1, 3), Err(LcError::PactBlocked));
+        // barred players are out of the market on the offering side too:
+        st.pact_barred.push(3); // dave
+        assert_eq!(st.offer_pact(4, 2), Err(LcError::PactBlocked));
+        // ...but can still be offered to (their bar is public; the offer no-ops):
+        st.offer_pact(3, 3).unwrap(); // cara retargets dave
+        assert_eq!(st.accept_pact(4, 2), Err(LcError::PactBlocked));
+    }
+
+    #[test]
+    fn test_accept_and_decline_need_a_real_offer() {
+        let mut st = at_diplomacy();
+        assert_eq!(st.accept_pact(2, 0), Err(LcError::NoOffer));
+        st.offer_pact(1, 1).unwrap();
+        let seq = st.seq;
+        st.decline_pact(2, 0).unwrap();
+        assert!(st.pact_offers.is_empty());
+        assert_eq!(st.seq, seq + 1);
+        assert_eq!(st.decline_pact(2, 0), Err(LcError::NoOffer)); // already gone
+        assert!(st.pacts.is_empty());
+    }
+
+    #[test]
+    fn test_offers_expire_when_diplomacy_ends() {
+        // G8
+        let mut st = at_diplomacy();
+        st.offer_pact(1, 1).unwrap();
+        st.offer_pact(3, 3).unwrap();
+        st.advance_beat().unwrap(); // Diplomacy -> Lock
+        assert_eq!(st.beat, Beat::Lock);
+        assert!(st.pact_offers.is_empty());
+    }
+
+    /// The §3.4.1 pattern applied to pacts (Global Constraints): nothing
+    /// pact-shaped reaches the projection. Task 2 adds the deliberate
+    /// exception (pact_breaks) and NARROWS this assertion to the named
+    /// private keys — planned there, not discovered.
+    #[test]
+    fn test_pacts_and_offers_never_reach_the_public_view() {
+        let mut st = at_diplomacy();
+        st.offer_pact(1, 1).unwrap();
+        st.accept_pact(2, 0).unwrap(); // a formed pact
+        st.offer_pact(3, 3).unwrap(); // and a pending offer
+        st.pact_barred.push(3);
+        for beat in [
+            Beat::Draw,
+            Beat::Deal,
+            Beat::Diplomacy,
+            Beat::Lock,
+            Beat::Reveal,
+            Beat::Resolve,
+        ] {
+            st.beat = beat;
+            let json = serde_json::to_string(&st.public_view()).unwrap();
+            assert!(!json.contains("pact"), "beat={beat:?}: {json}");
+        }
     }
 
     #[test]
