@@ -33,7 +33,7 @@ invented.
 Slice 1 is four plans: **A → A-vis → A2 → B**. Everything after slice 1 was
 planned in one pass on 2026-08-11 — see "The rest of the game" below.
 
-## The rest of the game — eight plans, written 2026-08-11; C, D, F, E and G executed
+## The rest of the game — eight plans, written 2026-08-11; C, D, F, E, G and H executed
 
 All eight are in `docs/superpowers/plans/2026-08-11-last-call-plan-*.md`. Each
 was written by its own subagent against the spec, DDv2 and the earlier plans'
@@ -127,6 +127,23 @@ approved") and the plans committed at `b5aa789`.
   betrayal is order-asymmetric (only the faster knife is barred);
   (3) double-tap ACCEPT surfaces the blander of the two mandated copy
   bodies. All three recorded in the ledger too.
+
+- **Plan H — events and tabs. EXECUTED 2026-08-12.** `be2ab9e..4631d0a`,
+  11 commits, verify green, **532 tests**, `drinkinggame` clippy-clean.
+  Seven public round events (seed-stepped, deterministic, never two at
+  once) + seven private tab objectives (dealt at seating, detected in
+  resolve, settled name-only) — both as 7-entry catalogs whose count is
+  test-pinned. The event cost seam (`effective_pull_cost`) now covers
+  every price surface incl. the CostRail (a review-caught plan gap — H12
+  omitted that site). **One plan erratum** (final-round tab settles were
+  invisible — same class as G's; fixed reader-side to keep the settle
+  round durable for Plan J's LOG). **Two post-review decisions awaiting
+  user eyes:** H15 — betrayal is INTENT-based under redirecting events
+  (aiming at your partner breaks the pact even if Double Vision redirects
+  the damage; being redirected onto them does not) — controller-ruled,
+  test-pinned both directions; and the F.2 ruling that the 88px screen
+  header never grows — banner children constrain (one-row settle strip
+  with a "+n" chip).
 
 | Plan | File suffix | What it ships | Tasks |
 | --- | --- | --- | --- |
@@ -540,12 +557,13 @@ Then, in this order:
    are written; see "The rest of the game" above.
 4. ~~User design review.~~ **Approved 2026-08-11**, all 106 decisions.
 5. **Execute** in the binding order: ~~C~~ → ~~D~~ → ~~F~~ → ~~E~~ → ~~G~~
-   → **H/I next** → J. C through G executed and review-clean 2026-08-12
-   (see "The rest of the game"). Browser checkpoints owed to a human, one
-   combined pass: Plan B checkpoint 2, C's hand group, F's 40-card
-   preview, E's loop items (with step 2 amended — no TABLE-tab flights),
-   G's pact flow. Each plan names its ledger at
-   `.superpowers/sdd/<plan-basename>/progress.md`.
+   → ~~H~~ → **I next** → J. C through H executed and review-clean
+   2026-08-12 (see "The rest of the game"). Browser checkpoints owed to a
+   human, one combined pass: Plan B checkpoint 2, C's hand group, F's
+   40-card preview, E's loop items (step 2 amended — no TABLE-tab
+   flights), G's pact flow, H's banner strip + private tab card (incl.
+   the tab card's position below the 480px hand group). Each plan names
+   its ledger at `.superpowers/sdd/<plan-basename>/progress.md`.
 
 Spec §3.4.1 (nothing enters `plays` before it is revealable) is owned by Plan
 D, which holds locked plays in a hidden `locked_plays` field and carries the
