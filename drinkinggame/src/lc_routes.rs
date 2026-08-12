@@ -752,10 +752,13 @@ pub async fn lc_hand_handler(
 /// rather than a special-cased mapping.
 pub(crate) fn map_lc(e: LcError) -> axum::response::Response {
     match e {
-        LcError::NotSeated | LcError::NotAlive => GameError::NotYourCall.into_response(),
-        LcError::WrongBeat | LcError::AlreadyLocked | LcError::MustResolve => {
-            GameError::OutOfTurn.into_response()
+        LcError::NotSeated | LcError::NotAlive | LcError::NotAGhost => {
+            GameError::NotYourCall.into_response()
         }
+        LcError::WrongBeat
+        | LcError::AlreadyLocked
+        | LcError::MustResolve
+        | LcError::AlreadyHaunted => GameError::OutOfTurn.into_response(),
         LcError::CantAfford(id) => (
             StatusCode::UNPROCESSABLE_ENTITY,
             format!("Can't afford {id}."),
@@ -1259,6 +1262,123 @@ pub async fn lc_begin_handler(
     StatusCode::NO_CONTENT.into_response()
 }
 
+// -------------------------------------------------------------
+// Plan I (Task 4): the react and haunt routes — the Reveal beat's response
+// window. Both share Plan E Task 1's exact skeleton (`lc_lock` -> `load_lc`
+// -> mutate -> `map_lc` on error -> persist -> 204) and, unlike arm/disarm/
+// target/pact, publish the FULL set via `persist_and_broadcast_lc`: a played
+// reaction and a cast haunt vote are both public the instant they land
+// (I9/I10) — the chips, the hand count, and the extended timer are all
+// legible on public surfaces once played, so "who is subscribed and what
+// are they looking at" answers the same way for both, same as lock/draw.
+//
+// Decision I3: a public response EXTENDS the response window rather than
+// merely riding it out — `extend_response_window` runs AFTER the engine
+// transition succeeds but BEFORE persist, still under the same room guard
+// `lc_tick_room`'s relock-recheck reads `beat_deadline_ms` under. That
+// ordering is what makes the race commute rather than tear: either this
+// route's reload -> transition -> extend -> persist sequence completes
+// first (still holding the guard throughout) and the ticker's own post-lock
+// reload sees the extended, still-future deadline and no-ops (its own
+// re-check, unchanged from Plan E Task 2) — or the ticker's chain already
+// ran first, in which case this route's `load_lc` reload sees the
+// post-advance state and the transition itself refuses `WrongBeat` (beat
+// has moved off `Reveal`) before `extend_response_window` is ever reached.
+// A reaction can never land half — deducted pulls with no window extension,
+// or an extension with no revealed card — because both the transition and
+// the extension happen inside the one unbroken guarded section, and the
+// only exit before persist is the early `map_lc` return.
+//
+// What `extend_response_window` does NOT do: revive a deadline that has
+// already ticked. "Expired" is enforced by the ticker's own advance moving
+// `beat` off `Reveal` — once that happens, `play_reaction`/`haunt`'s
+// `WrongBeat` guard refuses before this function is ever called. A response
+// that reaches `extend_response_window` while `beat` is still `Reveal`
+// always gets the extension, even if `now` is already past a stale
+// `beat_deadline_ms` the ticker simply hasn't swept yet — that stale-but-
+// still-`Reveal` state is exactly "not yet due" from the room guard's point
+// of view (`lc_tick_room` itself only advances after taking the guard and
+// re-checking), so there is no gap where a response is "too late" without
+// the beat having actually moved.
+// -------------------------------------------------------------
+
+/// Decision I3: a public response keeps the window open at least
+/// REACT_GRACE_SECS longer — never shortens it. Route-owned deadline data,
+/// the arm_beat_clock precedent (E2); called only under the room guard, so
+/// the ticker's relock-recheck sees the extended deadline or none at all.
+pub(crate) fn extend_response_window(st: &mut LastCallState, now: i64) {
+    if st.beat == Beat::Reveal {
+        let floor = now + i64::from(REACT_GRACE_SECS) * 1000;
+        st.beat_deadline_ms = Some(st.beat_deadline_ms.map_or(floor, |d| d.max(floor)));
+    }
+}
+pub(crate) const REACT_GRACE_SECS: u16 = 10;
+
+#[derive(Deserialize)]
+pub struct ReactForm {
+    pub card_id: String,
+    pub play: u32,
+}
+
+/// `POST /room/{code}/lastcall/react` — public (`persist_and_broadcast_lc`,
+/// see the section comment above). `ctx.st.play_reaction` carries every
+/// guard (seated/alive/beat/card/target/afford); on success the window
+/// extends (I3) before persist, both still under the guard this handler
+/// holds start to finish.
+pub async fn lc_react_handler(
+    State(state): State<GameState>,
+    PlayerSession(player): PlayerSession,
+    Path(code): Path<String>,
+    Form(form): Form<ReactForm>,
+) -> axum::response::Response {
+    let lock = match lc_lock(&state, &code).await {
+        Ok(l) => l,
+        Err(r) => return r,
+    };
+    let _guard = lock.lock().await;
+    let mut ctx = match load_lc(&state, &code, &player).await {
+        Ok(c) => c,
+        Err(r) => return r,
+    };
+    if let Err(e) = ctx.st.play_reaction(player.id, &form.card_id, form.play) {
+        return map_lc(e);
+    }
+    extend_response_window(&mut ctx.st, now_ms());
+    persist_and_broadcast_lc(&state, &ctx).await;
+    StatusCode::NO_CONTENT.into_response()
+}
+
+#[derive(Deserialize)]
+pub struct HauntForm {
+    pub play: u32,
+}
+
+/// `POST /room/{code}/lastcall/haunt` — public, same rationale as
+/// `lc_react_handler` above: a ghost's vote is legible the instant it's
+/// cast (I10), and it too extends the window (I3) on success.
+pub async fn lc_haunt_handler(
+    State(state): State<GameState>,
+    PlayerSession(player): PlayerSession,
+    Path(code): Path<String>,
+    Form(form): Form<HauntForm>,
+) -> axum::response::Response {
+    let lock = match lc_lock(&state, &code).await {
+        Ok(l) => l,
+        Err(r) => return r,
+    };
+    let _guard = lock.lock().await;
+    let mut ctx = match load_lc(&state, &code, &player).await {
+        Ok(c) => c,
+        Err(r) => return r,
+    };
+    if let Err(e) = ctx.st.haunt(player.id, form.play) {
+        return map_lc(e);
+    }
+    extend_response_window(&mut ctx.st, now_ms());
+    persist_and_broadcast_lc(&state, &ctx).await;
+    StatusCode::NO_CONTENT.into_response()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1453,6 +1573,134 @@ mod tests {
         // route's freshly-armed one, still in the future: proof the ticker
         // no-opped rather than double-advancing.
         assert_eq!(after.beat, Beat::Reveal);
+        assert!(after.beat_deadline_ms.is_some_and(|d| d > now_ms()));
+    }
+
+    /// Decision I3's grace floor, pinned in isolation. Also covers the case
+    /// the doc comment above calls out by name: a frozen game-over clock
+    /// (`beat_deadline_ms: None` at `Beat::Resolve`, D16's shape) must never
+    /// be resurrected by a response that happens to reach this function —
+    /// the `Beat::Reveal` gate is what keeps a post-game response inert, not
+    /// any check on `beat_deadline_ms` itself.
+    #[test]
+    fn test_extend_response_window_never_shortens() {
+        let mut st = LastCallState::new(vec![(1, "a".into()), (2, "b".into())], 42);
+        st.beat = Beat::Reveal;
+        st.beat_deadline_ms = Some(1_000_000 + 3_000); // 3s left
+        extend_response_window(&mut st, 1_000_000);
+        assert_eq!(st.beat_deadline_ms, Some(1_000_000 + 10_000)); // raised
+
+        st.beat_deadline_ms = Some(1_000_000 + 15_000); // 15s left
+        extend_response_window(&mut st, 1_000_000);
+        assert_eq!(st.beat_deadline_ms, Some(1_000_000 + 15_000)); // untouched
+
+        st.beat = Beat::Lock;
+        st.beat_deadline_ms = Some(7);
+        extend_response_window(&mut st, 1_000_000);
+        assert_eq!(st.beat_deadline_ms, Some(7)); // Reveal only
+
+        // The frozen tableau: Resolve, deadline None. Reveal-only gate means
+        // this is a no-op, not a resurrection.
+        st.beat = Beat::Resolve;
+        st.beat_deadline_ms = None;
+        extend_response_window(&mut st, 1_000_000);
+        assert_eq!(st.beat_deadline_ms, None);
+    }
+
+    /// I3's contention test — the other half of the race
+    /// `test_ticker_and_a_route_do_not_double_advance` above pins. That test
+    /// has the winning route ADVANCE the beat past an expired deadline; this
+    /// one has the winning route EXTEND it (a react/haunt landing under the
+    /// guard). The assertion has to discriminate harder than "a future
+    /// deadline exists" — an advance to round 2's Draw also arms a future
+    /// deadline (`arm_beat_clock`, 30s) — so this pins `round` and `plays`
+    /// unchanged too: the only way both stay put AND the deadline reads
+    /// future is that the ticker's post-lock re-check saw the extension and
+    /// returned without ever calling `lc_advance_chain`.
+    ///
+    /// Same determinism caveat as the precedent test: the ASSERTION holds
+    /// regardless of scheduling (the ticker cannot touch `LastCallState`
+    /// until this test body's guard drops), the sleep only raises the odds
+    /// the locked-recheck branch is the one actually exercised.
+    #[tokio::test]
+    async fn test_a_react_extension_and_the_ticker_do_not_race() {
+        let pool = crate::db::test_pool().await;
+        let alice = db::insert_player(&pool, "alice", "h").await.unwrap();
+        let bob = db::insert_player(&pool, "bob", "h").await.unwrap();
+        let room = crate::rooms::create_room_with_unique_code(&pool).await;
+        db::join_room(&pool, room.id, alice).await;
+        db::join_room(&pool, room.id, bob).await;
+
+        let mut st = LastCallState::new(vec![(alice, "alice".into()), (bob, "bob".into())], 1);
+        st.set_vessel(alice, Deck::Beer, "can").unwrap();
+        st.set_vessel(bob, Deck::Cider, "bottle").unwrap();
+        st.players[1]
+            .hand
+            .push(crate::lc_cards::card_by_id("cider-08").unwrap());
+        st.beat = Beat::Lock;
+        st.arm(alice, "beer-02").unwrap();
+        st.set_target(alice, "beer-02", Some(1)).unwrap();
+        st.lock_in(alice).unwrap();
+        st.lock_in(bob).unwrap(); // bob locks nothing armed
+        st.advance_beat().unwrap(); // Lock -> Reveal; one Play, order_key 1
+        assert_eq!(st.beat, Beat::Reveal);
+        assert_eq!(st.plays.len(), 1);
+        st.beat_deadline_ms = Some(now_ms() - 2_000); // already expired
+        let game_id = db::start_game(&pool, room.id, "last_call", "", "", Some(&st.to_json()))
+            .await
+            .unwrap();
+
+        let state = crate::GameState {
+            pool: pool.clone(),
+            hub: crate::hub::RoomHub::new(),
+            base_path: std::sync::Arc::from("/drinks"),
+            locks: crate::RoomLocks::default(),
+        };
+
+        // The test body takes the room guard FIRST — it plays the winning
+        // route.
+        let guard_lock = state.locks.for_room(room.id);
+        let guard = guard_lock.lock().await;
+
+        let ticker_state = state.clone();
+        let room_id = room.id;
+        let ticker = tokio::spawn(async move {
+            lc_tick_room(&ticker_state, room_id).await;
+        });
+
+        // Let the ticker run its lock-free advisory read and park on the
+        // guard this test body is holding.
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+        // Act as the winning route: reload, play the reaction, extend the
+        // window, persist — the exact sequence `lc_react_handler` runs, all
+        // still under the guard the ticker is waiting on.
+        let game = db::get_active_game(&pool, room.id).await.unwrap();
+        let mut route_st = LastCallState::from_json(game.state_json.as_deref().unwrap());
+        route_st.play_reaction(bob, "cider-08", 1).unwrap();
+        extend_response_window(&mut route_st, now_ms());
+        db::set_game_state(&pool, game_id, &route_st.to_json()).await;
+        drop(guard);
+
+        ticker.await.unwrap();
+
+        let after = LastCallState::from_json(
+            db::get_active_game(&pool, room.id)
+                .await
+                .unwrap()
+                .state_json
+                .as_deref()
+                .unwrap(),
+        );
+        // The extension landed whole and the ticker's recheck saw it: still
+        // Reveal (never advanced to Resolve or a round-2 Draw), the same
+        // single play still in flight, round unchanged, and the deadline is
+        // the route's freshly-extended one, still in the future — proof the
+        // ticker no-opped rather than racing past the extension.
+        assert_eq!(after.beat, Beat::Reveal);
+        assert_eq!(after.round, 1);
+        assert_eq!(after.plays.len(), 1);
+        assert_eq!(after.reactions.len(), 1);
         assert!(after.beat_deadline_ms.is_some_and(|d| d > now_ms()));
     }
 

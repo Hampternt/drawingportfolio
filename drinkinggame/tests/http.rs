@@ -7415,3 +7415,294 @@ async fn test_a_settled_tab_shows_the_placeholder_card() {
     assert!(alice_hand.contains("TAB SETTLED"), "{alice_hand}");
     assert!(!alice_hand.contains("data-tab=\""), "{alice_hand}");
 }
+
+// -------------------------------------------------------------
+// Last Call (Plan I Task 4): the react and haunt routes — the Reveal beat's
+// response window, and decision I3's grace extension.
+//
+// Rendering note: Plan I Task 5 (the reaction/haunt chips on the public
+// screen and mini table) has not landed as of this task — `lc_render.rs`
+// has no reader for `PublicView::reactions`/`haunts` yet (grep confirms
+// it), the same gap `hand_seq`'s own doc comment above already flags
+// ("used where a test cares that an action bumped `seq` but has no other
+// observable effect yet (Task 4 renders the rest)"). So where the brief's
+// test comments assert on literal chip text (e.g. "the frame contains
+// 'Not So Fast'"), these tests instead assert on the PROJECTED state
+// (`PublicView`/`LastCallState` fields `public_view()` already exposes
+// verbatim per I9/I10) plus the frame's publish kind (`lcpublic` vs
+// `lctick`) — the same public data Task 5's chip will render from, just
+// without the HTML text to grep for yet.
+// -------------------------------------------------------------
+
+/// Shared rig: alice(seat0)/Beer, bob(seat1)/Cider register at Draw; cara
+/// (seat2) is left `Status::Eliminated` with a cleared hand — the ghost the
+/// haunt tests need. Bob's hand additionally holds `cider-08` ("Not So
+/// Fast, Friend", a Reaction card, Cider deck) so the react tests never
+/// have to route through a live shoe draw to get one. alice's `beer-02`
+/// (Atk, targets one, Beer deck) arms -> targets bob (seat 1) -> locks; bob
+/// locks nothing armed; `advance_beat()` walks Lock -> Reveal, producing
+/// exactly one `Play` (`order_key` 1) aimed at bob — the play every
+/// react/haunt call in this section answers. `deadline_ms` is the caller's
+/// own choice of `beat_deadline_ms` to persist over the rig's own arm
+/// (already-expired for the race-loser test, near-expiry for the grace
+/// test, comfortably open for the rest).
+async fn lc_reveal_rig(
+    deadline_ms: i64,
+) -> (
+    Router,
+    sqlx::SqlitePool,
+    String, // code
+    String, // alice cookie
+    String, // bob cookie
+    String, // cara cookie
+    i64,    // alice id
+    i64,    // bob id
+    i64,    // cara id
+) {
+    let (app, pool) = test_app_with_pool().await;
+    let alice = login(&app, "alice", "1234").await;
+    let bob = login(&app, "bob", "5678").await;
+    let cara = login(&app, "cara", "9999").await;
+    let code = create_room(&app, &alice).await;
+    room_page_html(&app, &bob, &code).await;
+    room_page_html(&app, &cara, &code).await;
+    post_form(&app, &alice, &format!("/room/{code}/lastcall/start"), "").await;
+
+    let alice_id = drinkinggame::db::get_player_by_name(&pool, "alice")
+        .await
+        .unwrap()
+        .id;
+    let bob_id = drinkinggame::db::get_player_by_name(&pool, "bob")
+        .await
+        .unwrap()
+        .id;
+    let cara_id = drinkinggame::db::get_player_by_name(&pool, "cara")
+        .await
+        .unwrap()
+        .id;
+
+    let mut st = LastCallState::new(
+        vec![
+            (alice_id, "alice".into()),
+            (bob_id, "bob".into()),
+            (cara_id, "cara".into()),
+        ],
+        7,
+    );
+    st.set_vessel(alice_id, Deck::Beer, "can").unwrap();
+    st.set_vessel(bob_id, Deck::Cider, "bottle").unwrap();
+    st.players[2].status = drinkinggame::last_call::Status::Eliminated; // cara: ghost
+    st.players[2].hand.clear();
+    st.players[1]
+        .hand
+        .push(drinkinggame::lc_cards::card_by_id("cider-08").unwrap());
+    st.beat = Beat::Lock;
+    st.arm(alice_id, "beer-02").unwrap();
+    st.set_target(alice_id, "beer-02", Some(1)).unwrap(); // bob's seat
+    st.lock_in(alice_id).unwrap();
+    st.lock_in(bob_id).unwrap(); // bob locks nothing armed
+    st.advance_beat().unwrap(); // Lock -> Reveal
+    assert_eq!(st.beat, Beat::Reveal);
+    assert_eq!(st.plays.len(), 1);
+    assert_eq!(st.plays[0].order_key, 1);
+    st.beat_deadline_ms = Some(deadline_ms);
+
+    let game_id = lc_game_id(&pool, &code).await;
+    drinkinggame::db::set_game_state(&pool, game_id, &st.to_json()).await;
+
+    (app, pool, code, alice, bob, cara, alice_id, bob_id, cara_id)
+}
+
+/// §3.3: an unplayed reaction is hand state, never transport-visible to
+/// anyone else. Once played it's public immediately (I9), not merely at
+/// resolve — the assertion below reads that off `persist_and_broadcast_lc`'s
+/// full publish (vs. the tick-only path arm/disarm/target take) and off the
+/// state's own `reactions`/`public_view().reactions` projection, since
+/// Task 5's chip text isn't rendered yet (see the section comment above).
+#[tokio::test]
+async fn test_lc_react_is_private_until_played_then_public() {
+    // A deadline inside the grace floor (4s < REACT_GRACE_SECS's 10) so the
+    // extension this test also checks is an observable change, not a no-op
+    // against an already-longer window — same reasoning as
+    // `test_a_response_extends_the_window`'s 3s rig. Still comfortably
+    // longer than this test's own request round-trips, so the 1 Hz ticker
+    // has no real chance to win a race against it.
+    let (app, pool, code, alice, bob, _cara, _alice_id, bob_id, _cara_id) =
+        lc_reveal_rig(unix_ms_now() + 4_000).await;
+
+    // Bob's unplayed reaction never reaches alice's hand fragment.
+    let alice_hand = body_string(get_hand(&app, &alice, &code).await).await;
+    assert!(!alice_hand.contains("cider-08"), "{alice_hand}");
+    assert!(!alice_hand.contains("Not So Fast"), "{alice_hand}");
+
+    let res = get(&app, &format!("/room/{code}/sse")).await;
+    let mut body = res.into_body().into_data_stream();
+    read_sse_until(&mut body, "event: lcpublic").await; // drain the snapshot
+    let before = lc_state(&pool, &code).await.beat_deadline_ms.unwrap();
+
+    let res = post_form(
+        &app,
+        &bob,
+        &format!("/room/{code}/lastcall/react"),
+        "card_id=cider-08&play=1",
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+
+    // Full publish, not a bare tick (I2/I3: a played reaction is public,
+    // same broadcast policy as lock/draw).
+    let seen = read_sse_until(&mut body, "event: lcpublic").await;
+    assert!(seen.contains("event: lcpublic"), "{seen}");
+    // The banner's live timer (`lc_render::beat_timer_live`) already rides
+    // every `lcpublic` frame (Plan E, decision E10) — its `data-deadline-ms`
+    // is a genuine public-surface trace of decision I3's extension, visible
+    // today even without Task 5's chip.
+    let marker = "data-deadline-ms=\"";
+    let start = seen.find(marker).unwrap() + marker.len();
+    let rest = &seen[start..];
+    let after_deadline: i64 = rest[..rest.find('"').unwrap()].parse().unwrap();
+    assert!(after_deadline > before, "{after_deadline} vs {before}");
+
+    // Bob's card left his hand...
+    let bob_hand = body_string(get_hand(&app, &bob, &code).await).await;
+    assert!(!bob_hand.contains("cider-08"), "{bob_hand}");
+    // ...and the play is now part of the state `public_view()` projects
+    // verbatim (I9) — the same data Task 5's chip will render from.
+    let after = lc_state(&pool, &code).await;
+    assert_eq!(after.reactions.len(), 1);
+    assert_eq!(after.reactions[0].card.id, "cider-08");
+    assert_eq!(after.reactions[0].source_seat, 1); // bob
+    assert_eq!(after.reactions[0].answers, 1);
+    assert_eq!(after.public_view().reactions.len(), 1);
+    let _ = bob_id;
+}
+
+/// The race this task's Class C exists for, from the outside: subscribe SSE
+/// (this is what puts the room in `active_rooms()`, so the 1 Hz ticker
+/// notices the already-expired deadline), then WAIT for the ticker's own
+/// chain to actually land (`data-beat="draw"` — Reveal -> Resolve ->
+/// resolve() rolls straight into round 2's Draw, since nothing was locked
+/// to answer). Only once that frame has arrived does the route fire:
+/// `lc_react_handler` relocks, `load_lc` reloads the now-post-resolution
+/// state, and `play_reaction`'s own `WrongBeat` guard refuses before
+/// `extend_response_window` is ever reached — a clean 409, never a
+/// resolve-time surprise.
+#[tokio::test]
+async fn test_lc_react_that_loses_the_race_gets_a_409() {
+    let (app, _pool, code, _alice, bob, _cara, _alice_id, _bob_id, _cara_id) =
+        lc_reveal_rig(unix_ms_now() - 2_000).await; // already expired
+
+    let res = get(&app, &format!("/room/{code}/sse")).await;
+    let mut body = res.into_body().into_data_stream();
+    read_sse_until(&mut body, r#"data-beat="draw""#).await;
+
+    let res = post_form(
+        &app,
+        &bob,
+        &format!("/room/{code}/lastcall/react"),
+        "card_id=cider-08&play=1",
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::CONFLICT); // WrongBeat -> OutOfTurn
+}
+
+/// Decision I3's arithmetic at the route level (the in-crate
+/// `test_extend_response_window_never_shortens`/
+/// `test_a_react_extension_and_the_ticker_do_not_race` pin the helper and
+/// the race directly; this pins that the route actually calls it under the
+/// guard it persists under). No SSE subscription here deliberately: with
+/// only 3s left on the clock, putting the room in `active_rooms()` would
+/// hand the 1 Hz ticker a real chance to win the race and advance the beat
+/// before the POST lands, which is exactly the OTHER test's scenario — this
+/// one wants the extension to land clean.
+#[tokio::test]
+async fn test_a_response_extends_the_window() {
+    let (app, pool, code, _alice, bob, _cara, _alice_id, _bob_id, _cara_id) =
+        lc_reveal_rig(unix_ms_now() + 3_000).await;
+    let recorded = lc_state(&pool, &code).await.beat_deadline_ms.unwrap();
+
+    let res = post_form(
+        &app,
+        &bob,
+        &format!("/room/{code}/lastcall/react"),
+        "card_id=cider-08&play=1",
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+
+    let after = lc_state(&pool, &code).await.beat_deadline_ms.unwrap();
+    assert!(after > recorded, "{after} vs {recorded}");
+    assert!(
+        after >= unix_ms_now() + 8_000, // grace 10s minus slack
+        "{after} vs now+8000={}",
+        unix_ms_now() + 8_000
+    );
+}
+
+/// I10: haunt is the sole ghost action, `Status::Eliminated` only — an
+/// Alive seat gets `NotAGhost` (403), same as a non-member gets the route's
+/// own `member_room` guard (403), and a second vote from the same ghost
+/// this round gets `AlreadyHaunted` (409). The successful vote is public
+/// immediately, same rendering caveat as the react test above: asserted on
+/// the projected `haunts` field and the full-publish marker rather than a
+/// chip's HTML text.
+#[tokio::test]
+async fn test_lc_haunt_is_for_ghosts_only_and_lands_public() {
+    let (app, pool, code, alice, _bob, cara, _alice_id, _bob_id, cara_id) =
+        lc_reveal_rig(unix_ms_now() + 20_000).await;
+    let carol = login(&app, "carol", "2222").await; // never joins the room
+
+    // Alive seat: NotAGhost -> NotYourCall.
+    let res = post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/lastcall/haunt"),
+        "play=1",
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::FORBIDDEN);
+
+    // Non-member: the route's own member_room guard, same 403.
+    let res = post_form(
+        &app,
+        &carol,
+        &format!("/room/{code}/lastcall/haunt"),
+        "play=1",
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::FORBIDDEN);
+
+    let res = get(&app, &format!("/room/{code}/sse")).await;
+    let mut body = res.into_body().into_data_stream();
+    read_sse_until(&mut body, "event: lcpublic").await; // drain the snapshot
+
+    // cara: eliminated, a ghost — the vote lands.
+    let res = post_form(
+        &app,
+        &cara,
+        &format!("/room/{code}/lastcall/haunt"),
+        "play=1",
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+
+    let seen = read_sse_until(&mut body, "event: lcpublic").await;
+    assert!(seen.contains("event: lcpublic"), "{seen}"); // full publish, not a tick
+
+    let after = lc_state(&pool, &code).await;
+    assert_eq!(after.haunts.len(), 1);
+    assert_eq!(after.haunts[0].seat, 2); // cara
+    assert_eq!(after.haunts[0].play, 1);
+    assert_eq!(after.public_view().haunts.len(), 1);
+
+    // Same ghost, same round, again: AlreadyHaunted -> OutOfTurn.
+    let res = post_form(
+        &app,
+        &cara,
+        &format!("/room/{code}/lastcall/haunt"),
+        "play=1",
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::CONFLICT);
+    let _ = cara_id;
+}
