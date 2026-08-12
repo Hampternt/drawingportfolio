@@ -422,9 +422,14 @@ pub struct PublicView {
     /// Projected verbatim from `LastCallState::beat_deadline_ms` — see that
     /// field's doc comment.
     pub beat_deadline_ms: Option<i64>,
+    /// G5, Task 2: the one pact field the room may see. Projected verbatim
+    /// from `LastCallState::pact_breaks` — every other pact field
+    /// (`pacts`/`pact_offers`/`pact_barred`) stays off this struct entirely
+    /// (G10/G13).
+    pub pact_breaks: Vec<PactBreak>,
 }
 
-/// DDv2 9.3 — the two ways a game ends.
+/// DDv2 9.3 — the two solo ways a game ends — plus the pact win (G2, Task 2).
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum LcOutcome {
@@ -432,6 +437,9 @@ pub enum LcOutcome {
     Winner(usize),
     /// All remaining players are ghosts (DDv2 9.3).
     Draw,
+    /// G2 — DDv1 6.3: the last two standing, still pacted, share the win.
+    /// The two seats, `a < b` (seat-ordered, per `outcome()`'s match).
+    Pact(usize, usize),
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -581,10 +589,21 @@ impl LastCallState {
         if self.players.len() < 2 {
             return None;
         }
-        let mut alive = self.players.iter().filter(|p| p.status == Status::Alive);
-        match (alive.next(), alive.next()) {
-            (Some(p), None) => Some(LcOutcome::Winner(p.seat)),
-            (None, _) => Some(LcOutcome::Draw),
+        let alive: Vec<usize> = self
+            .players
+            .iter()
+            .filter(|p| p.status == Status::Alive)
+            .map(|p| p.seat)
+            .collect();
+        match alive.as_slice() {
+            [] => Some(LcOutcome::Draw),
+            [w] => Some(LcOutcome::Winner(*w)),
+            // G2 — DDv1 6.3: "If you and your partner are the last two
+            // standing, you both win." `players` is seat-ordered, so a < b
+            // holds whenever this arm matches.
+            [a, b] if self.pacts.iter().any(|p| p.a == *a && p.b == *b) => {
+                Some(LcOutcome::Pact(*a, *b))
+            }
             _ => None,
         }
     }
@@ -856,6 +875,8 @@ impl LastCallState {
             seq: self.seq,
             outcome: self.outcome(),
             beat_deadline_ms: self.beat_deadline_ms,
+            // G5: the sole pact field this projection reads.
+            pact_breaks: self.pact_breaks.clone(),
         }
     }
 
@@ -1449,6 +1470,47 @@ impl LastCallState {
                 _ => Vec::new(),
             };
 
+            // G4/G5: a resolved single-target hostile play on your partner
+            // is betrayal. After the fizzle gate on purpose — a play
+            // fizzling on an already-dead partner breaks nothing; the
+            // end-of-resolve sweep dissolves that pact silently instead
+            // (G9). AOE plays (`targets != "one"`) never reach this branch
+            // (G4) — the `subjects` match above already gives non-"one"
+            // cards `play.target == None`, but the explicit
+            // `card.targets == "one"` guard below keeps that invariant from
+            // being load-bearing.
+            if play.card.targets == "one" {
+                if let (Some(target), Some(partner)) =
+                    (play.target, self.pact_partner(play.source_seat))
+                {
+                    let hostile = crate::lc_cards::card_fx(&play.card.id).is_some_and(|f| {
+                        matches!(f.op, EffectOp::Damage | EffectOp::Dot | EffectOp::PullDrain)
+                    });
+                    if target == partner && hostile {
+                        // Pact invariant (Task 1): a < b, so this is a
+                        // single sorted-pair comparison.
+                        let (lo, hi) = (play.source_seat.min(target), play.source_seat.max(target));
+                        self.pacts.retain(|p| !(p.a == lo && p.b == hi));
+                        self.pact_breaks.push(PactBreak {
+                            betrayer: play.source_seat,
+                            betrayed: target,
+                            round: self.round,
+                        });
+                        // M3-style defensive dedupe (Task 1's report,
+                        // carried concern): a corrupt/replayed blob could in
+                        // principle reach this arm twice for the same seat;
+                        // under normal play it can't (the pact this reads is
+                        // gone after the first hit), but the market ban is
+                        // "for the rest of the game" either way (G5), so a
+                        // repeat push must stay a no-op rather than pad the
+                        // list.
+                        if !self.pact_barred.contains(&play.source_seat) {
+                            self.pact_barred.push(play.source_seat);
+                        }
+                    }
+                }
+            }
+
             // Plan F: effects come from the binary's catalog, keyed by card
             // id — never from the card's own (possibly blob-carried) kind.
             // A reaction's id maps to `fx: None` in the catalog (D9/F5); an
@@ -1541,13 +1603,24 @@ impl LastCallState {
             }
         }
 
-        // Step 6: bump seq; stop here if the game just ended (D16).
+        // Step 6 (G9): a pact whose partner is gone has no win to share.
+        // Silent — no break record, nobody barred; the survivor may pact
+        // again in a later Diplomacy. A sweep rather than a hook inside the
+        // elimination helper, so it cannot depend on where in this
+        // resolution order the death happened. Offers need no equivalent
+        // sweep: they never survive past Diplomacy (see `advance_beat`'s
+        // Diplomacy→Lock edge).
+        self.pacts.retain(|p| {
+            self.players[p.a].status == Status::Alive && self.players[p.b].status == Status::Alive
+        });
+
+        // Step 7: bump seq; stop here if the game just ended (D16).
         self.seq += 1;
         if self.outcome().is_some() {
             return Ok(());
         }
 
-        // Step 7: rollover (D5).
+        // Step 8: rollover (D5).
         self.first_seat = (self.first_seat + 1) % self.players.len(); // D13
         self.round += 1;
         self.beat = Beat::Draw;
@@ -2062,9 +2135,143 @@ mod tests {
             Beat::Resolve,
         ] {
             st.beat = beat;
-            let json = serde_json::to_string(&st.public_view()).unwrap();
-            assert!(!json.contains("pact"), "beat={beat:?}: {json}");
+            let view = st.public_view();
+            let json = serde_json::to_string(&view).unwrap();
+            // Task 2 narrows this: `PublicView` now HAS a pact field
+            // (`pact_breaks`, G5), so a blanket `!json.contains("pact")`
+            // would trip on its own presence. Assert every SECRET pact
+            // field by name instead.
+            assert!(!json.contains("\"pacts\""), "beat={beat:?}");
+            assert!(!json.contains("pact_offers"), "beat={beat:?}");
+            assert!(!json.contains("pact_barred"), "beat={beat:?}");
+            assert!(!json.contains("formed_round"), "beat={beat:?}");
+            // The one public pact field stays empty while every pact is
+            // intact (G10):
+            assert!(view.pact_breaks.is_empty(), "beat={beat:?}");
         }
+    }
+
+    #[test]
+    fn test_betrayal_breaks_the_pact_publicly_and_bars_the_betrayer() {
+        let mut st = at_diplomacy();
+        st.offer_pact(1, 1).unwrap();
+        st.accept_pact(2, 0).unwrap(); // alice-bob
+        st.beat = Beat::Lock;
+        st.arm(1, "beer-01").unwrap(); // Damage 2, targets "one"
+        st.set_target(1, "beer-01", Some(1)).unwrap(); // ...at her partner
+        st.lock_in(1).unwrap();
+        st.advance_beat().unwrap(); // Reveal
+        st.advance_beat().unwrap(); // Resolve
+        st.resolve().unwrap();
+        assert_eq!(st.players[1].hp, 13);
+        assert!(st.pacts.is_empty());
+        assert_eq!(
+            st.pact_breaks,
+            vec![PactBreak {
+                betrayer: 0,
+                betrayed: 1,
+                round: 1
+            }]
+        );
+        assert_eq!(st.pact_barred, vec![0]);
+        // The break is the one public trace (G5):
+        assert_eq!(st.public_view().pact_breaks, st.pact_breaks);
+        // Next Diplomacy: the betrayer is out of the market for good.
+        st.beat = Beat::Diplomacy;
+        assert_eq!(st.offer_pact(1, 2), Err(LcError::PactBlocked));
+        assert_eq!(st.accept_pact(1, 2), Err(LcError::PactBlocked));
+    }
+
+    #[test]
+    fn test_aoe_splash_and_kindness_are_not_betrayal() {
+        // G4
+        // Splash: alice-bob pacted, alice plays beer-05 (aoe, hits bob too).
+        let mut st = at_diplomacy();
+        st.offer_pact(1, 1).unwrap();
+        st.accept_pact(2, 0).unwrap();
+        st.beat = Beat::Lock;
+        // beer-05 is not in Beer's opener (F6) — deal it into alice's hand.
+        st.players[0]
+            .hand
+            .push(crate::lc_cards::card_by_id("beer-05").unwrap());
+        st.arm(1, "beer-05").unwrap(); // Damage 1 to all, incl. bob and alice
+        st.lock_in(1).unwrap();
+        st.advance_beat().unwrap();
+        st.advance_beat().unwrap();
+        st.resolve().unwrap();
+        assert!(st.players.iter().all(|p| p.hp == 14));
+        assert_eq!(st.pacts.len(), 1); // intact
+        assert!(st.pact_breaks.is_empty() && st.pact_barred.is_empty());
+
+        // Kindness: cara-bob pacted, cara heals bob ("one"-target, friendly op).
+        let mut st = at_diplomacy();
+        st.offer_pact(3, 1).unwrap();
+        st.accept_pact(2, 2).unwrap();
+        st.beat = Beat::Lock;
+        st.arm(3, "soft-01").unwrap(); // Heal 2, targets "one"
+        st.set_target(3, "soft-01", Some(1)).unwrap();
+        st.lock_in(3).unwrap();
+        st.advance_beat().unwrap();
+        st.advance_beat().unwrap();
+        st.resolve().unwrap();
+        assert_eq!(st.players[1].hp, 17);
+        assert_eq!(st.pacts.len(), 1);
+        assert!(st.pact_breaks.is_empty());
+    }
+
+    #[test]
+    fn test_elimination_dissolves_the_pact_silently() {
+        // G9
+        let mut st = at_diplomacy();
+        st.offer_pact(1, 1).unwrap();
+        st.accept_pact(2, 0).unwrap(); // alice-bob
+        st.players[1].hp = 2;
+        st.beat = Beat::Lock;
+        st.arm(3, "soft-06").unwrap(); // cara (no pact): Damage 2, "one"
+        st.set_target(3, "soft-06", Some(1)).unwrap();
+        st.lock_in(3).unwrap();
+        st.advance_beat().unwrap();
+        st.advance_beat().unwrap();
+        st.resolve().unwrap();
+        assert_eq!(st.players[1].status, Status::Eliminated);
+        assert!(st.pacts.is_empty()); // dissolved
+        assert!(st.pact_breaks.is_empty()); // silently — no break, nobody barred
+        assert!(st.pact_barred.is_empty());
+    }
+
+    #[test]
+    fn test_the_last_two_standing_share_the_win() {
+        // G2
+        let mut st = at_diplomacy();
+        st.offer_pact(1, 1).unwrap();
+        st.accept_pact(2, 0).unwrap(); // alice-bob
+        st.players[2].hp = 1;
+        st.players[3].hp = 1;
+        st.beat = Beat::Lock;
+        // beer-05 is not in Beer's opener (F6) — deal it into alice's hand.
+        st.players[0]
+            .hand
+            .push(crate::lc_cards::card_by_id("beer-05").unwrap());
+        st.arm(1, "beer-05").unwrap(); // aoe 1: kills cara and dave, splashes bob
+        st.lock_in(1).unwrap();
+        st.advance_beat().unwrap();
+        st.advance_beat().unwrap();
+        st.resolve().unwrap();
+        // The splash on bob did not betray (G4), the two deaths dissolved no
+        // pact of theirs, and the pair stands:
+        assert_eq!(st.outcome(), Some(LcOutcome::Pact(0, 1)));
+        assert_eq!(st.public_view().outcome, Some(LcOutcome::Pact(0, 1)));
+        assert_eq!(st.beat, Beat::Resolve); // frozen final tableau (D16)
+                                            // Without a pact the same tableau plays on:
+        let mut st2 = at_diplomacy();
+        st2.players[2].status = Status::Eliminated;
+        st2.players[3].status = Status::Eliminated;
+        assert_eq!(st2.outcome(), None);
+        // And the serde name is pinned:
+        assert_eq!(
+            serde_json::to_string(&LcOutcome::Pact(0, 1)).unwrap(),
+            r#"{"pact":[0,1]}"#
+        );
     }
 
     #[test]

@@ -693,6 +693,13 @@ fn victory_line(view: &PublicView, outcome: LcOutcome) -> String {
             format!("{} OUTLASTS THE TABLE", seat_name_upper(view, seat))
         }
         LcOutcome::Draw => "EVERYBODY'S OUT".to_string(),
+        // G2/Task 2: the pact win. Names come from `view.seats`, already
+        // uppercased and html_escape'd by `seat_name_upper`.
+        LcOutcome::Pact(a, b) => format!(
+            "{} & {} — THE PACT HOLDS",
+            seat_name_upper(view, a),
+            seat_name_upper(view, b)
+        ),
     };
     format!(r#"<div class="lc-centre-victory">{line}</div>"#)
 }
@@ -1823,6 +1830,7 @@ mod tests {
             seq: 0,
             outcome: None,
             beat_deadline_ms: None,
+            pact_breaks: vec![],
         }
     }
 
@@ -2046,6 +2054,16 @@ mod tests {
         let screen_draw = lc_screen_panel(&view);
         assert!(screen_draw.contains("EVERYBODY'S OUT"));
         assert!(!screen_draw.contains("lc-centre-plays"));
+
+        // G2/Task 2: the pact win, banner unchanged, names uppercased.
+        view.outcome = Some(LcOutcome::Pact(0, 2));
+        let screen_pact = lc_screen_panel(&view);
+        assert!(screen_pact.contains("PLAYER1 & PLAYER3 — THE PACT HOLDS"));
+        assert!(!screen_pact.contains("lc-centre-plays"));
+        let banner_pact = lc_banner(&view);
+        assert!(banner_pact.contains("GAME OVER"));
+        no_hex(&screen_pact);
+        no_hex(&banner_pact);
     }
 
     // -------------------------------------------------------------
