@@ -9,8 +9,8 @@ Update this file when a stream starts, lands or is abandoned.
 | Scope | Authority |
 | --- | --- |
 | Current worktrees, branches, streams | **this file** |
-| What happened during the 2026-08-09 cleanup | `docs/HANDOFF-2026-08-09.md` (on `feat/last-call`) — a dated forensic record, not live state |
-| Last Call's own progress | `docs/superpowers/plans/2026-08-06-last-call-STATUS.md` (on `feat/last-call`) |
+| What happened during the 2026-08-09 cleanup | `docs/HANDOFF-2026-08-09.md` (now on `master` — landed with the Last Call merge) — a dated forensic record, not live state |
+| Last Call's own progress | `docs/superpowers/plans/2026-08-06-last-call-STATUS.md` (now on `master`) |
 
 ---
 
@@ -40,41 +40,39 @@ prefix, so `git worktree list` and `git branch` line up by eye.
 
 ## 2 · Streams
 
-### A · Last Call — active
+**No streams are active.** Both long-running streams closed on 2026-08-12;
+their worktrees and branches (local and remote) were removed the same day
+after verifying every tip was an ancestor of `master`. Next work starts a
+fresh `feat/<stream>` branch + worktree per §1.
 
-The drinking game's third mode, after Ring of Fire and 3 Man.
+### A · Last Call — **closed 2026-08-12**
 
-| | |
-| --- | --- |
-| Worktree | `~/projects/drawingportfolio.worktrees/last-call` |
-| Branch | `feat/last-call` (tracks `origin/feat/last-call`) |
-| Touches | `drinkinggame/` only |
-| Status | Slice 1 is four plans, `A → A-vis → A2 → B`. **A, A-vis and A2 are done.** Playable up to the setup form; the beat state machine's transitions are stubbed by design. |
-| Next | **Write Plan B.** It is not yet written. Read "Carried out of Plan A2" in the STATUS card first — `MAX_SEATS` enforcement and the missing `/lastcall/end` route are Plan B's to own. |
+The drinking game's third mode, after Ring of Fire and 3 Man. All eight plans
+executed (`8d71cbb`); merged to `master` via `60cde4d` (Last Call v1).
+`feat/last-call`, its worktree and `origin/feat/last-call` are deleted —
+the remote branch read as 43 behind the local tip because the last 43 commits
+reached `origin` only through the master merge; nothing was unique to it.
+Follow-up ideas (v2 challenge cards) start a new stream.
 
 ```bash
-cd ~/projects/drawingportfolio.worktrees/last-call
-./scripts/verify.sh
 cargo run -p drinkinggame          # standalone on :3001
 #   style guide, no login:  http://localhost:3001/lastcall/preview
 #   the game:               http://localhost:3001/room/{CODE}
 ```
 
-### B · Artportfolio visual layer — active
+### B · Artportfolio visual layer — **closed 2026-08-12** (slices 1–3)
 
-A design-system-driven redesign of `/artportfolio`.
+A design-system-driven redesign of `/artportfolio`. Slices 1–3 merged to
+`master` 2026-08-12 (PR #9); branch, worktree and remote branch deleted the
+same day. **Slice 4 (multi-upload tray) and slice 5 (select mode + batch
+actions) remain scoped in slice 1's spec** — whoever picks them up starts a
+fresh stream and should read the *Next* row below first.
 
 | | |
 | --- | --- |
-| Worktree | `~/projects/drawingportfolio.worktrees/artportfolio-visual-layer` |
-| Branch | `feat/artportfolio-visual-layer` (tracks `origin/feat/artportfolio-visual-layer`) |
 | Touches | `docs/`, `src/`, `static/`, `templates/`, `.sqlx/` |
 | Status | **Slices 1–3 complete.** Slice 1 on 2026-08-10 (`4c786a2`), slice 2 on 2026-08-11 (`cadabbc`), slice 3 plan A (backend) on 2026-08-12 (`3afd6a5`), slice 3 plan B (the UI) on 2026-08-12 (`69fa109`, after its final review's fix wave) — the rail, tag pills, active-filter row, per-card pencil/folder-plus popovers and the palette entry are all live. `./scripts/verify.sh` is green at 396 tests. Slices 1–3 **merged to `master` 2026-08-12**; the slice-3 filter UX was visually signed off the same day. |
-| Next | **Slice 4 — the multi-upload tray**, replacing the single-file composer. It codes against the frozen `#art-head-label` OOB seam (`post_grid.html`) the same way `htmx_posts` already does for page 0 — return that OOB label alongside every new card so the head never goes stale after a multi-upload. Rail counts going stale after a card edit (tag/collection changes via the pencil or folder-plus popovers, until the next filter action or page load) is slice 3's accepted trade-off, not slice-4 debt — leave it. Any work here needs `export DATABASE_URL=sqlite:portfolio.db` — **there is no `.env` in this worktree**, and the sqlx macros need a live DB whenever the queries change. |
-
-No ahead/behind counts live in this card on purpose — they are stale the moment
-anything moves. Run `git rev-list --left-right --count master...HEAD` if you
-need them.
+| Next | **Slice 4 — the multi-upload tray**, replacing the single-file composer. It codes against the frozen `#art-head-label` OOB seam (`post_grid.html`) the same way `htmx_posts` already does for page 0 — return that OOB label alongside every new card so the head never goes stale after a multi-upload. Rail counts going stale after a card edit (tag/collection changes via the pencil or folder-plus popovers, until the next filter action or page load) is slice 3's accepted trade-off, not slice-4 debt — leave it. Any work in a fresh worktree needs `export DATABASE_URL=sqlite:portfolio.db` — **a new worktree has no `.env`**, and the sqlx macros need a live DB whenever the queries change. |
 
 Slice 1's split, so the next session does not re-derive it:
 
@@ -275,19 +273,20 @@ the day it landed. Both branches are gone; nothing is owed.
 
 ## 3 · Cleanup queue
 
-**Open — `docs/index-refresh`, merged 2026-08-10.** Its one commit `e8610b3`
-fast-forwarded into `master`, so the branch and its worktree have nothing
-unique left:
+**Nothing open** except the two stashes below.
 
-```bash
-git worktree remove .claude/worktrees/index-refresh
-git branch -d docs/index-refresh
-git push origin --delete docs/index-refresh
-```
+**Executed 2026-08-12** — the post-merge sweep after Last Call v1 and
+artportfolio slices 1–3 both landed. Verified per branch with
+`git merge-base --is-ancestor <tip> master` and
+`git rev-list --count master..<tip>` (0 for all three), and both worktrees
+checked clean (`git status --porcelain` empty) immediately before removal:
 
-That worktree also sits in `.claude/worktrees/`, which §1 reserves for
-short-lived session worktrees — correct for what it was, and the reason it is
-safe to remove now rather than something to preserve.
+| Removed | Detail |
+| --- | --- |
+| `docs/index-refresh` | local branch (remote was already gone) |
+| `feat/artportfolio-visual-layer` | worktree + local + remote branch |
+| `feat/last-call` | worktree + local + remote branch — `-d` refused it because its upstream was 43 stale, not because anything was unmerged; ancestry against `master` was re-confirmed before `-D` |
+| `~/projects/drawingportfolio.worktrees/` | directory itself, left empty |
 
 Everything below was executed on 2026-08-09. Kept as a record of what was
 checked, because the *method* is the reusable part.
@@ -381,10 +380,9 @@ git stash show -p 'stash@{0}' | less    # inspect before deciding
     responses rebuild the rail) — negligible single-user, worth caching if
     that ever changes.
 
-  `feat/artportfolio-visual-layer` moves them too, and **already carries its
-  own CLAUDE.md correction** (`e67cf49`). Two branches now edit the same
-  counts, so whichever merges second will conflict on that line — resolve it by
-  re-measuring, not by taking either side.
+  (A warning about two live branches editing the same counts line lived here;
+  both merged 2026-08-12 and the counts were re-measured on the merged tree,
+  so it is discharged.)
 
   Counts in prose go stale on almost every merge. If you touch this line, get
   the number from `cargo test --workspace`, never from another document.
