@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM post_collections WHERE collection_id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "c108aab3165af0380d1fdb84ed6b8d211cda2955a23e4e5fbcb980cf5b4b0c94"
+}
