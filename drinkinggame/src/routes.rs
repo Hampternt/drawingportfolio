@@ -758,6 +758,13 @@ async fn lc_wheel_js() -> impl IntoResponse {
     )
 }
 
+async fn lc_loop_js() -> impl IntoResponse {
+    (
+        [(header::CONTENT_TYPE, "application/javascript")],
+        include_str!("../assets/lc_loop.js"),
+    )
+}
+
 /// Self-hosted webfonts — no third-party font requests from served pages.
 /// Embedded via include_bytes! so the binary is self-contained; unknown
 /// names (including any path-traversal attempt that reaches the handler)
@@ -930,6 +937,7 @@ pub fn router() -> Router<GameState> {
         .route("/assets/htmx.min.js", get(htmx_js))
         .route("/assets/lc_motion.js", get(lc_motion_js))
         .route("/assets/lc_wheel.js", get(lc_wheel_js))
+        .route("/assets/lc_loop.js", get(lc_loop_js))
         .route("/assets/fonts/{name}", get(font_asset))
         .route("/assets/sounds/{name}", get(sound_asset))
         .route("/lastcall/preview", get(crate::lc_preview::preview_page))

@@ -6,6 +6,7 @@
   <title>Last Call — Room {{ code }} — Big Screen</title>
   <link rel="stylesheet" href="{{ base_path }}/assets/lastcall.css">
   <script src="{{ base_path }}/assets/lc_motion.js" defer></script>
+  <script src="{{ base_path }}/assets/lc_loop.js" defer></script>
 </head>
 <body class="lc-screen">
   <div class="lc-screen-head">
@@ -50,6 +51,10 @@ es.addEventListener("lcpublic", e => {
   }
   const panel = box.querySelector("template[data-lc-screen]");
   if (panel) document.getElementById("lc-screen-panel").innerHTML = panel.innerHTML;
+  // Inline <script> fails silently on a typo/exception (STATUS-recorded
+  // property) — guarded so a missing lc_loop.js never breaks the rest of
+  // this listener.
+  if (window.lcLoopPublic) window.lcLoopPublic();
 });
 es.addEventListener("screen", e => {
   // The Last Call game ended but the room did not: fall back to the

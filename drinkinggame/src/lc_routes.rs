@@ -14,9 +14,9 @@ use crate::auth::PlayerSession;
 use crate::db;
 use crate::error::GameError;
 use crate::last_call::{
-    Beat, Card, Deck, LastCallState, LcError, PublicView, Status, DRAW_PER_VESSEL,
+    pull_cost, Beat, Card, Deck, LastCallState, LcError, PublicView, Status, DRAW_PER_VESSEL,
 };
-use crate::lc_render::{self, HandGroupView, SetupRow};
+use crate::lc_render::{self, ActionBarView, HandGroupView, SetupRow};
 use crate::models::{Game, Player, Room};
 use crate::GameState;
 
@@ -326,17 +326,30 @@ fn setup_rows(st: &LastCallState) -> Vec<SetupRow> {
 /// per-viewer refetch (`lc_hand_handler`) can never disagree about the
 /// fragment's shape for the same state. Closes the STATUS-carried
 /// "rows-and-hand lookup duplicated verbatim" minor from Plan A2.
+///
+/// Plan E Task 4: the armed column's card source now branches on `locked` —
+/// `lock_in` empties `p.armed` into `locked_plays` (§3.4.1), so reading
+/// `p.armed` unconditionally left a just-locked viewer's own `LOCKED {n}`
+/// header showing zero minis (the seam Plan D's review flagged and left for
+/// this task to close). `st.staged_for(seat)` is the wired fix: it reads
+/// `locked_plays` filtered to this seat, exactly the cards `lock_in` just
+/// moved there. Also appends the F.1 action bar (inside a `<template>`, so
+/// it never paints where it sits — `lcLoopApply` relocates it into
+/// `.lc-actions`) and, when applicable, the Lock-beat target picker — both
+/// OUTSIDE `#lc-hand` itself, so `lcApply`'s `querySelector("#lc-hand")` seq
+/// gate is untouched and the extras ride the same stale-drop.
 fn hand_pane_html(base_path: &str, code: &str, st: &LastCallState, player_id: i64) -> String {
     let rows = setup_rows(st);
-    let (hand, armed, locked, handicap_pct) = match st.seat_of(player_id) {
+    let seat = st.seat_of(player_id);
+    let (hand, armed, locked, handicap_pct) = match seat {
         Some(seat) => {
             let p = &st.players[seat];
-            (
-                p.hand.as_slice(),
-                p.armed.iter().map(|a| a.card.clone()).collect::<Vec<_>>(),
-                p.locked,
-                p.handicap_pct,
-            )
+            let armed_cards = if p.locked {
+                st.staged_for(seat).into_iter().cloned().collect()
+            } else {
+                p.armed.iter().map(|a| a.card.clone()).collect::<Vec<_>>()
+            };
+            (p.hand.as_slice(), armed_cards, p.locked, p.handicap_pct)
         }
         None => (&[] as &[_], Vec::new(), false, 100),
     };
@@ -346,7 +359,113 @@ fn hand_pane_html(base_path: &str, code: &str, st: &LastCallState, player_id: i6
         locked,
         handicap_pct,
     };
-    lc_render::lc_hand_pane(base_path, code, player_id, &hg, &rows, st.seq)
+    let pane = lc_render::lc_hand_pane(base_path, code, player_id, &hg, &rows, st.seq);
+    let targets = seat
+        .map(|s| targets_section_html(st, s))
+        .unwrap_or_default();
+    let bar = lc_render::lc_action_bar(&action_bar_view(st, player_id));
+    format!(r#"{pane}{targets}<template data-lc-actions>{bar}</template>"#)
+}
+
+/// Plan E Task 4: assembles the viewer's own `ActionBarView` from
+/// `&LastCallState` — the one place `LcPlayer`/`Play` fields are read down
+/// into the private, per-viewer projection `lc_action_bar` renders from.
+/// `charged` is the viewer's own pulls at the reveal (E9): summed over
+/// `st.plays` (revealed, priced) filtered to their own seat, through their
+/// own current `handicap_pct` — 0 for an unseated viewer, who has nothing
+/// charged. `vessels_registered` counts every player (not just the viewer)
+/// with at least one vessel — the E1 gate on starting round 1.
+fn action_bar_view(st: &LastCallState, player_id: i64) -> ActionBarView {
+    let outcome = st.outcome();
+    let vessels_registered = st.players.iter().filter(|p| !p.vessels.is_empty()).count();
+    match st.seat_of(player_id) {
+        Some(seat) => {
+            let p = &st.players[seat];
+            let charged: u8 = st
+                .plays
+                .iter()
+                .filter(|play| play.source_seat == seat)
+                .map(|play| pull_cost(play.card.cost, p.handicap_pct))
+                .sum();
+            ActionBarView {
+                beat: st.beat,
+                round: st.round,
+                seated: true,
+                alive: p.status == Status::Alive,
+                locked: p.locked,
+                drawing: p.drawing,
+                vessels: p
+                    .vessels
+                    .iter()
+                    .enumerate()
+                    .map(|(i, v)| (i, v.deck))
+                    .collect(),
+                charged,
+                vessels_registered,
+                outcome,
+            }
+        }
+        None => ActionBarView {
+            beat: st.beat,
+            round: st.round,
+            seated: false,
+            alive: false,
+            locked: false,
+            drawing: false,
+            vessels: Vec::new(),
+            charged: 0,
+            vessels_registered,
+            outcome,
+        },
+    }
+}
+
+/// Plan E Task 4 / decision E8: the per-card seat `<select>` target picker,
+/// appended to the hand pane. Empty string unless the viewer is mid-Lock,
+/// unlocked, and has at least one armed `targets == "one"` card — outside
+/// that window there is nothing to pick, and a locked player's picks are
+/// already committed. Options are titled/named through `html_escape`, as
+/// `lc_hand_pane` does for the same reason.
+fn targets_section_html(st: &LastCallState, seat: usize) -> String {
+    if st.beat != Beat::Lock {
+        return String::new();
+    }
+    let p = &st.players[seat];
+    if p.locked {
+        return String::new();
+    }
+    let armed_one: Vec<_> = p.armed.iter().filter(|a| a.card.targets == "one").collect();
+    if armed_one.is_empty() {
+        return String::new();
+    }
+    let rows: String = armed_one
+        .iter()
+        .map(|a| {
+            let options: String = st
+                .players
+                .iter()
+                .filter(|tp| tp.status == Status::Alive)
+                .map(|tp| {
+                    let selected = if a.target == Some(tp.seat) {
+                        " selected"
+                    } else {
+                        ""
+                    };
+                    format!(
+                        r#"<option value="{seat}"{selected}>{name}</option>"#,
+                        seat = tp.seat,
+                        name = crate::render::html_escape(&tp.name),
+                    )
+                })
+                .collect();
+            format!(
+                r#"<label class="lc-target-row"><span>{title}</span><select data-lc-target data-card-id="{id}"><option value="">PICK A TARGET</option>{options}</select></label>"#,
+                title = crate::render::html_escape(&a.card.title),
+                id = crate::render::html_escape(&a.card.id),
+            )
+        })
+        .collect();
+    format!(r#"<section class="lc-targets"><h2>Targets</h2>{rows}</section>"#)
 }
 
 // NOTE: the brief's Produces section lists a `seq: u64` field on this struct,
@@ -369,6 +488,7 @@ struct LcRoomTemplate {
     banner: String,     // lc_render::lc_banner(&view)
     hand_pane: String,  // lc_render::lc_hand_pane(...)
     table_pane: String, // table_pane_html(&view, me) — the #lc-table fragment
+    actions: String,    // lc_render::lc_action_bar(&action_bar_view(&ctx.st, player.id))
 }
 
 /// `GET /room/{code}/lastcall` — the F.1 phone shell. `load_lc` already gates
@@ -387,6 +507,7 @@ pub async fn lc_page(
     };
     let me = ctx.st.seat_of(player.id);
     let hand_pane = hand_pane_html(&state.base_path, &code, &ctx.st, player.id);
+    let actions = lc_render::lc_action_bar(&action_bar_view(&ctx.st, player.id));
     let view = ctx.st.public_view();
     let tpl = LcRoomTemplate {
         base_path: state.base_path.to_string(),
@@ -395,6 +516,7 @@ pub async fn lc_page(
         banner: lc_render::lc_banner(&view),
         hand_pane,
         table_pane: table_pane_html(&view, me),
+        actions,
     };
     Html(tpl.render().unwrap()).into_response()
 }

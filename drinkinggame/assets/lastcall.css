@@ -387,6 +387,20 @@ body.lc { margin: 0; min-height: 100vh; display: flex; flex-direction: column;
 /* the option that involves drinking is always the amber one */
 .lc-btn-drink { background: var(--lc-amber); }
 
+/* Plan E — the action bar's states (decision E7). */
+.lc-actions-hint { flex: 1; align-self: center; text-align: center;
+                   font-family: var(--font-ui); font-weight: 700; font-size: 11px;
+                   letter-spacing: .12em; text-transform: uppercase;
+                   color: var(--lc-faint); }
+#lc-actions-note { padding: 4px 14px; text-align: center;
+                   font-family: var(--font-mono); font-size: 11px;
+                   color: var(--lc-rose); }
+.lc-drink-now { display: flex; align-items: center; justify-content: center;
+                cursor: default; }
+.lc-targets { padding: 0 14px 10px; }
+.lc-target-row { display: flex; align-items: center; justify-content: space-between;
+                 gap: 10px; padding: 6px 0; font-size: 13px; }
+
 /* slice 2 — the hand group (Module Spec C.1–C.3): ArmedColumn | HandWheel |
    CostRail. "One widget in three parts and always ship together." This
    replaces Plan A2's throwaway plain-list container; the CardFace inside the

@@ -4223,9 +4223,19 @@ async fn test_hand_fragment_carries_only_the_viewers_armed_cards() {
         card: drinkinggame::lc_cards::card_by_id("beer-01").unwrap(),
         target: None,
     }];
-    st.players[1].armed = vec![drinkinggame::last_call::ArmedCard {
+    // bob is LOCKED — the real invariant `lock_in` establishes moves a
+    // staged card out of `armed` and into `locked_plays` (Plan E Task 4:
+    // `hand_pane_html` now reads `staged_for(seat)` for a locked viewer, not
+    // `armed`, closing the "LOCKED 0" seam the Plan D review flagged), so
+    // this fixture models that directly rather than seeding `armed` +
+    // `locked = true` together, a combination `lock_in` never actually
+    // produces.
+    st.locked_plays = vec![drinkinggame::last_call::Play {
         card: drinkinggame::lc_cards::card_by_id("cider-01").unwrap(),
+        source_seat: 1,
         target: None,
+        paid_from: drinkinggame::last_call::Deck::Cider,
+        order_key: 0,
     }];
     st.players[1].locked = true;
     drinkinggame::db::set_game_state(&pool, game_id, &st.to_json()).await;
@@ -6219,4 +6229,231 @@ async fn test_ticker_leaves_a_finished_game_frozen() {
     assert_eq!(after.beat, Beat::Resolve);
     assert_eq!(after.round, st.round);
     assert_eq!(after.beat_deadline_ms, Some(stale_deadline)); // untouched
+}
+
+// -------------------------------------------------------------
+// Plan E (Task 4): the F.1 action bar, the target picker, and lc_loop.js.
+// -------------------------------------------------------------
+
+#[tokio::test]
+async fn test_lc_loop_js_is_served_and_binds_the_delegated_listeners() {
+    let app = test_app().await;
+    let res = get(&app, "/assets/lc_loop.js").await;
+    assert_eq!(res.status(), StatusCode::OK);
+    assert_eq!(
+        res.headers()[header::CONTENT_TYPE],
+        "application/javascript"
+    );
+    let js = body_string(res).await;
+    assert!(!js.is_empty());
+    for needle in [
+        "DOMContentLoaded",
+        "data-lc-post",
+        "data-lc-target",
+        "lc:arm",
+        "lc:disarm",
+        "lcLoopApply",
+        "lcLoopPublic",
+        "__lcLoopBound",
+    ] {
+        assert!(js.contains(needle), "missing {needle}");
+    }
+}
+
+/// The armed column's `LOCKED {n}` bug the STATUS carried notes flagged:
+/// `lock_in` empties `p.armed` into `locked_plays`, so reading `p.armed`
+/// unconditionally would show a just-locked viewer's own header as
+/// `LOCKED 0`. This also doubles as the Step 5 acceptance test — alice's
+/// hand carries the action-bar template and the locked hint; bob's carries
+/// LOCK IN and none of alice's locked copy.
+#[tokio::test]
+async fn test_hand_fetch_carries_the_action_template_per_viewer() {
+    let (app, _pool, code, alice, bob, _alice_id, _bob_id) = lc_action_rig().await;
+
+    post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/lastcall/arm"),
+        "card_id=beer-01",
+    )
+    .await;
+    post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/lastcall/target"),
+        "card_id=beer-01&target=1", // bob's seat; beer-01 targets "one"
+    )
+    .await;
+    let res = post_form(&app, &alice, &format!("/room/{code}/lastcall/lock"), "").await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+
+    let alice_hand = body_string(get_hand(&app, &alice, &code).await).await;
+    assert!(
+        alice_hand.contains("<template data-lc-actions>"),
+        "{alice_hand}"
+    );
+    assert!(
+        alice_hand.contains("LOCKED — WAITING FOR THE TABLE"),
+        "{alice_hand}"
+    );
+    // The Plan D seam this task closes: a locked viewer's own armed column
+    // still shows their staged card, not LOCKED 0.
+    assert!(alice_hand.contains("LOCKED 1"), "{alice_hand}");
+    assert!(alice_hand.contains("beer-01"), "{alice_hand}");
+
+    let bob_hand = body_string(get_hand(&app, &bob, &code).await).await;
+    assert!(bob_hand.contains("LOCK IN"), "{bob_hand}");
+    assert!(!bob_hand.contains("LOCKED — WAITING"), "{bob_hand}");
+}
+
+/// Decision E8: the target picker lists only Alive seats and posts the
+/// choice back through `/lastcall/target`. cara is seated but eliminated —
+/// she must never appear as a pickable target, even though her seat exists.
+#[tokio::test]
+async fn test_target_picker_lists_only_alive_seats_and_posts_back() {
+    let (app, pool) = test_app_with_pool().await;
+    let alice = login(&app, "alice", "1234").await;
+    let bob = login(&app, "bob", "5678").await;
+    let _cara = login(&app, "cara", "1234").await; // never joins the room
+    let code = create_room(&app, &alice).await;
+    room_page_html(&app, &bob, &code).await;
+    post_form(&app, &alice, &format!("/room/{code}/lastcall/start"), "").await;
+
+    let alice_id = drinkinggame::db::get_player_by_name(&pool, "alice")
+        .await
+        .unwrap()
+        .id;
+    let bob_id = drinkinggame::db::get_player_by_name(&pool, "bob")
+        .await
+        .unwrap()
+        .id;
+    let cara_id = drinkinggame::db::get_player_by_name(&pool, "cara")
+        .await
+        .unwrap()
+        .id;
+
+    let mut st = LastCallState::new(
+        vec![
+            (alice_id, "alice".into()),
+            (bob_id, "bob".into()),
+            (cara_id, "cara".into()),
+        ],
+        7,
+    );
+    st.set_vessel(alice_id, Deck::Beer, "can").unwrap();
+    st.set_vessel(bob_id, Deck::Cider, "bottle").unwrap();
+    st.players[2].status = drinkinggame::last_call::Status::Eliminated;
+    st.beat = Beat::Lock;
+    let game_id = lc_game_id(&pool, &code).await;
+    drinkinggame::db::set_game_state(&pool, game_id, &st.to_json()).await;
+
+    // beer-01 targets "one".
+    post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/lastcall/arm"),
+        "card_id=beer-01",
+    )
+    .await;
+
+    // Scoped to the .lc-targets section itself, not the whole fragment —
+    // "cara" legitimately appears elsewhere in the pane (the handicap rows
+    // list every seated player regardless of status), so a whole-fragment
+    // `!contains("cara")` would pass or fail for the wrong reason.
+    fn targets_section(hand: &str) -> &str {
+        let start = hand
+            .find(r#"<section class="lc-targets">"#)
+            .expect("no .lc-targets section");
+        let rest = &hand[start..];
+        let end = rest
+            .find("</section>")
+            .expect("unterminated .lc-targets section");
+        &rest[..end]
+    }
+
+    let hand = body_string(get_hand(&app, &alice, &code).await).await;
+    let section = targets_section(&hand);
+    assert!(section.contains("data-lc-target"), "{section}");
+    assert!(section.contains("bob"), "{section}");
+    assert!(!section.contains("cara"), "{section}");
+
+    let res = post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/lastcall/target"),
+        "card_id=beer-01&target=1", // bob's seat
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+
+    let hand = body_string(get_hand(&app, &alice, &code).await).await;
+    let section = targets_section(&hand);
+    assert!(section.contains(r#"value="1" selected"#), "{section}");
+}
+
+/// E9: the reveal charge is priced through the VIEWER'S OWN handicap, not a
+/// shared constant — same property Plan C's per-viewer cost rail pins, one
+/// level up (the action bar's DRINK n, not the rail's bars). alice and bob
+/// each arm a cost-2 card at the default 100% handicap; bob's is then rigged
+/// to 150% before he locks (handicap is Draw-gated, so this edits the
+/// persisted state directly rather than going through the route — the same
+/// pattern `test_ticker_leaves_a_finished_game_frozen` uses).
+#[tokio::test]
+async fn test_reveal_charge_is_priced_per_viewer() {
+    let (app, pool, code, alice, bob, _alice_id, bob_id) = lc_action_rig().await;
+
+    // beer-02, cost 2, targets "one".
+    post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/lastcall/arm"),
+        "card_id=beer-02",
+    )
+    .await;
+    post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/lastcall/target"),
+        "card_id=beer-02&target=1", // bob's seat
+    )
+    .await;
+    let res = post_form(&app, &alice, &format!("/room/{code}/lastcall/lock"), "").await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+
+    let mut st = lc_state(&pool, &code).await;
+    let bob_seat = st.seat_of(bob_id).unwrap();
+    st.players[bob_seat].handicap_pct = 150;
+    let game_id = lc_game_id(&pool, &code).await;
+    drinkinggame::db::set_game_state(&pool, game_id, &st.to_json()).await;
+
+    // cider-03, also cost 2, targets "one".
+    post_form(
+        &app,
+        &bob,
+        &format!("/room/{code}/lastcall/arm"),
+        "card_id=cider-03",
+    )
+    .await;
+    post_form(
+        &app,
+        &bob,
+        &format!("/room/{code}/lastcall/target"),
+        "card_id=cider-03&target=0", // alice's seat
+    )
+    .await;
+    let res = post_form(&app, &bob, &format!("/room/{code}/lastcall/lock"), "").await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT); // all locked -> auto-advance to Reveal
+
+    let after = lc_state(&pool, &code).await;
+    assert_eq!(after.beat, Beat::Reveal);
+
+    // alice: cost 2 at her own 100% handicap -> DRINK 2.
+    let alice_hand = body_string(get_hand(&app, &alice, &code).await).await;
+    assert!(alice_hand.contains("DRINK 2"), "{alice_hand}");
+
+    // bob: the SAME cost-2 shape, priced through HIS OWN 150% handicap ->
+    // DRINK 3 — two prices for the same nominal cost, proof the charge is
+    // per-viewer, not shared.
+    let bob_hand = body_string(get_hand(&app, &bob, &code).await).await;
+    assert!(bob_hand.contains("DRINK 3"), "{bob_hand}");
 }

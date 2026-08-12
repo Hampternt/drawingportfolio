@@ -4,7 +4,9 @@
 //! §3.4). Every root and attribute here is the §7.8 contract; changing one is
 //! a breaking change for Plan A2 and Plan B.
 
-use crate::last_call::{pull_cost, Card, Deck, PublicSeat, PublicView, Status, DECK_LOW_THRESHOLD};
+use crate::last_call::{
+    pull_cost, Beat, Card, Deck, LcOutcome, PublicSeat, PublicView, Status, DECK_LOW_THRESHOLD,
+};
 use crate::lc_layout::{seat_positions, view_index, SeatPos};
 use crate::render::html_escape;
 
@@ -771,6 +773,98 @@ pub fn lc_mini_table(view: &PublicView, me: Option<usize>) -> String {
     )
 }
 
+// ---------------------------------------------------------------------
+// Plan E additions — Task 4. The F.1 action bar: private, per-viewer, never
+// broadcast (the private-side twin of `PublicView`) — rendered only into the
+// shell page (`lc_page`) and the private hand fetch (`hand_pane_html`).
+// ---------------------------------------------------------------------
+
+/// The viewer's own action-bar data, assembled by `lc_routes::action_bar_view`
+/// from `&LastCallState` (never passed here directly — same secrecy
+/// discipline `HandGroupView` follows).
+#[derive(Clone, Debug)]
+pub struct ActionBarView {
+    pub beat: Beat,
+    pub round: u32,
+    pub seated: bool,
+    pub alive: bool,
+    pub locked: bool,
+    pub drawing: bool,
+    pub vessels: Vec<(usize, Deck)>, // (vessel index, deck)
+    pub charged: u8,                 // viewer's pulls at the reveal (E9)
+    pub vessels_registered: usize,   // players with >= 1 vessel (E1 gate)
+    pub outcome: Option<LcOutcome>,
+}
+
+/// F.1 — the thumb zone's one decision. Precedence: `outcome` (any player,
+/// from any beat, can end a decided game) -> `!seated` (a spectator has
+/// nothing to decide) -> `!alive` (a ghost has nothing to decide either,
+/// even mid-Lock) -> the beat itself. F.1 holds by construction throughout:
+/// the drinking-adjacent primary is always `lc-btn-drink` (amber,
+/// `lastcall.css:388`), and the beat's one decision is the only thing ever
+/// in the thumb zone. `data-lc-post` is a data-contract attribute (the same
+/// argument as Plan C's `CustomEvent`s) — `test_no_builder_emits_behaviour`
+/// does not forbid it, only `hx-*`/`onclick`/`href`/`action="`.
+pub fn lc_action_bar(ab: &ActionBarView) -> String {
+    if ab.outcome.is_some() {
+        return r#"<button class="lc-btn lc-btn-drink" data-lc-post="end">END GAME</button>"#
+            .to_string();
+    }
+    if !ab.seated {
+        return r#"<p class="lc-actions-hint">SPECTATING</p>"#.to_string();
+    }
+    if !ab.alive {
+        return r#"<p class="lc-actions-hint">YOU'RE OUT — HAUNT THE TABLE</p>"#.to_string();
+    }
+    match ab.beat {
+        Beat::Draw => {
+            if ab.round == 1 {
+                if ab.vessels_registered >= 2 {
+                    r#"<button class="lc-btn lc-btn-drink" data-lc-post="begin">START ROUND 1</button>"#.to_string()
+                } else {
+                    r#"<button class="lc-btn lc-btn-drink" data-lc-post="begin" disabled>START ROUND 1</button><p class="lc-actions-hint">NEEDS 2 DRINKS REGISTERED</p>"#.to_string()
+                }
+            } else if ab.drawing {
+                r#"<p class="lc-actions-hint">FRESH VESSEL — DEALT</p>"#.to_string()
+            } else {
+                let buttons: String = ab
+                    .vessels
+                    .iter()
+                    .map(|(idx, deck)| {
+                        format!(
+                            r#"<button class="lc-btn lc-btn-drink" data-lc-post="draw" data-vessel="{idx}">FINISH {label} · DRAW</button>"#,
+                            label = deck.label(),
+                        )
+                    })
+                    .collect();
+                format!(r#"{buttons}<p class="lc-actions-hint">OR SIT TIGHT</p>"#)
+            }
+        }
+        Beat::Deal => r#"<p class="lc-actions-hint">DEALING…</p>"#.to_string(),
+        Beat::Diplomacy => {
+            r#"<p class="lc-actions-hint">TALK IT OUT — DEALS AREN'T BINDING</p>"#.to_string()
+        }
+        Beat::Lock => {
+            if ab.locked {
+                r#"<p class="lc-actions-hint">LOCKED — WAITING FOR THE TABLE</p>"#.to_string()
+            } else {
+                r#"<button class="lc-btn lc-btn-drink" data-lc-post="lock">LOCK IN</button>"#
+                    .to_string()
+            }
+        }
+        Beat::Reveal | Beat::Resolve => {
+            if ab.charged > 0 {
+                format!(
+                    r#"<div class="lc-btn lc-btn-drink lc-drink-now">DRINK {}</div>"#,
+                    ab.charged
+                )
+            } else {
+                r#"<p class="lc-actions-hint">NOTHING TO PAY</p>"#.to_string()
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -956,11 +1050,35 @@ mod tests {
                 locked: false,
                 handicap_pct: 150,
             }),
+            // Plan E Task 4: a populated `lc_action_bar` call, deliberately
+            // in the per-vessel Draw state so both `data-lc-post` and
+            // `data-vessel` are present in the output — this is the state
+            // the loop below proves `data-lc-post` through, not just an
+            // absence of the six banned strings.
+            lc_action_bar(&ActionBarView {
+                beat: Beat::Draw,
+                round: 2,
+                seated: true,
+                alive: true,
+                locked: false,
+                drawing: false,
+                vessels: vec![(0, Deck::Beer), (1, Deck::Soft)],
+                charged: 0,
+                vessels_registered: 2,
+                outcome: None,
+            }),
         ];
         for out in &outputs {
             // `action="` (not bare `action`) — a placeholder card body
             // contains the prose "A reaction, once reactions exist." and a
             // bare substring match panics on that, not on markup.
+            //
+            // `data-lc-post` is NOT in this list — Plan E decision: it is a
+            // data-contract attribute for `lc_loop.js`'s one delegated click
+            // listener, the same status Plan C's `lc:arm`/`lc:disarm`
+            // CustomEvents have. It names WHAT to do, not HOW (no inline
+            // handler, no hx-* wiring baked into the string), so it does not
+            // trip this test.
             for banned in [
                 "hx-post",
                 "hx-get",
@@ -1915,5 +2033,145 @@ mod tests {
     fn test_armed_column_carries_its_motion_anchor() {
         let html = armed_column(&[], false);
         assert!(html.contains(r#"data-flight-anchor="armed""#));
+    }
+
+    /// Plan E Task 4 / F.1 — one assertion pair per row of the state table,
+    /// the exact copy string present and the states it must NOT show absent.
+    #[test]
+    fn test_action_bar_states() {
+        fn base() -> ActionBarView {
+            ActionBarView {
+                beat: Beat::Draw,
+                round: 1,
+                seated: true,
+                alive: true,
+                locked: false,
+                drawing: false,
+                vessels: Vec::new(),
+                charged: 0,
+                vessels_registered: 0,
+                outcome: None,
+            }
+        }
+
+        // outcome wins over beat, from any beat.
+        let mut ab = base();
+        ab.beat = Beat::Lock;
+        ab.outcome = Some(LcOutcome::Winner(0));
+        let html = lc_action_bar(&ab);
+        assert!(html.contains("END GAME"));
+        assert!(html.contains(r#"data-lc-post="end""#));
+        assert!(!html.contains("LOCK IN"));
+        no_hex(&html);
+
+        // unseated: spectating, even mid-Lock.
+        let mut ab = base();
+        ab.beat = Beat::Lock;
+        ab.seated = false;
+        let html = lc_action_bar(&ab);
+        assert!(html.contains("SPECTATING"));
+        no_hex(&html);
+
+        // eliminated: out, even mid-Lock.
+        let mut ab = base();
+        ab.beat = Beat::Lock;
+        ab.alive = false;
+        let html = lc_action_bar(&ab);
+        assert!(html.contains("YOU'RE OUT — HAUNT THE TABLE"));
+        no_hex(&html);
+
+        // lobby (round 1), fewer than two drinks registered: disabled START.
+        let mut ab = base();
+        ab.vessels_registered = 1;
+        let html = lc_action_bar(&ab);
+        assert!(html.contains("START ROUND 1"));
+        assert!(html.contains(" disabled"));
+        assert!(html.contains("NEEDS 2 DRINKS REGISTERED"));
+        no_hex(&html);
+
+        // lobby (round 1), two registered: enabled START, no hint.
+        let mut ab = base();
+        ab.vessels_registered = 2;
+        let html = lc_action_bar(&ab);
+        assert!(html.contains("START ROUND 1"));
+        assert!(!html.contains(" disabled"));
+        assert!(!html.contains("NEEDS 2 DRINKS REGISTERED"));
+        no_hex(&html);
+
+        // draw, round >= 2, not drawing: per-vessel buttons + sit tight.
+        let mut ab = base();
+        ab.round = 2;
+        ab.vessels = vec![(0, Deck::Beer), (1, Deck::Soft)];
+        let html = lc_action_bar(&ab);
+        assert!(html.contains(r#"data-vessel="0">FINISH BEER · DRAW"#));
+        assert!(html.contains(r#"data-vessel="1">FINISH SOFT · DRAW"#));
+        assert!(html.contains("OR SIT TIGHT"));
+        no_hex(&html);
+
+        // draw, round >= 2, drawing: the dealt hint, no buttons.
+        let mut ab = base();
+        ab.round = 2;
+        ab.drawing = true;
+        let html = lc_action_bar(&ab);
+        assert!(html.contains("FRESH VESSEL — DEALT"));
+        assert!(!html.contains("data-lc-post=\"draw\""));
+        no_hex(&html);
+
+        // deal: the auto-beat hint.
+        let mut ab = base();
+        ab.beat = Beat::Deal;
+        let html = lc_action_bar(&ab);
+        assert!(html.contains("DEALING…"));
+        no_hex(&html);
+
+        // diplomacy: the talk-it-out hint.
+        let mut ab = base();
+        ab.beat = Beat::Diplomacy;
+        let html = lc_action_bar(&ab);
+        assert!(html.contains("TALK IT OUT — DEALS AREN'T BINDING"));
+        no_hex(&html);
+
+        // lock, unlocked: LOCK IN.
+        let mut ab = base();
+        ab.beat = Beat::Lock;
+        let html = lc_action_bar(&ab);
+        assert!(html.contains("LOCK IN"));
+        assert!(!html.contains("LOCKED — WAITING"));
+        no_hex(&html);
+
+        // lock, locked: waiting on the table.
+        let mut ab = base();
+        ab.beat = Beat::Lock;
+        ab.locked = true;
+        let html = lc_action_bar(&ab);
+        assert!(html.contains("LOCKED — WAITING FOR THE TABLE"));
+        assert!(!html.contains("LOCK IN"));
+        no_hex(&html);
+
+        // reveal, charged: DRINK n, amber (F.1: the drinking-adjacent
+        // primary is always lc-btn-drink).
+        let mut ab = base();
+        ab.beat = Beat::Reveal;
+        ab.charged = 3;
+        let html = lc_action_bar(&ab);
+        assert!(html.contains("DRINK 3"));
+        assert!(html.contains("lc-btn-drink"));
+        assert!(!html.contains("NOTHING TO PAY"));
+        no_hex(&html);
+
+        // reveal, nothing charged: NOTHING TO PAY.
+        let mut ab = base();
+        ab.beat = Beat::Reveal;
+        let html = lc_action_bar(&ab);
+        assert!(html.contains("NOTHING TO PAY"));
+        no_hex(&html);
+
+        // resolve mirrors reveal.
+        let mut ab = base();
+        ab.beat = Beat::Resolve;
+        ab.charged = 1;
+        let html = lc_action_bar(&ab);
+        assert!(html.contains("DRINK 1"));
+        no_hex(&html);
     }
 }

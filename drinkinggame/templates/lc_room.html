@@ -7,6 +7,7 @@
   <link rel="stylesheet" href="{{ base_path }}/assets/lastcall.css">
   <script src="{{ base_path }}/assets/lc_motion.js" defer></script>
   <script src="{{ base_path }}/assets/lc_wheel.js" defer></script>
+  <script src="{{ base_path }}/assets/lc_loop.js" defer></script>
 </head>
 <body class="lc" data-player-id="{{ player_id }}">
   <div class="lc-status">
@@ -38,10 +39,8 @@
     </section>
   </main>
 
-  <div class="lc-actions">
-    <button type="button" class="lc-btn lc-btn-drink" disabled>DRINK</button>
-    <button type="button" class="lc-btn lc-btn-secondary" disabled>PASS</button>
-  </div>
+  <div id="lc-actions-note" hidden></div>
+  <div class="lc-actions">{{ actions|safe }}</div>
 
   {# The flight layer is a static sibling of .lc-view — outside every
      repainted pane, so no hand/table/lcpublic repaint can ever destroy a
@@ -139,6 +138,10 @@ function lcApply(html) {
     }
   }
   if (window.lcWheelInit) window.lcWheelInit(pane);
+  // Inline <script> fails silently on a typo/exception (STATUS-recorded
+  // property) — guarded so a missing lc_loop.js never breaks the rest of
+  // this swap.
+  if (window.lcLoopApply) window.lcLoopApply(pane);
 }
 
 // The TABLE pane has no live inputs to preserve, so its apply is the plain
@@ -187,6 +190,10 @@ es.addEventListener("lcpublic", e => {
   if (root) lcSeq = Math.max(lcSeq, Number(root.dataset.seq || 0));
   const banner = tpl.querySelector("template[data-lc-banner]");
   if (banner) document.getElementById("lc-banner").outerHTML = banner.innerHTML;
+  // Inline <script> fails silently on a typo/exception (STATUS-recorded
+  // property) — guarded so a missing lc_loop.js never breaks the rest of
+  // this listener.
+  if (window.lcLoopPublic) window.lcLoopPublic();
   lcFetchHand();
 });
 es.addEventListener("lctick", e => {
