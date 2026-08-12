@@ -33,7 +33,7 @@ invented.
 Slice 1 is four plans: **A → A-vis → A2 → B**. Everything after slice 1 was
 planned in one pass on 2026-08-11 — see "The rest of the game" below.
 
-## The rest of the game — eight plans, written 2026-08-11; C and D executed
+## The rest of the game — eight plans, written 2026-08-11; C, D and F executed
 
 All eight are in `docs/superpowers/plans/2026-08-11-last-call-plan-*.md`. Each
 was written by its own subagent against the spec, DDv2 and the earlier plans'
@@ -72,6 +72,21 @@ approved") and the plans committed at `b5aa789`.
   note, and `reveal()`'s direct-index hardening. **Carried into Plan F:**
   fixtures for same-resolve double elimination and the `table` targets
   class (the placeholder catalog cannot drive either).
+
+- **Plan F — the catalog and the damage scale. EXECUTED 2026-08-12.**
+  `164d973..b837cb3`, 5 commits, verify green, **442 tests**, `drinkinggame`
+  clippy-clean. The game has real content: 40 distinct cards, copy-weighted
+  40-card shoes, curated openers, per-card fx via catalog-side `card_fx`
+  lookup (blob carries identity only — a balance retune reaches in-flight
+  games instantly), `EffectOp::PullDrain` with engine support, D8's
+  kind-mapping constants dead, keyword contract bidirectional, §9 floor
+  pinned. Both of Plan D's carried fixtures landed (its M8 is closed).
+  Whole-plan review APPROVED (0 critical, 0 important, 4 minor — all fixed;
+  the reviewer verified all 40 cards against the F12 table field-by-field,
+  zero transcription errors); scoped re-review CLEAN. **One F3 prose
+  erratum** in the plan file (Liquor dmg/pull arithmetic; code was always
+  right). Owed to the same human browser pass as C: the preview page's
+  catalog groups now show 40 cards.
 
 | Plan | File suffix | What it ships | Tasks |
 | --- | --- | --- | --- |
@@ -476,11 +491,12 @@ Then, in this order:
    All eight remaining plans (C through J, covering every slice to completion)
    are written; see "The rest of the game" above.
 4. ~~User design review.~~ **Approved 2026-08-11**, all 106 decisions.
-5. **Execute** in the binding order: ~~C~~ → ~~D~~ → **F next** → E →
-   G/H/I → J. C and D executed and review-clean 2026-08-12 (see "The rest
-   of the game"); C's browser checkpoint is owed to a human alongside Plan
-   B's checkpoint 2 (D is pure engine — nothing to eyeball). Each plan
-   names its ledger at `.superpowers/sdd/<plan-basename>/progress.md`.
+5. **Execute** in the binding order: ~~C~~ → ~~D~~ → ~~F~~ → **E next** →
+   G/H/I → J. C, D and F executed and review-clean 2026-08-12 (see "The
+   rest of the game"); C's and F's browser checkpoints are owed to a human
+   alongside Plan B's checkpoint 2 (D is pure engine — nothing to eyeball).
+   Each plan names its ledger at
+   `.superpowers/sdd/<plan-basename>/progress.md`.
 
 Spec §3.4.1 (nothing enters `plays` before it is revealable) is owned by Plan
 D, which holds locked plays in a hidden `locked_plays` field and carries the
