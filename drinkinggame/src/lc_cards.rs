@@ -455,4 +455,72 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn test_keywords_come_from_the_two_vocabularies() {
+        // F7
+        for def in CATALOG.iter() {
+            for kw in def.keywords {
+                assert!(
+                    MECHANICAL_KW.contains(kw) || TONE_KW.contains(kw),
+                    "{}: unknown keyword {kw}",
+                    def.id
+                );
+            }
+            assert!(def.keywords.len() <= 5, "{}", def.id);
+        }
+    }
+
+    #[test]
+    fn test_mechanical_keywords_are_bidirectional() {
+        // F7 — chips cannot lie
+        for def in CATALOG.iter() {
+            let has = |kw: &str| def.keywords.contains(&kw);
+            assert_eq!(has("aoe"), def.targets == "all", "{}", def.id);
+            assert_eq!(
+                has("reaction"),
+                def.kind == CardKind::Reaction,
+                "{}",
+                def.id
+            );
+            let op = |o: EffectOp| def.fx.is_some_and(|f| f.op == o);
+            assert_eq!(has("dot"), op(EffectOp::Dot), "{}", def.id);
+            assert_eq!(has("shield"), op(EffectOp::Shield), "{}", def.id);
+            assert_eq!(has("heal"), op(EffectOp::Heal), "{}", def.id);
+            assert_eq!(has("drain"), op(EffectOp::PullDrain), "{}", def.id);
+            let bursty = def.targets == "one"
+                && def.fx.is_some_and(|f| {
+                    f.op == EffectOp::Damage && f.magnitude >= BURST_KW_MIN_DAMAGE
+                });
+            assert_eq!(has("burst"), bursty, "{}", def.id);
+        }
+    }
+
+    #[test]
+    fn test_catalog_covers_every_title_band() {
+        // §7.5 ramp, forever
+        let len = |d: &CardDef| d.title.chars().count();
+        assert!(CATALOG.iter().any(|d| len(d) <= 14));
+        assert!(CATALOG.iter().any(|d| (15..=24).contains(&len(d))));
+        assert!(CATALOG.iter().any(|d| len(d) > 24));
+    }
+
+    #[test]
+    fn test_catalog_has_an_overflowing_body() {
+        // >108 chars = BODY_CLAMP_CHARS: the 3-line clamp and data-expandable
+        // must stay proven against rendered content (spec §9).
+        let overflowing: Vec<&str> = CATALOG
+            .iter()
+            .filter(|d| d.text.chars().count() > 108)
+            .map(|d| d.id)
+            .collect();
+        assert!(overflowing.contains(&"wine-01"), "got {overflowing:?}");
+    }
+
+    #[test]
+    fn test_catalog_keeps_the_keyword_extremes() {
+        assert!(CATALOG.iter().any(|d| d.keywords.is_empty()));
+        // > 3 keywords is what makes card_face emit the +n fold chip.
+        assert!(CATALOG.iter().any(|d| d.keywords.len() > 3));
+    }
 }
