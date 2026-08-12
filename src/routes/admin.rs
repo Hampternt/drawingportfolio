@@ -361,6 +361,233 @@ async fn patch_visibility(
     }
 }
 
+// ===== Collections, tags, captions (slice 3) =====
+
+#[derive(Template)]
+#[template(path = "artportfolio/partials/rail_collections.html")]
+struct RailCollectionsTemplate {
+    collections: Vec<crate::models::CollectionWithCount>,
+    is_admin: bool,
+}
+
+#[derive(Template)]
+#[template(path = "artportfolio/partials/card_edit_popover.html")]
+struct CardEditTemplate {
+    post_id: i64,
+    caption: String,
+    tags_joined: String,
+}
+
+/// One row of the collection-membership checklist. Not `Collection` or
+/// `CollectionWithCount` because neither carries `member` — this is where the
+/// two are joined for a single post.
+pub struct ChecklistItem {
+    pub id: i64,
+    pub name: String,
+    pub member: bool,
+}
+
+#[derive(Template)]
+#[template(path = "artportfolio/partials/collection_checklist.html")]
+struct CollectionChecklistTemplate {
+    post_id: i64,
+    items: Vec<ChecklistItem>,
+}
+
+/// Assembles the checklist fragment for one post — every collection, each
+/// marked `member` against that post's own membership rows. Factored out
+/// because three routes (add, remove, GET) all end with exactly this render.
+async fn checklist_fragment(pool: &crate::db::DbPool, post_id: i64) -> String {
+    let collections =
+        crate::db::list_collections_with_counts(pool, crate::models::Viewer::Admin).await;
+    let member_ids = crate::db::get_post_collection_ids(pool, post_id).await;
+    let items = collections
+        .into_iter()
+        .map(|c| ChecklistItem {
+            id: c.id,
+            name: c.name,
+            member: member_ids.contains(&c.id),
+        })
+        .collect();
+    CollectionChecklistTemplate { post_id, items }
+        .render()
+        .unwrap()
+}
+
+#[derive(serde::Deserialize)]
+pub struct CollectionNameForm {
+    pub name: String,
+}
+
+/// Creates a collection and returns the rail fragment. A duplicate slug is a
+/// 409 carrying the existing collection's name, not a silent no-op — the
+/// admin typed a name expecting it to exist as typed, and needs to know it
+/// already does under someone else's capitalization.
+async fn create_collection_route(
+    _session: crate::middleware::AuthSession,
+    State(state): State<Arc<AppState>>,
+    Form(form): Form<CollectionNameForm>,
+) -> impl IntoResponse {
+    match crate::db::create_collection(&state.pool, form.name.trim()).await {
+        Ok(_) => {
+            let collections =
+                crate::db::list_collections_with_counts(&state.pool, crate::models::Viewer::Admin)
+                    .await;
+            let html = RailCollectionsTemplate {
+                collections,
+                is_admin: true,
+            }
+            .render()
+            .unwrap();
+            (StatusCode::CREATED, Html(html)).into_response()
+        }
+        Err(crate::models::CreateCollectionError::InvalidName) => {
+            (StatusCode::BAD_REQUEST, Html("Invalid name".to_string())).into_response()
+        }
+        Err(crate::models::CreateCollectionError::DuplicateSlug(name)) => (
+            StatusCode::CONFLICT,
+            Html(format!("A collection named \"{name}\" already exists.")),
+        )
+            .into_response(),
+    }
+}
+
+/// Deletes a collection and returns the rail fragment. Idempotent by
+/// contract — an unknown id still renders the (unchanged) fragment rather
+/// than 404ing, since the caller's next view is the same rail either way.
+async fn delete_collection_route(
+    _session: crate::middleware::AuthSession,
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<i64>,
+) -> impl IntoResponse {
+    let _ = crate::db::delete_collection(&state.pool, id).await;
+    let collections =
+        crate::db::list_collections_with_counts(&state.pool, crate::models::Viewer::Admin).await;
+    Html(
+        RailCollectionsTemplate {
+            collections,
+            is_admin: true,
+        }
+        .render()
+        .unwrap(),
+    )
+}
+
+#[derive(serde::Deserialize)]
+pub struct PatchPostForm {
+    pub caption: String,
+    pub tags: String,
+}
+
+/// Replaces a post's caption and tag set, returning the re-rendered card —
+/// same swap contract as `patch_visibility`: `hx-target="closest .hm-post"
+/// hx-swap="outerHTML"`.
+async fn patch_post(
+    _session: crate::middleware::AuthSession,
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<i64>,
+    Form(form): Form<PatchPostForm>,
+) -> impl IntoResponse {
+    if !crate::db::update_post_caption(&state.pool, id, form.caption.trim()).await {
+        return (StatusCode::NOT_FOUND, Html("No such post".to_string())).into_response();
+    }
+    let tags = crate::db::normalize_tags(&form.tags);
+    crate::db::set_post_tags(&state.pool, id, &tags).await;
+
+    match crate::db::get_post_by_id(&state.pool, id, crate::models::Viewer::Admin).await {
+        Some(post) => Html(
+            crate::routes::feed::PostCardTemplate {
+                post: &post,
+                is_first: false,
+                is_admin: true,
+            }
+            .render()
+            .unwrap(),
+        )
+        .into_response(),
+        None => (StatusCode::NOT_FOUND, Html("No such post".to_string())).into_response(),
+    }
+}
+
+/// Adds a post to a collection, 404ing when either side of the pair is
+/// missing — `add_post_to_collection` is the function that actually checks
+/// existence, unlike its `remove` counterpart below.
+async fn add_post_collection(
+    _session: crate::middleware::AuthSession,
+    State(state): State<Arc<AppState>>,
+    Path((id, cid)): Path<(i64, i64)>,
+) -> impl IntoResponse {
+    if !crate::db::add_post_to_collection(&state.pool, id, cid).await {
+        return (
+            StatusCode::NOT_FOUND,
+            Html("No such post or collection".to_string()),
+        )
+            .into_response();
+    }
+    Html(checklist_fragment(&state.pool, id).await).into_response()
+}
+
+/// Removes a post from a collection. `remove_post_from_collection` is
+/// idempotent by contract (always `true`) — a stale checklist toggle for a
+/// row that is already gone still re-renders 200, never a 404.
+async fn remove_post_collection(
+    _session: crate::middleware::AuthSession,
+    State(state): State<Arc<AppState>>,
+    Path((id, cid)): Path<(i64, i64)>,
+) -> impl IntoResponse {
+    if !crate::db::remove_post_from_collection(&state.pool, id, cid).await {
+        return (
+            StatusCode::NOT_FOUND,
+            Html("No such post or collection".to_string()),
+        )
+            .into_response();
+    }
+    Html(checklist_fragment(&state.pool, id).await).into_response()
+}
+
+/// The edit popover, prefilled with the post's current caption and tags.
+/// Exists as a GET because `Post` carries no tags — an empty tags input
+/// paired with the PATCH's replace-all semantics would silently wipe a
+/// post's tags on the first Save nobody meant to touch.
+async fn edit_post_fragment(
+    _session: crate::middleware::AuthSession,
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<i64>,
+) -> impl IntoResponse {
+    let post = match crate::db::get_post_by_id(&state.pool, id, crate::models::Viewer::Admin).await
+    {
+        Some(p) => p,
+        None => return (StatusCode::NOT_FOUND, Html("No such post".to_string())).into_response(),
+    };
+    let tags_joined = crate::db::get_post_tags(&state.pool, id).await.join(", ");
+    Html(
+        CardEditTemplate {
+            post_id: id,
+            caption: post.caption,
+            tags_joined,
+        }
+        .render()
+        .unwrap(),
+    )
+    .into_response()
+}
+
+/// The membership checklist for one post, fetched fresh — used to (re)open
+/// the checklist popover, not just to refresh it after a toggle.
+async fn collections_checklist_fragment(
+    _session: crate::middleware::AuthSession,
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<i64>,
+) -> impl IntoResponse {
+    if crate::db::get_post_by_id(&state.pool, id, crate::models::Viewer::Admin)
+        .await
+        .is_none()
+    {
+        return (StatusCode::NOT_FOUND, Html("No such post".to_string())).into_response();
+    }
+    Html(checklist_fragment(&state.pool, id).await).into_response()
+}
+
 pub fn validate_magic_bytes(bytes: &[u8]) -> Option<&'static str> {
     if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
         return Some("jpeg");
@@ -432,8 +659,25 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/admin", get(admin_page))
         .route("/htmx/admin/posts", get(htmx_admin_posts))
         .route("/api/admin/posts", post(upload_post))
-        .route("/api/admin/posts/{id}", delete(delete_post))
+        .route(
+            "/api/admin/posts/{id}",
+            delete(delete_post).patch(patch_post),
+        )
         .route("/api/admin/posts/{id}/visibility", patch(patch_visibility))
+        .route("/api/admin/collections", post(create_collection_route))
+        .route(
+            "/api/admin/collections/{id}",
+            delete(delete_collection_route),
+        )
+        .route(
+            "/api/admin/posts/{id}/collections",
+            get(collections_checklist_fragment),
+        )
+        .route(
+            "/api/admin/posts/{id}/collections/{cid}",
+            post(add_post_collection).delete(remove_post_collection),
+        )
+        .route("/api/admin/posts/{id}/edit", get(edit_post_fragment))
 }
 
 #[cfg(test)]
@@ -654,5 +898,359 @@ mod tests {
             crate::models::Visibility::default(),
             crate::models::Visibility::Public
         );
+    }
+
+    // ===== Collections, tags, captions (slice 3) =====
+
+    async fn body_text(resp: axum::response::Response) -> String {
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        String::from_utf8(bytes.to_vec()).unwrap()
+    }
+
+    async fn form_req(method: &str, uri: &str, body: &str, cookie: Option<&str>) -> Request<Body> {
+        let mut req = Request::builder()
+            .method(method)
+            .uri(uri)
+            .header("content-type", "application/x-www-form-urlencoded");
+        if let Some(c) = cookie {
+            req = req.header("cookie", c);
+        }
+        req.body(Body::from(body.to_string())).unwrap()
+    }
+
+    async fn empty_req(method: &str, uri: &str, cookie: Option<&str>) -> Request<Body> {
+        let mut req = Request::builder().method(method).uri(uri);
+        if let Some(c) = cookie {
+            req = req.header("cookie", c);
+        }
+        req.body(Body::empty()).unwrap()
+    }
+
+    /// Every new mutation/fragment route is gated by `AuthSession` alone — the
+    /// admin router carries no middleware layer, so this loop is what proves
+    /// none of the seven slipped through ungated.
+    #[tokio::test]
+    async fn test_collections_routes_require_session() {
+        let (app, pool) = app_with_pool().await;
+        let post_id = seed_post(&pool, "guarded").await;
+
+        let reqs = vec![
+            form_req("POST", "/api/admin/collections", "name=Nope", None).await,
+            empty_req("DELETE", "/api/admin/collections/1", None).await,
+            form_req(
+                "PATCH",
+                &format!("/api/admin/posts/{post_id}"),
+                "caption=x&tags=y",
+                None,
+            )
+            .await,
+            empty_req(
+                "POST",
+                &format!("/api/admin/posts/{post_id}/collections/1"),
+                None,
+            )
+            .await,
+            empty_req(
+                "DELETE",
+                &format!("/api/admin/posts/{post_id}/collections/1"),
+                None,
+            )
+            .await,
+            empty_req("GET", &format!("/api/admin/posts/{post_id}/edit"), None).await,
+            empty_req(
+                "GET",
+                &format!("/api/admin/posts/{post_id}/collections"),
+                None,
+            )
+            .await,
+        ];
+
+        for req in reqs {
+            let method = req.method().clone();
+            let uri = req.uri().clone();
+            let resp = app.clone().oneshot(req).await.unwrap();
+            assert_ne!(
+                resp.status(),
+                HttpStatus::OK,
+                "{method} {uri} should not succeed without a session"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn test_create_collection_201_with_fragment() {
+        let (app, pool) = app_with_pool().await;
+        let cookie = admin_cookie(&pool).await;
+        let resp = app
+            .clone()
+            .oneshot(
+                form_req(
+                    "POST",
+                    "/api/admin/collections",
+                    "name=Figure Studies",
+                    Some(&cookie),
+                )
+                .await,
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), HttpStatus::CREATED);
+        let body = body_text(resp).await;
+        assert!(body.contains(r#"id="rail-collections""#), "{body}");
+        assert!(body.contains("Figure Studies"), "{body}");
+    }
+
+    #[tokio::test]
+    async fn test_create_collection_duplicate_is_409() {
+        let (app, pool) = app_with_pool().await;
+        let cookie = admin_cookie(&pool).await;
+        let first = app
+            .clone()
+            .oneshot(
+                form_req(
+                    "POST",
+                    "/api/admin/collections",
+                    "name=Figure Studies",
+                    Some(&cookie),
+                )
+                .await,
+            )
+            .await
+            .unwrap();
+        assert_eq!(first.status(), HttpStatus::CREATED);
+
+        let second = app
+            .clone()
+            .oneshot(
+                form_req(
+                    "POST",
+                    "/api/admin/collections",
+                    "name=Figure Studies",
+                    Some(&cookie),
+                )
+                .await,
+            )
+            .await
+            .unwrap();
+        assert_eq!(second.status(), HttpStatus::CONFLICT);
+        let body = body_text(second).await;
+        assert!(body.contains("Figure Studies"), "{body}");
+    }
+
+    #[tokio::test]
+    async fn test_create_collection_junk_name_is_400() {
+        let (app, pool) = app_with_pool().await;
+        let cookie = admin_cookie(&pool).await;
+        let resp = app
+            .clone()
+            .oneshot(
+                form_req(
+                    "POST",
+                    "/api/admin/collections",
+                    "name=%21%21%21", // "!!!"
+                    Some(&cookie),
+                )
+                .await,
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), HttpStatus::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn test_delete_collection_returns_fragment() {
+        let (app, pool) = app_with_pool().await;
+        let cookie = admin_cookie(&pool).await;
+        let created = crate::db::create_collection(&pool, "Figure Studies")
+            .await
+            .unwrap();
+
+        let resp = app
+            .clone()
+            .oneshot(
+                empty_req(
+                    "DELETE",
+                    &format!("/api/admin/collections/{}", created.id),
+                    Some(&cookie),
+                )
+                .await,
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), HttpStatus::OK);
+        let body = body_text(resp).await;
+        assert!(body.contains(r#"id="rail-collections""#), "{body}");
+
+        let remaining =
+            crate::db::list_collections_with_counts(&pool, crate::models::Viewer::Admin).await;
+        assert!(remaining.iter().all(|c| c.id != created.id));
+    }
+
+    #[tokio::test]
+    async fn test_patch_post_updates_caption_and_tags() {
+        let (app, pool) = app_with_pool().await;
+        let id = seed_post(&pool, "old caption").await;
+        let cookie = admin_cookie(&pool).await;
+
+        let resp = app
+            .clone()
+            .oneshot(
+                form_req(
+                    "PATCH",
+                    &format!("/api/admin/posts/{id}"),
+                    "caption=New caption&tags=Ink, wash",
+                    Some(&cookie),
+                )
+                .await,
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), HttpStatus::OK);
+        let body = body_text(resp).await;
+        assert!(body.contains("hm-post"), "{body}");
+        assert!(body.contains("New caption"), "{body}");
+
+        assert_eq!(
+            crate::db::get_post_tags(&pool, id).await,
+            vec!["ink".to_string(), "wash".to_string()]
+        );
+    }
+
+    #[tokio::test]
+    async fn test_patch_post_replaces_tags() {
+        let (app, pool) = app_with_pool().await;
+        let id = seed_post(&pool, "caption").await;
+        let cookie = admin_cookie(&pool).await;
+        crate::db::set_post_tags(&pool, id, &["old".to_string()]).await;
+
+        let resp = app
+            .clone()
+            .oneshot(
+                form_req(
+                    "PATCH",
+                    &format!("/api/admin/posts/{id}"),
+                    "caption=caption&tags=new",
+                    Some(&cookie),
+                )
+                .await,
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), HttpStatus::OK);
+        assert_eq!(
+            crate::db::get_post_tags(&pool, id).await,
+            vec!["new".to_string()]
+        );
+    }
+
+    #[tokio::test]
+    async fn test_patch_post_unknown_id_is_404() {
+        let (app, pool) = app_with_pool().await;
+        let cookie = admin_cookie(&pool).await;
+        let resp = app
+            .clone()
+            .oneshot(
+                form_req(
+                    "PATCH",
+                    "/api/admin/posts/999999",
+                    "caption=x&tags=y",
+                    Some(&cookie),
+                )
+                .await,
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), HttpStatus::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn test_membership_add_then_remove() {
+        let (app, pool) = app_with_pool().await;
+        let post_id = seed_post(&pool, "member post").await;
+        let cookie = admin_cookie(&pool).await;
+        let collection = crate::db::create_collection(&pool, "Ink Studies")
+            .await
+            .unwrap();
+
+        let add_resp = app
+            .clone()
+            .oneshot(
+                empty_req(
+                    "POST",
+                    &format!("/api/admin/posts/{post_id}/collections/{}", collection.id),
+                    Some(&cookie),
+                )
+                .await,
+            )
+            .await
+            .unwrap();
+        assert_eq!(add_resp.status(), HttpStatus::OK);
+        let add_body = body_text(add_resp).await;
+        assert!(add_body.contains("art-checklist"), "{add_body}");
+        assert!(add_body.contains("checked"), "{add_body}");
+        assert_eq!(
+            crate::db::get_post_collection_ids(&pool, post_id).await,
+            vec![collection.id]
+        );
+
+        let remove_resp = app
+            .clone()
+            .oneshot(
+                empty_req(
+                    "DELETE",
+                    &format!("/api/admin/posts/{post_id}/collections/{}", collection.id),
+                    Some(&cookie),
+                )
+                .await,
+            )
+            .await
+            .unwrap();
+        assert_eq!(remove_resp.status(), HttpStatus::OK);
+        let remove_body = body_text(remove_resp).await;
+        assert!(!remove_body.contains("checked"), "{remove_body}");
+        assert!(crate::db::get_post_collection_ids(&pool, post_id)
+            .await
+            .is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_membership_unknown_collection_is_404() {
+        let (app, pool) = app_with_pool().await;
+        let post_id = seed_post(&pool, "post").await;
+        let cookie = admin_cookie(&pool).await;
+
+        let resp = app
+            .clone()
+            .oneshot(
+                empty_req(
+                    "POST",
+                    &format!("/api/admin/posts/{post_id}/collections/999"),
+                    Some(&cookie),
+                )
+                .await,
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), HttpStatus::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn test_edit_fragment_prefills() {
+        let (app, pool) = app_with_pool().await;
+        let id = seed_post(&pool, "Old").await;
+        let cookie = admin_cookie(&pool).await;
+        crate::db::set_post_tags(&pool, id, &["ink".to_string()]).await;
+
+        let resp = app
+            .clone()
+            .oneshot(empty_req("GET", &format!("/api/admin/posts/{id}/edit"), Some(&cookie)).await)
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), HttpStatus::OK);
+        let body = body_text(resp).await;
+        assert!(body.contains("Old"), "{body}");
+        assert!(body.contains("ink"), "{body}");
     }
 }

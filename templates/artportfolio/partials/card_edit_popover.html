@@ -1,0 +1,28 @@
+{#
+  The caption/tags edit popover for one card, fetched via `GET
+  /api/admin/posts/{id}/edit`.
+
+  It exists as a GET-then-fill round trip rather than an always-empty inline
+  form because a `Post` carries no tags — an empty tags input plus the PATCH's
+  replace-all semantics would silently wipe a post's tags on the first Save a
+  visitor didn't touch.
+
+  Consumes `post_id: i64`, `caption: String`, `tags_joined: String`
+  (comma-space joined) from scope. The Save button carries the hx-patch,
+  matching the swap contract every visibility button in `post_card.html`
+  already uses: `hx-target="closest .hm-post" hx-swap="outerHTML"` — htmx
+  gathers the enclosing form's fields for a triggering element that is not
+  itself the form.
+#}
+<div class="art-edit-popover" id="art-edit-{{ post_id }}">
+  <form>
+    <label class="hm-field__label" for="art-edit-caption-{{ post_id }}">Caption</label>
+    <textarea class="hm-input" id="art-edit-caption-{{ post_id }}" name="caption">{{ caption }}</textarea>
+    <label class="hm-field__label" for="art-edit-tags-{{ post_id }}">Tags</label>
+    <input class="hm-input" type="text" id="art-edit-tags-{{ post_id }}" name="tags" value="{{ tags_joined }}">
+    <button type="button" class="art-edit-popover__save"
+            hx-patch="/api/admin/posts/{{ post_id }}"
+            hx-target="closest .hm-post"
+            hx-swap="outerHTML">Save</button>
+  </form>
+</div>

@@ -1,0 +1,27 @@
+{#
+  The collections list inside the filter rail. Its own template because it is
+  the swap target for both collection creation and deletion — `hx-target=
+  "#rail-collections" hx-swap="outerHTML"` on both — and because plan B's
+  `filter_rail.html` will `include` this file once collections join the rail
+  for real, sharing field names (`collections`, `is_admin`) with
+  `FeedTemplate`.
+
+  Consumes `collections: Vec<CollectionWithCount>` and `is_admin: bool` from
+  scope. The delete button lives behind `{% if is_admin %}` the same way the
+  card controls do — a visitor sees the list with no way to touch it.
+#}
+<div id="rail-collections">
+  {% for c in collections %}
+  <div class="art-rail__collection">
+    <a href="/artportfolio?collection={{ c.slug }}">{{ c.name }}</a>
+    <span class="art-rail__count">{{ c.count }}</span>
+    {% if is_admin %}
+    <button type="button" class="art-rail__delete" title="Delete" aria-label="Delete collection {{ c.name }}"
+            hx-delete="/api/admin/collections/{{ c.id }}"
+            hx-target="#rail-collections"
+            hx-swap="outerHTML"
+            hx-confirm="Delete this collection? Posts are not deleted.">&times;</button>
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>
