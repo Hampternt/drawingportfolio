@@ -446,7 +446,10 @@ async fn create_collection_route(
         }
         Err(crate::models::CreateCollectionError::DuplicateSlug(name)) => (
             StatusCode::CONFLICT,
-            Html(format!("A collection named \"{name}\" already exists.")),
+            Html(format!(
+                "A collection named \"{}\" already exists.",
+                html_escape(&name)
+            )),
         )
             .into_response(),
     }

@@ -499,7 +499,7 @@ pub async fn create_collection(
 }
 
 /// Deletes a collection and its membership rows, leaving member posts intact.
-/// `false` for an unknown id, which the route turns into a 404.
+/// Returns a bool; the route ignores this and re-renders the rail fragment either way (idempotent by contract).
 pub async fn delete_collection(pool: &DbPool, id: i64) -> bool {
     let mut tx = match pool.begin().await {
         Ok(tx) => tx,
