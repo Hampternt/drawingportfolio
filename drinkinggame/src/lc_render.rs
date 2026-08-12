@@ -2076,6 +2076,7 @@ mod tests {
             event: None,
             settled: Vec::new(),
             reactions: Vec::new(),
+            haunts: Vec::new(),
         }
     }
 

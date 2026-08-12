@@ -266,6 +266,17 @@ pub struct ReactionPlay {
     pub answers: u32,
 }
 
+/// One ghost vote (DDv2 §9.2): `+HAUNT_BONUS` onto a Damage play in flight.
+/// Public the instant it's cast (I10, the same move as `ReactionPlay`, I9) —
+/// `public_view()` projects `LastCallState::haunts` verbatim. `play` names
+/// the ridden `Play.order_key`, not a `ReactionPlay` — a haunt is not a
+/// reaction and never enters `reactions`.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Haunt {
+    pub seat: usize, // the ghost
+    pub play: u32,   // order_key of the ridden play
+}
+
 /// The op vocabulary (Plan F authors real cards against this). "Persists"
 /// means it is stored as an `Effect` on the room; immediate ops apply during
 /// resolution and are never stored.
@@ -409,6 +420,15 @@ pub struct LastCallState {
     /// Drained into `discards` at the end of `resolve()`'s Step 1 fold (8.4
     /// parity): reactions die with the round, resolved or wasted alike.
     pub reactions: Vec<ReactionPlay>,
+    /// Ghost votes cast this round (I10, DDv2 §9.2) — the beat-5 sibling to
+    /// `reactions`. Per-round and per-seat: a seat's presence in this vec
+    /// (`haunt`'s `AlreadyHaunted` guard) IS the once-per-round rule, so
+    /// there is no separate counter to keep in sync. Public the instant it
+    /// exists — `public_view()` projects this field verbatim, same as
+    /// `reactions`. Cleared (not drained into `discards` — a vote is not a
+    /// card, I10) at the end of `resolve()`'s Step 1 fold, alongside the
+    /// reaction drain: eligibility refreshes with the round.
+    pub haunts: Vec<Haunt>,
 }
 
 /// One settled tab — who, which one, and when. New in Task 3: serde
@@ -482,6 +502,9 @@ pub struct PublicView {
     /// is public from the moment it's played, not from reveal or resolve —
     /// see `play_reaction`'s doc comment.
     pub reactions: Vec<ReactionPlay>,
+    /// Projected verbatim from `LastCallState::haunts` (I10): a ghost vote
+    /// is public from the moment it's cast — the same rule as `reactions`.
+    pub haunts: Vec<Haunt>,
 }
 
 /// DDv2 9.3 — the two solo ways a game ends — plus the pact win (G2, Task 2).
@@ -526,6 +549,12 @@ pub enum LcError {
     PactBlocked,
     /// accept_pact/decline_pact: no pending offer from that seat to this one.
     NoOffer,
+    /// haunt: the caller is not `Status::Eliminated` — the mirror of
+    /// `NotAlive` (I10).
+    NotAGhost,
+    /// haunt: this seat already appears in `haunts` this round (9.2, one
+    /// vote per round).
+    AlreadyHaunted,
 }
 
 pub const STARTING_HP: i32 = 15; // DDv2 §2.4, TBD-1
@@ -545,6 +574,8 @@ pub const LC_DECK_SIZE: u16 = 40; // 40-card shoe size, test-pinned per Plan F
 /// Fewer than this many Alive players and the pact market is closed (G7) —
 /// `offer_pact` refuses even a valid target once this floor is breached.
 pub const PACT_MIN_ALIVE: usize = 4;
+/// DDv2 §9.2's "+1 damage": the whole ghost power, playtest-movable (I10).
+pub const HAUNT_BONUS: i32 = 1;
 
 /// Handicap is a percentage (100 = no handicap). Rounds UP, per DDv2 §11.
 /// Integer maths on purpose: a float handicap would let a form field carry
@@ -627,6 +658,7 @@ impl LastCallState {
             event: None,
             tab_ledger: Vec::new(),
             reactions: Vec::new(),
+            haunts: Vec::new(),
         }
     }
 
@@ -1014,6 +1046,9 @@ impl LastCallState {
             // reaction is public in the same mutation that plays it,
             // regardless of which beat the room is currently reading from.
             reactions: self.reactions.clone(),
+            // I10: no gating by `beat`, same as `reactions` — a cast vote is
+            // public in the same mutation that casts it.
+            haunts: self.haunts.clone(),
         }
     }
 
@@ -1362,6 +1397,53 @@ impl LastCallState {
             card,
             source_seat: seat,
             answers,
+        });
+        self.seq += 1;
+        Ok(())
+    }
+
+    /// DDv2 §9.2, I10 — the sole ghost action: cast a `+HAUNT_BONUS` vote
+    /// onto a Damage play in flight. Guard order:
+    ///
+    /// `NotSeated` -> `NotAGhost` (`status` must be `Status::Eliminated` —
+    /// the mirror of `NotAlive`, and the only transition in the game
+    /// reserved for the dead) -> `WrongBeat` (`beat` must be `Beat::Reveal`
+    /// — I1, the same response window `play_reaction` uses: "already in
+    /// flight" is the window) -> `AlreadyHaunted` (this seat already appears
+    /// in `haunts` — the vec is per-round, so membership IS the once-per-
+    /// round rule, 9.2) -> `BadTarget` (no play in `plays` with
+    /// `order_key == order_key`, or `card_fx` on that play's card is not
+    /// `Some(FxDef { op: EffectOp::Damage, .. })` — votes ride attacks,
+    /// nothing else).
+    ///
+    /// Success, one mutation: `haunts.push(Haunt { seat, play: order_key })`,
+    /// `seq += 1`. Public the instant it's cast (I10) — `public_view()`
+    /// projects `haunts` verbatim, same as `reactions`.
+    pub fn haunt(&mut self, player_id: i64, order_key: u32) -> Result<(), LcError> {
+        let Some(seat) = self.seat_of(player_id) else {
+            return Err(LcError::NotSeated);
+        };
+        if self.players[seat].status != Status::Eliminated {
+            return Err(LcError::NotAGhost);
+        }
+        if self.beat != Beat::Reveal {
+            return Err(LcError::WrongBeat);
+        }
+        if self.haunts.iter().any(|h| h.seat == seat) {
+            return Err(LcError::AlreadyHaunted);
+        }
+        let Some(play) = self.plays.iter().find(|p| p.order_key == order_key) else {
+            return Err(LcError::BadTarget);
+        };
+        let is_damage =
+            crate::lc_cards::card_fx(&play.card.id).is_some_and(|f| f.op == EffectOp::Damage);
+        if !is_damage {
+            return Err(LcError::BadTarget);
+        }
+
+        self.haunts.push(Haunt {
+            seat,
+            play: order_key,
         });
         self.seq += 1;
         Ok(())
@@ -2026,14 +2108,23 @@ impl LastCallState {
                     for subject in subjects {
                         match f.op {
                             // I11: Reduce blunts per (answered play,
-                            // subject) — Task 3 adds the haunt-vote term to
-                            // the same total. Non-damage ops never consult
-                            // `reduce_total` at all: a Reduce answering a
-                            // heal or a shield was wasted (I11) — see
+                            // subject); the haunt-vote term (I10, per PLAY —
+                            // every subject of an AoE hit sees the same
+                            // +HAUNT_BONUS*votes, unlike Reduce which is per
+                            // subject) adds in before Reduce blunts it back
+                            // down, both floored at 0 together. Non-damage
+                            // ops never consult `reduce_total` or `haunts`
+                            // at all: a Reduce or a haunt answering a heal or
+                            // a shield was wasted (I11/I10) — see
                             // `Heal`/`Shield`/`PullDrain`/`Dot` below, none
-                            // of which read the map.
+                            // of which read either map.
                             EffectOp::Damage => {
-                                let reduced = f.magnitude
+                                let votes = self
+                                    .haunts
+                                    .iter()
+                                    .filter(|h| h.play == play.order_key)
+                                    .count() as i32;
+                                let reduced = f.magnitude + HAUNT_BONUS * votes
                                     - reduce_total
                                         .get(&(play.order_key, subject))
                                         .copied()
@@ -2086,6 +2177,10 @@ impl LastCallState {
         // doesn't need that invariant to hold to be correct).
         self.discards
             .extend(self.reactions.drain(..).map(|rp| rp.card));
+        // I10: votes are not cards — cleared, not drained into `discards`.
+        // Alongside the reaction drain so eligibility refreshes with the
+        // round for both systems in the same step.
+        self.haunts.clear();
 
         // Step 2: tick dots (10.4, creation order). Snapshotted before
         // applying: the no-stack rule (D10) guarantees at most one Dot
@@ -5231,5 +5326,117 @@ mod tests {
         st.resolve().unwrap();
         assert_eq!(st.players[1].status, Status::Eliminated); // bob died to alice's hit
         assert_eq!(st.players[0].hp, 15); // his own reflected attack never ran
+    }
+
+    /// cara is a ghost; alice's beer-02 (Damage 4 → bob) is in flight, order_key 1.
+    fn ghost_table() -> LastCallState {
+        let mut st = at_lock();
+        st.players[2].status = Status::Eliminated;
+        st.players[2].hand.clear(); // ghosts hold no cards (9.2)
+        st.arm(1, "beer-02").unwrap();
+        st.set_target(1, "beer-02", Some(1)).unwrap();
+        st.lock_in(1).unwrap();
+        st.lock_in(2).unwrap();
+        st.advance_beat().unwrap(); // Lock → Reveal
+        st
+    }
+
+    #[test]
+    fn test_a_ghost_haunts_once_a_round_for_plus_one() {
+        let mut st = ghost_table();
+        let seq = st.seq;
+        st.haunt(3, 1).unwrap();
+        assert_eq!(st.haunts, vec![Haunt { seat: 2, play: 1 }]);
+        assert_eq!(st.seq, seq + 1);
+        assert_eq!(st.haunt(3, 1), Err(LcError::AlreadyHaunted)); // one per round
+        st.advance_beat().unwrap();
+        st.resolve().unwrap();
+        assert_eq!(st.players[1].hp, 10); // 15 − (4 + HAUNT_BONUS)
+        assert!(st.haunts.is_empty());
+
+        // The vote refreshes next round: walk round 2 to another reveal.
+        for _ in 0..3 {
+            st.advance_beat().unwrap();
+        } // Draw→Deal→Diplomacy→Lock
+        st.arm(1, "beer-01").unwrap(); // Damage 2, still in hand
+        st.set_target(1, "beer-01", Some(1)).unwrap();
+        st.lock_in(1).unwrap();
+        st.lock_in(2).unwrap();
+        st.advance_beat().unwrap(); // Reveal, order_key 1 again
+        st.haunt(3, 1).unwrap(); // fresh vote
+    }
+
+    /// MANDATORY — ghost-action legality: the living cannot haunt, and a vote
+    /// only rides a damage play inside the window.
+    #[test]
+    fn test_only_ghosts_haunt_and_only_attacks() {
+        let mut st = ghost_table();
+        assert_eq!(st.haunt(1, 1), Err(LcError::NotAGhost)); // alice lives
+        assert_eq!(st.haunt(999, 1), Err(LcError::NotSeated));
+        assert_eq!(st.haunt(3, 7), Err(LcError::BadTarget)); // no such play
+        st.beat = Beat::Lock;
+        assert_eq!(st.haunt(3, 1), Err(LcError::WrongBeat)); // window only
+
+        // A heal in flight is not hauntable:
+        let mut st = at_lock();
+        st.players[2].status = Status::Eliminated;
+        st.players[2].hand.clear();
+        st.arm(1, "beer-03").unwrap(); // Buff, targets "self", Heal 2
+        st.lock_in(1).unwrap();
+        st.lock_in(2).unwrap();
+        st.advance_beat().unwrap();
+        assert_eq!(st.haunt(3, 1), Err(LcError::BadTarget));
+    }
+
+    #[test]
+    fn test_a_cancel_wastes_the_vote() {
+        // I11 — the ghost bet on a dead horse
+        let mut st = at_lock();
+        st.players[2].status = Status::Eliminated;
+        st.players[2].hand.clear();
+        st.players[1]
+            .hand
+            .push(crate::lc_cards::card_by_id("cider-08").unwrap());
+        st.arm(1, "beer-02").unwrap();
+        st.set_target(1, "beer-02", Some(1)).unwrap();
+        st.lock_in(1).unwrap();
+        st.lock_in(2).unwrap();
+        st.advance_beat().unwrap();
+        st.haunt(3, 1).unwrap();
+        st.play_reaction(2, "cider-08", 1).unwrap();
+        st.advance_beat().unwrap();
+        st.resolve().unwrap();
+        assert_eq!(st.players[1].hp, 15); // cancel kills the play, vote and all
+    }
+
+    #[test]
+    fn test_votes_and_reductions_share_one_ledger() {
+        // I11's formula, both terms
+        let mut st = at_lock();
+        st.players[2].status = Status::Eliminated;
+        st.players[2].hand.clear();
+        st.players[0]
+            .hand
+            .push(crate::lc_cards::card_by_id("beer-08").unwrap());
+        st.arm(2, "cider-05").unwrap(); // Damage 4 → alice
+        st.set_target(2, "cider-05", Some(0)).unwrap();
+        st.lock_in(1).unwrap();
+        st.lock_in(2).unwrap();
+        st.advance_beat().unwrap();
+        st.play_reaction(1, "beer-08", 1).unwrap(); // Reduce 3
+        st.haunt(3, 1).unwrap(); // +1
+                                 // Isolate the ledger math from an unrelated interaction (the known
+                                 // adjacent flag from Task 2's report, H7/H9): seat 0's deterministic
+                                 // opening tab under seed 42 is "lie-low" (`TabCheck::NoPlays`,
+                                 // +2 HP), and alice armed nothing this round — a played *reaction*
+                                 // is not a `Play` (I9/TBD-7), so `NoPlays` reads her as having
+                                 // played none and would settle the tab, adding 2 HP on top of the
+                                 // Damage/Reduce/haunt ledger this test exists to pin. Clearing her
+                                 // tab removes that unrelated settlement without touching anything
+                                 // this test (or `haunt`) actually governs.
+        st.players[0].tabs.clear();
+        st.advance_beat().unwrap();
+        st.resolve().unwrap();
+        assert_eq!(st.players[0].hp, 13); // 15 − max(0, 4 + 1 − 3)
     }
 }
