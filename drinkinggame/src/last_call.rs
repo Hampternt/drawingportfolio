@@ -1610,8 +1610,23 @@ impl LastCallState {
         // resolution order the death happened. Offers need no equivalent
         // sweep: they never survive past Diplomacy (see `advance_beat`'s
         // Diplomacy→Lock edge).
+        //
+        // M3: bounds-checked like every other seat lookup in this function
+        // (the dead-source skip, the "one"-target fizzle, the dot-tick
+        // filter) — `from_json` truncates `players` to MAX_SEATS but does
+        // NOT sanitize `pacts`, so a pre-ceiling blob could still name a
+        // seat past the new ceiling. `.get(..).is_some_and(..)` treats a
+        // vanished seat the same as a dead one: the pact silently
+        // dissolves, which is the correct G9 outcome either way, instead of
+        // panicking on `self.players[p.a]`.
         self.pacts.retain(|p| {
-            self.players[p.a].status == Status::Alive && self.players[p.b].status == Status::Alive
+            self.players
+                .get(p.a)
+                .is_some_and(|q| q.status == Status::Alive)
+                && self
+                    .players
+                    .get(p.b)
+                    .is_some_and(|q| q.status == Status::Alive)
         });
 
         // Step 7: bump seq; stop here if the game just ended (D16).
@@ -2176,6 +2191,16 @@ mod tests {
         assert_eq!(st.pact_barred, vec![0]);
         // The break is the one public trace (G5):
         assert_eq!(st.public_view().pact_breaks, st.pact_breaks);
+        // Secrecy holds even now that pact_barred/pact_breaks are both
+        // populated (not just in the all-intact case
+        // `test_pacts_and_offers_never_reach_the_public_view` covers):
+        // pact_breaks is the ONE field allowed to leak.
+        let json = serde_json::to_string(&st.public_view()).unwrap();
+        assert!(!json.contains("\"pacts\""));
+        assert!(!json.contains("pact_offers"));
+        assert!(!json.contains("pact_barred"));
+        assert!(!json.contains("formed_round"));
+        assert!(json.contains("\"pact_breaks\""));
         // Next Diplomacy: the betrayer is out of the market for good.
         st.beat = Beat::Diplomacy;
         assert_eq!(st.offer_pact(1, 2), Err(LcError::PactBlocked));
@@ -2272,6 +2297,96 @@ mod tests {
             serde_json::to_string(&LcOutcome::Pact(0, 1)).unwrap(),
             r#"{"pact":[0,1]}"#
         );
+    }
+
+    #[test]
+    fn test_a_hostile_card_played_on_yourself_is_not_betrayal() {
+        // G4: the operative condition is `target == partner`, not merely "a
+        // pacted player played a hostile card" — self-targeting must not
+        // trip it, even though set_target explicitly allows a "one" card
+        // to name its own caster.
+        let mut st = at_diplomacy();
+        st.offer_pact(1, 1).unwrap();
+        st.accept_pact(2, 0).unwrap(); // alice-bob
+        st.beat = Beat::Lock;
+        st.arm(1, "beer-01").unwrap(); // Damage 2, targets "one"
+        st.set_target(1, "beer-01", Some(0)).unwrap(); // ...at herself
+        st.lock_in(1).unwrap();
+        st.advance_beat().unwrap();
+        st.advance_beat().unwrap();
+        st.resolve().unwrap();
+        assert_eq!(st.players[0].hp, 13);
+        assert_eq!(st.pacts.len(), 1);
+        assert!(st.pact_breaks.is_empty() && st.pact_barred.is_empty());
+    }
+
+    #[test]
+    fn test_the_betrayers_knife_fizzles_on_an_already_dead_partner_same_resolve() {
+        // G4/G9: if the partner died earlier in the SAME resolve (here, to
+        // a third party), the fizzle gate in the subject-resolution match
+        // already `continue`s before the betrayal check is ever reached —
+        // per the code comment, "a play fizzling on an already-dead partner
+        // breaks nothing; the end-of-resolve sweep dissolves that pact
+        // silently instead." This pins that this is NOT indistinguishable
+        // from `test_elimination_dissolves_the_pact_silently`: here the
+        // knife really was in the surviving partner's hand, and it still
+        // produces no PactBreak and bars nobody.
+        let mut st = at_diplomacy();
+        st.offer_pact(1, 1).unwrap();
+        st.accept_pact(2, 0).unwrap(); // alice-bob
+        st.players[1].hp = 2;
+        st.beat = Beat::Lock;
+        // cara out-spends alice (2 pulls vs 1), so her plays resolve first
+        // regardless of the table-position tie-break (7.1/7.2) — bob is
+        // dead before alice's play is ever reached.
+        st.arm(3, "soft-06").unwrap(); // Damage 2 -> bob, kills him outright
+        st.set_target(3, "soft-06", Some(1)).unwrap();
+        st.arm(3, "soft-01").unwrap(); // Heal 2 -> herself, pure padding spend
+        st.set_target(3, "soft-01", Some(2)).unwrap();
+        st.lock_in(3).unwrap();
+        st.arm(1, "beer-01").unwrap(); // alice's knife: Damage 2 -> her partner
+        st.set_target(1, "beer-01", Some(1)).unwrap();
+        st.lock_in(1).unwrap();
+        st.advance_beat().unwrap();
+        st.advance_beat().unwrap();
+        st.resolve().unwrap();
+        assert_eq!(st.players[1].status, Status::Eliminated);
+        assert!(st.pacts.is_empty()); // dissolved by the Step 6 sweep
+        assert!(st.pact_breaks.is_empty()); // NOT a public break
+        assert!(st.pact_barred.is_empty()); // alice is not barred
+    }
+
+    #[test]
+    fn test_a_same_resolve_betrayal_pre_empts_the_pact_win() {
+        // G2 vs G4/G5 ordering: betrayal (Step 1) always runs before
+        // outcome() (Step 7) within one resolve() call. If the same round
+        // that would otherwise leave a pacted pair the last two standing
+        // ALSO contains one of them knifing the other, the pact is already
+        // gone by the time outcome() looks — no shared win, and the game
+        // does not end even though only two players remain.
+        let mut st = at_diplomacy();
+        st.offer_pact(1, 1).unwrap();
+        st.accept_pact(2, 0).unwrap(); // alice-bob
+        st.players[2].hp = 1;
+        st.players[3].hp = 1;
+        st.beat = Beat::Lock;
+        // beer-05 is not in Beer's opener (F6) — deal it into alice's hand.
+        st.players[0]
+            .hand
+            .push(crate::lc_cards::card_by_id("beer-05").unwrap());
+        st.arm(1, "beer-05").unwrap(); // aoe 1: kills cara and dave, splashes bob
+        st.arm(1, "beer-01").unwrap(); // ...and alice also knifes her own partner
+        st.set_target(1, "beer-01", Some(1)).unwrap();
+        st.lock_in(1).unwrap();
+        st.advance_beat().unwrap();
+        st.advance_beat().unwrap();
+        st.resolve().unwrap();
+        assert_eq!(st.players[2].status, Status::Eliminated);
+        assert_eq!(st.players[3].status, Status::Eliminated);
+        assert_eq!(st.players[1].status, Status::Alive);
+        assert_eq!(st.pact_breaks.len(), 1);
+        assert!(st.pacts.is_empty());
+        assert_eq!(st.outcome(), None); // NOT Pact(0, 1) — betrayal wins the race
     }
 
     #[test]
