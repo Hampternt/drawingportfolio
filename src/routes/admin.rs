@@ -971,12 +971,33 @@ mod tests {
             let method = req.method().clone();
             let uri = req.uri().clone();
             let resp = app.clone().oneshot(req).await.unwrap();
-            assert_ne!(
+            // `AuthSession`'s rejection is always `Redirect::to("/admin/login")`,
+            // i.e. 303 See Other — assert that exact status, not merely
+            // "not 200". `create_collection_route` succeeds with 201, and
+            // `assert_ne!(status, OK)` cannot tell a missing `_session`
+            // extractor (which would 201 straight through) from a present one.
+            assert_eq!(
                 resp.status(),
-                HttpStatus::OK,
-                "{method} {uri} should not succeed without a session"
+                HttpStatus::SEE_OTHER,
+                "{method} {uri} should redirect to login without a session"
             );
         }
+
+        // Belt and braces on the same blind spot: even if some future
+        // rejection shape stopped being a clean 303, no route above may have
+        // actually mutated the database.
+        assert!(
+            crate::db::list_collections_with_counts(&pool, crate::models::Viewer::Admin)
+                .await
+                .is_empty(),
+            "an unauthenticated request must not create a collection"
+        );
+        assert!(
+            crate::db::get_post_collection_ids(&pool, post_id)
+                .await
+                .is_empty(),
+            "an unauthenticated request must not add the post to a collection"
+        );
     }
 
     #[tokio::test]
@@ -1021,13 +1042,18 @@ mod tests {
             .unwrap();
         assert_eq!(first.status(), HttpStatus::CREATED);
 
+        // Different case, same slug — the point is that the 409 body carries
+        // the *stored* collection's name ("Figure Studies", display case
+        // preserved from the first insert), not merely an echo of whatever
+        // this request happened to send. Sending the same literal string
+        // twice couldn't tell those two apart.
         let second = app
             .clone()
             .oneshot(
                 form_req(
                     "POST",
                     "/api/admin/collections",
-                    "name=Figure Studies",
+                    "name=figure studies",
                     Some(&cookie),
                 )
                 .await,

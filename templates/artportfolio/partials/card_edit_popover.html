@@ -13,9 +13,16 @@
   already uses: `hx-target="closest .hm-post" hx-swap="outerHTML"` — htmx
   gathers the enclosing form's fields for a triggering element that is not
   itself the form.
+
+  `onsubmit="return false"` — the tags input is the form's only field that
+  doesn't block implicit submission, so Enter there would otherwise submit
+  the bare form as a real GET to the current URL. Both shells set
+  `hx-boost="true"` on `<body>`, so that GET boosts: it swaps the whole
+  page body and discards this popover along with whatever wasn't Saved yet.
+  Same idiom `filter_rail.html`'s search form already uses.
 #}
 <div class="art-edit-popover" id="art-edit-{{ post_id }}">
-  <form>
+  <form onsubmit="return false">
     <label class="hm-field__label" for="art-edit-caption-{{ post_id }}">Caption</label>
     <textarea class="hm-input" id="art-edit-caption-{{ post_id }}" name="caption">{{ caption }}</textarea>
     <label class="hm-field__label" for="art-edit-tags-{{ post_id }}">Tags</label>
