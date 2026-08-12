@@ -760,13 +760,12 @@ body.lc-screen .lc-banner-meta { font-size: 12px; letter-spacing: .2em; }
 body.lc-screen .lc-timer { height: 3px; }
 
 /* Task 4's repaint hook: lc_screen.html's SSE listener needs a stable
-   element id to replace on every `lcpublic` frame (`lc_screen_panel`'s two
-   roots, .lc-screen-grid and #lc-flights, have no shared wrapper of their
-   own). `display: contents` drops the wrapper from the box tree entirely,
-   so .lc-screen-grid still lands directly against body.lc-screen (the flex
-   container `flex: 1` below depends on) and #lc-flights still resolves its
-   containing block through to body.lc-screen's `position: relative` — an id
-   wrapper with a real box would break both. */
+   element id to replace on every `lcpublic` frame. `display: contents`
+   drops the wrapper from the box tree entirely, so `.lc-screen-grid` (the
+   sole root `lc_screen_panel` builds — Plan E Task 3 moved `#lc-flights`
+   out to a static sibling of this id in the shell template) still lands
+   directly against body.lc-screen, which the flex container `flex: 1`
+   below depends on; an id wrapper with a real box would break that. */
 #lc-screen-panel { display: contents; }
 
 /* 300px | felt | 300px, per the bundle's big-screen v2. The felt keeps the

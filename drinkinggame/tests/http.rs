@@ -4554,6 +4554,93 @@ async fn test_lctick_payload_is_never_empty() {
     assert!(!data.trim().is_empty(), "{tick_frame}");
 }
 
+/// Plan E Task 3, the debt's closure: `#lc-flights` now lives exactly once
+/// per shell page (`lc_room.html`, `lc_screen.html`) and zero times in
+/// either fetched, per-viewer fragment (`lc_hand_pane`/`lc_mini_table`'s
+/// output via the hand/table routes). A repaint that replaces one of those
+/// fragments' markup — `lcApply`'s `pane.innerHTML`,
+/// `lcApplyTable`'s `#lc-table.outerHTML` — can therefore no longer destroy
+/// the flight layer or drop a flight's `onArrive`, because the layer is
+/// never inside the swapped subtree.
+#[tokio::test]
+async fn test_the_flight_layer_lives_in_the_shells_not_the_fragments() {
+    let app = test_app().await;
+    let alice = login(&app, "alice", "1234").await;
+    let bob = login(&app, "bob", "5678").await;
+    let code = create_room(&app, &alice).await;
+    room_page_html(&app, &bob, &code).await;
+    post_form(&app, &alice, &format!("/room/{code}/lastcall/start"), "").await;
+
+    let shell = body_string(get_shell(&app, &alice, &code).await).await;
+    assert_eq!(
+        shell.matches(r#"id="lc-flights""#).count(),
+        1,
+        "the phone shell must carry exactly one static flight layer: {shell}"
+    );
+
+    let screen = body_string(get(&app, &format!("/room/{code}/screen")).await).await;
+    assert_eq!(
+        screen.matches(r#"id="lc-flights""#).count(),
+        1,
+        "the big screen must carry exactly one static flight layer: {screen}"
+    );
+
+    let hand = body_string(get_hand(&app, &alice, &code).await).await;
+    assert_eq!(
+        hand.matches(r#"id="lc-flights""#).count(),
+        0,
+        "the fetched hand fragment must never contain the flight layer: {hand}"
+    );
+
+    let table = body_string(get_table(&app, &alice, &code).await).await;
+    assert_eq!(
+        table.matches(r#"id="lc-flights""#).count(),
+        0,
+        "the fetched table fragment must never contain the flight layer: {table}"
+    );
+}
+
+/// Decision E12: a lagged `broadcast::Receiver` (one `Err(RecvError::Lagged)`
+/// per gap, however many frames it covers — see `BroadcastStream`) now emits
+/// a synthetic `lctick` with payload `"0"` instead of being silently dropped.
+/// The channel holds 128 messages; `persist_and_broadcast_lc` publishes four
+/// per handicap POST (game, room, lcpublic, lctick), so 40 POSTs (160 frames)
+/// without draining the subscriber overruns it and forces a lag. Zero never
+/// lowers the client's seq floor (the listener keeps `max(lcSeq, data)`) but
+/// still fires the coalesced re-fetch, so this is content-filtered on the
+/// synthetic payload itself, not just the event name.
+#[tokio::test]
+async fn test_a_lagged_subscriber_is_told_to_refetch() {
+    let (app, pool) = test_app_with_pool().await;
+    let alice = login(&app, "alice", "1234").await;
+    let bob = login(&app, "bob", "5678").await;
+    let code = create_room(&app, &alice).await;
+    room_page_html(&app, &bob, &code).await;
+    post_form(&app, &alice, &format!("/room/{code}/lastcall/start"), "").await;
+    let alice_player = drinkinggame::db::get_player_by_name(&pool, "alice")
+        .await
+        .unwrap();
+
+    let res = get(&app, &format!("/room/{code}/sse")).await;
+    let mut body = res.into_body().into_data_stream();
+    read_sse_until(&mut body, "event: lcpublic").await; // drain the snapshot
+
+    // WITHOUT polling the body further: 40 POSTs x 4 frames each = 160,
+    // which overruns the 128-capacity channel and lags this receiver.
+    for _ in 0..40 {
+        post_form(
+            &app,
+            &alice,
+            &format!("/room/{code}/lastcall/handicap"),
+            &format!("target={}&handicap_pct=150", alice_player.id),
+        )
+        .await;
+    }
+
+    let seen = read_sse_until(&mut body, "data: 0").await;
+    assert!(seen.contains("event: lctick"), "{seen}");
+}
+
 // -------------------------------------------------------------
 // Last Call (Task 3, fix-loop round 1): `lcApply`'s `innerHTML` swap on
 // `[data-lc-pane="hand"]` was clobbering in-progress form state (the vessel

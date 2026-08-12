@@ -15,6 +15,11 @@
     {{ banner|safe }}
   </div>
   <div id="lc-screen-panel" data-seq="{{ seq }}">{{ panel|safe }}</div>
+  {# Static sibling of #lc-screen-panel, outside the id an `lcpublic` repaint
+     replaces (innerHTML swap below), so a repaint can never destroy a
+     mid-flight node and drop its onArrive. Containing block is
+     body.lc-screen's `position: relative` (lastcall.css). #}
+  <div id="lc-flights"></div>
   <script>
 const BP = "{{ base_path }}", CODE = "{{ code }}";
 

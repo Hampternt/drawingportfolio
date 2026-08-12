@@ -636,12 +636,12 @@ fn seat_pos(n: usize, seat: usize, me: Option<usize>) -> Option<SeatPos> {
     seat_positions(n).get(view_index(seat, me, n)).copied()
 }
 
-/// F.2 big-screen body — the three-column grid plus the flight layer.
-/// Header meta (mark, code, round, banner) is the template's (Task 4);
-/// this is `.lc-screen-grid` (seat-order rail, felt ring, deck rail)
-/// followed by `#lc-flights` as a sibling, not nested inside it — see the
-/// comment at its call site below. Absolute seat order throughout — a
-/// spectator has no seat, so nothing here rotates.
+/// F.2 big-screen body — the three-column grid (seat-order rail, felt
+/// ring, deck rail). The flight layer is no longer built here: Plan E
+/// Task 3 moved `#lc-flights` out to the static shell (`lc_screen.html`),
+/// a sibling of this panel rather than something this repaint can destroy
+/// — see that template. Absolute seat order throughout — a spectator has
+/// no seat, so nothing here rotates.
 pub fn lc_screen_panel(view: &PublicView) -> String {
     let n = view.seats.len();
 
@@ -699,23 +699,12 @@ pub fn lc_screen_panel(view: &PublicView) -> String {
         discard = discard_slot(view.discard_count),
     );
 
-    // #lc-flights is a SIBLING of .lc-screen-grid, not nested inside it and
-    // not inside .lc-stage: a flight travels from a deck-stack anchor in
-    // the RIGHT RAIL to a seat anchor in the STAGE, so it must not be
-    // confined to .lc-stage's box (overflow:hidden, only the grid's middle
-    // column) — and .lc-screen-grid itself also carries overflow:hidden,
-    // so nesting it there would only escape the clip by relying on
-    // clip-escape-via-containing-block rather than avoiding the clipping
-    // ancestor outright. Task 2's CSS gives body.lc-screen (the template's
-    // root, wrapping this grid — Task 4's territory) `position: relative`
-    // expressly "so #lc-flights needs it": that is its containing block,
-    // and returning #lc-flights as the last sibling here makes it the last
-    // child of that root once Task 4 wraps it. The brief's Step 1.2 places
-    // it inside `.lc-stage`; this deviates from the literal text to match
-    // the CSS Task 2 actually shipped. See the task report.
-    format!(
-        r#"<div class="lc-screen-grid">{left_rail}{stage}{right_rail}</div><div id="lc-flights"></div>"#
-    )
+    // No `#lc-flights` here (Plan E Task 3): the layer is now a static
+    // sibling of this grid in `lc_screen.html`, outside every repainted
+    // pane, so an `lcpublic` repaint can no longer destroy a mid-flight
+    // node and drop its `onArrive`. See that template for the containing
+    // block (`body.lc-screen { position: relative }`, `lastcall.css:632`).
+    format!(r#"<div class="lc-screen-grid">{left_rail}{stage}{right_rail}</div>"#)
 }
 
 /// F.3 phone mini table, rotated so `me` sits at bottom-centre — the whole
@@ -729,29 +718,13 @@ pub fn lc_screen_panel(view: &PublicView) -> String {
 /// adjudication. The `.lc-minitable-row*` CSS that anticipated them has
 /// since been deleted as dead — style them next to whatever renders them.
 ///
-/// # The phone's only flight layer lives in here — read before firing one
-///
-/// The `#lc-flights` emitted below is the F.1 shell's *sole* layer:
-/// `lc_hand_pane` emits none, and `lc_room.html` marks no
-/// `[data-lc-scene]`, so `ensureLayer` falls back to `document.body` and
-/// then finds this one by descendant query. It therefore sits inside
-/// `<section data-lc-pane="table">`, which is `hidden` unless the viewer
-/// has the TABLE tab open.
-///
-/// Harmless today: nothing on the phone calls `lcFlight` — the beat state
-/// machine's transitions are stubbed. **The task that first fires a phone
-/// flight must move the layer out of this fragment before doing so.** A
-/// flight appended into a `display: none` host never animates, so
-/// `animationend` never fires, the node is never removed, and `onArrive`
-/// never runs. Marking `body.lc` with `data-lc-scene` is *not* the fix —
-/// `ensureLayer` searches the host's descendants, so it would still reach
-/// this layer.
-///
-/// Where it should move to is that task's call, not this one's: a
-/// deck-to-seat flight belongs to the table, a draw-to-hand flight to the
-/// hand, and only the beat loop knows which it fires. Doing it here would
-/// also re-open Task 3's builder, its `lc_render` tests, and the
-/// containing-block reasoning recorded at `lastcall.css:551-563`.
+/// No flight layer is built here (Plan E Task 3): `#lc-flights` is now a
+/// static sibling of `.lc-view` in `lc_room.html`, outside every
+/// `[data-lc-pane]` this table (or the hand pane) repaints, so a table
+/// (or `lcpublic`) repaint can no longer destroy a mid-flight node and
+/// drop its `onArrive`. `ensureLayer`'s existing-layer guard finds that
+/// static node regardless of which pane is active, so a flight now
+/// survives a tab switch as well as a repaint.
 pub fn lc_mini_table(view: &PublicView, me: Option<usize>) -> String {
     let n = view.seats.len();
 
@@ -794,7 +767,7 @@ pub fn lc_mini_table(view: &PublicView, me: Option<usize>) -> String {
     );
 
     format!(
-        r#"<div class="lc-minitable"><div id="lc-felt"></div><div class="lc-minitable-ring">{chips}</div>{centre}<div id="lc-flights"></div></div>"#
+        r#"<div class="lc-minitable"><div id="lc-felt"></div><div class="lc-minitable-ring">{chips}</div>{centre}</div>"#
     )
 }
 
@@ -1655,18 +1628,14 @@ mod tests {
     }
 
     #[test]
-    fn test_screen_panel_flights_are_a_sibling_of_the_grid_not_the_stage() {
-        // Deviation from the brief's Step 1.2, pinned: the flight layer is
-        // a sibling of .lc-screen-grid, never inside .lc-stage — the stage
-        // is overflow:hidden and only the grid's middle column, so a
-        // deck-to-seat flight (deck anchors live in .lc-rail-right) would
-        // be clipped and mis-anchored if nested there. Its containing
-        // block is body.lc-screen (Task 2's CSS says so in as many words).
-        // See the task report.
+    fn test_screen_panel_no_longer_builds_the_flight_layer() {
+        // Plan E Task 3: `#lc-flights` moved out of this builder's output
+        // into the static shell (`lc_screen.html`), a sibling of the
+        // rendered grid, specifically so an `lcpublic` repaint (which
+        // replaces this panel's markup wholesale) can never destroy a
+        // mid-flight node and drop its `onArrive`.
         let html = lc_screen_panel(&ring_fixture(4));
-        let flights = html.find(r#"id="lc-flights""#).unwrap();
-        assert!(flights > html.find("lc-rail-right").unwrap());
-        assert!(flights > html.find("class=\"lc-stage\"").unwrap());
+        assert!(!html.contains("lc-flights"));
     }
 
     #[test]
@@ -1724,9 +1693,15 @@ mod tests {
             lc_screen_panel(&ring_fixture(7)),
             lc_mini_table(&ring_fixture(7), Some(3)),
         ] {
-            for needle in ["id=\"lc-felt\"", "id=\"lc-flights\""] {
-                assert_eq!(html.matches(needle).count(), 1, "duplicate {needle}");
-            }
+            assert_eq!(
+                html.matches("id=\"lc-felt\"").count(),
+                1,
+                "duplicate id=\"lc-felt\""
+            );
+            // Plan E Task 3: the flight layer is no longer built by either
+            // panel — it is static in the shell templates now, so a
+            // repaint of this fragment can't destroy a mid-flight node.
+            assert!(!html.contains("lc-flights"));
             let mut anchors: Vec<&str> = html
                 .match_indices("data-flight-anchor=\"")
                 .map(|(i, m)| {

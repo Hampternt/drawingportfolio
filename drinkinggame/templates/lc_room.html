@@ -24,12 +24,6 @@
 
   <main class="lc-view">
     <section class="lc-pane" data-lc-pane="hand">{{ hand_pane|safe }}</section>
-    {# This pane is the shell's only scene root: lc_mini_table emits the
-       single #lc-flights, and with no [data-lc-scene] anywhere on this page
-       ensureLayer falls back to document.body and finds it in here by
-       descendant query. Deliberate for now, not accidental — but the layer
-       is inside a `hidden` pane, so the task that first fires a phone flight
-       must move it out first. Full reasoning on lc_mini_table. #}
     <section class="lc-pane" data-lc-pane="table" hidden>{{ table_pane|safe }}
       {# A sibling of #lc-table, not a descendant — lcApplyTable below
          replaces #lc-table by id (outerHTML), never this section's
@@ -48,6 +42,14 @@
     <button type="button" class="lc-btn lc-btn-drink" disabled>DRINK</button>
     <button type="button" class="lc-btn lc-btn-secondary" disabled>PASS</button>
   </div>
+
+  {# The flight layer is a static sibling of .lc-view — outside every
+     repainted pane, so no hand/table/lcpublic repaint can ever destroy a
+     mid-flight node and drop its onArrive. Visible regardless of which
+     tab is active; found by ensureLayer's existing-layer guard, which
+     checks for a node before creating one. Its containing block is
+     body.lc's `position: relative` (Plan A2 / Plan B). #}
+  <div id="lc-flights"></div>
 
   <script>
 const BP = "{{ base_path }}", CODE = "{{ code }}";

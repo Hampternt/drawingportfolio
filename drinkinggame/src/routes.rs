@@ -615,16 +615,20 @@ async fn sse_stream(
             // above: a `data:` field must be present or EventSource drops
             // the event silently and clients never learn the room ended.
             Ok(RoomMessage::Ended) => Some(Ok(Event::default().event("ended").data("gone"))),
-            // Lagged receiver: skip. True for every *other* variant here —
-            // each carries a freshly rendered fragment, so the next one that
-            // arrives is a complete replacement. NOT true for `LcTick`: it
-            // carries no state, only a seq number, so a lagged receiver that
-            // drops a tick simply never re-fetches its hand for that change
-            // and can stay stale until some unrelated later change ticks
-            // again (plan-end review finding M5; harmless today at 128
-            // buffered messages and three publishes per change — ~43
-            // unacknowledged changes to trigger — but worth knowing).
-            Err(_) => None,
+            // A lagged receiver dropped RoomMessage frames. Every content
+            // variant is a complete replacement, so the next one heals —
+            // except a dropped LcTick, which IS the re-fetch signal
+            // (plan-B review finding M5): a phone that misses one can stay
+            // stale until an unrelated later change. So a lag emits a
+            // synthetic lctick with data "0": zero never lowers the
+            // client's seq floor (the listener keeps max(lcSeq, data)),
+            // but it still fires the coalesced re-fetch, and the
+            // stale-drop rule makes that fetch safe whatever was missed.
+            // Ring of Fire / 3 Man clients register no lctick listener, so
+            // for them the frame is inert — their four-frame contract is
+            // about the snapshot, not the live stream (see
+            // test_rof_sse_snapshot_has_no_lcpublic, which stays green).
+            Err(_) => Some(Ok(Event::default().event("lctick").data("0"))),
         }
     }));
 
