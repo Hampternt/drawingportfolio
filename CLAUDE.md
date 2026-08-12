@@ -6,14 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```bash
 ./scripts/verify.sh    # the gate: fmt + clippy + tests + JS syntax — run this before claiming done
-cargo build            # debug build
-cargo build --release  # release build
-cargo run              # run dev server on :3000
 cargo test --workspace # run all tests — the --workspace flag is NOT optional, see below
-cargo test <name>      # run a single test, e.g. cargo test test_insert_and_get_post
-cargo clippy           # lint
-cargo fmt              # format
-cargo fmt --check      # check formatting without modifying
 ```
 
 When building without a live database (e.g. on the server): `SQLX_OFFLINE=true cargo build --release`. The `drinkinggame` crate uses runtime-checked sqlx queries — it has no `.sqlx` cache entries, and `cargo sqlx prepare` remains portfolio-only.
@@ -28,26 +21,11 @@ Tests live in `src/db.rs` (db-layer: posts, sessions, nutrition CRUD, slots, tar
 
 ## Environment
 
-Copy `.env.example` to `.env`. Key variables:
-
-| Variable | Purpose |
-|----------|---------|
-| `DATABASE_URL` | SQLite path (e.g. `sqlite:./portfolio.db` or absolute `sqlite:///opt/portfolio/portfolio.db`) |
-| `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | S3-compatible storage credentials |
-| `STORAGE_ENDPOINT` | S3 endpoint URL (e.g. `https://hel1.your-objectstorage.com`) |
-| `STORAGE_BUCKET` | Bucket name |
-| `STORAGE_PUBLIC_URL` | Public base URL for served images |
-| `RP_ID` / `RP_ORIGIN` | WebAuthn relying party (domain / full origin URL) |
-| `DRINKS_DATABASE_URL` | SQLite path for the drinking game (separate file from the portfolio DB) |
-| `DRINKS_SOUNDS_DIR` | Directory the drinking game reads sound-effect mp3s from at request time (default `drinks-sounds`, relative to the working directory) |
-
-DB migrations run automatically at startup via `db::run_migrations()`.
+Copy `.env.example` to `.env` — it documents every variable. DB migrations run automatically at startup via `db::run_migrations()`.
 
 ## Architecture
 
 Single Rust/Axum binary with server-side rendering via Askama templates + HTMX for dynamic updates.
-
-**Stack:** Rust + Axum 0.8 · SQLite via sqlx 0.8 · Askama 0.15 templates · HTMX · S3-compatible object storage (Hetzner Object Storage) · WebAuthn passkeys (webauthn-rs 0.5)
 
 **Request flow:**
 1. `src/main.rs` — builds `AppState` (db pool, ObjectStorage client, WebAuthn instance), registers routes, starts hourly cleanup task (expired sessions + challenges)
@@ -61,8 +39,6 @@ Single Rust/Axum binary with server-side rendering via Askama templates + HTMX f
 - `src/routes/auth.rs` — WebAuthn registration ceremony (localhost-only) and login ceremony; creates session cookie on success
 - `src/routes/tasks.rs` — Drawing Tasks, a LeetCode-inspired practice board: reference images with any number of attached task prompts, filterable by subject/difficulty/task type. `GET /tasks` and `GET /tasks/htmx/board` are public (`OptionalAuth` — admins additionally see management controls); all mutations (`POST /api/tasks`, `DELETE /api/tasks/{id}`, `POST /api/tasks/{id}/toggle`, `POST/DELETE /api/tasks/images…`) require `AuthSession`. Deleting an image cascades to its tasks and returns the URL for S3 cleanup.
 - `src/routes/nutrition.rs` — **all routes require `AuthSession`** (decision 2026-08-01). Pages: `GET /fitness?date=` (Today — targets ring, week strip, meal slots), `GET /fitness/week` (week view: calorie bars, protein stats, streak, weight, most-logged). HTMX fragments: `/fitness/htmx/` `day?date=`, `week-strip?date=`, `targets`, `recent`, `favourites`, `meals`, `food-search?q=`, `match-card/{id}`, `barcode-match/{code}`, `entries/{id}/edit`. Actions: `POST /fitness/copy-day`, `POST /fitness/quick-log`. API: `POST/PUT/DELETE /api/nutrition/food-items…` + `POST …/{id}/favourite`, `POST/PUT/DELETE /api/nutrition/entries…` (entries carry a `slot`: breakfast/lunch/dinner/snack/other, clock-inferred client-side), `POST /api/nutrition/targets`, `POST /api/nutrition/weights`, `POST/DELETE /api/nutrition/recipes…` + `POST …/{id}/log`
-
-**Models (`src/models.rs`):** Shared structs — `Post`, `FoodItem` (incl. `category`, `is_favourite`, `default_portion_g`), `MealEntry`/`MealEntryWithFood` (computed macros scaled by portion grams; carries `slot`), `Targets`, `RecentFood`, `RecipeWithTotals`, `TaskImage`/`DrawingTaskWithImage` (drawing tasks board), `Visibility` (public/unlisted/hidden), `Viewer` (visitor/admin), `PostCounts`, `PostFilter` (`q`/`tags`/`collection`/`vis`, threaded through `get_posts_page()`/`count_posts()`), `Collection`, `CollectionWithCount`, `TagWithCount` (both viewer-aware counts, scoped to what the current viewer may see).
 
 **Data layer (`src/db.rs`):** All SQLx queries — posts CRUD, session management (30-day expiry), passkey credential storage, ephemeral auth challenge state (5-min expiry). Nutrition functions: `get_food_items()`, `search_food_items(q)`, `insert_food_item()`, `delete_food_item()` (returns image URL for S3 cleanup), `get_meal_entries_for_date(date)`, `insert_meal_entry()`, `delete_meal_entry()`. Migrations run via `include_str!()` in `run_migrations()` — fourteen exist (001 initial schema, 002 post fields, 003 `food_items`/`meal_entries`, 004 image variants, 005 package size, 006 custom portions, 007 drawing tasks, 008 `meal_entries.slot`, 009 `targets` single-row table, 010 food metadata: `category`/`is_favourite`/`default_portion_g`, 011 `weights` + `recipes`/`recipe_items`, 012 `posts.image_width`/`image_height`, 013 `posts.visibility`, 014 collections/tags). Add new migrations as additional `sqlx::query(...).execute(pool)` calls; use `IF NOT EXISTS` / `let _ =` duplicate-column tolerance for idempotence. Schema changes require the sqlx offline-cache ritual: apply the migration to the local dev DB, `DATABASE_URL=sqlite:portfolio.db cargo sqlx prepare`, commit `.sqlx/`.
 
@@ -117,23 +93,4 @@ Must update all of: route module + `main.rs` registration, `db.rs` migration, `b
 
 ## Deployment
 
-**Server:** Hetzner cx23 (x86_64/amd64), Ubuntu — GitHub Actions runner must be `ubuntu-24.04` (not arm).
-
-Deployment is automated via `.github/workflows/deploy.yml` — push to `master` builds on GitHub's x86_64 runner and deploys to the server. Manual command below is for emergency use only.
-
-Deploy config is in `deploy/`:
-- `portfolio.service` — systemd unit (runs as `portfolio` user, reads `.env`)
-- `nginx.conf` — reverse proxy with rate limiting on `/api/auth/` (10 req/min, burst 5). **Not deployed by CI/CD** — must be manually copied to `/etc/nginx/sites-available/portfolio` and nginx reloaded. Use `127.0.0.1:3000` not `localhost:3000` (nginx resolves localhost to IPv6 `[::1]` but Axum only binds IPv4). Certbot manages SSL lines — always include them or HTTPS breaks. Also has two manual locations for the drinking game: `/drinks/room/*/sse` disables proxy buffering (SSE would never arrive otherwise), and `/drinks/login` has its own `zone=drinks_login` rate limit (30 req/min, burst 10) so a party's worth of guests behind one NAT IP registering at once don't hit raw 503s. All three `/drinks`-serving locations (the two above plus the catch-all `location /`) also set `proxy_set_header X-Forwarded-Proto $scheme;` — `request_origin()` (`drinkinggame/src/routes.rs`) reads it to build the absolute URL encoded into the room QR code; without it every scan would embed an `http://` link even though the site is HTTPS-only.
-
-> **Owed manual step:** the server's live nginx config may predate the `X-Forwarded-Proto` line — add it to all three `/drinks`-serving locations the next time `nginx.conf` is copied over.
-
-Only `static/` (served from disk) and `.env` must be present alongside the binary — Askama templates are compiled in. `/opt/portfolio/src/` on the server is a stale old checkout unused by the deploy process.
-
-On first deploy of the drinking game, add `DRINKS_DATABASE_URL=sqlite:///opt/portfolio/drinkinggame.db` to the server's `.env` — the relative-path fallback only works locally because `portfolio.service` sets `WorkingDirectory`.
-
-The drinking game's fonts (woff2) are `include_bytes!`-compiled into the binary — nothing to copy to the server for those. Its sound effects are the opposite: no mp3s are committed to the repo (out of scope by design), so the game ships silent until mp3s are dropped in. To enable sound, create the directory named by `DRINKS_SOUNDS_DIR` (default `drinks-sounds`, relative to `portfolio.service`'s `WorkingDirectory`) on the server and drop in `drink.mp3`, `shot.mp3`, `card-draw.mp3`, `card-use.mp3`, `dice-roll.mp3`, `dice-give.mp3` — any other filename 404s. No restart needed; the route reads from disk per request.
-
-Server update command:
-```bash
-cd /opt/portfolio/src && git pull && SQLX_OFFLINE=true cargo build --release && cp target/release/drawingportfolio /opt/portfolio/ && systemctl restart portfolio
-```
+Deployment mechanics (Hetzner server, nginx manual steps, sounds drop-in, emergency update command) live in the project skill `deploying` — invoke it before touching `deploy/`, `.github/workflows/deploy.yml`, or anything server-side.
