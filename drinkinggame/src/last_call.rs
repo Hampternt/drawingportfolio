@@ -375,6 +375,12 @@ pub struct LastCallState {
     /// Betrayal records. The ONE pact field `public_view()` may read (G5,
     /// Task 2).
     pub pact_breaks: Vec<PactBreak>,
+    /// The round's revealed event id, or `None` during Draw / before round
+    /// 1's Deal / after a rollover. At most one event is representable —
+    /// DDv2 §10.1's "never two at once" is this type (H2). Set at the
+    /// Draw→Deal reveal (`advance_beat`) and cleared at the rollover
+    /// (`resolve`) — see those functions for the exact edges.
+    pub event: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -427,6 +433,9 @@ pub struct PublicView {
     /// (`pacts`/`pact_offers`/`pact_barred`) stays off this struct entirely
     /// (G10/G13).
     pub pact_breaks: Vec<PactBreak>,
+    /// Projected verbatim from `LastCallState::event` — events are public
+    /// (H2); only the CURRENT event is ever exposed, never the next one.
+    pub event: Option<String>,
 }
 
 /// DDv2 9.3 — the two solo ways a game ends — plus the pact win (G2, Task 2).
@@ -551,6 +560,7 @@ impl LastCallState {
             pact_offers: Vec::new(),
             pact_barred: Vec::new(),
             pact_breaks: Vec::new(),
+            event: None,
         }
     }
 
@@ -876,7 +886,31 @@ impl LastCallState {
             beat_deadline_ms: self.beat_deadline_ms,
             // G5: the sole pact field this projection reads.
             pact_breaks: self.pact_breaks.clone(),
+            event: self.event.clone(),
         }
+    }
+
+    /// `pull_cost` with the active event applied (H12) — the ONLY charging
+    /// entry point from here on. `happy-hour` halves the charged pulls,
+    /// rounded up.
+    pub fn effective_pull_cost(&self, cost: u8, handicap_pct: u16) -> u8 {
+        let base = pull_cost(cost, handicap_pct);
+        match self.event.as_deref().and_then(crate::lc_events::event_def) {
+            Some(e) if e.hook == crate::lc_events::EventHook::CostHalf => base.div_ceil(2),
+            _ => base,
+        }
+    }
+
+    /// The seat's total charged pulls over its plays in `self.plays` —
+    /// event-aware. Plan E's DRINK chip and Task 3's `SpentAtLeast` read
+    /// this.
+    pub fn charged_pulls(&self, seat: usize) -> u8 {
+        let h = self.players.get(seat).map_or(100, |p| p.handicap_pct);
+        self.plays
+            .iter()
+            .filter(|p| p.source_seat == seat)
+            .map(|p| self.effective_pull_cost(p.card.cost, h))
+            .sum()
     }
 
     // Slice 1 defines the shape; slice 3 (the loop) fills these in. The
@@ -919,7 +953,14 @@ impl LastCallState {
             card: card.clone(),
             target: None,
         });
-        payment_plan(&trial)?;
+        let halved = matches!(
+            self.event
+                .as_deref()
+                .and_then(crate::lc_events::event_def)
+                .map(|e| e.hook),
+            Some(crate::lc_events::EventHook::CostHalf)
+        );
+        payment_plan(&trial, halved)?;
 
         let p = &mut self.players[seat];
         p.hand.remove(idx);
@@ -1034,7 +1075,14 @@ impl LastCallState {
         {
             return Err(LcError::NeedsTarget(a.card.id.clone()));
         }
-        payment_plan(p)?;
+        let halved = matches!(
+            self.event
+                .as_deref()
+                .and_then(crate::lc_events::event_def)
+                .map(|e| e.hook),
+            Some(crate::lc_events::EventHook::CostHalf)
+        );
+        payment_plan(p, halved)?;
 
         let plays: Vec<Play> = p
             .armed
@@ -1270,6 +1318,22 @@ impl LastCallState {
                 for p in &mut self.players {
                     p.drawing = false;
                 }
+                // DDv2 §5 beat 2: reveal this round's event, replacing the
+                // last; §2.6: the first is dealt here at round 1, never at
+                // setup. Deterministic from the stored seed (H1) — no RNG
+                // enters the engine.
+                let def = crate::lc_events::event_for_round(self.rng_seed, self.round);
+                self.event = Some(def.id.to_string());
+                if let crate::lc_events::EventHook::Toast { drain, heal } = def.hook {
+                    for p in self
+                        .players
+                        .iter_mut()
+                        .filter(|p| p.status == Status::Alive)
+                    {
+                        drain_pulls(p, drain); // fullest vessel, F4's helper
+                        p.hp += heal; // no ceiling (TBD-3)
+                    }
+                }
             }
             Beat::Diplomacy => {
                 // G8: offers are beat-scoped. Clearing here is the decline
@@ -1309,7 +1373,19 @@ impl LastCallState {
         // normally expected, to reproduce the exact numbers lock_in
         // validated. `expect` rather than propagating an error: a
         // `CantAfford` here would mean state diverged from what lock_in
-        // accepted, which the D15/D19 gates make unreachable.
+        // accepted, which the D15/D19 gates make unreachable. The same
+        // holds for `halved`: `event` only ever changes at the Draw→Deal
+        // reveal and is cleared only by the rollover in `resolve()` (H2),
+        // both of which sit outside the Lock→Reveal edge this function
+        // runs on — so the event `lock_in` saw and the event charged here
+        // are structurally the same one.
+        let halved = matches!(
+            self.event
+                .as_deref()
+                .and_then(crate::lc_events::event_def)
+                .map(|e| e.hook),
+            Some(crate::lc_events::EventHook::CostHalf)
+        );
         let locked_seats: Vec<usize> = self
             .players
             .iter()
@@ -1328,7 +1404,7 @@ impl LastCallState {
                 .collect();
             let mut trial = self.players[seat].clone();
             trial.armed = armed;
-            let plan = payment_plan(&trial).expect(
+            let plan = payment_plan(&trial, halved).expect(
                 "lock_in already validated affordability against these vessels \
                  and this handicap_pct, and neither can change before reveal \
                  (vessels are Draw-gated, D15; handicap is Draw-gated, D19) — \
@@ -1349,7 +1425,7 @@ impl LastCallState {
         let mut totals = vec![0u32; n];
         for play in &self.locked_plays {
             let handicap = self.players[play.source_seat].handicap_pct;
-            totals[play.source_seat] += pull_cost(play.card.cost, handicap) as u32;
+            totals[play.source_seat] += self.effective_pull_cost(play.card.cost, handicap) as u32;
         }
         self.locked_plays.sort_by_key(|play| {
             let priority = (play.source_seat + n - first_seat) % n;
@@ -1418,6 +1494,20 @@ impl LastCallState {
             return Ok(());
         }
 
+        // The active event's hook, resolved once (H3's fail-soft: an
+        // unrecognised id resolves inert), plus a per-seat spend snapshot
+        // for `TopSpenderHit` (and Task 3) — captured here, before Step 1
+        // drains anything, since `charged_pulls` reads `self.plays`, which
+        // Step 1 is about to `mem::take`.
+        let hook = self
+            .event
+            .as_deref()
+            .and_then(crate::lc_events::event_def)
+            .map(|e| e.hook);
+        let spent: Vec<u8> = (0..self.players.len())
+            .map(|s| self.charged_pulls(s))
+            .collect();
+
         // Step 1: resolve plays in order_key order. `plays` is drained up
         // front (§14: the queue empties every round) and iterated as owned
         // data so mutating `self.players`/`self.effects`/`self.discards`
@@ -1442,6 +1532,16 @@ impl LastCallState {
         // then ages out on the round after that — loud, not permanent (G5).
         let pact_breaks_start = self.pact_breaks.len();
         let plays = std::mem::take(&mut self.plays);
+        // `NoPlayPenalty` (H4): which seats played at all this round, from
+        // the round's plays as revealed — not who has a play left by the
+        // time Step 1 finishes eliminating sources (M3: bounds-checked, a
+        // corrupt blob's `source_seat` could name a seat past the ceiling).
+        let mut played_seats = vec![false; self.players.len()];
+        for play in &plays {
+            if let Some(slot) = played_seats.get_mut(play.source_seat) {
+                *slot = true;
+            }
+        }
         let mut queued_effects: Vec<Effect> = Vec::new();
         for play in plays {
             // M3: `source_seat` is validated at `lock_in` time, but a
@@ -1470,7 +1570,42 @@ impl LastCallState {
             // panicking.
             let subjects: Vec<usize> = match play.card.targets.as_str() {
                 "one" => match play.target.and_then(|t| self.players.get(t)) {
-                    Some(p) if p.status == Status::Alive => vec![p.seat],
+                    Some(p) if p.status == Status::Alive => {
+                        let target_seat = p.seat;
+                        // `double-vision`'s `HostileRedirect` (H4): only
+                        // hostile ops redirect — heals/shields land where
+                        // aimed. The subject becomes the next Alive seat
+                        // clockwise from the target, `(target + k) % n` for
+                        // the smallest `k >= 1`; `k` runs up to `n`
+                        // inclusive, so the walk always terminates back on
+                        // the target itself (still Alive, matched above) if
+                        // no other seat is Alive.
+                        let redirect = hook == Some(crate::lc_events::EventHook::HostileRedirect)
+                            && crate::lc_cards::card_fx(&play.card.id).is_some_and(|f| {
+                                matches!(
+                                    f.op,
+                                    EffectOp::Damage | EffectOp::Dot | EffectOp::PullDrain
+                                )
+                            });
+                        if redirect {
+                            let n = self.players.len();
+                            let mut subject = target_seat;
+                            for k in 1..=n {
+                                let candidate = (target_seat + k) % n;
+                                if self
+                                    .players
+                                    .get(candidate)
+                                    .is_some_and(|q| q.status == Status::Alive)
+                                {
+                                    subject = candidate;
+                                    break;
+                                }
+                            }
+                            vec![subject]
+                        } else {
+                            vec![target_seat]
+                        }
+                    }
                     _ => {
                         // 7.5: fizzle — no effect, pulls stay spent, the
                         // card still occupied its slot.
@@ -1596,8 +1731,57 @@ impl LastCallState {
             })
             .map(|e| (e.subject, e.magnitude))
             .collect();
+        // `house-pour`'s `DotBoost` (H4): every tick this round hits harder
+        // by `mult`. Stored `effect.magnitude` and `expires_round` are
+        // untouched — only the applied amount is scaled.
+        let dot_mult = match hook {
+            Some(crate::lc_events::EventHook::DotBoost { mult }) => mult,
+            _ => 1,
+        };
         for (subject, magnitude) in dot_ticks {
-            self.apply_damage(subject, magnitude);
+            self.apply_damage(subject, magnitude * dot_mult);
+        }
+
+        // Step 2.5: the end-of-round event program (H4) — after dots,
+        // before queued effects are appended, so it never touches the
+        // effects a play just queued this round.
+        match hook {
+            Some(crate::lc_events::EventHook::NoPlayPenalty { dmg }) => {
+                // `last-orders`: every Alive player with no play this round
+                // takes `dmg`. A seat that played is exempt even if its play
+                // fizzled or its source was eliminated earlier in Step 1.
+                let victims: Vec<usize> = (0..self.players.len())
+                    .filter(|&s| self.players[s].status == Status::Alive && !played_seats[s])
+                    .collect();
+                for s in victims {
+                    self.apply_damage(s, dmg);
+                }
+            }
+            Some(crate::lc_events::EventHook::TopSpenderHit { dmg }) => {
+                // `big-shot`: every Alive seat at the snapshot maximum (ties
+                // share the tax, H4) — but never a seat that spent nothing.
+                let max = spent.iter().copied().max().unwrap_or(0);
+                if max > 0 {
+                    let victims: Vec<usize> = (0..self.players.len())
+                        .filter(|&s| self.players[s].status == Status::Alive && spent[s] == max)
+                        .collect();
+                    for s in victims {
+                        self.apply_damage(s, dmg);
+                    }
+                }
+            }
+            Some(crate::lc_events::EventHook::TableHeal { heal }) => {
+                // `on-the-house`: every Alive player heals, no ceiling
+                // (TBD-3).
+                for p in self
+                    .players
+                    .iter_mut()
+                    .filter(|p| p.status == Status::Alive)
+                {
+                    p.hp += heal;
+                }
+            }
+            _ => {}
         }
 
         // Step 3: append queued curse effects, replacing any existing
@@ -1656,6 +1840,11 @@ impl LastCallState {
         // Step 8: rollover (D5).
         self.first_seat = (self.first_seat + 1) % self.players.len(); // D13
         self.round += 1;
+        // H2: the event lives Deal→Resolve of exactly its round — this is
+        // the only place it's cleared. The Draw→Deal reveal (`advance_beat`)
+        // sets the next one; "never two at once" holds because that reveal
+        // cannot run again until this rollover has already run once.
+        self.event = None;
         // G5 erratum: re-stamp this call's breaks (if any) with the round
         // that just became current — the round players actually see them
         // in — rather than the round they were thrown in. See the Step 1
@@ -1758,14 +1947,18 @@ fn drain_pulls(player: &mut LcPlayer, n: i32) {
 /// card, picks the vessel of `card.deck` with the greatest remaining
 /// simulated `pulls_left` (a tie keeps the lowest index — the first-seen
 /// candidate is never displaced by an equal one), deducts
-/// `pull_cost(card.cost, handicap_pct)`. Returns, per armed card in order,
-/// the `(vessel index, pulls)` it pays — or `CantAfford` naming the first
-/// card for which no vessel of its deck can cover the cost.
-fn payment_plan(player: &LcPlayer) -> Result<Vec<(usize, u8)>, LcError> {
+/// `pull_cost(card.cost, handicap_pct)`, halved (rounded up) when `halved`
+/// is set — the event-aware charge (H12), computed once by the caller from
+/// `LastCallState::event` since this free function has no `self` to read it
+/// from. Returns, per armed card in order, the `(vessel index, pulls)` it
+/// pays — or `CantAfford` naming the first card for which no vessel of its
+/// deck can cover the cost.
+fn payment_plan(player: &LcPlayer, halved: bool) -> Result<Vec<(usize, u8)>, LcError> {
     let mut sim: Vec<u8> = player.vessels.iter().map(|v| v.pulls_left).collect();
     let mut plan = Vec::with_capacity(player.armed.len());
     for a in &player.armed {
-        let cost = pull_cost(a.card.cost, player.handicap_pct);
+        let base = pull_cost(a.card.cost, player.handicap_pct);
+        let cost = if halved { base.div_ceil(2) } else { base };
         let mut best: Option<usize> = None;
         for (i, v) in player.vessels.iter().enumerate() {
             if v.deck != a.card.deck {
@@ -3393,10 +3586,12 @@ mod tests {
         assert_eq!(st.effects.len(), 1);
         assert_eq!(st.effects[0].expires_round, 3); // 1 + cider-01's 2 rounds
         for expected_hp in [14, 13] {
-            // ticks in rounds 2 and 3
-            for _ in 0..5 {
-                st.advance_beat().unwrap();
-            }
+            // ticks in rounds 2 and 3 — step straight to Resolve (as
+            // `test_table_targets_class_resolves_no_subjects` does above)
+            // rather than walking Draw->Deal: that edge now reveals this
+            // seed's per-round event (H2, Plan H Task 2), which would
+            // change hp for reasons unrelated to curse-duration semantics.
+            st.beat = Beat::Resolve;
             st.resolve().unwrap();
             assert_eq!(st.players[0].hp, expected_hp);
         }
@@ -3705,5 +3900,162 @@ mod tests {
         st.resolve().unwrap();
         assert!(st.players.iter().all(|p| p.hp == 15)); // no subject resolved, nothing hit
         assert_eq!(st.discards.len(), 1); // card still leaves play (8.4)
+    }
+
+    // Plan H Task 2: events in the engine.
+
+    #[test]
+    fn test_the_event_lives_deal_to_resolve() {
+        // H2 — and "never two at once"
+        let mut st = seated();
+        st.set_vessel(1, Deck::Beer, "can").unwrap();
+        st.set_vessel(2, Deck::Cider, "bottle").unwrap();
+        st.round = 2; // round 1's Draw is the lobby; use a plain round
+        assert_eq!(st.event, None); // Draw: no event
+        st.advance_beat().unwrap(); // Draw -> Deal: the reveal
+        assert_eq!(st.event.as_deref(), Some("toast")); // seed 42, round 2 (Task 1 pin)
+        assert_eq!(st.public_view().event.as_deref(), Some("toast"));
+        for _ in 0..4 {
+            st.advance_beat().unwrap();
+        } // ... -> Resolve
+        assert_eq!(st.event.as_deref(), Some("toast")); // still the same ONE event
+        st.resolve().unwrap();
+        assert_eq!(st.event, None); // rollover cleared it
+        st.advance_beat().unwrap(); // round 3's Deal
+        assert_eq!(st.event.as_deref(), Some("double-vision")); // replaced, never two
+    }
+
+    #[test]
+    fn test_toast_pours_one_and_heals_two() {
+        // H4, at the Deal reveal
+        let mut st = seated();
+        st.set_vessel(1, Deck::Beer, "can").unwrap(); // 8 pulls
+        st.set_vessel(2, Deck::Cider, "bottle").unwrap(); // 10
+        st.set_vessel(3, Deck::Soft, "glass").unwrap(); // 6
+        st.round = 2;
+        st.advance_beat().unwrap(); // reveals toast (seed 42 round 2)
+        assert_eq!(st.players[0].vessels[0].pulls_left, 7);
+        assert_eq!(st.players[1].vessels[0].pulls_left, 9);
+        assert_eq!(st.players[2].vessels[0].pulls_left, 5);
+        assert!(st.players.iter().all(|p| p.hp == 17));
+    }
+
+    #[test]
+    fn test_happy_hour_halves_the_charge_and_the_chip_agrees() {
+        // H4, H12
+        let mut st = at_lock();
+        st.event = Some("happy-hour".into());
+        st.arm(1, "beer-02").unwrap(); // cost 2 -> pull_cost 2 -> halved 1
+        st.set_target(1, "beer-02", Some(1)).unwrap();
+        st.lock_in(1).unwrap();
+        st.advance_beat().unwrap(); // the reveal charges
+        assert_eq!(st.players[0].vessels[0].pulls_left, 7); // 8 - 1, not 8 - 2
+        assert_eq!(st.charged_pulls(0), 1); // what the DRINK chip will show
+        assert_eq!(st.effective_pull_cost(3, 150), 3); // ceil(ceil(3*1.5)/2) = ceil(5/2)
+    }
+
+    #[test]
+    fn test_last_orders_charges_the_silent() {
+        // H4
+        let mut st = at_lock();
+        st.event = Some("last-orders".into());
+        st.arm(1, "beer-01").unwrap();
+        st.set_target(1, "beer-01", Some(1)).unwrap();
+        st.lock_in(1).unwrap();
+        st.advance_beat().unwrap();
+        st.advance_beat().unwrap();
+        st.resolve().unwrap();
+        assert_eq!(st.players[0].hp, 15); // played: exempt
+        assert_eq!(st.players[1].hp, 11); // 15 - 2 (beer-01) - 2 (penalty)
+        assert_eq!(st.players[2].hp, 13); // 15 - 2 (penalty)
+    }
+
+    #[test]
+    fn test_double_vision_redirects_attacks_not_heals() {
+        // H4
+        let mut st = at_lock();
+        st.event = Some("double-vision".into());
+        st.arm(1, "beer-01").unwrap(); // Damage 2, aimed at bob (seat 1)
+        st.set_target(1, "beer-01", Some(1)).unwrap();
+        st.lock_in(1).unwrap();
+        st.arm(3, "soft-01").unwrap(); // Heal 2, aimed at alice (seat 0)
+        st.set_target(3, "soft-01", Some(0)).unwrap();
+        st.lock_in(3).unwrap();
+        st.advance_beat().unwrap();
+        st.advance_beat().unwrap();
+        st.resolve().unwrap();
+        assert_eq!(st.players[1].hp, 15); // aimed at, missed
+        assert_eq!(st.players[2].hp, 13); // seat left of the target took it
+        assert_eq!(st.players[0].hp, 17); // the heal landed where aimed
+    }
+
+    #[test]
+    fn test_big_shot_taxes_the_top_spender() {
+        // H4
+        let mut st = at_lock();
+        st.event = Some("big-shot".into());
+        st.arm(1, "beer-02").unwrap(); // 2 pulls — the big spender
+        st.set_target(1, "beer-02", Some(2)).unwrap();
+        st.lock_in(1).unwrap();
+        st.arm(2, "cider-02").unwrap(); // 1 pull (drain -> cara)
+        st.set_target(2, "cider-02", Some(2)).unwrap();
+        st.lock_in(2).unwrap();
+        st.advance_beat().unwrap();
+        st.advance_beat().unwrap();
+        st.resolve().unwrap();
+        assert_eq!(st.players[0].hp, 13); // top spender taxed
+        assert_eq!(st.players[1].hp, 15); // underbidder untouched
+        assert_eq!(st.players[2].hp, 11); // beer-02's 4, plus nothing else
+    }
+
+    #[test]
+    fn test_house_pour_doubles_the_tick_this_round_only() {
+        // H4
+        let mut st = at_lock();
+        st.effects.push(Effect {
+            source_play: 0,
+            subject: 0,
+            op: EffectOp::Dot,
+            magnitude: 1,
+            expires_round: 9,
+        });
+        st.event = Some("house-pour".into());
+        st.advance_beat().unwrap();
+        st.advance_beat().unwrap();
+        st.resolve().unwrap();
+        assert_eq!(st.players[0].hp, 13); // 15 - 1*2 — and event now cleared
+                                          // The rollover already cleared `event` (H2). Step straight to
+                                          // Resolve rather than walking Draw->Deal again: that edge would
+                                          // cross this seed's round-2 reveal (`toast`, +2 HP to the table)
+                                          // — an unrelated event's Deal-time hook firing inside a
+                                          // house-pour-only assertion. Setting `event` back to `None`
+                                          // afterward can't undo a hook that already fired; skipping the
+                                          // edge is the isolation this test wants.
+        assert_eq!(st.event, None);
+        st.beat = Beat::Resolve;
+        st.resolve().unwrap();
+        assert_eq!(st.players[0].hp, 12); // back to 1 per tick
+    }
+
+    #[test]
+    fn test_on_the_house_heals_the_table() {
+        // H4
+        let mut st = at_lock();
+        st.event = Some("on-the-house".into());
+        st.advance_beat().unwrap();
+        st.advance_beat().unwrap();
+        st.resolve().unwrap();
+        assert!(st.players.iter().all(|p| p.hp == 17));
+    }
+
+    #[test]
+    fn test_an_unknown_event_id_is_inert() {
+        // H3's fail-soft
+        let mut st = at_lock();
+        st.event = Some("closing-time".into()); // an id this binary never knew
+        st.advance_beat().unwrap();
+        st.advance_beat().unwrap();
+        st.resolve().unwrap(); // no panic, no hook fired
+        assert!(st.players.iter().all(|p| p.hp == 15));
     }
 }

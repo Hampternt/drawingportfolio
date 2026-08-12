@@ -14,8 +14,7 @@ use crate::auth::PlayerSession;
 use crate::db;
 use crate::error::GameError;
 use crate::last_call::{
-    pull_cost, Beat, Card, Deck, LastCallState, LcError, PublicView, Status, DRAW_PER_VESSEL,
-    PACT_MIN_ALIVE,
+    Beat, Card, Deck, LastCallState, LcError, PublicView, Status, DRAW_PER_VESSEL, PACT_MIN_ALIVE,
 };
 use crate::lc_render::{self, ActionBarView, HandGroupView, SetupRow};
 use crate::models::{Game, Player, Room};
@@ -385,12 +384,9 @@ fn action_bar_view(st: &LastCallState, player_id: i64) -> ActionBarView {
     match st.seat_of(player_id) {
         Some(seat) => {
             let p = &st.players[seat];
-            let charged: u8 = st
-                .plays
-                .iter()
-                .filter(|play| play.source_seat == seat)
-                .map(|play| pull_cost(play.card.cost, p.handicap_pct))
-                .sum();
+            // H12: `charged_pulls` is event-aware — the DRINK chip and the
+            // reveal charge must always agree on the same number.
+            let charged: u8 = st.charged_pulls(seat);
             ActionBarView {
                 beat: st.beat,
                 round: st.round,

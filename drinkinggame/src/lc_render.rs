@@ -1858,6 +1858,7 @@ mod tests {
             outcome: None,
             beat_deadline_ms: None,
             pact_breaks: vec![],
+            event: None,
         }
     }
 
