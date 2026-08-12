@@ -790,6 +790,30 @@ itself is untouched)
     | Pacts section | `.lc-pacts` | — | `.lc-pact-standing`, `.lc-pact-pending`, `.lc-pact-barred`, `.lc-pact-broken`, `.lc-pact-offer-row`, buttons `[data-lc-post][data-lc-body]` |
     | Break strip | `.lc-pact-break` | — | one per current-round `PactBreak`, big screen only |
 
+> **ERRATUM (2026-08-12, whole-plan review).** Both `round == st.round`
+> filters below — Step 1's betrayed notice and Step 2's break strip — are
+> **wrong as written and were corrected in the shipped code.** The brief
+> assumes `PactBreak.round` and `st.round` are read at the same moment the
+> break is recorded; they never are. Task 2's `resolve()` pushes
+> `PactBreak { round: self.round }` in its Step 1 (the play loop), then —
+> unless that same betrayal also ends the game — bumps `self.round` in its
+> own Step 8 rollover before returning. `lc_advance_chain` never persists an
+> intermediate state between the two, so the first frame any client can
+> fetch already has `st.round` one past the stamp: for every non-terminal
+> betrayal (the common case), both filters as written are permanently
+> unreachable, and only a game-ending betrayal ever showed — the opposite of
+> G5 ("loud, by name"). Found by Task 3's implementer, pinned empirically,
+> adjudicated here rather than guessed at inside a single task. Shipped
+> semantic: `resolve()` now stamps a non-terminal break with the round it
+> rolls over INTO (the round players actually land on when they next fetch),
+> not the round it was thrown in; a terminal break keeps the round the game
+> froze on (D16 — `beat` never leaves `Resolve`, so that stamp never goes
+> stale). Both filters below are unchanged in code — `round == st.round` /
+> `round == view.round` are correct once the write side stamps the right
+> round — so a betrayal is loud for exactly the one round following it, then
+> ages out. Wherever this plan says "current round" for either surface, read
+> "the round the break becomes visible in," not "the round it happened in."
+
 - [ ] **Step 1: `pacts_section_html`**
 
 Follows `targets_section_html`'s shape and placement. Returns `""` for a

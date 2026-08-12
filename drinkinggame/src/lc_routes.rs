@@ -1466,24 +1466,26 @@ mod tests {
         assert_eq!(alice_html, "");
     }
 
-    /// Named seam between Task 2's writer and this task's readers, found in
-    /// review. `resolve()` pushes `PactBreak { round: self.round }` in Step
-    /// 1, but — unless that same resolve also ends the game (D16 returns
-    /// before Step 8) — Step 8's rollover bumps `self.round` in the SAME
-    /// call. `lc_advance_chain` never persists an intermediate state
-    /// between the two (see `test_advance_chain_walks_timed_beats_and_skips_auto_ones`
-    /// above: Reveal -> Resolve -> the round+1 Draw is one pass), so no
-    /// client fetch ever observes `st.round` still equal to the round a
-    /// non-terminal betrayal was recorded against. Both this task's
-    /// round-scoped filters (`pacts_section_html`'s betrayed notice,
-    /// `lc_screen_panel`'s break strip) are implemented exactly as the
-    /// brief specifies (`round == st.round`, verbatim) — this test PINS
-    /// that gap rather than silently loosening the filter to paper over a
-    /// brief/engine ordering the brief did not anticipate. See the task
-    /// report's Concerns section: a NEEDS_CONTEXT-grade finding for the
-    /// whole-plan review, not a guess resolved here.
+    /// Plan G whole-plan-review erratum (originally found by Task 3, fixed
+    /// as a cross-task seam repair): `resolve()` used to stamp
+    /// `PactBreak { round: self.round }` in Step 1, BEFORE Step 8's
+    /// rollover bumps `self.round` in the same call — and since
+    /// `lc_advance_chain` never persists an intermediate state between the
+    /// two (Reveal -> Resolve -> the round+1 Draw is one synchronous pass),
+    /// no client fetch could ever observe `st.round` still equal to the
+    /// round a non-terminal betrayal was recorded against. Both round-scoped
+    /// readers (`pacts_section_html`'s betrayed notice, `lc_screen_panel`'s
+    /// break strip, both filtering `round == st.round`/`round == view.round`
+    /// verbatim per the brief) were unreachable for every betrayal except
+    /// one that also happened to end the game — contradicting G5 ("loud, by
+    /// name"). `resolve()` now re-stamps a non-terminal break with the round
+    /// it rolls over INTO (the round players actually land on) rather than
+    /// the round it was thrown in; a terminal break keeps the round the game
+    /// froze on. This test pins the fixed contract: a non-terminal betrayal
+    /// is loud for exactly the one round following it, then ages out —
+    /// loud, not permanent (G5).
     #[test]
-    fn test_the_break_surfaces_miss_a_non_terminal_betrayal_by_one_round() {
+    fn test_a_non_terminal_betrayal_is_loud_for_the_following_round() {
         let mut st = diplomacy_state();
         st.offer_pact(1, 1).unwrap(); // alice (seat 0) -> bob (seat 1)
         st.accept_pact(2, 0).unwrap();
@@ -1493,19 +1495,28 @@ mod tests {
         st.lock_in(1).unwrap();
         st.advance_beat().unwrap(); // Reveal
         st.advance_beat().unwrap(); // Resolve
-        st.resolve().unwrap();
+        st.resolve().unwrap(); // non-terminal: bob survives, round rolls over
 
         let brk = *st.pact_breaks.last().unwrap();
-        assert_ne!(
+        assert_eq!(
             brk.round, st.round,
-            "if this ever passes, Step 8's rollover ordering changed and \
-             both round-scoped surfaces should be re-checked for reachability"
+            "a non-terminal break must be stamped with the round it rolls \
+             over into, not the round it was thrown in"
         );
 
-        // Neither surface shows the (very real, very public per G5) betrayal
-        // once the client actually gets to fetch this state.
-        assert!(!pacts_section_html(&st, 2).contains("BROKE YOUR PACT"));
+        // Both round-scoped surfaces now show the betrayal in the very
+        // first frame anyone can fetch it in.
+        assert!(pacts_section_html(&st, 2).contains("ALICE BROKE YOUR PACT"));
         let view = st.public_view();
-        assert!(!lc_render::lc_screen_panel(&view).contains("lc-pact-break"));
+        assert!(lc_render::lc_screen_panel(&view).contains("lc-pact-break"));
+
+        // One more resolve (no new betrayal) rolls the round over again —
+        // the break ages out of both surfaces, per G5 ("loud", not
+        // "permanent").
+        st.beat = Beat::Resolve;
+        st.resolve().unwrap();
+        assert_ne!(st.pact_breaks.last().unwrap().round, st.round);
+        assert!(!pacts_section_html(&st, 2).contains("BROKE YOUR PACT"));
+        assert!(!lc_render::lc_screen_panel(&st.public_view()).contains("lc-pact-break"));
     }
 }

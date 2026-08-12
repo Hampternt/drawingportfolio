@@ -1423,6 +1423,25 @@ impl LastCallState {
         // front (§14: the queue empties every round) and iterated as owned
         // data so mutating `self.players`/`self.effects`/`self.discards`
         // per play needs no fighting the borrow checker.
+        //
+        // G5 erratum (Plan G whole-plan review, found by Task 3): a
+        // `PactBreak` pushed below is stamped with `self.round` — the round
+        // the knife was thrown IN, not the round anyone can first see it.
+        // `lc_advance_chain` never persists between this call's Step 1 and
+        // its Step 8 rollover, so for a non-terminal betrayal (the common
+        // case) the very first frame any client fetches already has
+        // `st.round` one past the stamp, and both round-scoped surfaces
+        // (`pacts_section_html`'s betrayed notice, `lc_screen_panel`'s break
+        // strip — both filter `round == st.round`/`round == view.round`)
+        // are unreachable. Fix: track which breaks this call pushes
+        // (`pact_breaks_start`) and, at the bottom of Step 7/top of Step 8,
+        // re-stamp just those with the round players actually land on —
+        // `self.round` unchanged (frozen, D16) if this break also ends the
+        // game, `self.round` post-increment otherwise. A terminal betrayal's
+        // stamp is untouched (still the round the game froze on); a
+        // non-terminal one becomes visible for exactly the following round,
+        // then ages out on the round after that — loud, not permanent (G5).
+        let pact_breaks_start = self.pact_breaks.len();
         let plays = std::mem::take(&mut self.plays);
         let mut queued_effects: Vec<Effect> = Vec::new();
         for play in plays {
@@ -1638,6 +1657,13 @@ impl LastCallState {
         // Step 8: rollover (D5).
         self.first_seat = (self.first_seat + 1) % self.players.len(); // D13
         self.round += 1;
+        // G5 erratum: re-stamp this call's breaks (if any) with the round
+        // that just became current — the round players actually see them
+        // in — rather than the round they were thrown in. See the Step 1
+        // comment above `pact_breaks_start`.
+        for brk in &mut self.pact_breaks[pact_breaks_start..] {
+            brk.round = self.round;
+        }
         self.beat = Beat::Draw;
         for p in &mut self.players {
             p.locked = false;
@@ -2180,12 +2206,16 @@ mod tests {
         st.resolve().unwrap();
         assert_eq!(st.players[1].hp, 13);
         assert!(st.pacts.is_empty());
+        // G5 erratum: the break is not terminal (nobody died), so it rolled
+        // over with everything else — the stamp is the round players
+        // actually land on (2), not the round the knife was thrown in (1).
+        assert_eq!(st.round, 2);
         assert_eq!(
             st.pact_breaks,
             vec![PactBreak {
                 betrayer: 0,
                 betrayed: 1,
-                round: 1
+                round: 2
             }]
         );
         assert_eq!(st.pact_barred, vec![0]);
