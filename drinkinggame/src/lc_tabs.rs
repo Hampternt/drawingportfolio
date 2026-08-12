@@ -205,6 +205,10 @@ mod tests {
             draws_this_round: 0,
             tabs: Vec::new(),
             status: Status::Alive,
+            damage_dealt: 0,
+            pulls_spent: 0,
+            cards_played: 0,
+            elim_order: None,
         }
     }
 

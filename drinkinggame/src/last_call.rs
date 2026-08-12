@@ -237,6 +237,23 @@ pub struct LcPlayer {
     pub draws_this_round: u16,
     pub tabs: Vec<String>,
     pub status: Status,
+    /// J5 stat counters. Field-level `#[serde(default)]` rather than a
+    /// container-level one (`LcPlayer` stays strict otherwise, per the
+    /// `#[serde(default)]` doc comment on `LastCallState` — a field missing
+    /// anywhere else inside this struct is still a hard error): a blob
+    /// written before these existed backfills each to its own `Default`
+    /// (`0`/`None`) instead of failing `from_json` entirely.
+    #[serde(default)]
+    pub damage_dealt: u32,
+    #[serde(default)]
+    pub pulls_spent: u32,
+    #[serde(default)]
+    pub cards_played: u32,
+    /// 1-based place in the elimination order (`None` while `Alive`, and
+    /// permanently `None` for a game's eventual winner(s)) — set the instant
+    /// `apply_damage` flips `status` to `Eliminated`, never elsewhere.
+    #[serde(default)]
+    pub elim_order: Option<u32>,
 }
 
 /// A staged card: identity plus its declared target. Never projected —
@@ -312,6 +329,13 @@ pub struct Effect {
     pub op: EffectOp,
     pub magnitude: i32,
     pub expires_round: u32,
+    /// J5: the seat whose play created this effect — attribution for a
+    /// `Dot`'s tick damage, which `resolve()`'s per-play loop has no `Play`
+    /// left to read `source_seat` off once the tick fires in a later round.
+    /// Field-level `#[serde(default)]`, same reasoning as `LcPlayer`'s new
+    /// fields: `Effect` otherwise stays strict.
+    #[serde(default)]
+    pub source_seat: usize,
 }
 
 /// A formed pact between two seats — mutual and symmetric; the invariant
@@ -344,6 +368,81 @@ pub struct PactBreak {
     pub betrayer: usize,
     pub betrayed: usize,
     pub round: u32,
+}
+
+/// J3: the round log is capped at this many entries; `LastCallState::push_log`
+/// evicts the oldest once it's exceeded.
+pub const LC_LOG_CAP: usize = 80;
+
+/// One public round-log entry (Plan J). J2 invariant: the only String params
+/// are card titles, and a variant carrying one may be appended only at or
+/// after its play's reveal — nothing here ever names a card still staged in
+/// `locked_plays`, a pact (secret until a `PactBreak`, which this vocabulary
+/// doesn't carry at all — Task 1's sweep never touches pacts/tabs/reactions/
+/// haunts; those stay `public_view()`-only surfaces), or a private tab. Seats
+/// are indices; names are resolved at render time so a rename never rewrites
+/// history.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(tag = "t", rename_all = "snake_case")]
+pub enum LogEntry {
+    Round {
+        round: u32,
+    },
+    Joined {
+        seat: usize,
+    },
+    Vessel {
+        seat: usize,
+        deck: Deck,
+    },
+    Handicap {
+        seat: usize,
+        pct: u16,
+    },
+    Draw {
+        seat: usize,
+        deck: Deck,
+        n: u8,
+    },
+    Lock {
+        seat: usize,
+    },
+    Play {
+        seat: usize,
+        title: String,
+        target: Option<usize>,
+    },
+    Hit {
+        source: usize,
+        target: usize,
+        amount: i32,
+    },
+    Heal {
+        seat: usize,
+        amount: i32,
+    },
+    Shield {
+        seat: usize,
+        amount: i32,
+    },
+    Drain {
+        source: usize,
+        target: usize,
+        amount: i32,
+    },
+    Fizzle {
+        seat: usize,
+        title: String,
+    },
+    Eliminated {
+        seat: usize,
+    },
+    Reshuffle {
+        deck: Deck,
+    },
+    GameOver {
+        winner: Option<usize>,
+    },
 }
 
 /// `#[serde(default)]` at the container level: a slice-3 field addition to
@@ -429,6 +528,12 @@ pub struct LastCallState {
     /// card, I10) at the end of `resolve()`'s Step 1 fold, alongside the
     /// reaction drain: eligibility refreshes with the round.
     pub haunts: Vec<Haunt>,
+    /// J1/J3: the public round log, capped at `LC_LOG_CAP` (oldest evicted
+    /// first) — every append goes through `push_log`, never `.push()`
+    /// directly. Container-level `#[serde(default)]` (see the comment above)
+    /// backfills an empty log for any blob written before this field
+    /// existed, same as every other Plan-J-or-later addition here.
+    pub log: Vec<LogEntry>,
 }
 
 /// One settled tab — who, which one, and when. New in Task 3: serde
@@ -636,9 +741,13 @@ impl LastCallState {
                 // H7: the opening deal — the seat's 0th tab, not empty.
                 tabs: vec![crate::lc_tabs::tab_for(rng_seed, seat, 0).id.to_string()],
                 status: Status::Alive,
+                damage_dealt: 0,
+                pulls_spent: 0,
+                cards_played: 0,
+                elim_order: None,
             })
             .collect();
-        LastCallState {
+        let mut state = LastCallState {
             players,
             round: 1,
             beat: Beat::Draw,
@@ -659,7 +768,10 @@ impl LastCallState {
             tab_ledger: Vec::new(),
             reactions: Vec::new(),
             haunts: Vec::new(),
-        }
+            log: Vec::new(),
+        };
+        state.push_log(LogEntry::Round { round: 1 });
+        state
     }
 
     pub fn to_json(&self) -> String {
@@ -774,8 +886,13 @@ impl LastCallState {
                 .id
                 .to_string()],
             status: Status::Alive,
+            damage_dealt: 0,
+            pulls_spent: 0,
+            cards_played: 0,
+            elim_order: None,
         });
         self.seq += 1;
+        self.push_log(LogEntry::Joined { seat });
         Some(seat)
     }
 
@@ -835,6 +952,7 @@ impl LastCallState {
             entry.1 = entry.1.saturating_sub(dealt);
         }
         self.seq += 1;
+        self.push_log(LogEntry::Vessel { seat, deck });
         Ok(())
     }
 
@@ -889,6 +1007,11 @@ impl LastCallState {
             entry.1 = entry.1.saturating_sub(drawn_count);
         }
         self.seq += 1;
+        self.push_log(LogEntry::Draw {
+            seat,
+            deck,
+            n: drawn_count as u8,
+        });
         Ok(())
     }
 
@@ -914,6 +1037,10 @@ impl LastCallState {
         }
         self.players[seat].handicap_pct = handicap_pct;
         self.seq += 1;
+        self.push_log(LogEntry::Handicap {
+            seat,
+            pct: handicap_pct,
+        });
         Ok(())
     }
 
@@ -1089,6 +1216,21 @@ impl LastCallState {
             .filter(|p| p.source_seat == seat)
             .map(|p| self.effective_pull_cost(p.card.cost, h))
             .fold(0u8, u8::saturating_add)
+    }
+
+    /// J3: appends to the public round log, dropping the oldest entry once
+    /// past `LC_LOG_CAP`. Every append site in this file calls this — the
+    /// log's own doc comment on `LastCallState::log` and every `LogEntry`
+    /// variant's construction site is what enforces J2 (public-only,
+    /// reveal-or-later card identity); this method itself has no gate of its
+    /// own, on purpose, so the invariant lives at each *call* site, next to
+    /// the transition it documents, rather than in one central checkpoint
+    /// that can't see why a given call is safe.
+    fn push_log(&mut self, entry: LogEntry) {
+        self.log.push(entry);
+        if self.log.len() > LC_LOG_CAP {
+            self.log.remove(0);
+        }
     }
 
     // Slice 1 defines the shape; slice 3 (the loop) fills these in. The
@@ -1274,6 +1416,7 @@ impl LastCallState {
         p.locked = true;
         self.locked_plays.extend(plays);
         self.seq += 1;
+        self.push_log(LogEntry::Lock { seat });
         Ok(())
     }
 
@@ -1795,6 +1938,40 @@ impl LastCallState {
             play.order_key = i as u32 + 1;
         }
 
+        // 3.5 (J2/J5): a `Play` log line per play, in the same reveal order
+        // just assigned above — card identity is safe to log from this
+        // point on (the play is about to become public in step 4) — plus
+        // the two per-player stat counters step 2 already charged for:
+        // `pulls_spent` (the same `effective_pull_cost` this play was
+        // actually charged, re-derived the same way step 2's `plan` did —
+        // vessels/handicap/event are all frozen between lock and reveal, so
+        // this reproduces the exact number) and `cards_played`. Collected
+        // into an owned `Vec` first so the borrow of `self.players` for
+        // `handicap_pct` doesn't overlap the mutable borrows below.
+        let play_log: Vec<(usize, String, Option<usize>, u32)> = self
+            .locked_plays
+            .iter()
+            .map(|play| {
+                let handicap = self.players[play.source_seat].handicap_pct;
+                let cost = self.effective_pull_cost(play.card.cost, handicap);
+                (
+                    play.source_seat,
+                    play.card.title.clone(),
+                    play.target,
+                    cost as u32,
+                )
+            })
+            .collect();
+        for (seat, title, target, cost) in play_log {
+            self.push_log(LogEntry::Play {
+                seat,
+                title,
+                target,
+            });
+            self.players[seat].pulls_spent += cost;
+            self.players[seat].cards_played += 1;
+        }
+
         // 4. Flip everything at once: this is the single point where plays
         // become revealable — `beat` is already `Reveal` (set by
         // `advance_beat` before calling this) when `public_view()` next
@@ -2104,6 +2281,10 @@ impl LastCallState {
                         _ => {
                             // 7.5: fizzle — no effect, pulls stay spent, the
                             // card still occupied its slot.
+                            self.push_log(LogEntry::Fizzle {
+                                seat: play.source_seat,
+                                title: play.card.title.clone(),
+                            });
                             self.discards.push(play.card);
                             continue;
                         }
@@ -2155,11 +2336,40 @@ impl LastCallState {
                                         .get(&(play.order_key, subject))
                                         .copied()
                                         .unwrap_or(0);
-                                self.apply_damage(subject, reduced.max(0));
+                                // J2/J5: `apply_damage` now returns the HP
+                                // actually removed (post-shield, post-clamp)
+                                // — the immediate-fx half of "per damage
+                                // actually applied"; the dot-tick half is at
+                                // Step 2 below. Logged/attributed only when
+                                // something actually landed, so a fully
+                                // shielded hit doesn't pad the log or the
+                                // counter with a no-op `Hit{amount: 0}`.
+                                let applied = self.apply_damage(subject, reduced.max(0));
+                                if applied > 0 {
+                                    self.push_log(LogEntry::Hit {
+                                        source: play.source_seat,
+                                        target: subject,
+                                        amount: applied,
+                                    });
+                                    self.players[play.source_seat].damage_dealt += applied as u32;
+                                }
                             }
-                            EffectOp::Heal => self.players[subject].hp += f.magnitude, // TBD-3: no ceiling
+                            EffectOp::Heal => {
+                                self.players[subject].hp += f.magnitude; // TBD-3: no ceiling
+                                self.push_log(LogEntry::Heal {
+                                    seat: subject,
+                                    amount: f.magnitude,
+                                });
+                            }
                             EffectOp::PullDrain => {
-                                drain_pulls(&mut self.players[subject], f.magnitude)
+                                let drained = drain_pulls(&mut self.players[subject], f.magnitude);
+                                if drained > 0 {
+                                    self.push_log(LogEntry::Drain {
+                                        source: play.source_seat,
+                                        target: subject,
+                                        amount: drained,
+                                    });
+                                }
                             }
                             // F8: shields register NOW (not queued), so they
                             // absorb later plays in this round's order.
@@ -2174,10 +2384,17 @@ impl LastCallState {
                                     op: EffectOp::Shield,
                                     magnitude: f.magnitude,
                                     expires_round: self.round + f.rounds,
+                                    source_seat: play.source_seat,
+                                });
+                                self.push_log(LogEntry::Shield {
+                                    seat: subject,
+                                    amount: f.magnitude,
                                 });
                             }
                             // Dots still queue (appended at step 3): never
-                            // tick in their own creation round.
+                            // tick in their own creation round. No log line
+                            // at creation (J2's sweep only logs a `Hit` when
+                            // the dot actually ticks, at Step 2 below).
                             EffectOp::Dot => {
                                 queued_effects.push(Effect {
                                     source_play: play.order_key,
@@ -2185,6 +2402,7 @@ impl LastCallState {
                                     op: EffectOp::Dot,
                                     magnitude: f.magnitude,
                                     expires_round: self.round + f.rounds,
+                                    source_seat: play.source_seat,
                                 });
                             }
                         }
@@ -2215,7 +2433,7 @@ impl LastCallState {
         // snapshotted entry. Bounds-checked (M3): a corrupt blob's effect
         // could name a subject seat that no longer exists — skip it rather
         // than panic.
-        let dot_ticks: Vec<(usize, i32)> = self
+        let dot_ticks: Vec<(usize, i32, usize)> = self
             .effects
             .iter()
             .filter(|e| {
@@ -2225,7 +2443,7 @@ impl LastCallState {
                         .get(e.subject)
                         .is_some_and(|p| p.status == Status::Alive)
             })
-            .map(|e| (e.subject, e.magnitude))
+            .map(|e| (e.subject, e.magnitude, e.source_seat))
             .collect();
         // `house-pour`'s `DotBoost` (H4): every tick this round hits harder
         // by `mult`. Stored `effect.magnitude` and `expires_round` are
@@ -2234,8 +2452,26 @@ impl LastCallState {
             Some(crate::lc_events::EventHook::DotBoost { mult }) => mult,
             _ => 1,
         };
-        for (subject, magnitude) in dot_ticks {
-            self.apply_damage(subject, magnitude * dot_mult);
+        for (subject, magnitude, source_seat) in dot_ticks {
+            // J2/J5: the dot-tick half of "per damage actually applied" —
+            // see the immediate-fx `Damage` arm above for why this is
+            // attributed and gated the same way. `source_seat` is the
+            // `Effect`'s own field (bounds-checked below, M3-style: a
+            // corrupt blob's `source_seat` could name a seat that no longer
+            // exists, so the counter update is best-effort while the log
+            // line — seat numbers only, resolved to a name at render time —
+            // is emitted regardless).
+            let applied = self.apply_damage(subject, magnitude * dot_mult);
+            if applied > 0 {
+                self.push_log(LogEntry::Hit {
+                    source: source_seat,
+                    target: subject,
+                    amount: applied,
+                });
+                if let Some(p) = self.players.get_mut(source_seat) {
+                    p.damage_dealt += applied as u32;
+                }
+            }
         }
 
         // Step 2.5: the end-of-round event program (H4) — after dots,
@@ -2372,13 +2608,29 @@ impl LastCallState {
 
         // Step 7: bump seq; stop here if the game just ended (D16).
         self.seq += 1;
-        if self.outcome().is_some() {
+        if let Some(outcome) = self.outcome() {
+            // J2/J5: the frozen final tableau's log line.
+            let winner = match outcome {
+                LcOutcome::Winner(s) => Some(s),
+                // G2: a shared pact win has two winners, but `GameOver`'s
+                // `winner` field is exactly one `Option<usize>` (Tasks 2-4
+                // build against this shape) — the lower seat of the pair
+                // stands in as the log line's representative. This drops no
+                // secret: both winners are already public in full via
+                // `public_view().outcome`'s `LcOutcome::Pact(a, b)` — this
+                // log line is a supplementary announcement, not the record
+                // of who won.
+                LcOutcome::Pact(a, _b) => Some(a),
+                LcOutcome::Draw => None,
+            };
+            self.push_log(LogEntry::GameOver { winner });
             return Ok(());
         }
 
         // Step 8: rollover (D5).
         self.first_seat = (self.first_seat + 1) % self.players.len(); // D13
         self.round += 1;
+        self.push_log(LogEntry::Round { round: self.round });
         // H2: the event lives Deal→Resolve of exactly its round — this is
         // the only place it's cleared. The Draw→Deal reveal (`advance_beat`)
         // sets the next one; "never two at once" holds because that reveal
@@ -2419,6 +2671,12 @@ impl LastCallState {
             if let Some(entry) = self.deck_counts.iter_mut().find(|(d, _)| *d == deck) {
                 entry.1 = reclaimed;
             }
+            // J2: only a real reshuffle (something was actually reclaimed)
+            // earns a log line — a deck that was already empty with nothing
+            // in `discards` to reclaim is a no-op, not an event.
+            if reclaimed > 0 {
+                self.push_log(LogEntry::Reshuffle { deck });
+            }
         }
         Ok(())
     }
@@ -2433,7 +2691,13 @@ impl LastCallState {
     /// and every effect whose `subject` is this seat is dropped (D10) —
     /// including, when this call is itself a Dot tick, the very effect
     /// being ticked.
-    fn apply_damage(&mut self, subject: usize, amount: i32) {
+    ///
+    /// Returns the HP actually removed from `subject` — post-shield,
+    /// post-clamp (J5): both callers use this, not the raw `amount`
+    /// requested, to log a `Hit` and credit `damage_dealt`, so a fully
+    /// shielded hit or an overkill blow that only had 2 HP left to take both
+    /// report the true number.
+    fn apply_damage(&mut self, subject: usize, amount: i32) -> i32 {
         let mut remaining = amount;
         for effect in self.effects.iter_mut() {
             if remaining <= 0 {
@@ -2448,10 +2712,22 @@ impl LastCallState {
         self.effects
             .retain(|e| !(e.op == EffectOp::Shield && e.magnitude <= 0));
 
-        let p = &mut self.players[subject];
-        p.hp = (p.hp - remaining).max(0);
-        if p.hp == 0 {
+        let before = self.players[subject].hp;
+        let after = (before - remaining).max(0);
+        self.players[subject].hp = after;
+        if after == 0 {
+            // J5: elim_order is 1-based — the count of players already
+            // `Eliminated` before this one, computed here ahead of this
+            // player's own status flip below so it never counts itself.
+            let next = self
+                .players
+                .iter()
+                .filter(|q| q.status == Status::Eliminated)
+                .count() as u32
+                + 1;
+            let p = &mut self.players[subject];
             p.status = Status::Eliminated;
+            p.elim_order = Some(next);
             let mut discarded: Vec<Card> = std::mem::take(&mut p.hand);
             discarded.extend(std::mem::take(&mut p.armed).into_iter().map(|a| a.card));
             self.discards.extend(discarded);
@@ -2460,7 +2736,9 @@ impl LastCallState {
             // replacement deal only refills Alive seats, so an eliminated
             // seat's `tabs` stays empty for the rest of the game.
             p.tabs.clear();
+            self.push_log(LogEntry::Eliminated { seat: subject });
         }
+        before - after
     }
 }
 
@@ -2468,8 +2746,12 @@ impl LastCallState {
 /// greatest `pulls_left` (a tie keeps the lowest index), decrement it by 1;
 /// stop early once every vessel sits at 0 (or the player has none). Never
 /// touches HP — drains only ever move pulls, D-invariant apply_damage owns
-/// HP.
-fn drain_pulls(player: &mut LcPlayer, n: i32) {
+/// HP. Returns the number of pulls actually decremented (may be less than
+/// `n` if the player's vessels run dry first) — J5: the resolve()-site
+/// caller uses this to log the `Drain` line with the amount actually
+/// applied, not the requested magnitude.
+fn drain_pulls(player: &mut LcPlayer, n: i32) -> i32 {
+    let mut drained = 0;
     for _ in 0..n.max(0) {
         let best = player
             .vessels
@@ -2478,10 +2760,14 @@ fn drain_pulls(player: &mut LcPlayer, n: i32) {
             .max_by_key(|(idx, v)| (v.pulls_left, std::cmp::Reverse(*idx)))
             .map(|(idx, v)| (idx, v.pulls_left));
         match best {
-            Some((idx, pulls_left)) if pulls_left > 0 => player.vessels[idx].pulls_left -= 1,
+            Some((idx, pulls_left)) if pulls_left > 0 => {
+                player.vessels[idx].pulls_left -= 1;
+                drained += 1;
+            }
             _ => break,
         }
     }
+    drained
 }
 
 /// H9: `TabReward::Pulls`' engine semantics — the mirror image of
@@ -2765,6 +3051,7 @@ mod tests {
             op: EffectOp::Dot,
             magnitude: -2,
             expires_round: 3,
+            source_seat: 0,
         });
         st.discards
             .push(crate::lc_cards::card_by_id("cider-01").unwrap());
@@ -4169,6 +4456,7 @@ mod tests {
             op: EffectOp::Dot,
             magnitude: 5,
             expires_round: 99,
+            source_seat: 0,
         });
         st.resolve().unwrap(); // must not panic
     }
@@ -4286,6 +4574,7 @@ mod tests {
             op: EffectOp::Dot,
             magnitude: 2,
             expires_round: 9,
+            source_seat: 0,
         });
         st.arm(2, "cider-01").unwrap();
         st.set_target(2, "cider-01", Some(0)).unwrap();
@@ -4311,6 +4600,7 @@ mod tests {
             op: EffectOp::Shield,
             magnitude: 3,
             expires_round: 9,
+            source_seat: 0,
         });
         st.arm(1, "beer-02").unwrap(); // 4 dmg → bob
         st.set_target(1, "beer-02", Some(1)).unwrap();
@@ -4791,6 +5081,7 @@ mod tests {
             op: EffectOp::Dot,
             magnitude: 1,
             expires_round: 9,
+            source_seat: 0,
         });
         st.event = Some("house-pour".into());
         st.advance_beat().unwrap();
@@ -4932,6 +5223,10 @@ mod tests {
             draws_this_round: 0,
             tabs: Vec::new(),
             status: Status::Alive,
+            damage_dealt: 0,
+            pulls_spent: 0,
+            cards_played: 0,
+            elim_order: None,
         };
         refill_pulls(&mut player, 2);
         assert_eq!(player.vessels[0].pulls_left, 5);
@@ -5054,6 +5349,7 @@ mod tests {
             op: EffectOp::Dot,
             magnitude: 10, // kills bob at Step 2's tick, before anyone plays
             expires_round: 5,
+            source_seat: 0,
         });
         st.beat = Beat::Resolve; // nobody plays — alice's round stays empty
         st.resolve().unwrap();
@@ -5561,5 +5857,180 @@ mod tests {
         st.advance_beat().unwrap();
         st.resolve().unwrap();
         assert_eq!(st.players[0].hp, 13); // 15 − max(0, 4 + 1 − 3)
+    }
+
+    // ---- Plan J Task 1: the round log, the cap, and the stat counters ----
+
+    #[test]
+    fn test_log_cap_drops_oldest() {
+        let mut st = seated();
+        for i in 0..(LC_LOG_CAP as u32 + 20) {
+            st.push_log(LogEntry::Round { round: i });
+        }
+        assert_eq!(st.log.len(), LC_LOG_CAP);
+        assert_eq!(st.log[0], LogEntry::Round { round: 20 }); // oldest dropped
+    }
+
+    /// J2: nothing in the log may name a card before its play's reveal.
+    /// Drives a real staging — arm + target + lock at `Beat::Lock` — so
+    /// `locked_plays` holds a play whose card title ("Nudge", beer-01) is
+    /// known, and checks the log alone never carries it.
+    #[test]
+    fn test_log_never_carries_identity_before_reveal() {
+        let mut st = at_lock(); // alice(0)/Beer, bob(1)/Cider, cara(2)/Soft
+        st.arm(1, "beer-01").unwrap(); // "Nudge"
+        st.set_target(1, "beer-01", Some(1)).unwrap();
+        st.lock_in(1).unwrap();
+        assert_eq!(st.beat, Beat::Lock); // still staged, not revealed
+
+        let json = serde_json::to_string(&st.log).unwrap();
+        assert!(!json.contains("Nudge"), "{json}");
+        assert!(json.contains(r#""t":"lock""#));
+    }
+
+    /// The Lock→Reveal edge writes a `Play` line and the two per-play stat
+    /// counters (`pulls_spent`, `cards_played`); `resolve()` then writes the
+    /// `Hit` line and `damage_dealt` for the damage actually applied.
+    /// beer-01 ("Nudge"): cost 1 (handicap 100% ⇒ 1 pull charged), 2 damage.
+    #[test]
+    fn test_reveal_and_resolve_write_the_log_and_the_stats() {
+        let mut st = at_lock(); // alice(0)/Beer, bob(1)/Cider, cara(2)/Soft
+        st.arm(1, "beer-01").unwrap(); // "Nudge", cost 1, 2 dmg
+        st.set_target(1, "beer-01", Some(1)).unwrap();
+        st.lock_in(1).unwrap();
+
+        st.advance_beat().unwrap(); // Lock -> Reveal (runs `reveal()`)
+        assert!(st
+            .log
+            .iter()
+            .any(|e| matches!(e, LogEntry::Play { seat: 0, .. })));
+        assert_eq!(st.players[0].pulls_spent, 1);
+        assert_eq!(st.players[0].cards_played, 1);
+
+        st.advance_beat().unwrap(); // Reveal -> Resolve
+        st.resolve().unwrap();
+        assert!(st
+            .log
+            .iter()
+            .any(|e| matches!(e, LogEntry::Hit { source: 0, target: 1, amount } if *amount == 2)));
+        assert_eq!(st.players[0].damage_dealt, 2);
+    }
+
+    /// `elim_order` is 1-based and monotonic across separate `resolve()`
+    /// calls, survives a to_json/from_json round trip, and — the field-level
+    /// `#[serde(default)]` on `LcPlayer`'s four J5 stat fields — backfills
+    /// 0/None when deserializing an `LcPlayer` object that predates them.
+    #[test]
+    fn test_elimination_order_is_monotonic_and_survives_serde() {
+        let mut st = seated(); // alice(0), bob(1), cara(2)
+        st.beat = Beat::Resolve;
+        st.effects.push(Effect {
+            source_play: 0,
+            subject: 1, // bob
+            op: EffectOp::Dot,
+            magnitude: 999,
+            expires_round: 99,
+            source_seat: 0,
+        });
+        st.resolve().unwrap();
+        assert_eq!(st.players[1].status, Status::Eliminated);
+        assert_eq!(st.players[1].elim_order, Some(1));
+        assert_eq!(st.outcome(), None); // alice + cara still alive
+
+        st.beat = Beat::Resolve;
+        st.effects.push(Effect {
+            source_play: 0,
+            subject: 2, // cara
+            op: EffectOp::Dot,
+            magnitude: 999,
+            expires_round: 99,
+            source_seat: 0,
+        });
+        st.resolve().unwrap();
+        assert_eq!(st.players[2].status, Status::Eliminated);
+        assert_eq!(st.players[2].elim_order, Some(2));
+        assert_eq!(st.outcome(), Some(LcOutcome::Winner(0)));
+
+        let round_tripped = LastCallState::from_json(&st.to_json());
+        assert_eq!(round_tripped.players[1].elim_order, Some(1));
+        assert_eq!(round_tripped.players[2].elim_order, Some(2));
+
+        // A hand-written LcPlayer JSON object missing all four J5 fields
+        // (the shape of a blob written before Task 1) backfills 0/None
+        // instead of failing to deserialize.
+        let skewed = r#"{"seat":0,"player_id":1,"name":"alice","hp":15,
+            "handicap_pct":100,"vessels":[],"hand":[],"armed":[],
+            "locked":false,"drawing":false,"draws_this_round":0,
+            "tabs":[],"status":"alive"}"#;
+        let p: LcPlayer = serde_json::from_str(skewed).unwrap();
+        assert_eq!(p.damage_dealt, 0);
+        assert_eq!(p.pulls_spent, 0);
+        assert_eq!(p.cards_played, 0);
+        assert_eq!(p.elim_order, None);
+    }
+
+    /// J1: the log is public-only. Scripts a full round — a pact formed and
+    /// betrayed (G), a tab settled (H), a played reaction (I) — through to
+    /// resolve, then serializes the log alone and asserts no secret token
+    /// (a tab id, an armed-but-unrevealed card, a pact-market word) escapes.
+    /// The log vocabulary itself structurally can't carry
+    /// pacts/tabs/reactions/haunts (no such `LogEntry` variant exists) —
+    /// this test is the proof that holds even as the surrounding systems
+    /// change.
+    #[test]
+    fn test_the_log_never_carries_a_secret_across_a_scripted_game() {
+        let mut st = LastCallState::new(
+            vec![
+                (1, "alice".into()),
+                (2, "bob".into()),
+                (3, "cara".into()),
+                (4, "dave".into()),
+            ],
+            42,
+        );
+        st.set_vessel(1, Deck::Beer, "can").unwrap();
+        st.set_vessel(2, Deck::Cider, "bottle").unwrap();
+        st.set_vessel(3, Deck::Soft, "glass").unwrap();
+        st.set_vessel(4, Deck::Liquor, "shot").unwrap();
+        // Bob won't arm anything this round — a guaranteed tab settle (H7's
+        // NoPlays check) rather than depending on whatever the seed dealt.
+        st.players[1].tabs = vec!["lie-low".into()];
+        // cider-08 (Cancel) isn't in Cider's curated opener (F6) — dealt to
+        // bob's hand by hand, the same move `test_two_cancels_resolve_lifo…`
+        // and friends use to reach a reaction that isn't naturally drawn.
+        st.players[1]
+            .hand
+            .push(crate::lc_cards::card_by_id("cider-08").unwrap());
+        st.advance_beat().unwrap(); // Draw -> Deal
+        st.advance_beat().unwrap(); // Deal -> Diplomacy
+        st.offer_pact(1, 1).unwrap(); // alice offers seat 1 (bob)
+        st.accept_pact(2, 0).unwrap(); // bob accepts from seat 0 (alice) — secret, G13
+        st.advance_beat().unwrap(); // Diplomacy -> Lock
+        st.arm(1, "beer-02").unwrap(); // hostile at bob: betrays the pact
+        st.set_target(1, "beer-02", Some(1)).unwrap();
+        st.lock_in(1).unwrap();
+        st.lock_in(2).unwrap();
+        st.lock_in(3).unwrap();
+        st.lock_in(4).unwrap();
+        st.advance_beat().unwrap(); // Lock -> Reveal
+        st.play_reaction(2, "cider-08", 1).unwrap(); // bob cancels alice's play — public the instant it's played (I9)
+        st.advance_beat().unwrap(); // Reveal -> Resolve
+        st.resolve().unwrap();
+
+        // Confirm the scripted secrets actually exist in the state, so this
+        // test would fail loudly if the script above stopped exercising
+        // them (a pact break, a settled tab) rather than silently passing
+        // on an empty log.
+        assert!(!st.pact_breaks.is_empty());
+        assert!(!st.tab_ledger.is_empty());
+
+        let json = serde_json::to_string(&st.log).unwrap();
+        // No tab id, no pact-market word, no reaction/card-still-secret
+        // token — the vocabulary has no variant for pacts/tabs/reactions/
+        // haunts at all, so this is really a sweep for stray secret-bearing
+        // strings that shouldn't be reachable in the first place.
+        for secret in ["lie-low", "cider-08", "pact", "tab"] {
+            assert!(!json.to_lowercase().contains(secret), "{secret} in {json}");
+        }
     }
 }
