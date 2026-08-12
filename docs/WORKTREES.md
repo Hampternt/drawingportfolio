@@ -210,9 +210,10 @@ visibility trio (`b7de771`, `03e5d68`); the active-filter pill row and the
 toggling one filter never drops another (`99449c0`); a pencil and a folder-plus
 on every card opening the caption/tags edit popover and the collection-membership
 checklist (`09fb2fa`); the popover JS — Esc-to-close, one popover open at a time,
-click-outside-to-close, palette entries for jumping straight to a collection or
-tag (`137b52f`). `./scripts/verify.sh` is green at 393 tests (up from 375 —
-plan B added 18).
+click-outside-to-close, and one palette entry ("Filter drawings by tag") that
+focuses the first tag pill, falling back to the search field when the rail
+isn't on screen — not a jump straight to a given collection or tag (`137b52f`).
+`./scripts/verify.sh` is green at 393 tests (up from 375 — plan B added 18).
 
 **Browser checkpoint 2 run 2026-08-12, curl-only — the Chrome extension did not
 connect after three attempts.** Against a seeded dev DB (29 posts: 27 public / 1

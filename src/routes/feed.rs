@@ -63,6 +63,12 @@ struct FeedTemplate {
     /// The preview flag, so `#art-rail-state` carries `visitor=1` and a search
     /// made mid-preview does not silently exit it.
     preview: bool,
+    /// Always `false` on the full-page render — only `PostGridTemplate`'s
+    /// htmx page-0 response ever sets this `true`. Exists purely so
+    /// `rail_filters.html` (shared via `{% include %}` between this template
+    /// and `PostGridTemplate`) can read the same field name from either
+    /// scope; see `PostGridTemplate::rail_filters_oob`.
+    rail_filters_oob: bool,
 }
 
 /// One description, two consumers: the head label and (in plan B) the empty
@@ -207,7 +213,13 @@ fn append_filter_pairs(
 pub(crate) struct RailLink {
     pub label: String,
     pub count: i64,
+    /// The fragment endpoint — `hx-get`'s target, never `href`. A middle-click
+    /// or a crawler following `href` here would land on a shell-less grid.
     pub url: String,
+    /// The real page carrying the same next-state query string — `href`'s
+    /// target, built by `page_url` alongside `url` so the two cannot drift on
+    /// what the next click applies.
+    pub page_url: String,
     pub active: bool,
 }
 
@@ -224,7 +236,10 @@ pub(crate) struct VisCheck {
 /// this."
 pub(crate) struct FilterPill {
     pub label: String,
+    /// The fragment endpoint for `hx-get`. Never `href` — see `RailLink::url`.
     pub remove_url: String,
+    /// The real page for `href`, built alongside `remove_url` by `page_url`.
+    pub remove_page_url: String,
 }
 
 /// One pill per active filter part, in `filter_desc`'s exact order (tags,
@@ -239,6 +254,7 @@ pub(crate) fn active_pills(filter: &PostFilter, preview: bool) -> Vec<FilterPill
         pills.push(FilterPill {
             label: tag.clone(),
             remove_url: filter_url(&next, preview),
+            remove_page_url: page_url(&next, preview),
         });
     }
     if let Some(q) = &filter.q {
@@ -247,6 +263,7 @@ pub(crate) fn active_pills(filter: &PostFilter, preview: bool) -> Vec<FilterPill
         pills.push(FilterPill {
             label: format!("\"{q}\""),
             remove_url: filter_url(&next, preview),
+            remove_page_url: page_url(&next, preview),
         });
     }
     if let Some(c) = &filter.collection {
@@ -255,6 +272,7 @@ pub(crate) fn active_pills(filter: &PostFilter, preview: bool) -> Vec<FilterPill
         pills.push(FilterPill {
             label: c.clone(),
             remove_url: filter_url(&next, preview),
+            remove_page_url: page_url(&next, preview),
         });
     }
     pills
@@ -297,6 +315,7 @@ pub(crate) fn collection_rail_links(
                 label: c.name.clone(),
                 count: c.count,
                 url: filter_url(&next, preview),
+                page_url: page_url(&next, preview),
                 active,
             }
         })
@@ -324,6 +343,7 @@ pub(crate) fn tag_rail_links(
                 label: t.name.clone(),
                 count: t.count,
                 url: filter_url(&next, preview),
+                page_url: page_url(&next, preview),
                 active,
             }
         })
@@ -475,7 +495,12 @@ struct PostGridTemplate {
     pills: Vec<FilterPill>,
     /// `filter_url` of `PostFilter::default()` — clears every filter part but
     /// keeps `preview`, so clearing filters mid-preview does not also exit it.
+    /// Feeds `hx-get`; `clear_page_url` feeds `href`.
     clear_url: String,
+    /// `page_url` of `PostFilter::default()`, same `preview` handling as
+    /// `clear_url` — the real page a middle-click on Clear/Reset filters
+    /// should land on.
+    clear_page_url: String,
     /// `filter_desc(filter).unwrap_or_default()` — `""` when nothing filters,
     /// which is the empty state's cue to render "no drawings yet." instead of
     /// naming a filter that does not exist.
@@ -496,6 +521,23 @@ struct PostGridTemplate {
     active_collection: Option<String>,
     active_vis: Option<Vec<String>>,
     preview: bool,
+    /// The Finding-1 fix: rail toggle URLs were frozen at full-page render, so
+    /// composing two filters in a row (a collection click then a tag click)
+    /// silently dropped the first. `rail_filters.html` (shared via `{%
+    /// include %}` with `filter_rail.html`, so the two paths cannot drift) is
+    /// re-rendered here from the filter that just took effect, out of band,
+    /// same page-0-htmx-only rule as `rail_state_oob`. Deliberately excludes
+    /// the search form — an in-flight OOB swap of it mid-keystroke would
+    /// steal focus from the input.
+    rail_filters_oob: bool,
+    /// Feeds `rail_filters_oob`'s markup — same fields `FeedTemplate` passes
+    /// to the very same `rail_filters.html` partial, empty/default when
+    /// `rail_filters_oob` is false (Load more, or the inlined first page,
+    /// which never renders this block at all).
+    collections: Vec<CollectionWithCount>,
+    rail_collections: Vec<RailLink>,
+    rail_tags: Vec<RailLink>,
+    rail_vis: Vec<VisCheck>,
 }
 
 #[derive(Deserialize)]
@@ -594,8 +636,15 @@ fn effective_viewer(session_is_admin: bool, preview: bool) -> Viewer {
 /// a COUNT; the 21st is dropped before grouping.
 ///
 /// `emit_rail_state` is the page-0/htmx-only signal for the `#art-rail-state`
-/// OOB block — see `PostGridTemplate::rail_state_oob`. `feed_page` always
-/// passes `false`; `htmx_posts` passes `page == 0`.
+/// AND `#art-rail-filters` OOB blocks — see `PostGridTemplate::rail_state_oob`
+/// / `rail_filters_oob`. `feed_page` always passes `false`; `htmx_posts`
+/// passes `page == 0`.
+///
+/// `rail_filters` is `Some((collections, tags))` exactly when the caller also
+/// wants the `#art-rail-filters` OOB block rendered — i.e. when
+/// `emit_rail_state` is true and the caller bothered to fetch the viewer-aware
+/// lists. `feed_page` always passes `None`: `emit_rail_state` is `false`
+/// there, so the block never renders and the lists would go unused.
 async fn render_grid(
     state: &Arc<AppState>,
     page: i64,
@@ -605,6 +654,7 @@ async fn render_grid(
     viewer: Viewer,
     preview: bool,
     emit_rail_state: bool,
+    rail_filters: Option<(Vec<CollectionWithCount>, Vec<TagWithCount>)>,
 ) -> String {
     let mut posts = crate::db::get_posts_page(&state.pool, filter, page, viewer).await;
     let has_more = posts.len() > 20;
@@ -615,6 +665,21 @@ async fn render_grid(
     // The next page has to know which month this one ended on, or it draws a
     // duplicate divider for a month already on screen.
     let next_last_month = groups.last().map(|g| g.label.clone());
+
+    // Rebuilt from the filter that just took effect — the fix for Finding 1's
+    // frozen rail: without this, a tag click after a collection click would
+    // toggle the tag but the collection would vanish from the URL the tag
+    // pill itself carries.
+    let (collections, rail_collections, rail_tags, rail_vis) = match rail_filters {
+        Some((collections, tags)) => {
+            let rail_collections = collection_rail_links(&collections, filter, preview);
+            let rail_tags = tag_rail_links(&tags, filter, preview);
+            let rail_vis = vis_checks(filter, preview);
+            (collections, rail_collections, rail_tags, rail_vis)
+        }
+        None => (Vec::new(), Vec::new(), Vec::new(), Vec::new()),
+    };
+
     PostGridTemplate {
         has_more,
         is_admin: viewer.is_admin(),
@@ -623,12 +688,18 @@ async fn render_grid(
         head_label_oob: head_label_oob.unwrap_or_default(),
         pills: active_pills(filter, preview),
         clear_url: filter_url(&PostFilter::default(), preview),
+        clear_page_url: page_url(&PostFilter::default(), preview),
         filter_desc: filter_desc(filter).unwrap_or_default(),
         rail_state_oob: emit_rail_state,
         active_tags: filter.tags.clone(),
         active_collection: filter.collection.clone(),
         active_vis: filter.vis.clone(),
         preview,
+        rail_filters_oob: emit_rail_state,
+        collections,
+        rail_collections,
+        rail_tags,
+        rail_vis,
         groups,
     }
     .render()
@@ -656,7 +727,7 @@ async fn feed_page(
     // request to /artportfolio/htmx/posts?page=0 before anything was visible.
     // No out-of-band label here: the shell renders the head itself.
     let initial_posts_html =
-        render_grid(&state, 0, &filter, None, None, viewer, preview, false).await;
+        render_grid(&state, 0, &filter, None, None, viewer, preview, false, None).await;
     let counts = crate::db::count_posts(&state.pool, &filter, viewer).await;
 
     // The rail only renders on the full page — the HTMX fragment route swaps
@@ -691,6 +762,7 @@ async fn feed_page(
             rail_collections,
             rail_tags,
             rail_vis,
+            rail_filters_oob: false,
         }
         .render()
         .unwrap(),
@@ -715,6 +787,17 @@ async fn htmx_posts(
     } else {
         None
     };
+    // The Finding-1 fix: only page 0 needs the viewer-scoped lists behind the
+    // `#art-rail-filters` OOB block — Load more changes no filter, so this
+    // pair of queries would be dead weight there, same rule `oob` follows
+    // just above.
+    let rail_filters = if page == 0 {
+        let collections = crate::db::list_collections_with_counts(&state.pool, viewer).await;
+        let tags = crate::db::list_tags_with_counts(&state.pool, viewer).await;
+        Some((collections, tags))
+    } else {
+        None
+    };
     let html = render_grid(
         &state,
         page,
@@ -724,6 +807,7 @@ async fn htmx_posts(
         viewer,
         preview,
         page == 0,
+        rail_filters,
     )
     .await;
 
@@ -2267,10 +2351,16 @@ mod tests {
         );
         // The active collection's OWN row is the deselect toggle: no
         // `collection=` in its href, but the search and tag still ride along.
-        // Askama HTML-escapes the `&` inside the attribute (`&#38;`).
+        // Askama HTML-escapes the `&` inside the attribute (`&#38;`). `href`
+        // is the real page (Finding 5) — `hx-get` still carries the fragment
+        // endpoint, asserted separately below.
         assert!(
-            body.contains("href=\"/artportfolio/htmx/posts?q=cat&#38;tags=ink\""),
+            body.contains("href=\"/artportfolio?q=cat&#38;tags=ink\""),
             "clicking the active collection row must deselect it while keeping q and tags: {body}"
+        );
+        assert!(
+            body.contains("hx-get=\"/artportfolio/htmx/posts?q=cat&#38;tags=ink\""),
+            "hx-get must still target the fragment endpoint: {body}"
         );
 
         let admin_body = body_of(get(&app, "/artportfolio?vis=hidden", Some(&cookie)).await).await;
@@ -2432,5 +2522,79 @@ mod tests {
         let (app, _pool) = app_with_pool().await;
         let body = body_of(get(&app, "/artportfolio/htmx/posts?page=1&tags=ink", None).await).await;
         assert!(!body.contains(r#"id="art-rail-state""#), "{body}");
+    }
+
+    // ===== #art-rail-filters' OOB re-render (Finding 1: rail links were
+    // frozen at full-page render, so composing two filters in a row silently
+    // dropped the first) ========================================================
+
+    /// The composition Finding 1 exists to fix: click collection `studies`,
+    /// then click tag `ink` — the tag pill's own URL, rebuilt here from the
+    /// filter that was just applied, must still carry the collection.
+    #[tokio::test]
+    async fn test_rail_filters_oob_composes_with_the_applied_filter() {
+        let (app, pool) = app_with_pool().await;
+        let post_id = seed_id(&pool, "a study", crate::models::Visibility::Public).await;
+        crate::db::set_post_tags(&pool, post_id, &["ink".to_string()]).await;
+        let collection = crate::db::create_collection(&pool, "Studies")
+            .await
+            .unwrap();
+        crate::db::add_post_to_collection(&pool, post_id, collection.id).await;
+
+        let body =
+            body_of(get(&app, "/artportfolio/htmx/posts?collection=studies", None).await).await;
+        assert!(
+            body.contains(r#"id="art-rail-filters" hx-swap-oob="true""#),
+            "{body}"
+        );
+        assert!(
+            body.contains(r#"hx-get="/artportfolio/htmx/posts?tags=ink&#38;collection=studies""#),
+            "the tag pill's URL must carry the collection filter that was just applied: {body}"
+        );
+    }
+
+    /// Same page-0-htmx-only rule `art-rail-state` and `head_label_oob`
+    /// follow — Load more changes no filter, so re-sending this block would
+    /// be dead weight.
+    #[tokio::test]
+    async fn test_rail_filters_oob_absent_on_load_more() {
+        let (app, _pool) = app_with_pool().await;
+        let body = body_of(get(&app, "/artportfolio/htmx/posts?page=1", None).await).await;
+        assert!(!body.contains(r#"id="art-rail-filters""#), "{body}");
+    }
+
+    // ===== Multi-tag AND-composition survives pagination (carried-due) =====
+
+    /// `?tags=ink%2Cperspective` — axum decodes the `%2C` to a literal comma
+    /// before `normalize_tags` ever splits it, so this exercises the same
+    /// path a real browser's percent-encoded rail URL takes. `db::
+    /// get_posts_page`'s `HAVING COUNT(DISTINCT t.id) = json_array_length`
+    /// AND-composes rather than OR-composes; this pins that through the route
+    /// AND through pagination (`page=1`), not just through the db layer.
+    #[tokio::test]
+    async fn test_multi_tag_and_composition_survives_pagination() {
+        let (app, pool) = app_with_pool().await;
+        for i in 0..25 {
+            seed_tagged(&pool, &format!("both {i}"), &["ink", "perspective"]).await;
+        }
+        seed_tagged(&pool, "only ink", &["ink"]).await;
+
+        let body = body_of(
+            get(
+                &app,
+                "/artportfolio/htmx/posts?tags=ink%2Cperspective&page=1",
+                None,
+            )
+            .await,
+        )
+        .await;
+        assert!(
+            body.contains("both "),
+            "a post tagged with both must appear on page 1: {body}"
+        );
+        assert!(
+            !body.contains("only ink"),
+            "a post tagged with only one of the two must not: {body}"
+        );
     }
 }

@@ -43,6 +43,19 @@
   {% endif %}
 </div>
 {% endif %}
+{#- Finding 1's fix: a rail click only swaps #feed, so the collections/tags/
+    vis sections (rail_filters.html — shared via `{% include %}` with
+    filter_rail.html, so the two paths cannot drift) go stale — is-active/
+    is-checked states, counts, and composed toggle URLs all freeze at the
+    last full-page render. Re-rendered out of band from the filter that just
+    took effect. Present only on an htmx page-0 response (see
+    `rail_filters_oob`); absent on the inlined first page (filter_rail.html
+    already rendered the real one) and on Load more (which changes no
+    filter). The search form is NOT part of this block — see
+    rail_filters.html's own comment. -#}
+{% if rail_filters_oob %}
+{% include "artportfolio/partials/rail_filters.html" %}
+{% endif %}
 {#- The active-filter row: one removable pill per active filter part plus a
     Clear filters button, right after the two OOB blocks and before the
     empty-state/groups branch — so it renders inside the grid payload for
@@ -52,11 +65,11 @@
 <div class="art-filter-row">
   {% for p in pills %}
   <a class="art-filter-pill"
-     href="{{ p.remove_url }}"
+     href="{{ p.remove_page_url }}"
      hx-get="{{ p.remove_url }}" hx-target="#feed" hx-swap="innerHTML" hx-push-url="true">{{ p.label }} <span class="art-filter-pill__x" aria-hidden="true">&times;</span></a>
   {% endfor %}
   <a class="hm-btn hm-btn--ghost hm-btn--sm art-filter-clear"
-     href="{{ clear_url }}"
+     href="{{ clear_page_url }}"
      hx-get="{{ clear_url }}" hx-target="#feed" hx-swap="innerHTML" hx-push-url="true">Clear filters</a>
 </div>
 {% endif %}

@@ -14,15 +14,17 @@
   list instead, zipped against `rail_collections` by position.
 
   Each row is the rail's HTMX GET contract: `hx-target="#feed" hx-swap=
-  "innerHTML" hx-push-url="true"`, `RailLink.url` on both `href` and `hx-get`.
-  The delete button lives behind `{% if is_admin %}` the same way the card
-  controls do — a visitor sees the list with no way to touch it.
+  "innerHTML" hx-push-url="true"`, `RailLink.url` (the fragment endpoint) on
+  `hx-get` and `RailLink.page_url` (a real page) on `href` — a middle-click
+  must not land on a shell-less grid. The delete button lives behind `{% if
+  is_admin %}` the same way the card controls do — a visitor sees the list
+  with no way to touch it.
 #}
 <div id="rail-collections">
   {% for (link, c) in rail_collections.iter().zip(collections.iter()) %}
   <div class="art-rail__row">
     <a class="art-rail__collection{% if link.active %} is-active{% endif %}"
-       href="{{ link.url }}"
+       href="{{ link.page_url }}"
        hx-get="{{ link.url }}" hx-target="#feed" hx-swap="innerHTML" hx-push-url="true">
       <span>{{ link.label }}</span>
       <span class="art-rail__count">{{ link.count }}</span>
