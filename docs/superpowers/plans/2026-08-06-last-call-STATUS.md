@@ -33,7 +33,7 @@ invented.
 Slice 1 is four plans: **A → A-vis → A2 → B**. Everything after slice 1 was
 planned in one pass on 2026-08-11 — see "The rest of the game" below.
 
-## The rest of the game — eight plans, written 2026-08-11; C, D and F executed
+## The rest of the game — eight plans, written 2026-08-11; C, D, F and E executed
 
 All eight are in `docs/superpowers/plans/2026-08-11-last-call-plan-*.md`. Each
 was written by its own subagent against the spec, DDv2 and the earlier plans'
@@ -87,6 +87,29 @@ approved") and the plans committed at `b5aa789`.
   erratum** in the plan file (Liquor dmg/pull arithmetic; code was always
   right). Owed to the same human browser pass as C: the preview page's
   catalog groups now show 40 cards.
+
+- **Plan E — the loop wiring. EXECUTED 2026-08-12.** `e49ab7e..d9dd89c`,
+  11 commits, verify green, **470 tests**, `drinkinggame` clippy-clean.
+  **The game is playable end to end:** START ROUND out of the registration
+  lobby, draw, arm via the wheel, target, LOCK IN, the beat clock advancing
+  on the 1 Hz ticker, reveal on the felt with flights, HP moving,
+  elimination, frozen game-over tableau, END GAME handoff. Tasks 1–3 were
+  Class C with per-task reviews (each closed after ≤1 fix round — the
+  reviews caught a real infinite-spin bug in the advance chain and forced a
+  deterministic ticker/route contention test); whole-plan review
+  CHANGES_REQUIRED narrowly (1 important: error notes rendered raw markup);
+  fix wave + scoped re-review CLEAN. Both SSE debts are paid (synthetic
+  lag `lctick "0"`; flight layer lives in the static shells).
+  **Standing items:** (1) *user decision:* every private arm/disarm bumps
+  the public `data-seq` via `LcTick`, costing each phone two fetches per
+  private action — brief-mandated, revisit if rooms feel chatty; (2) the
+  ticker task is unsupervised (a panic would silently stop all beat
+  clocks — hardening candidate for Plan J); (3) **the phone TABLE tab
+  cannot show reveal/draw flights** — E15 keeps play data off the phone, so
+  this is real scope, owner Plan I/J; checkpoint 2 step 2 is amended
+  accordingly; (4) the phone banner swap is not seq-guarded (pre-existing —
+  a lag backlog can briefly rewind the banner); (5) the big screen ignores
+  `lctick` BY DESIGN (private actions must not repaint it).
 
 | Plan | File suffix | What it ships | Tasks |
 | --- | --- | --- | --- |
@@ -399,6 +422,14 @@ behaviour is slice 3's call.
 
 ## Open / parked
 
+- **Post-v1 (user-owned): challenge-card mechanics.** After first release the
+  user will redesign some card elements around real-life party challenges —
+  cards requiring players to say / do / challenge / solve something under a
+  time limit. Engineering hooks already in place: catalog-side `card_fx`
+  resolves unknown fx **inert by design**, so challenge cards can ship
+  text-first; the beat clock's deadline + ticker pattern is the timed-flow
+  precedent. Recorded 2026-08-12.
+
 - **Spec §3.4.1 binds slice 3:** `public_view()` decides revelation from the beat
   alone, so **nothing may enter `plays` before it is revealable**. Hold locked
   plays in a field the projection cannot read; that slice owns the test.
@@ -491,10 +522,11 @@ Then, in this order:
    All eight remaining plans (C through J, covering every slice to completion)
    are written; see "The rest of the game" above.
 4. ~~User design review.~~ **Approved 2026-08-11**, all 106 decisions.
-5. **Execute** in the binding order: ~~C~~ → ~~D~~ → ~~F~~ → **E next** →
-   G/H/I → J. C, D and F executed and review-clean 2026-08-12 (see "The
-   rest of the game"); C's and F's browser checkpoints are owed to a human
-   alongside Plan B's checkpoint 2 (D is pure engine — nothing to eyeball).
+5. **Execute** in the binding order: ~~C~~ → ~~D~~ → ~~F~~ → ~~E~~ →
+   **G/H/I next** → J. C, D, F and E executed and review-clean 2026-08-12
+   (see "The rest of the game"). Browser checkpoints owed to a human, one
+   combined pass: Plan B checkpoint 2, C's hand group, F's 40-card
+   preview, E's loop items (with step 2 amended — no TABLE-tab flights).
    Each plan names its ledger at
    `.superpowers/sdd/<plan-basename>/progress.md`.
 
