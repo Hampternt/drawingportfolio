@@ -123,9 +123,11 @@ pub async fn lc_start_handler(
     if members.len() < 2 {
         return GameError::TooFewPlayers.into_response();
     }
-    // rand::thread_rng() here is the *only* randomness this feature has —
-    // last_call.rs never generates its own; rng_seed is taken once, in the
-    // route, and stored in the state blob.
+    // last_call.rs never generates its own randomness; the seed is taken
+    // once, here, and stored in the state blob for the shuffle/deal math it
+    // does with it. `lc_draw_handler` (below) is a second, independent
+    // rand::thread_rng() site — it samples drawn cards per request rather
+    // than seeding persisted state, so it doesn't go through this seed.
     let rng_seed = rand::thread_rng().gen::<u64>();
     let st = LastCallState::new(
         members.iter().map(|m| (m.id, m.name.clone())).collect(),

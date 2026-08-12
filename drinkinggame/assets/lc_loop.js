@@ -122,11 +122,19 @@
   }
 
   // The action bar's own inline `#lc-actions-note` — map_lc's "Can't afford
-  // …" / "… needs a target." 422 bodies surface here, verbatim, for NOTE_MS.
+  // …" / "… needs a target." 422 bodies are plain text and surface here
+  // verbatim; every other refusal (403/409, the far more common mid-game
+  // case) comes from `GameError::into_response` (error.rs), whose body is
+  // markup: `<p class="error">…</p>`. Parsing the text into a detached
+  // element and reading its `textContent` strips that markup down to the
+  // message either way — inert (never inserted into the document, so no
+  // script executes) and works for both plain-text and HTML bodies alike.
   function note(text) {
     var el = document.getElementById("lc-actions-note");
     if (!el) return;
-    el.textContent = text;
+    var parsed = document.createElement("div");
+    parsed.innerHTML = text;
+    el.textContent = parsed.textContent || text;
     el.hidden = false;
     window.clearTimeout(el._lcNoteTimer);
     el._lcNoteTimer = window.setTimeout(function () {

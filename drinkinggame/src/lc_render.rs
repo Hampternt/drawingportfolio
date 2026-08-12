@@ -1906,6 +1906,18 @@ mod tests {
     }
 
     #[test]
+    fn test_both_surfaces_pin_the_felt_anchor() {
+        // Plan E review adjudication 2: the plan's Task 5 Consumes list named
+        // the `felt` anchor as already shipped when it wasn't — without it
+        // `lcAnchor("felt")` returns null and every reveal flight silently
+        // no-ops. Both builders' `#lc-felt` div carries the attribute; only
+        // incidental coverage existed before (the dedup loop below), so pin
+        // it explicitly here to protect the contract from a silent drop.
+        assert!(lc_screen_panel(&ring_fixture(4)).contains(r#"data-flight-anchor="felt""#));
+        assert!(lc_mini_table(&ring_fixture(4), Some(0)).contains(r#"data-flight-anchor="felt""#));
+    }
+
+    #[test]
     fn test_no_duplicate_anchors_or_ids_on_either_surface() {
         // lcAnchor returns the FIRST match. Plan A-vis's preview page has
         // duplicate anchors by design (a gallery shows one component in many
