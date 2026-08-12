@@ -417,8 +417,9 @@ body.lc { margin: 0; min-height: 100vh; display: flex; flex-direction: column;
 .lc-pact-broken { color: var(--lc-rose); }
 .lc-btn.lc-pact-propose { display: block; width: 100%; margin: 4px 0; }
 /* the big screen's betrayal line — F.2's floor is 18px */
-.lc-pact-break { position: absolute; top: 24px; left: 0; right: 0;
-                 text-align: center; font-family: var(--font-ui);
+.lc-pact-strip { position: absolute; top: 24px; left: 0; right: 0;
+                 display: flex; flex-direction: column; gap: 4px; }
+.lc-pact-break { text-align: center; font-family: var(--font-ui);
                  font-weight: 700; font-size: 18px; letter-spacing: .14em;
                  color: var(--lc-rose); pointer-events: none; }
 

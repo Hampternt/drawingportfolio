@@ -6770,6 +6770,7 @@ async fn test_a_pact_between_a_and_b_is_invisible_to_c_and_the_wire() {
     // prove the broadcast surface never carries pact state even while a
     // pact still exists.
     let mut st2 = lc_state(&pool, &code).await;
+    assert!(!st2.pacts.is_empty()); // premise: the pact still exists
     st2.beat = Beat::Draw;
     drinkinggame::db::set_game_state(&pool, game_id, &st2.to_json()).await;
 

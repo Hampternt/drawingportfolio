@@ -589,20 +589,19 @@ impl LastCallState {
         if self.players.len() < 2 {
             return None;
         }
-        let alive: Vec<usize> = self
+        let mut alive = self
             .players
             .iter()
             .filter(|p| p.status == Status::Alive)
-            .map(|p| p.seat)
-            .collect();
-        match alive.as_slice() {
-            [] => Some(LcOutcome::Draw),
-            [w] => Some(LcOutcome::Winner(*w)),
+            .map(|p| p.seat);
+        match (alive.next(), alive.next(), alive.next()) {
+            (None, _, _) => Some(LcOutcome::Draw),
+            (Some(w), None, _) => Some(LcOutcome::Winner(w)),
             // G2 — DDv1 6.3: "If you and your partner are the last two
             // standing, you both win." `players` is seat-ordered, so a < b
             // holds whenever this arm matches.
-            [a, b] if self.pacts.iter().any(|p| p.a == *a && p.b == *b) => {
-                Some(LcOutcome::Pact(*a, *b))
+            (Some(a), Some(b), None) if self.pacts.iter().any(|p| p.a == a && p.b == b) => {
+                Some(LcOutcome::Pact(a, b))
             }
             _ => None,
         }

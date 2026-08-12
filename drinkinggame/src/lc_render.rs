@@ -789,8 +789,16 @@ pub fn lc_screen_panel(view: &PublicView) -> String {
             )
         })
         .collect();
+    let pact_breaks_html = if pact_breaks.is_empty() {
+        String::new()
+    } else {
+        format!(r#"<div class="lc-pact-strip">{}</div>"#, pact_breaks)
+    };
     let stage = format!(
-        r#"<div class="lc-stage"><div id="lc-felt" data-flight-anchor="felt"></div>{centre}{pact_breaks}<div class="lc-ring">{seats_html}</div></div>"#
+        r#"<div class="lc-stage"><div id="lc-felt" data-flight-anchor="felt"></div>{centre}{pact_breaks_html}<div class="lc-ring">{seats_html}</div></div>"#,
+        centre = centre,
+        pact_breaks_html = pact_breaks_html,
+        seats_html = seats_html,
     );
 
     let deck_stacks: String = view
