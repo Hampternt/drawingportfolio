@@ -1536,6 +1536,40 @@ body.art-page .art-vis-check.is-checked .art-vis-check__box {
   border-color: var(--accent);
 }
 
+/* Active-filter row (Task 2 of the collections/tags plan) — one removable
+   pill per active tag/search/collection plus a ghost Clear filters button,
+   right-aligned. Lives at the top of #feed's payload, above the month
+   sections, so it travels with both the inlined first page and an htmx
+   page-0 swap. Pills reuse the rail's active-pill look (`.art-rail__tag.
+   is-active`'s tint) rather than inventing a second one. */
+body.art-page .art-filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: var(--space-7);
+}
+body.art-page .art-filter-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  height: 24px;
+  padding: 0 var(--space-4);
+  border-radius: var(--radius-pill);
+  border: var(--border-width) solid var(--border-accent);
+  background: var(--accent-tint);
+  color: var(--text-accent);
+  font-size: var(--text-13);
+  text-decoration: none;
+}
+body.art-page .art-filter-pill:hover { border-color: var(--violet-a45); text-decoration: none; }
+body.art-page .art-filter-pill__x {
+  font-size: var(--text-14);
+  line-height: 1;
+  opacity: .7;
+}
+body.art-page .art-filter-clear { margin-left: auto; }
+
 /* Month sections. Each month owns its OWN column block, which is the whole
    reason the feed is not one flat masonry: in a CSS multi-column flow content
    fills column 1 before column 2, so a divider placed inline would span one
@@ -1590,6 +1624,12 @@ body.art-page .art-empty {
   color: var(--text-faint);
   padding: var(--space-12) 0;
   text-align: center;
+}
+/* The filter-aware empty state's Reset filters button (Task 2) — `.art-empty`
+   itself is unchanged, this only places the button under its line. */
+body.art-page .art-empty__reset {
+  display: block;
+  margin: var(--space-5) auto 0;
 }
 
 /* Admin composer. Markup and HTMX contract are untouched — the multi-upload

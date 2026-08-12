@@ -19,6 +19,47 @@
 {% if !head_label_oob.is_empty() %}
 <div class="hm-eyebrow art-head__label" id="art-head-label" hx-swap-oob="true">{{ head_label_oob }}</div>
 {% endif %}
+{#- The plan gap this task closes: a rail click swaps #feed only, so the
+    hidden #art-rail-state fields the search input hx-includes go stale. This
+    sibling OOB block re-renders them from the filter that just took effect —
+    same markup/field names as filter_rail.html's own #art-rail-state, so a
+    search made right after a rail click still carries every other active
+    part. Present only on an htmx page-0 response (see `rail_state_oob`);
+    absent on the inlined first page (filter_rail.html already rendered the
+    real one) and on Load more (which changes no filter). -#}
+{% if rail_state_oob %}
+<div id="art-rail-state" hx-swap-oob="true" hidden>
+  {% if !active_tags.is_empty() %}
+  <input type="hidden" name="tags" value="{{ active_tags|join(",") }}">
+  {% endif %}
+  {% if let Some(c) = active_collection %}
+  <input type="hidden" name="collection" value="{{ c }}">
+  {% endif %}
+  {% if let Some(vis) = active_vis %}
+  <input type="hidden" name="vis" value="{{ vis|join(",") }}">
+  {% endif %}
+  {% if preview %}
+  <input type="hidden" name="visitor" value="1">
+  {% endif %}
+</div>
+{% endif %}
+{#- The active-filter row: one removable pill per active filter part plus a
+    Clear filters button, right after the two OOB blocks and before the
+    empty-state/groups branch — so it renders inside the grid payload for
+    both the inlined first page and an htmx page-0 swap, and never duplicates
+    on a Load more (page >= 1, where `is_first_page` is false). -#}
+{% if is_first_page && !pills.is_empty() %}
+<div class="art-filter-row">
+  {% for p in pills %}
+  <a class="art-filter-pill"
+     href="{{ p.remove_url }}"
+     hx-get="{{ p.remove_url }}" hx-target="#feed" hx-swap="innerHTML" hx-push-url="true">{{ p.label }} <span class="art-filter-pill__x" aria-hidden="true">&times;</span></a>
+  {% endfor %}
+  <a class="hm-btn hm-btn--ghost hm-btn--sm art-filter-clear"
+     href="{{ clear_url }}"
+     hx-get="{{ clear_url }}" hx-target="#feed" hx-swap="innerHTML" hx-push-url="true">Clear filters</a>
+</div>
+{% endif %}
 {% if groups.is_empty() && is_first_page %}
 {% include "artportfolio/partials/empty_state.html" %}
 {% else %}

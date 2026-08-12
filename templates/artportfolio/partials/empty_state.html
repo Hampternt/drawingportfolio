@@ -2,12 +2,19 @@
   Emptiness, rendered as a single mono line behind a prompt caret rather than an
   illustration or a centred call to action.
 
-  Two variants: nothing at all, and nothing that matched. The second names the
-  query, because "no results" without the term is a dead end — you cannot tell a
-  typo from an honest miss.
+  Two variants: nothing at all, and nothing that matched. The second names
+  every active filter part via `filter_desc` (tags, quoted search, collection
+  — the same string the head label and the active-filter row use), because
+  "no results" without the reason is a dead end — you cannot tell a typo from
+  an honest miss, or a tag combination that simply has no overlap.
 #}
-{% if q.is_empty() %}
+{% if filter_desc.is_empty() %}
 <div class="art-empty">&gt; no drawings yet.</div>
 {% else %}
-<div class="art-empty">&gt; no drawings match "{{ q }}".</div>
+<div class="art-empty">
+  &gt; no drawings match {{ filter_desc }}.
+  <a class="hm-btn hm-btn--ghost hm-btn--sm art-empty__reset"
+     href="{{ clear_url }}"
+     hx-get="{{ clear_url }}" hx-target="#feed" hx-swap="innerHTML" hx-push-url="true">Reset filters</a>
+</div>
 {% endif %}

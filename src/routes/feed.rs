@@ -218,11 +218,55 @@ pub(crate) struct VisCheck {
     pub checked: bool,
 }
 
+/// One removable pill in the active-filter row — a tag, the quoted search, or
+/// the collection. `remove_url` is `filter_url` of the filter with just that
+/// one part cleared, so clicking it always lands on "everything else, minus
+/// this."
+pub(crate) struct FilterPill {
+    pub label: String,
+    pub remove_url: String,
+}
+
+/// One pill per active filter part, in `filter_desc`'s exact order (tags,
+/// quoted q, collection) so the active-filter row and the empty state read
+/// identically. The `vis` subset gets no pill — mirroring `filter_desc`, it is
+/// the rail's admin plumbing, not something a viewer searched for.
+pub(crate) fn active_pills(filter: &PostFilter, preview: bool) -> Vec<FilterPill> {
+    let mut pills = Vec::new();
+    for tag in &filter.tags {
+        let mut next = filter.clone();
+        next.tags.retain(|t| t != tag);
+        pills.push(FilterPill {
+            label: tag.clone(),
+            remove_url: filter_url(&next, preview),
+        });
+    }
+    if let Some(q) = &filter.q {
+        let mut next = filter.clone();
+        next.q = None;
+        pills.push(FilterPill {
+            label: format!("\"{q}\""),
+            remove_url: filter_url(&next, preview),
+        });
+    }
+    if let Some(c) = &filter.collection {
+        let mut next = filter.clone();
+        next.collection = None;
+        pills.push(FilterPill {
+            label: c.clone(),
+            remove_url: filter_url(&next, preview),
+        });
+    }
+    pills
+}
+
 /// The rail's toggle-link URL: `/artportfolio/htmx/posts?…`, carrying every
 /// active filter pair but never a `page` — every rail click starts a fresh
 /// page 0. Built on `append_filter_pairs` like `load_more_url`/`page_url`, so
 /// all four cannot drift on what the query string contract means. Task 2
-/// reuses this for pill-removal URLs.
+/// reuses this for pill-removal URLs and `clear_url` (`filter_url` of
+/// `PostFilter::default()`, which is why `clear_url` still carries `preview`
+/// — clearing every filter must not also exit a preview).
 pub(crate) fn filter_url(filter: &PostFilter, preview: bool) -> String {
     let mut s = url::form_urlencoded::Serializer::new(String::new());
     append_filter_pairs(&mut s, filter, preview);
@@ -417,8 +461,6 @@ struct PostGridTemplate {
     /// 1 of nothing means no drawings; page 3 of nothing just means the end),
     /// and which single image gets `fetchpriority="high"`.
     is_first_page: bool,
-    /// The active search, `""` when there is none — the empty state names it.
-    q: String,
     /// The page head's label, re-rendered as an out-of-band swap, or `""` to
     /// leave the head alone.
     ///
@@ -428,6 +470,32 @@ struct PostGridTemplate {
     /// a cleared filter); never on Load more, which appends and leaves the
     /// total unchanged.
     head_label_oob: String,
+    /// The active-filter row's removable pills, in `filter_desc`'s order.
+    /// Rendered only when `is_first_page` — see the template.
+    pills: Vec<FilterPill>,
+    /// `filter_url` of `PostFilter::default()` — clears every filter part but
+    /// keeps `preview`, so clearing filters mid-preview does not also exit it.
+    clear_url: String,
+    /// `filter_desc(filter).unwrap_or_default()` — `""` when nothing filters,
+    /// which is the empty state's cue to render "no drawings yet." instead of
+    /// naming a filter that does not exist.
+    filter_desc: String,
+    /// The plan gap this task also closes: the rail's search input
+    /// `hx-include`s `#art-rail-state`'s hidden fields, but a rail click only
+    /// swaps `#feed` — so without re-rendering this container out of band, the
+    /// next keystroke silently drops the tag/collection a rail click just
+    /// applied. `true` only for an htmx page-0 response (mirrors
+    /// `head_label_oob`'s own page-0-only, htmx-only rule); `false` for the
+    /// inlined first page (the shell already renders the real
+    /// `#art-rail-state`) and for Load more (which changes no filter).
+    rail_state_oob: bool,
+    /// The four fields below feed `rail_state_oob`'s markup — same shape and
+    /// names as `FeedTemplate`'s own, so the OOB block matches
+    /// `filter_rail.html`'s `#art-rail-state` byte for byte.
+    active_tags: Vec<String>,
+    active_collection: Option<String>,
+    active_vis: Option<Vec<String>>,
+    preview: bool,
 }
 
 #[derive(Deserialize)]
@@ -524,6 +592,10 @@ fn effective_viewer(session_is_admin: bool, preview: bool) -> Viewer {
 ///
 /// `get_posts_page` asks for 21 rows to answer "is there another page?" without
 /// a COUNT; the 21st is dropped before grouping.
+///
+/// `emit_rail_state` is the page-0/htmx-only signal for the `#art-rail-state`
+/// OOB block — see `PostGridTemplate::rail_state_oob`. `feed_page` always
+/// passes `false`; `htmx_posts` passes `page == 0`.
 async fn render_grid(
     state: &Arc<AppState>,
     page: i64,
@@ -532,6 +604,7 @@ async fn render_grid(
     head_label_oob: Option<String>,
     viewer: Viewer,
     preview: bool,
+    emit_rail_state: bool,
 ) -> String {
     let mut posts = crate::db::get_posts_page(&state.pool, filter, page, viewer).await;
     let has_more = posts.len() > 20;
@@ -542,14 +615,20 @@ async fn render_grid(
     // The next page has to know which month this one ended on, or it draws a
     // duplicate divider for a month already on screen.
     let next_last_month = groups.last().map(|g| g.label.clone());
-    let q = filter.q.as_deref();
     PostGridTemplate {
         has_more,
         is_admin: viewer.is_admin(),
         load_more_url: load_more_url(page + 1, filter, next_last_month.as_deref(), preview),
         is_first_page: page == 0,
-        q: q.unwrap_or_default().to_string(),
         head_label_oob: head_label_oob.unwrap_or_default(),
+        pills: active_pills(filter, preview),
+        clear_url: filter_url(&PostFilter::default(), preview),
+        filter_desc: filter_desc(filter).unwrap_or_default(),
+        rail_state_oob: emit_rail_state,
+        active_tags: filter.tags.clone(),
+        active_collection: filter.collection.clone(),
+        active_vis: filter.vis.clone(),
+        preview,
         groups,
     }
     .render()
@@ -576,7 +655,8 @@ async fn feed_page(
     // Without this, the browser would load the page and then fire a second
     // request to /artportfolio/htmx/posts?page=0 before anything was visible.
     // No out-of-band label here: the shell renders the head itself.
-    let initial_posts_html = render_grid(&state, 0, &filter, None, None, viewer, preview).await;
+    let initial_posts_html =
+        render_grid(&state, 0, &filter, None, None, viewer, preview, false).await;
     let counts = crate::db::count_posts(&state.pool, &filter, viewer).await;
 
     // The rail only renders on the full page — the HTMX fragment route swaps
@@ -643,6 +723,7 @@ async fn htmx_posts(
         oob,
         viewer,
         preview,
+        page == 0,
     )
     .await;
 
@@ -2203,5 +2284,153 @@ mod tests {
             preview_body.contains(r#"name="visitor" value="1""#),
             "the hidden state input must carry the preview flag: {preview_body}"
         );
+    }
+
+    // ===== The active-filter row and the filter-aware empty state (Task 2) ===
+
+    /// A filter carrying one of each part — the fixture `active_pills`' order
+    /// and remove-url tests share.
+    fn full_filter() -> PostFilter {
+        PostFilter {
+            tags: vec!["ink".to_string(), "perspective".to_string()],
+            q: Some("loomis".to_string()),
+            collection: Some("studies".to_string()),
+            vis: None,
+        }
+    }
+
+    #[test]
+    fn test_active_pills_order_and_labels() {
+        let labels: Vec<String> = active_pills(&full_filter(), false)
+            .into_iter()
+            .map(|p| p.label)
+            .collect();
+        assert_eq!(
+            labels,
+            vec![
+                "ink".to_string(),
+                "perspective".to_string(),
+                "\"loomis\"".to_string(),
+                "studies".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_pill_remove_url_drops_only_its_part() {
+        let pills = active_pills(&full_filter(), false);
+        let ink = &pills[0];
+        assert_eq!(ink.label, "ink");
+        assert!(
+            ink.remove_url.contains("tags=perspective"),
+            "{}",
+            ink.remove_url
+        );
+        assert!(ink.remove_url.contains("q=loomis"), "{}", ink.remove_url);
+        assert!(
+            ink.remove_url.contains("collection=studies"),
+            "{}",
+            ink.remove_url
+        );
+        assert!(!ink.remove_url.contains("ink"), "{}", ink.remove_url);
+    }
+
+    #[test]
+    fn test_q_pill_remove_keeps_tags() {
+        let pills = active_pills(&full_filter(), false);
+        let q_pill = pills
+            .iter()
+            .find(|p| p.label == "\"loomis\"")
+            .expect("q pill present");
+        assert!(!q_pill.remove_url.contains("q="), "{}", q_pill.remove_url);
+        assert!(
+            q_pill.remove_url.contains("tags=ink%2Cperspective"),
+            "{}",
+            q_pill.remove_url
+        );
+    }
+
+    #[test]
+    fn test_vis_gets_no_pill() {
+        let f = PostFilter {
+            vis: Some(vec!["hidden".to_string()]),
+            ..Default::default()
+        };
+        assert!(active_pills(&f, false).is_empty());
+    }
+
+    /// `clear_url` (built in `render_grid` from `filter_url(&PostFilter::
+    /// default(), preview)`) survives a preview — clearing every filter part
+    /// must not also exit one.
+    #[test]
+    fn test_clear_url_keeps_preview() {
+        assert_eq!(
+            filter_url(&PostFilter::default(), true),
+            "/artportfolio/htmx/posts?visitor=1"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_filter_row_renders_on_page_0() {
+        let (app, _pool) = app_with_pool().await;
+        let body0 =
+            body_of(get(&app, "/artportfolio/htmx/posts?page=0&tags=ink", None).await).await;
+        assert!(body0.contains("art-filter-row"), "{body0}");
+        assert!(body0.contains("Clear filters"), "{body0}");
+
+        let body1 =
+            body_of(get(&app, "/artportfolio/htmx/posts?page=1&tags=ink", None).await).await;
+        assert!(
+            !body1.contains("art-filter-row"),
+            "Load more must not duplicate the filter row: {body1}"
+        );
+        assert!(!body1.contains("Clear filters"), "{body1}");
+    }
+
+    #[tokio::test]
+    async fn test_empty_state_names_the_filter() {
+        let (app, _pool) = app_with_pool().await;
+        let body = body_of(
+            get(
+                &app,
+                "/artportfolio/htmx/posts?page=0&tags=ink&q=loomis",
+                None,
+            )
+            .await,
+        )
+        .await;
+        // Askama's html escaper writes decimal numeric entities (&#34;), not
+        // the named &quot; — accept either the same way
+        // test_post_card_html_escapes_content does for angle brackets, since
+        // the entity spelling is not the property under test.
+        assert!(
+            body.contains("no drawings match ink + &#34;loomis&#34;.")
+                || body.contains("no drawings match ink + &quot;loomis&quot;."),
+            "{body}"
+        );
+        assert!(body.contains("Reset filters"), "{body}");
+    }
+
+    // ===== #art-rail-state's OOB re-render (controller resolution of the
+    // rail/search staleness gap Task 1 surfaced) ======================
+
+    #[tokio::test]
+    async fn test_rail_state_oob_renders_on_page_0() {
+        let (app, _pool) = app_with_pool().await;
+        let body = body_of(get(&app, "/artportfolio/htmx/posts?page=0&tags=ink", None).await).await;
+        assert!(
+            body.contains(r#"id="art-rail-state" hx-swap-oob="true""#),
+            "{body}"
+        );
+        assert!(body.contains(r#"name="tags" value="ink""#), "{body}");
+    }
+
+    /// Load more (page >= 1) changes no filter, so re-sending the state block
+    /// would be dead weight — matches `head_label_oob`'s own page-0-only rule.
+    #[tokio::test]
+    async fn test_rail_state_oob_absent_on_load_more() {
+        let (app, _pool) = app_with_pool().await;
+        let body = body_of(get(&app, "/artportfolio/htmx/posts?page=1&tags=ink", None).await).await;
+        assert!(!body.contains(r#"id="art-rail-state""#), "{body}");
     }
 }
