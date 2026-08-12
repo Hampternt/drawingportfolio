@@ -381,6 +381,20 @@ pub struct LastCallState {
     /// Draw→Deal reveal (`advance_beat`) and cleared at the rollover
     /// (`resolve`) — see those functions for the exact edges.
     pub event: Option<String>,
+    /// The durable history of settled tabs — Plan J's LOG and end-of-game
+    /// reveal read this. NEVER projected in full by `public_view()` (tabs
+    /// are PRIVATE, H8): only the settling seat's NAME, for exactly the
+    /// round after it settled, escapes via `PublicView::settled` (H11).
+    pub tab_ledger: Vec<TabSettle>,
+}
+
+/// One settled tab — who, which one, and when. New in Task 3: serde
+/// strictness is moot here, no old blob has one to be missing a field on.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct TabSettle {
+    pub seat: usize,
+    pub tab: String,
+    pub round: u32, // the round it settled in
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -436,6 +450,11 @@ pub struct PublicView {
     /// Projected verbatim from `LastCallState::event` — events are public
     /// (H2); only the CURRENT event is ever exposed, never the next one.
     pub event: Option<String>,
+    /// H11: names (never tab ids) of players who settled a tab in the
+    /// immediately previous round — the after-the-fact announcement. Tabs
+    /// themselves are PRIVATE (H8) and never enter this projection in any
+    /// other field.
+    pub settled: Vec<String>,
 }
 
 /// DDv2 9.3 — the two solo ways a game ends — plus the pact win (G2, Task 2).
@@ -511,10 +530,13 @@ pub fn pull_cost(cost: u8, handicap_pct: u16) -> u8 {
 
 impl LastCallState {
     /// Seats `members` in the order given (`seat` = index), everyone starting
-    /// at `STARTING_HP` with no handicap, empty vessels/hand/armed/tabs,
-    /// unlocked and not drawing, `Status::Alive`. Round 1, `Beat::Draw`,
-    /// `first_seat = 0`, `seq = 0`. `deck_counts` is initialized from
-    /// `Deck::ALL` at `0` — settable but never set by this slice (spec §4.1).
+    /// at `STARTING_HP` with no handicap, empty vessels/hand/armed,
+    /// unlocked and not drawing, `Status::Alive`. Tabs are NOT empty at
+    /// seating (DDv2 §2.6, H7): every seat is dealt its opening tab,
+    /// `tab_for(rng_seed, seat, 0).id`, as part of this constructor. Round 1,
+    /// `Beat::Draw`, `first_seat = 0`, `seq = 0`. `deck_counts` is
+    /// initialized from `Deck::ALL` at `0` — settable but never set by this
+    /// slice (spec §4.1).
     ///
     /// Caps at `MAX_SEATS`: a room with more members than that (everyone
     /// pressed join before anyone pressed START) seats only the first
@@ -539,7 +561,8 @@ impl LastCallState {
                 locked: false,
                 drawing: false,
                 draws_this_round: 0,
-                tabs: Vec::new(),
+                // H7: the opening deal — the seat's 0th tab, not empty.
+                tabs: vec![crate::lc_tabs::tab_for(rng_seed, seat, 0).id.to_string()],
                 status: Status::Alive,
             })
             .collect();
@@ -561,6 +584,7 @@ impl LastCallState {
             pact_barred: Vec::new(),
             pact_breaks: Vec::new(),
             event: None,
+            tab_ledger: Vec::new(),
         }
     }
 
@@ -669,7 +693,12 @@ impl LastCallState {
             locked: false,
             drawing: false,
             draws_this_round: 0,
-            tabs: Vec::new(),
+            // H7: same opening deal `new` gives every founding seat — the
+            // nth is always 0 here, since a freshly seated seat has no
+            // `tab_ledger` history yet.
+            tabs: vec![crate::lc_tabs::tab_for(self.rng_seed, seat, 0)
+                .id
+                .to_string()],
             status: Status::Alive,
         });
         self.seq += 1;
@@ -887,6 +916,15 @@ impl LastCallState {
             // G5: the sole pact field this projection reads.
             pact_breaks: self.pact_breaks.clone(),
             event: self.event.clone(),
+            // H11: names only, previous round only — "announced after the
+            // fact, never before", and never what it was. The tab id must
+            // not enter this projection.
+            settled: self
+                .tab_ledger
+                .iter()
+                .filter(|t| t.round + 1 == self.round)
+                .filter_map(|t| self.players.get(t.seat).map(|p| p.name.clone()))
+                .collect(),
         }
     }
 
@@ -1334,6 +1372,25 @@ impl LastCallState {
                         p.hp += heal; // no ceiling (TBD-3)
                     }
                 }
+                // H7: the §5 replacement deal. Every Alive player with an
+                // empty `tabs` (just settled last round, or a skewed old
+                // blob's `[]` backfilling for the first time) is dealt the
+                // next tab in their per-seat cycle — `nth` is how many
+                // they've already settled, read off `tab_ledger`, so a
+                // replacement never repeats a tab this seat has seen before
+                // it wraps the 7-cycle.
+                for seat in 0..self.players.len() {
+                    if self.players[seat].status == Status::Alive
+                        && self.players[seat].tabs.is_empty()
+                    {
+                        let nth = self.tab_ledger.iter().filter(|t| t.seat == seat).count();
+                        self.players[seat].tabs.push(
+                            crate::lc_tabs::tab_for(self.rng_seed, seat, nth)
+                                .id
+                                .to_string(),
+                        );
+                    }
+                }
             }
             Beat::Diplomacy => {
                 // G8: offers are beat-scoped. Clearing here is the decline
@@ -1507,6 +1564,11 @@ impl LastCallState {
         let spent: Vec<u8> = (0..self.players.len())
             .map(|s| self.charged_pulls(s))
             .collect();
+        // Task 3/H10: the round's plays, captured here too — both this and
+        // `spent` are snapshotted before Step 1 can drain/charge anything,
+        // so tab detection (Step 5.5) is immune to where in the resolution
+        // program `plays` actually gets emptied.
+        let round_plays = self.plays.clone();
 
         // Step 1: resolve plays in order_key order. `plays` is drained up
         // front (§14: the queue empties every round) and iterated as owned
@@ -1805,6 +1867,49 @@ impl LastCallState {
             }
         }
 
+        // Step 5.5 (H10): tab detection and settlement — after damage and
+        // the soft cap, before the outcome check (Step 7), so a Cliffhanger
+        // rescue is real (HP is already final for the round) but a
+        // settlement can never resurrect anyone: elimination already
+        // happened in Step 1/2, and this loop reads only Alive seats.
+        // `round_plays`/`spent` were snapshotted above, before Step 1 could
+        // drain or charge anything.
+        for (seat, &seat_spent) in spent.iter().enumerate() {
+            if self.players[seat].status != Status::Alive {
+                continue;
+            }
+            let Some(tab) = self.players[seat].tabs.last().cloned() else {
+                continue;
+            };
+            // Fail-soft (H3's precedent): an id the catalog no longer
+            // recognises is skipped, not a panic.
+            let Some(def) = crate::lc_tabs::tab_def(&tab) else {
+                continue;
+            };
+            let met = crate::lc_tabs::tab_met(
+                &def.check,
+                seat,
+                &round_plays,
+                &self.players[seat],
+                seat_spent,
+            );
+            if !met {
+                continue;
+            }
+            match def.reward {
+                crate::lc_tabs::TabReward::Hp(n) => self.players[seat].hp += n, // TBD-3: no ceiling
+                crate::lc_tabs::TabReward::Pulls(n) => refill_pulls(&mut self.players[seat], n),
+            }
+            self.tab_ledger.push(TabSettle {
+                seat,
+                tab: tab.clone(),
+                round: self.round,
+            });
+            // Remove the settled id — the next Deal (Draw→Deal) replaces
+            // it, since `tabs` is now empty for this seat.
+            self.players[seat].tabs.retain(|t| t != &tab);
+        }
+
         // Step 6 (G9): a pact whose partner is gone has no win to share.
         // Silent — no break record, nobody barred; the survivor may pact
         // again in a later Diplomacy. A sweep rather than a hook inside the
@@ -1917,6 +2022,10 @@ impl LastCallState {
             discarded.extend(std::mem::take(&mut p.armed).into_iter().map(|a| a.card));
             self.discards.extend(discarded);
             self.effects.retain(|e| e.subject != subject);
+            // H10: ghosts hold no objectives. Permanent — the Draw→Deal
+            // replacement deal only refills Alive seats, so an eliminated
+            // seat's `tabs` stays empty for the rest of the game.
+            p.tabs.clear();
         }
     }
 }
@@ -1937,6 +2046,29 @@ fn drain_pulls(player: &mut LcPlayer, n: i32) {
         match best {
             Some((idx, pulls_left)) if pulls_left > 0 => player.vessels[idx].pulls_left -= 1,
             _ => break,
+        }
+    }
+}
+
+/// H9: `TabReward::Pulls`' engine semantics — the mirror image of
+/// `drain_pulls`. `n` times, pick the vessel with the LEAST `pulls_left` (a
+/// tie keeps the lowest index, same convention as `drain_pulls`'s tie-break),
+/// increment it by 1, capped at that vessel's own `pulls_max`. A player with
+/// no vessels refills nothing.
+fn refill_pulls(player: &mut LcPlayer, n: u8) {
+    for _ in 0..n {
+        let best = player
+            .vessels
+            .iter()
+            .enumerate()
+            .min_by_key(|(idx, v)| (v.pulls_left, *idx))
+            .map(|(idx, _)| idx);
+        match best {
+            Some(idx) => {
+                let v = &mut player.vessels[idx];
+                v.pulls_left = (v.pulls_left + 1).min(v.pulls_max);
+            }
+            None => break,
         }
     }
 }
@@ -3513,6 +3645,10 @@ mod tests {
     fn test_heal_has_no_ceiling() {
         // TBD-3
         let mut st = at_lock();
+        // Task 3: clear the seating-dealt tabs (H7) — unrelated to this test.
+        for p in &mut st.players {
+            p.tabs.clear();
+        }
         st.arm(3, "soft-01").unwrap(); // Buff, cost 1, targets "one"
         st.set_target(3, "soft-01", Some(2)).unwrap(); // cara heals herself
         st.lock_in(3).unwrap();
@@ -3576,6 +3712,12 @@ mod tests {
     fn test_curse_ticks_after_its_round_then_expires() {
         // D8, D10
         let mut st = at_lock();
+        // Task 3: seating now deals every seat a tab (H7); this test predates
+        // tabs and isn't about them, so clear the deal to isolate curse-tick
+        // semantics from an unrelated seat coincidentally settling one.
+        for p in &mut st.players {
+            p.tabs.clear();
+        }
         st.arm(2, "cider-01").unwrap(); // Curse cost 1 → Dot mag 1, 2 rounds
         st.set_target(2, "cider-01", Some(0)).unwrap();
         st.lock_in(2).unwrap();
@@ -3602,6 +3744,10 @@ mod tests {
     fn test_effects_replace_not_stack() {
         // TBD-8, D10
         let mut st = at_lock();
+        // Task 3: clear the seating-dealt tabs (H7) — unrelated to this test.
+        for p in &mut st.players {
+            p.tabs.clear();
+        }
         st.effects.push(Effect {
             source_play: 0,
             subject: 0,
@@ -3717,6 +3863,10 @@ mod tests {
     fn test_shield_card_protects_in_its_own_round_when_it_outspends() {
         // F8
         let mut st = at_lock();
+        // Task 3: clear the seating-dealt tabs (H7) — unrelated to this test.
+        for p in &mut st.players {
+            p.tabs.clear();
+        }
         // soft-07 is not in Soft's opener (F6) — deal it into cara's hand.
         st.players[2]
             .hand
@@ -3761,6 +3911,10 @@ mod tests {
     fn test_drain_hits_the_fullest_vessel_and_floors_at_zero() {
         // F4
         let mut st = at_lock();
+        // Task 3: clear the seating-dealt tabs (H7) — unrelated to this test.
+        for p in &mut st.players {
+            p.tabs.clear();
+        }
         // Alice's second vessel is built by hand: set_vessel is Draw-gated and
         // the fixture is already at Lock.
         st.players[0].vessels.push(Vessel {
@@ -3974,6 +4128,10 @@ mod tests {
     fn test_double_vision_redirects_attacks_not_heals() {
         // H4
         let mut st = at_lock();
+        // Task 3: clear the seating-dealt tabs (H7) — unrelated to this test.
+        for p in &mut st.players {
+            p.tabs.clear();
+        }
         st.event = Some("double-vision".into());
         st.arm(1, "beer-01").unwrap(); // Damage 2, aimed at bob (seat 1)
         st.set_target(1, "beer-01", Some(1)).unwrap();
@@ -4012,6 +4170,10 @@ mod tests {
     fn test_house_pour_doubles_the_tick_this_round_only() {
         // H4
         let mut st = at_lock();
+        // Task 3: clear the seating-dealt tabs (H7) — unrelated to this test.
+        for p in &mut st.players {
+            p.tabs.clear();
+        }
         st.effects.push(Effect {
             source_play: 0,
             subject: 0,
@@ -4041,6 +4203,10 @@ mod tests {
     fn test_on_the_house_heals_the_table() {
         // H4
         let mut st = at_lock();
+        // Task 3: clear the seating-dealt tabs (H7) — unrelated to this test.
+        for p in &mut st.players {
+            p.tabs.clear();
+        }
         st.event = Some("on-the-house".into());
         st.advance_beat().unwrap();
         st.advance_beat().unwrap();
@@ -4052,10 +4218,209 @@ mod tests {
     fn test_an_unknown_event_id_is_inert() {
         // H3's fail-soft
         let mut st = at_lock();
+        // Task 3: clear the seating-dealt tabs (H7) — unrelated to this test.
+        for p in &mut st.players {
+            p.tabs.clear();
+        }
         st.event = Some("closing-time".into()); // an id this binary never knew
         st.advance_beat().unwrap();
         st.advance_beat().unwrap();
         st.resolve().unwrap(); // no panic, no hook fired
         assert!(st.players.iter().all(|p| p.hp == 15));
+    }
+
+    // Plan H Task 3: tabs in the engine — deal, detect, settle, void.
+
+    #[test]
+    fn test_tabs_are_dealt_at_seating() {
+        // H7 — seed 42 pins from Task 1
+        let st = seated();
+        assert_eq!(st.players[0].tabs, vec!["lie-low".to_string()]);
+        assert_eq!(st.players[1].tabs, vec!["high-roller".to_string()]);
+        assert_eq!(st.players[2].tabs, vec!["peacemaker".to_string()]);
+        let mut st = st;
+        assert_eq!(st.add_player(9, "dan"), Some(3));
+        assert_eq!(st.players[3].tabs, vec!["bottoms-up".to_string()]);
+    }
+
+    #[test]
+    fn test_a_settled_tab_pays_and_is_replaced_at_the_deal() {
+        // H10, H7
+        let mut st = at_lock(); // alice holds lie-low (seed 42, seat 0)
+        st.lock_in(1).unwrap(); // locking nothing is legal — and is the tab
+        st.advance_beat().unwrap();
+        st.advance_beat().unwrap();
+        st.resolve().unwrap();
+        assert_eq!(st.players[0].hp, 17); // +2 HP, paid at resolve
+        assert!(st.players[0].tabs.is_empty()); // settled, awaiting the Deal
+        assert_eq!(
+            st.tab_ledger,
+            vec![TabSettle {
+                seat: 0,
+                tab: "lie-low".into(),
+                round: 1,
+            }]
+        );
+        assert_eq!(st.players[1].tabs, vec!["high-roller".to_string()]); // unmet: kept
+        st.advance_beat().unwrap(); // round 2's Deal
+        assert_eq!(st.players[0].tabs, vec!["showboat".to_string()]); // nth 1 (Task 1 pin)
+    }
+
+    #[test]
+    fn test_showboat_pays_pulls_into_the_emptiest_vessel() {
+        // H9's Pulls reward
+        let mut st = at_lock();
+        st.players[0].tabs = vec!["showboat".into()];
+        for id in ["beer-01", "beer-02", "beer-03"] {
+            // 1 + 2 + 1 = 4 pulls
+            st.arm(1, id).unwrap();
+        }
+        st.set_target(1, "beer-01", Some(1)).unwrap();
+        st.set_target(1, "beer-02", Some(1)).unwrap(); // beer-03 targets self
+        st.lock_in(1).unwrap();
+        st.advance_beat().unwrap(); // charges 4: vessel 8 -> 4
+        st.advance_beat().unwrap();
+        st.resolve().unwrap();
+        assert_eq!(st.players[0].vessels[0].pulls_left, 6); // 4 + 2 refund
+        assert_eq!(st.tab_ledger.len(), 1);
+    }
+
+    /// The brief's "refill the player's most-depleted vessel" is ambiguous
+    /// for a multi-deck holder over more than one refill point: pick once
+    /// and dump `n` there, or re-pick each step (the `drain_pulls` mirror)?
+    /// This test pins the decision (Task 3 self-review): re-picked each
+    /// step, spreading `[4,4] + n=2` to `[5,5]`, not `[6,4]`. Multi-deck
+    /// holders are "normal, not an edge case" elsewhere in this file
+    /// (`preview_state`), so the spread is the more defensible reading.
+    #[test]
+    fn test_refill_pulls_re_picks_the_most_depleted_vessel_each_step() {
+        let mut player = LcPlayer {
+            seat: 0,
+            player_id: 1,
+            name: "alice".into(),
+            hp: 15,
+            handicap_pct: 100,
+            vessels: vec![
+                Vessel {
+                    deck: Deck::Beer,
+                    pulls_max: 8,
+                    pulls_left: 4,
+                    container: "can".into(),
+                },
+                Vessel {
+                    deck: Deck::Cider,
+                    pulls_max: 10,
+                    pulls_left: 4,
+                    container: "bottle".into(),
+                },
+            ],
+            hand: Vec::new(),
+            armed: Vec::new(),
+            locked: false,
+            drawing: false,
+            draws_this_round: 0,
+            tabs: Vec::new(),
+            status: Status::Alive,
+        };
+        refill_pulls(&mut player, 2);
+        assert_eq!(player.vessels[0].pulls_left, 5);
+        assert_eq!(player.vessels[1].pulls_left, 5);
+    }
+
+    #[test]
+    fn test_cliffhanger_and_deep_pockets_read_end_of_round_state() {
+        let mut st = at_lock();
+        // Alice's default-dealt "lie-low" (H7) would otherwise settle too —
+        // she plays nothing in this test — muddying the len(2) count below.
+        st.players[0].tabs.clear();
+        st.players[1].tabs = vec!["cliffhanger".into()];
+        st.players[1].hp = 5;
+        st.players[2].tabs = vec!["deep-pockets".into()];
+        st.players[2].hand = std::iter::repeat_n(crate::lc_cards::deck_cards(Deck::Soft), 1)
+            .flatten()
+            .collect(); // 8 distinct — exactly the threshold
+        st.advance_beat().unwrap();
+        st.advance_beat().unwrap();
+        st.resolve().unwrap();
+        assert_eq!(st.players[1].hp, 8); // 5 + 3
+        assert_eq!(st.tab_ledger.len(), 2);
+    }
+
+    #[test]
+    fn test_peacemaker_requires_a_harmless_play() {
+        let mut st = at_lock();
+        // Alice's default-dealt "lie-low" (H7) would otherwise settle too —
+        // she plays nothing in either round of this test.
+        st.players[0].tabs.clear();
+        st.players[2].tabs = vec!["peacemaker".into()];
+        st.arm(3, "soft-06").unwrap(); // Damage 2 — hostile
+        st.set_target(3, "soft-06", Some(0)).unwrap();
+        st.lock_in(3).unwrap();
+        st.advance_beat().unwrap();
+        st.advance_beat().unwrap();
+        st.resolve().unwrap();
+        assert!(st.tab_ledger.is_empty()); // hostile play: not met
+                                           // Round 2: a heal alone settles it.
+        st.players[2].tabs = vec!["peacemaker".into()]; // re-pin for isolation
+        st.beat = Beat::Lock;
+        st.arm(3, "soft-01").unwrap();
+        st.set_target(3, "soft-01", Some(0)).unwrap();
+        st.lock_in(3).unwrap();
+        st.advance_beat().unwrap();
+        st.advance_beat().unwrap();
+        st.resolve().unwrap();
+        assert_eq!(st.tab_ledger.len(), 1);
+        assert_eq!(st.tab_ledger[0].tab, "peacemaker");
+    }
+
+    #[test]
+    fn test_elimination_voids_the_tab() {
+        // H10
+        let mut st = at_lock();
+        st.players[1].hp = 2;
+        st.arm(1, "beer-02").unwrap(); // Damage 4 kills bob
+        st.set_target(1, "beer-02", Some(1)).unwrap();
+        st.lock_in(1).unwrap();
+        st.advance_beat().unwrap();
+        st.advance_beat().unwrap();
+        st.resolve().unwrap();
+        assert_eq!(st.players[1].status, Status::Eliminated);
+        assert!(st.players[1].tabs.is_empty()); // ghosts hold no objectives
+        assert!(st.tab_ledger.is_empty()); // voided, not settled
+        st.advance_beat().unwrap(); // next Deal
+        assert!(st.players[1].tabs.is_empty()); // refills are Alive-only
+    }
+
+    /// MANDATORY secrecy pin (the tab-side twin of Plan D's §3.4.1 test): tab
+    /// identity never enters the projection, in any beat, in any field — and
+    /// the announcement carries the name, never the tab.
+    #[test]
+    fn test_tabs_are_absent_from_public_view_in_every_beat() {
+        // H8/H11
+        let mut st = at_lock(); // tabs dealt: lie-low / high-roller / peacemaker
+        st.tab_ledger.push(TabSettle {
+            seat: 0,
+            tab: "lie-low".into(),
+            round: 1,
+        });
+        st.round = 2;
+        for beat in Beat::ORDER {
+            st.beat = beat;
+            let json = serde_json::to_string(&st.public_view()).unwrap();
+            for needle in [
+                "lie-low",
+                "LIE LOW",
+                "high-roller",
+                "HIGH ROLLER",
+                "peacemaker",
+                "tabs",
+            ] {
+                assert!(!json.contains(needle), "beat={beat:?} leaked {needle}");
+            }
+            assert!(json.contains("alice"), "the announcement names the player");
+        }
+        assert_eq!(st.public_view().settled, vec!["alice".to_string()]);
+        st.round = 3; // one round later the announcement expires
+        assert!(st.public_view().settled.is_empty());
     }
 }

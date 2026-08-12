@@ -1859,6 +1859,7 @@ mod tests {
             beat_deadline_ms: None,
             pact_breaks: vec![],
             event: None,
+            settled: Vec::new(),
         }
     }
 
