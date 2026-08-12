@@ -2071,7 +2071,8 @@ mod tests {
         assert_eq!(st.offer_pact(1, 9), Err(LcError::BadTarget)); // no such seat
         st.players[2].status = Status::Eliminated;
         assert_eq!(st.offer_pact(1, 2), Err(LcError::BadTarget)); // dead target
-                                                                  // 3 alive < PACT_MIN_ALIVE — even a valid target is refused (G7):
+
+        // 3 alive < PACT_MIN_ALIVE — even a valid target is refused (G7):
         assert_eq!(st.offer_pact(1, 1), Err(LcError::PactBlocked));
         st.players[2].status = Status::Alive;
         st.players[0].status = Status::Eliminated;
