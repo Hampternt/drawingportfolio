@@ -2,9 +2,9 @@
 // buttons, the Lock-beat target picker, Plan C's `lc:arm`/`lc:disarm`
 // CustomEvents, and the live beat timer all funnel through here — one
 // delegated listener per event type, bound once on `document.body`, so
-// nothing here needs rebinding when a repaint (hx-boost, lcApply,
-// lc_screen.html's lcpublic swap) replaces the DOM it targets. Task 5 adds
-// flights/hits on top of the same globals.
+// nothing here needs rebinding when a repaint (lcApply, lc_screen.html's
+// lcpublic swap) replaces the DOM it targets. Task 5 adds flights/hits on
+// top of the same globals.
 (function () {
   "use strict";
 
@@ -43,7 +43,7 @@
   // below (the wheel/armed-column dispatch those, not a data-lc-post
   // button), everything else in the F.1 table (begin/lock/draw/end) posts
   // straight from here.
-  document.body.addEventListener("click", function (e) {
+  function onClick(e) {
     var el = e.target.closest ? e.target.closest("[data-lc-post]") : null;
     if (!el || el.disabled) return;
     var action = el.dataset.lcPost;
@@ -51,10 +51,10 @@
       ? "vessel=" + encodeURIComponent(el.dataset.vessel)
       : "";
     post(action, body);
-  });
+  }
 
   // One delegated change listener for the Lock-beat target picker.
-  document.body.addEventListener("change", function (e) {
+  function onChange(e) {
     var sel = e.target.closest ? e.target.closest("select[data-lc-target]") : null;
     if (!sel) return;
     post(
@@ -62,12 +62,12 @@
       "card_id=" + encodeURIComponent(sel.dataset.cardId) +
         "&target=" + encodeURIComponent(sel.value)
     );
-  });
+  }
 
   // Plan C's contract: lc:arm/lc:disarm are dispatched by the wheel/armed
   // column BEFORE the wheel's glide settles — this listener must not assume
   // the wheel is at rest. Delegated once, never rebound.
-  document.body.addEventListener("lc:arm", function (e) {
+  function onArm(e) {
     post("arm", "card_id=" + encodeURIComponent(e.detail.cardId)).then(function (ok) {
       if (!ok || !window.lcFlight) return;
       var face = e.target.querySelector && e.target.querySelector(".lc-cardface");
@@ -77,10 +77,11 @@
         deck: face && face.dataset.deck,
       });
     });
-  });
-  document.body.addEventListener("lc:disarm", function (e) {
+  }
+
+  function onDisarm(e) {
     post("disarm", "card_id=" + encodeURIComponent(e.detail.cardId));
-  });
+  }
 
   // Moves the private hand fetch's <template data-lc-actions> (a sibling of
   // #lc-hand, not a descendant — same reason the setup form's END GAME
@@ -117,10 +118,17 @@
     }
   };
 
+  // Double-injection guard: binds the four delegated listeners exactly once
+  // (they never need rebinding — see the file banner) and arms the
+  // server-rendered banner's timer on first load.
   function init() {
     if (window.__lcLoopBound) return;
     window.__lcLoopBound = true;
-    window.lcLoopPublic(); // arm the server-rendered banner's timer
+    document.body.addEventListener("click", onClick);
+    document.body.addEventListener("change", onChange);
+    document.body.addEventListener("lc:arm", onArm);
+    document.body.addEventListener("lc:disarm", onDisarm);
+    window.lcLoopPublic();
   }
   document.addEventListener("DOMContentLoaded", init);
 })();

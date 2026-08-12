@@ -4186,9 +4186,14 @@ async fn test_lastcall_shell_shows_all_handicap_rows() {
 // Last Call (Plan C Task 2): the hand group — HandWheel, armed column, cost
 // rail — replaces the throwaway plain card list inside `#lc-hand`. Seeded by
 // hand-rolling a `LastCallState` and persisting it via `set_game_state` (the
-// `tm_handoff_gating` pattern), because `arm`/`lock_in` are not implemented
-// yet — this is the only way to get an armed/locked hand onto the wire at
-// this point in the plan.
+// `tm_handoff_gating` pattern), because `arm`/`lock_in` were not implemented
+// yet at the time this section was written — this was the only way to get
+// an armed/locked hand onto the wire at that point in the plan. Both routes
+// exist now (Plan E Task 1); the tests below still hand-roll state directly
+// rather than switching to the real routes, but any fixture claiming
+// `locked = true` must now respect the invariant `lock_in` actually
+// establishes — a staged card lives in `locked_plays`, not `armed`, once its
+// seat is locked (Plan E Task 4).
 // -------------------------------------------------------------
 
 /// The privacy property the armed column exists to uphold, restated at the
