@@ -177,6 +177,17 @@ async fn room_page(
         let lock = state.locks.for_room(room.id);
         let _guard = lock.lock().await;
         let mut tm_joined = false;
+        // Hoisted out of the `if game.kind == "last_call"` arm below, and
+        // doubling as the "was this a Last Call game" flag (`Some` iff the
+        // arm ran) so there's one variable to keep in sync, not two: stays
+        // reachable at the redirect's `return`, inside this same lock guard,
+        // for Task 3's `broadcast_lc(&state, room.id, &st).await` call,
+        // which needs the freshly (maybe-)seated state, not a re-read.
+        let mut lc_state: Option<crate::last_call::LastCallState> = None;
+        // Set alongside `lc_state` only when `add_player` actually ran below
+        // — a revisit by an already-seated player mutates nothing, so it
+        // must not trigger a broadcast either.
+        let mut lc_joined = false;
         if let Some(game) = db::get_active_game(&state.pool, room.id).await {
             if game.kind == "three_man" {
                 let mut st = crate::three_man::ThreeManState::from_json(
@@ -191,12 +202,51 @@ async fn room_page(
                     tm_joined = true;
                 }
             }
+            if game.kind == "last_call" {
+                // Same mid-game-join problem 3 Man has above: LastCallState
+                // seats players in its own `players[]`, so a newcomer who
+                // opens the room link needs seating there too or they have
+                // no hand and no plaque. Same lock discipline — releasing
+                // the lock before the broadcast would let a concurrent
+                // handler's broadcast land first and leave this request's
+                // stale render as the last word.
+                let mut st = crate::last_call::LastCallState::from_json(
+                    game.state_json.as_deref().unwrap_or_default(),
+                );
+                // `add_player` returns `None` when the table is already at
+                // `MAX_SEATS` — the newcomer must still join the room (that
+                // already happened above, via `db::join_room`), just not
+                // this game, so a full table is not an error here.
+                if st.seat_of(player.id).is_none()
+                    && st.add_player(player.id, &player.name).is_some()
+                {
+                    db::set_game_state(&state.pool, game.id, &st.to_json()).await;
+                    lc_joined = true;
+                }
+                lc_state = Some(st);
+            }
         }
         // New members appear on everyone's ROOM tab without waiting for the
         // next unrelated event.
         crate::game::broadcast_room(&state, room.id, &code).await;
         if tm_joined {
             crate::game::broadcast_game(&state, room.id, &code, None).await;
+        }
+        if let Some(st) = &lc_state {
+            if lc_joined {
+                // No `broadcast_game` call here (unlike `tm_joined` above,
+                // and unlike `persist_and_broadcast_lc`, which the plan-end
+                // review's finding I1 fixed to call it): `lc_placeholder_panel`
+                // and `lc_screen_placeholder` are static text plus
+                // `base_path`/`code`, so a late join changes nothing they
+                // render. What DOES change — the member list — is exactly
+                // what `broadcast_room` above already covers. Revisit this
+                // if Plan B's GAME-tab content ever starts depending on
+                // seating/roster.
+                crate::lc_routes::broadcast_lc(&state, room.id, st).await;
+            }
+            return Redirect::to(&format!("{}/room/{}/lastcall", state.base_path, code))
+                .into_response();
         }
     }
     let leaderboard_items = render_leaderboard(&state, room.id).await;
@@ -521,6 +571,17 @@ async fn sse_stream(
     let initial_game = crate::game::current_panel(&state, room.id, &room.code, None).await;
     let initial_screen = crate::game::current_screen_panel(&state, room.id, &room.code).await;
     let initial_room = crate::game::current_room_panel(&state, room.id, &room.code).await;
+    // A fifth snapshot frame, sent only for a Last Call room — Ring of Fire
+    // and 3 Man rooms must still emit exactly the four frames above.
+    let lc_initial = match db::get_active_game(&state.pool, room.id).await {
+        Some(game) if game.kind == "last_call" => {
+            let st = crate::last_call::LastCallState::from_json(
+                game.state_json.as_deref().unwrap_or_default(),
+            );
+            Some(crate::lc_render::lc_public_panel(&st.public_view()))
+        }
+        _ => None,
+    };
 
     let stream = futures::stream::iter([
         Ok::<_, Infallible>(Event::default().event("leaderboard").data(initial)),
@@ -528,6 +589,9 @@ async fn sse_stream(
         Ok::<_, Infallible>(Event::default().event("screen").data(initial_screen)),
         Ok::<_, Infallible>(Event::default().event("room").data(initial_room)),
     ])
+    .chain(futures::stream::iter(lc_initial.into_iter().map(|html| {
+        Ok::<_, Infallible>(Event::default().event("lcpublic").data(html))
+    })))
     .chain(BroadcastStream::new(rx).filter_map(|msg| async move {
         match msg {
             Ok(RoomMessage::Leaderboard(html)) => {
@@ -537,12 +601,34 @@ async fn sse_stream(
             Ok(RoomMessage::Screen(html)) => Some(Ok(Event::default().event("screen").data(html))),
             Ok(RoomMessage::Room(html)) => Some(Ok(Event::default().event("room").data(html))),
             Ok(RoomMessage::Emote(glyph)) => Some(Ok(Event::default().event("emote").data(glyph))),
+            Ok(RoomMessage::LcPublic(html)) => {
+                Some(Ok(Event::default().event("lcpublic").data(html)))
+            }
+            // seq is a u64, so `seq.to_string()` is never empty — unlike
+            // Emote/LcPublic above, there's no user-controllable value here
+            // that could shrink to "", so this arm never hits the
+            // empty-data-buffer pitfall the two `Ended` branches carry.
+            Ok(RoomMessage::LcTick(seq)) => {
+                Some(Ok(Event::default().event("lctick").data(seq.to_string())))
+            }
             // Same empty-data-buffer pitfall as the zombie-reconnect branch
             // above: a `data:` field must be present or EventSource drops
             // the event silently and clients never learn the room ended.
             Ok(RoomMessage::Ended) => Some(Ok(Event::default().event("ended").data("gone"))),
-            // Lagged receiver: skip — the next update carries full state anyway.
-            Err(_) => None,
+            // A lagged receiver dropped RoomMessage frames. Every content
+            // variant is a complete replacement, so the next one heals —
+            // except a dropped LcTick, which IS the re-fetch signal
+            // (plan-B review finding M5): a phone that misses one can stay
+            // stale until an unrelated later change. So a lag emits a
+            // synthetic lctick with data "0": zero never lowers the
+            // client's seq floor (the listener keeps max(lcSeq, data)),
+            // but it still fires the coalesced re-fetch, and the
+            // stale-drop rule makes that fetch safe whatever was missed.
+            // Ring of Fire / 3 Man clients register no lctick listener, so
+            // for them the frame is inert — their four-frame contract is
+            // about the snapshot, not the live stream (see
+            // test_rof_sse_snapshot_has_no_lcpublic, which stays green).
+            Err(_) => Some(Ok(Event::default().event("lctick").data("0"))),
         }
     }));
 
@@ -564,6 +650,25 @@ struct ScreenTemplate {
     qr_svg: String,
 }
 
+/// The Last Call big-screen shell (Task 4). Public, like `ScreenTemplate` —
+/// a TV in the corner has no cookie — so `screen_page` builds this straight
+/// from `db::get_active_game` + `LastCallState::from_json`, never through
+/// `lc_routes::load_lc`, which requires a `PlayerSession`.
+#[derive(Template)]
+#[template(path = "lc_screen.html")]
+struct LcScreenTemplate {
+    base_path: String,
+    code: String,
+    round: u32,
+    /// Seeds the page's `lcSeq`, exactly as `lc_room.html` seeds from
+    /// `#lc-hand`'s `data-seq` — not in the brief's literal field list, but
+    /// without it the page has no seq floor to stale-drop against on its
+    /// first `lcpublic` frame.
+    seq: u64,
+    banner: String, // lc_render::lc_banner(&view)
+    panel: String,  // lc_render::lc_screen_panel(&view)
+}
+
 async fn screen_page(
     State(state): State<GameState>,
     Path(code): Path<String>,
@@ -577,6 +682,26 @@ async fn screen_page(
             "Room not found or already ended",
         );
     };
+    // Last Call gets its own template — the generic screen.html has nowhere
+    // to put a felt. Ring of Fire and 3 Man fall through to the existing
+    // path below completely unchanged.
+    if let Some(game) = db::get_active_game(&state.pool, room.id).await {
+        if game.kind == "last_call" {
+            let st = crate::last_call::LastCallState::from_json(
+                game.state_json.as_deref().unwrap_or_default(),
+            );
+            let view = st.public_view();
+            let tpl = LcScreenTemplate {
+                base_path: state.base_path.to_string(),
+                code,
+                round: view.round,
+                seq: view.seq,
+                banner: crate::lc_render::lc_banner(&view),
+                panel: crate::lc_render::lc_screen_panel(&view),
+            };
+            return Html(tpl.render().unwrap()).into_response();
+        }
+    }
     let leaderboard_items = render_leaderboard(&state, room.id).await;
     // The screen-scale panel builder, not the phone one — the phone idle
     // panel carries a navigable "Edit rule presets" link that has no
@@ -604,11 +729,39 @@ async fn game_css() -> impl IntoResponse {
     )
 }
 
+async fn lastcall_css() -> impl IntoResponse {
+    (
+        [(header::CONTENT_TYPE, "text/css")],
+        include_str!("../assets/lastcall.css"),
+    )
+}
+
 /// Single htmx copy for the whole repo: embed the portfolio's vendored file.
 async fn htmx_js() -> impl IntoResponse {
     (
         [(header::CONTENT_TYPE, "application/javascript")],
         include_str!("../../static/htmx.min.js"),
+    )
+}
+
+async fn lc_motion_js() -> impl IntoResponse {
+    (
+        [(header::CONTENT_TYPE, "application/javascript")],
+        include_str!("../assets/lc_motion.js"),
+    )
+}
+
+async fn lc_wheel_js() -> impl IntoResponse {
+    (
+        [(header::CONTENT_TYPE, "application/javascript")],
+        include_str!("../assets/lc_wheel.js"),
+    )
+}
+
+async fn lc_loop_js() -> impl IntoResponse {
+    (
+        [(header::CONTENT_TYPE, "application/javascript")],
+        include_str!("../assets/lc_loop.js"),
     )
 }
 
@@ -728,12 +881,90 @@ pub fn router() -> Router<GameState> {
             "/room/{code}/tm/seat",
             post(crate::tm_routes::tm_seat_handler),
         )
+        .route(
+            "/room/{code}/lastcall/start",
+            post(crate::lc_routes::lc_start_handler),
+        )
+        .route(
+            "/room/{code}/lastcall/begin",
+            post(crate::lc_routes::lc_begin_handler),
+        )
+        .route(
+            "/room/{code}/lastcall/vessel",
+            post(crate::lc_routes::lc_vessel_handler),
+        )
+        .route(
+            "/room/{code}/lastcall/handicap",
+            post(crate::lc_routes::lc_handicap_handler),
+        )
+        .route("/room/{code}/lastcall", get(crate::lc_routes::lc_page))
+        .route(
+            "/room/{code}/lastcall/hand",
+            get(crate::lc_routes::lc_hand_handler),
+        )
+        .route(
+            "/room/{code}/lastcall/table",
+            get(crate::lc_routes::lc_table_handler),
+        )
+        .route(
+            "/room/{code}/lastcall/end",
+            post(crate::lc_routes::lc_end_handler),
+        )
+        .route(
+            "/room/{code}/lastcall/rematch",
+            post(crate::lc_routes::lc_rematch_handler),
+        )
+        .route(
+            "/room/{code}/lastcall/arm",
+            post(crate::lc_routes::lc_arm_handler),
+        )
+        .route(
+            "/room/{code}/lastcall/disarm",
+            post(crate::lc_routes::lc_disarm_handler),
+        )
+        .route(
+            "/room/{code}/lastcall/target",
+            post(crate::lc_routes::lc_target_handler),
+        )
+        .route(
+            "/room/{code}/lastcall/lock",
+            post(crate::lc_routes::lc_lock_handler),
+        )
+        .route(
+            "/room/{code}/lastcall/pact/offer",
+            post(crate::lc_routes::lc_pact_offer_handler),
+        )
+        .route(
+            "/room/{code}/lastcall/pact/accept",
+            post(crate::lc_routes::lc_pact_accept_handler),
+        )
+        .route(
+            "/room/{code}/lastcall/pact/decline",
+            post(crate::lc_routes::lc_pact_decline_handler),
+        )
+        .route(
+            "/room/{code}/lastcall/draw",
+            post(crate::lc_routes::lc_draw_handler),
+        )
+        .route(
+            "/room/{code}/lastcall/react",
+            post(crate::lc_routes::lc_react_handler),
+        )
+        .route(
+            "/room/{code}/lastcall/haunt",
+            post(crate::lc_routes::lc_haunt_handler),
+        )
         .route("/room/{code}/sse", get(sse_stream))
         .route("/room/{code}/screen", get(screen_page))
         .route("/assets/game.css", get(game_css))
+        .route("/assets/lastcall.css", get(lastcall_css))
         .route("/assets/htmx.min.js", get(htmx_js))
+        .route("/assets/lc_motion.js", get(lc_motion_js))
+        .route("/assets/lc_wheel.js", get(lc_wheel_js))
+        .route("/assets/lc_loop.js", get(lc_loop_js))
         .route("/assets/fonts/{name}", get(font_asset))
         .route("/assets/sounds/{name}", get(sound_asset))
+        .route("/lastcall/preview", get(crate::lc_preview::preview_page))
         .route(
             "/presets",
             get(crate::presets::presets_page).post(crate::presets::create_preset),

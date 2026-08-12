@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Last Call — Room {{ code }}</title>
+  <link rel="stylesheet" href="{{ base_path }}/assets/lastcall.css">
+  <script src="{{ base_path }}/assets/lc_motion.js" defer></script>
+  <script src="{{ base_path }}/assets/lc_wheel.js" defer></script>
+  <script src="{{ base_path }}/assets/lc_loop.js" defer></script>
+</head>
+<body class="lc" data-player-id="{{ player_id }}">
+  <div class="lc-status">
+    <span id="lc-clock"></span>
+    <span>ROOM {{ code }}</span>
+  </div>
+
+  {{ banner|safe }}
+
+  <nav class="lc-tabs" role="tablist">
+    <button type="button" class="lc-tab" data-lc-tab="hand"  role="tab" aria-selected="true">HAND</button>
+    <button type="button" class="lc-tab" data-lc-tab="table" role="tab" aria-selected="false">TABLE</button>
+    <button type="button" class="lc-tab" data-lc-tab="log"   role="tab" aria-selected="false">LOG</button>
+  </nav>
+
+  <main class="lc-view">
+    <section class="lc-pane" data-lc-pane="hand">{{ hand_pane|safe }}</section>
+    <section class="lc-pane" data-lc-pane="table" hidden>{{ table_pane|safe }}
+      {# A sibling of #lc-table, not a descendant — lcApplyTable below
+         replaces #lc-table by id (outerHTML), never this section's
+         innerHTML, so this form survives every table repaint instead of
+         being wiped and rebuilt every broadcast. #}
+      <form method="post" action="{{ base_path }}/room/{{ code }}/lastcall/end" onsubmit="return confirm('End the game for everyone? The room stays open.')">
+        <button type="submit" class="lc-btn lc-btn-secondary">END GAME</button>
+      </form>
+    </section>
+    <section class="lc-pane" data-lc-pane="log" hidden>{{ log_pane|safe }}</section>
+  </main>
+
+  <div id="lc-actions-note" hidden></div>
+  <div class="lc-actions">{{ actions|safe }}</div>
+
+  {# The flight layer is a static sibling of .lc-view — outside every
+     repainted pane, so no hand/table/lcpublic repaint can ever destroy a
+     mid-flight node and drop its onArrive. Visible regardless of which
+     tab is active; found by ensureLayer's existing-layer guard, which
+     checks for a node before creating one. Its containing block is
+     body.lc's `position: relative` (Plan A2 / Plan B). #}
+  <div id="lc-flights"></div>
+
+  <script>
+const BP = "{{ base_path }}", CODE = "{{ code }}";
+document.querySelectorAll("[data-lc-tab]").forEach(b => b.addEventListener("click", () => {
+  document.querySelectorAll("[data-lc-tab]").forEach(x =>
+    x.setAttribute("aria-selected", String(x === b)));
+  document.querySelectorAll("[data-lc-pane]").forEach(p =>
+    p.hidden = p.dataset.lcPane !== b.dataset.lcTab);
+}));
+function lcClock() {
+  const d = new Date();
+  document.getElementById("lc-clock").textContent =
+    d.getHours() + ":" + String(d.getMinutes()).padStart(2, "0");
+}
+lcClock(); setInterval(lcClock, 20000);
+
+// The server-rendered pane is the seq floor; every later repaint must be at
+// least this fresh.
+let lcSeq = Number(document.getElementById("lc-hand")?.dataset.seq || 0);
+let lcPending = null;
+
+function lcApply(html) {
+  const tpl = document.createElement("div");
+  tpl.innerHTML = html;
+  const frag = tpl.querySelector("#lc-hand");
+  // Stale-drop: a response older than the newest seq we've seen would
+  // repaint an out-of-date hand. Equal seq is fine (a duplicate repaint).
+  const seq = Number(frag?.dataset.seq || 0);
+  if (!frag || seq < lcSeq) return;
+  lcSeq = seq;
+
+  // #lc-hand holds the LIVE vessel/handicap forms, so a broadcast triggered
+  // by another player must not wipe what THIS player is mid-typing, or
+  // silently reset a choice they already made. Capture from the outgoing
+  // DOM before it's replaced, then restore onto the corresponding element
+  // in the new markup.
+  const pane = document.querySelector('[data-lc-pane="hand"]');
+  const active = document.activeElement;
+  const focused = active && active.name && pane.contains(active) ? active : null;
+
+  let restore = null;
+  if (focused) {
+    restore = {
+      name: focused.name,
+      value: focused.value,
+      // Handicap rows repeat name="handicap_pct" once per seat — the
+      // sibling hidden `target` input is that row's real key.
+      target: focused.form ? focused.form.elements.target?.value : undefined,
+    };
+    // <select> has no text selection at all, and reading .selectionStart on
+    // <input type="number"> throws in some browsers (not just returns
+    // undefined) — the whole read has to be guarded, not just the type
+    // check after it.
+    try {
+      if (typeof focused.selectionStart === "number") {
+        restore.selectionStart = focused.selectionStart;
+        restore.selectionEnd = focused.selectionEnd;
+      }
+    } catch (_) {}
+  }
+  // The deck <select> is preserved independently of focus: a user who
+  // picked a deck and then tabbed to the container field would otherwise
+  // see the swap silently revert it to the first option.
+  const oldDeck = pane.querySelector('select[name="deck"]');
+  const deckValue = oldDeck ? oldDeck.value : null;
+
+  pane.innerHTML = html;
+
+  if (deckValue) {
+    const newDeck = pane.querySelector('select[name="deck"]');
+    if (newDeck) newDeck.value = deckValue;
+  }
+  if (restore) {
+    const candidates = [...pane.querySelectorAll(`[name="${restore.name}"]`)];
+    const el = restore.target != null
+      ? candidates.find(c => c.form && c.form.elements.target?.value === restore.target)
+      : candidates[0];
+    if (el) {
+      el.value = restore.value;
+      if (restore.selectionStart != null) {
+        try { el.setSelectionRange(restore.selectionStart, restore.selectionEnd); } catch (_) {}
+      }
+      // preventScroll: a broadcast landing while the player has scrolled
+      // down to their cards must not yank the viewport back up to the
+      // setup form just to restore focus.
+      el.focus({ preventScroll: true });
+    }
+  }
+  if (window.lcWheelInit) window.lcWheelInit(pane);
+  // Inline <script> fails silently on a typo/exception (STATUS-recorded
+  // property) — guarded so a missing lc_loop.js never breaks the rest of
+  // this swap.
+  if (window.lcLoopApply) window.lcLoopApply(pane);
+}
+
+// The TABLE pane has no live inputs to preserve, so its apply is the plain
+// half of lcApply: parse, stale-drop against the same shared lcSeq, replace.
+// Replaces #lc-table itself (by id), not the whole pane's innerHTML — the
+// pane also hosts the static END GAME form as a sibling of #lc-table, and
+// swapping the pane's innerHTML wholesale would wipe and rebuild that form
+// on every broadcast instead of leaving it alone.
+function lcApplyTable(html) {
+  const tpl = document.createElement("div");
+  tpl.innerHTML = html;
+  const frag = tpl.querySelector("#lc-table");
+  const seq = Number(frag?.dataset.seq || 0);
+  if (!frag || seq < lcSeq) return;
+  lcSeq = seq;
+  const current = document.getElementById("lc-table");
+  if (current) current.outerHTML = html;
+}
+
+// Coalesce: LcPublic and LcTick arrive as a pair for the same change, so a
+// naive fetch-per-message doubles every request for no new information.
+// Both per-viewer surfaces (hand, table) ride the same debounced timer, in
+// one Promise.all round trip, so a change still costs one fetch per surface
+// and never two per event.
+function lcFetchHand() {
+  if (lcPending) return;
+  lcPending = setTimeout(() => {
+    lcPending = null;
+    Promise.all([
+      fetch(BP + "/room/" + CODE + "/lastcall/hand", { credentials: "same-origin" })
+        .then(r => r.ok ? r.text() : null),
+      fetch(BP + "/room/" + CODE + "/lastcall/table", { credentials: "same-origin" })
+        .then(r => r.ok ? r.text() : null),
+    ]).then(([handHtml, tableHtml]) => {
+      if (handHtml !== null) lcApply(handHtml);
+      if (tableHtml !== null) lcApplyTable(tableHtml);
+    }).catch(() => {});
+  }, 60);
+}
+
+const es = new EventSource(BP + "/room/" + CODE + "/sse");
+es.addEventListener("lcpublic", e => {
+  const tpl = document.createElement("div");
+  tpl.innerHTML = e.data;
+  const root = tpl.querySelector("[data-lc-public]");
+  if (root) lcSeq = Math.max(lcSeq, Number(root.dataset.seq || 0));
+  const banner = tpl.querySelector("template[data-lc-banner]");
+  if (banner) document.getElementById("lc-banner").outerHTML = banner.innerHTML;
+  const lg = tpl.querySelector("template[data-lc-log]");
+  if (lg) { const cur = document.getElementById("lc-log"); if (cur) cur.outerHTML = lg.innerHTML; }
+  // Inline <script> fails silently on a typo/exception (STATUS-recorded
+  // property) — guarded so a missing lc_loop.js never breaks the rest of
+  // this listener.
+  if (window.lcLoopPublic) window.lcLoopPublic();
+  lcFetchHand();
+});
+es.addEventListener("lctick", e => {
+  lcSeq = Math.max(lcSeq, Number(e.data || 0));
+  lcFetchHand();
+});
+// The room's own SSE stream already carries the "game" event — every
+// `broadcast_game` call publishes it, LC play included, so this shell was
+// already receiving it with no listener registered (a no-op, not an error).
+// `game_idle_panel` is the ONE builder whose root carries class="game-idle"
+// (the RoF/3Man "no game running, press START" card); ending a Last Call
+// game (POST .../lastcall/end) re-renders this exact panel because
+// `db::end_game` makes `db::get_active_game` return None afterward. Parsed
+// and matched by selector, not substring-tested against e.data, for the
+// same reason Task 4's screen/lc_screen handoff had to be fixed to do the
+// same: e.data can carry a player's display name, which is user-controlled.
+es.addEventListener("game", e => {
+  const tpl = document.createElement("div");
+  tpl.innerHTML = e.data;
+  if (tpl.querySelector(".game-idle")) {
+    es.close();
+    window.location = BP + "/room/" + CODE;
+  }
+});
+es.addEventListener("ended", () => { es.close(); window.location = BP + "/"; });
+  </script>
+</body>
+</html>

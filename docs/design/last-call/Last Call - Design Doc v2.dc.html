@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+@font-face { font-family: 'Archivo'; font-weight: 600; src: url("drinkinggame/assets/fonts/archivo-600.woff2") format("woff2"); font-display: swap; }
+@font-face { font-family: 'Archivo'; font-weight: 700; src: url("drinkinggame/assets/fonts/archivo-700.woff2") format("woff2"); font-display: swap; }
+@font-face { font-family: 'Archivo'; font-weight: 800; src: url("drinkinggame/assets/fonts/archivo-800.woff2") format("woff2"); font-display: swap; }
+@font-face { font-family: 'Archivo'; font-weight: 900; src: url("drinkinggame/assets/fonts/archivo-900.woff2") format("woff2"); font-display: swap; }
+@font-face { font-family: 'Space Grotesk'; font-weight: 400; src: url("drinkinggame/assets/fonts/space-grotesk-400.woff2") format("woff2"); font-display: swap; }
+@font-face { font-family: 'Space Grotesk'; font-weight: 500; src: url("drinkinggame/assets/fonts/space-grotesk-500.woff2") format("woff2"); font-display: swap; }
+@font-face { font-family: 'Space Grotesk'; font-weight: 600; src: url("drinkinggame/assets/fonts/space-grotesk-600.woff2") format("woff2"); font-display: swap; }
+@font-face { font-family: 'Space Grotesk'; font-weight: 700; src: url("drinkinggame/assets/fonts/space-grotesk-700.woff2") format("woff2"); font-display: swap; }
+doc-page:not(:defined) { visibility: hidden; }
+body { margin: 0; background: #0f0d16; }
+doc-page { background: #0f0d16; }
+a { color: #b48ef7; text-decoration: underline; text-underline-offset: 2px; }
+a:hover { color: #ff6b5e; }
+</style>
+<script src="./doc-page.js"></script>
+</helmet>
+<doc-page margin="0">
+<div style="background: #14111c; padding: 0.7in 0.8in; color: #ece8f5;">
+
+<header style="border-bottom: 3px solid rgba(242,238,248,.32); padding-bottom: 20px; margin-bottom: 30px; break-inside: avoid;">
+  <div style="display: flex; justify-content: space-between; align-items: baseline; gap: 20px; font: 600 10px 'Space Grotesk', sans-serif; letter-spacing: .16em; color: #8d87a0; text-transform: uppercase;">
+    <span>Drinks &middot; Last Call</span>
+    <span>Rules spec v2 &middot; working document</span>
+  </div>
+  <h1 style="font: 900 64px/.9 'Archivo', sans-serif; letter-spacing: -.045em; color: #ece8f5; margin: 14px 0 0; text-transform: uppercase;">Rules &amp; mechanics</h1>
+  <p style="font: 400 15px/1.6 'Space Grotesk', sans-serif; color: #a79fbb; margin: 12px 0 0; max-width: 44em; text-wrap: pretty;">The implementable definition of Last Call: objects, state, the round loop, resolution order, and the rules an engine has to enforce. Written to be argued with and edited &mdash; every number that is not settled carries a <span style="font: 500 11px 'IBM Plex Mono', ui-monospace, monospace; color: #ffb570; background: rgba(255,181,112,.14); border-radius: 3px; padding: 1px 5px; white-space: nowrap;">TBD-n</span> tag and appears in &sect;13. The pitch and the walkthrough live in their own files; nothing here is written to persuade.</p>
+</header>
+
+<section style="margin-bottom: 32px; break-inside: avoid;">
+  <h2 style="font: 900 13px 'Archivo', sans-serif; letter-spacing: .16em; text-transform: uppercase; color: #ece8f5; margin: 0 0 14px; padding-bottom: 8px; border-bottom: 1px solid rgba(242,238,248,.16);">0 &middot; How to read this</h2>
+  <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px;">
+    <div>
+      <div style="font: 800 13px 'Archivo', sans-serif; color: #ece8f5; margin-bottom: 4px;">Rule numbers are stable</div>
+      <p style="font: 400 13px/1.5 'Space Grotesk', sans-serif; color: #a79fbb; margin: 0;">Cite them in tickets and card text (&ldquo;see 6.3&rdquo;). Renumber only when a section is deleted outright.</p>
+    </div>
+    <div>
+      <div style="font: 800 13px 'Archivo', sans-serif; color: #ece8f5; margin-bottom: 4px;">MUST / MAY</div>
+      <p style="font: 400 13px/1.5 'Space Grotesk', sans-serif; color: #a79fbb; margin: 0;"><strong style="color:#ece8f5;">MUST</strong> is engine-enforced. <strong style="color:#ece8f5;">MAY</strong> is a player choice the UI has to offer. Anything else is intent, not law.</p>
+    </div>
+    <div>
+      <div style="font: 800 13px 'Archivo', sans-serif; color: #ece8f5; margin-bottom: 4px;">Design-intent notes</div>
+      <p style="font: 400 13px/1.5 'Space Grotesk', sans-serif; color: #a79fbb; margin: 0;">One per section, in violet. They explain why a rule exists so you know what you are breaking when you change it.</p>
+    </div>
+  </div>
+</section>
+
+<section style="margin-bottom: 32px;">
+  <h2 style="font: 900 13px 'Archivo', sans-serif; letter-spacing: .16em; text-transform: uppercase; color: #ece8f5; margin: 0 0 14px; padding-bottom: 8px; border-bottom: 1px solid rgba(242,238,248,.16);">1 &middot; Object model</h2>
+  <table style="width: 100%; border-collapse: collapse; font: 400 13px/1.45 'Space Grotesk', sans-serif; color: #ece8f5; margin-bottom: 14px;">
+    <thead>
+      <tr style="border-bottom: 1px solid rgba(242,238,248,.3);">
+        <th style="text-align: left; padding: 7px 10px 7px 0; font: 700 10px 'Space Grotesk', sans-serif; letter-spacing: .12em; color: #8d87a0; text-transform: uppercase;">Object</th>
+        <th style="text-align: left; padding: 7px 10px; font: 700 10px 'Space Grotesk', sans-serif; letter-spacing: .12em; color: #8d87a0; text-transform: uppercase;">Fields</th>
+        <th style="text-align: left; padding: 7px 0 7px 10px; font: 700 10px 'Space Grotesk', sans-serif; letter-spacing: .12em; color: #8d87a0; text-transform: uppercase;">Notes</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr style="border-bottom: 1px solid rgba(242,238,248,.12);">
+        <td style="padding: 8px 10px 8px 0; vertical-align: top;"><strong>Room</strong></td>
+        <td style="padding: 8px 10px; vertical-align: top; font: 500 12px 'IBM Plex Mono', ui-monospace, monospace; color: #cdc6dd;">code, players[], round, beat, first_seat, rng_seed</td>
+        <td style="padding: 8px 0 8px 10px; vertical-align: top; color: #a79fbb;">One live game. <code style="font: 500 12px 'IBM Plex Mono', ui-monospace, monospace;">rng_seed</code> is stored so a round can be replayed for bug reports.</td>
+      </tr>
+      <tr style="border-bottom: 1px solid rgba(242,238,248,.12);">
+        <td style="padding: 8px 10px 8px 0; vertical-align: top;"><strong>Player</strong></td>
+        <td style="padding: 8px 10px; vertical-align: top; font: 500 12px 'IBM Plex Mono', ui-monospace, monospace; color: #cdc6dd;">seat, name, hp, handicap, vessels[], hand[], armed[], tabs[], status</td>
+        <td style="padding: 8px 0 8px 10px; vertical-align: top; color: #a79fbb;"><code style="font: 500 12px 'IBM Plex Mono', ui-monospace, monospace;">status</code> &isin; alive | eliminated (ghost). Seat order is fixed at setup and never changes.</td>
+      </tr>
+      <tr style="border-bottom: 1px solid rgba(242,238,248,.12);">
+        <td style="padding: 8px 10px 8px 0; vertical-align: top;"><strong>Vessel</strong></td>
+        <td style="padding: 8px 10px; vertical-align: top; font: 500 12px 'IBM Plex Mono', ui-monospace, monospace; color: #cdc6dd;">deck, pulls_max, pulls_left, container</td>
+        <td style="padding: 8px 0 8px 10px; vertical-align: top; color: #a79fbb;">A player MAY hold more than one (&sect;4.4). Each vessel is a separate budget and a separate draw source.</td>
+      </tr>
+      <tr style="border-bottom: 1px solid rgba(242,238,248,.12);">
+        <td style="padding: 8px 10px 8px 0; vertical-align: top;"><strong>Card</strong></td>
+        <td style="padding: 8px 10px; vertical-align: top; font: 500 12px 'IBM Plex Mono', ui-monospace, monospace; color: #cdc6dd;">id, deck, kind, cost, targets, text, keywords[], duration</td>
+        <td style="padding: 8px 0 8px 10px; vertical-align: top; color: #a79fbb;"><code style="font: 500 12px 'IBM Plex Mono', ui-monospace, monospace;">kind</code> &isin; ATK | BUFF | CURSE | UTIL | REACTION. Cost is in pulls of its own deck.</td>
+      </tr>
+      <tr style="border-bottom: 1px solid rgba(242,238,248,.12);">
+        <td style="padding: 8px 10px 8px 0; vertical-align: top;"><strong>Play</strong></td>
+        <td style="padding: 8px 10px; vertical-align: top; font: 500 12px 'IBM Plex Mono', ui-monospace, monospace; color: #cdc6dd;">card, source_seat, target, paid_from, order_key</td>
+        <td style="padding: 8px 0 8px 10px; vertical-align: top; color: #a79fbb;">Created at lock (&sect;6), consumed at resolve (&sect;7). <code style="font: 500 12px 'IBM Plex Mono', ui-monospace, monospace;">order_key</code> is set at reveal, not at lock.</td>
+      </tr>
+      <tr>
+        <td style="padding: 8px 10px 8px 0; vertical-align: top;"><strong>Effect</strong></td>
+        <td style="padding: 8px 10px; vertical-align: top; font: 500 12px 'IBM Plex Mono', ui-monospace, monospace; color: #cdc6dd;">source_play, subject, op, magnitude, expires_round</td>
+        <td style="padding: 8px 0 8px 10px; vertical-align: top; color: #a79fbb;">Anything that outlives its play (curses, shields, rules). Held on the room, not the card.</td>
+      </tr>
+    </tbody>
+  </table>
+  <div style="border-left: 3px solid #b48ef7; padding-left: 12px;">
+    <p style="font: 400 13px/1.5 'Space Grotesk', sans-serif; color: #a79fbb; margin: 0;"><strong style="color:#b48ef7;">Intent.</strong> Vessels are first-class rather than a number on the player, because multi-deck play (&sect;4.4) and per-deck draw only work if each drink has its own budget and its own pile.</p>
+  </div>
+</section>
+
+<section style="margin-bottom: 32px;">
+  <h2 style="font: 900 13px 'Archivo', sans-serif; letter-spacing: .16em; text-transform: uppercase; color: #ece8f5; margin: 0 0 14px; padding-bottom: 8px; border-bottom: 1px solid rgba(242,238,248,.16);">2 &middot; Setup</h2>
+  <ol style="margin: 0 0 14px; padding-left: 20px; font: 400 14px/1.6 'Space Grotesk', sans-serif; color: #ece8f5;">
+    <li style="margin-bottom: 6px;"><strong>2.1 Seating.</strong> Players join by room code and are assigned seats in join order. Seat order is the tie-break for everything downstream (&sect;7.2) and MUST NOT change mid-game. 2&ndash;8 players; 7 is the display ceiling for one ring on the big screen.</li>
+    <li style="margin-bottom: 6px;"><strong>2.2 Deck and container.</strong> Each player registers what they are drinking. The deck follows from the ABV band (&sect;3.1); the container sets <code style="font: 500 12px 'IBM Plex Mono', ui-monospace, monospace;">pulls_max</code> from the table in &sect;3.2. The app MUST NOT ask the player to do arithmetic &mdash; it states the pull count and marks the next pull on a gauge.</li>
+    <li style="margin-bottom: 6px;"><strong>2.3 Handicap.</strong> A per-player cost multiplier set at seating and visible to everyone (&sect;11).</li>
+    <li style="margin-bottom: 6px;"><strong>2.4 Starting HP.</strong> Every player starts at <strong>15</strong> regardless of deck or handicap. <span style="font: 500 11px 'IBM Plex Mono', ui-monospace, monospace; color: #ffb570; background: rgba(255,181,112,.14); border-radius: 3px; padding: 1px 5px; white-space: nowrap;">TBD-1</span></li>
+    <li style="margin-bottom: 6px;"><strong>2.5 Opening hand.</strong> Five cards per registered vessel <span style="font: 500 11px 'IBM Plex Mono', ui-monospace, monospace; color: #ffb570; background: rgba(255,181,112,.14); border-radius: 3px; padding: 1px 5px; white-space: nowrap;">TBD-4</span>, drawn from that vessel's deck. A two-vessel player therefore opens on ten cards and a fuller rail &mdash; paid for by having to finish two drinks to refill.</li>
+    <li><strong>2.6 Hidden state.</strong> One tab is dealt privately per player (&sect;10.2); pacts are assigned silently (&sect;10.3). The first event is dealt at beat 2 of round 1, not at setup.</li>
+  </ol>
+  <div style="border-left: 3px solid #b48ef7; padding-left: 12px;">
+    <p style="font: 400 13px/1.5 'Space Grotesk', sans-serif; color: #a79fbb; margin: 0;"><strong style="color:#b48ef7;">Intent.</strong> Everything asymmetric about a player is declared before the first card is dealt, in public, except the tab. Surprises come from play, not from setup.</p>
+  </div>
+</section>
+
+<section style="margin-bottom: 32px; break-before: page;">
+  <h2 style="font: 900 13px 'Archivo', sans-serif; letter-spacing: .16em; text-transform: uppercase; color: #ece8f5; margin: 0 0 14px; padding-bottom: 8px; border-bottom: 1px solid rgba(242,238,248,.16);">3 &middot; Decks and the pour standard</h2>
+  <p style="font: 400 14px/1.6 'Space Grotesk', sans-serif; color: #ece8f5; margin: 0 0 12px; max-width: 46em;"><strong>3.1</strong> A vessel is a serving of alcohol, not a volume, so the decks balance against each other. Each deck states the band it is balanced for; a drink outside the band belongs to the deck whose band it falls in, and the app MUST say so at pick time.</p>
+  <table style="width: 100%; border-collapse: collapse; font: 400 13px/1.45 'Space Grotesk', sans-serif; color: #ece8f5; margin-bottom: 12px;">
+    <thead>
+      <tr style="border-bottom: 1px solid rgba(242,238,248,.3);">
+        <th style="text-align: left; padding: 7px 10px 7px 0; font: 700 10px 'Space Grotesk', sans-serif; letter-spacing: .12em; color: #8d87a0; text-transform: uppercase;">Deck</th>
+        <th style="text-align: left; padding: 7px 10px; font: 700 10px 'Space Grotesk', sans-serif; letter-spacing: .12em; color: #8d87a0; text-transform: uppercase;">Band</th>
+        <th style="text-align: left; padding: 7px 10px; font: 700 10px 'Space Grotesk', sans-serif; letter-spacing: .12em; color: #8d87a0; text-transform: uppercase;">Vessel &middot; pulls</th>
+        <th style="text-align: left; padding: 7px 10px; font: 700 10px 'Space Grotesk', sans-serif; letter-spacing: .12em; color: #8d87a0; text-transform: uppercase;">Cost spread</th>
+        <th style="text-align: left; padding: 7px 0 7px 10px; font: 700 10px 'Space Grotesk', sans-serif; letter-spacing: .12em; color: #8d87a0; text-transform: uppercase;">Role</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr style="border-bottom: 1px solid rgba(242,238,248,.12);"><td style="padding: 7px 10px 7px 0;"><strong style="color:#ffb570;">Beer</strong></td><td style="padding: 7px 10px;">0.5&ndash;7%</td><td style="padding: 7px 10px; font: 500 12px 'IBM Plex Mono', ui-monospace, monospace;">50cl &middot; 8</td><td style="padding: 7px 10px; font: 500 12px 'IBM Plex Mono', ui-monospace, monospace;">1&ndash;2</td><td style="padding: 7px 0 7px 10px; color: #a79fbb;">Attrition. No bomb in the list.</td></tr>
+      <tr style="border-bottom: 1px solid rgba(242,238,248,.12);"><td style="padding: 7px 10px 7px 0;"><strong style="color:#b48ef7;">Cider</strong></td><td style="padding: 7px 10px;">0.5&ndash;7%</td><td style="padding: 7px 10px; font: 500 12px 'IBM Plex Mono', ui-monospace, monospace;">50cl &middot; 10</td><td style="padding: 7px 10px; font: 500 12px 'IBM Plex Mono', ui-monospace, monospace;">1&ndash;3</td><td style="padding: 7px 0 7px 10px; color: #a79fbb;">Trickster. Redirect, swap, theft.</td></tr>
+      <tr style="border-bottom: 1px solid rgba(242,238,248,.12);"><td style="padding: 7px 10px 7px 0;"><strong style="color:#d4657f;">Wine</strong></td><td style="padding: 7px 10px;">7&ndash;20%</td><td style="padding: 7px 10px; font: 500 12px 'IBM Plex Mono', ui-monospace, monospace;">15cl &middot; 6</td><td style="padding: 7px 10px; font: 500 12px 'IBM Plex Mono', ui-monospace, monospace;">2&ndash;3</td><td style="padding: 7px 0 7px 10px; color: #a79fbb;">Control. Delays and damage over time.</td></tr>
+      <tr style="border-bottom: 1px solid rgba(242,238,248,.12);"><td style="padding: 7px 10px 7px 0;"><strong style="color:#f7768e;">Liquor</strong></td><td style="padding: 7px 10px;">20%+</td><td style="padding: 7px 10px; font: 500 12px 'IBM Plex Mono', ui-monospace, monospace;">4cl &middot; 4</td><td style="padding: 7px 10px; font: 500 12px 'IBM Plex Mono', ui-monospace, monospace;">2&ndash;3</td><td style="padding: 7px 0 7px 10px; color: #a79fbb;">Burst. Four pulls is two plays and a decision.</td></tr>
+      <tr><td style="padding: 7px 10px 7px 0;"><strong style="color:#6fb6ff;">Soft</strong></td><td style="padding: 7px 10px;">0&ndash;0.5%</td><td style="padding: 7px 10px; font: 500 12px 'IBM Plex Mono', ui-monospace, monospace;">any &middot; 6</td><td style="padding: 7px 10px; font: 500 12px 'IBM Plex Mono', ui-monospace, monospace;">1&ndash;2</td><td style="padding: 7px 0 7px 10px; color: #a79fbb;">Support. Shields, heals, sabotage. No alcohol cost.</td></tr>
+    </tbody>
+  </table>
+  <p style="font: 400 13px/1.5 'Space Grotesk', sans-serif; color: #a79fbb; margin: 0 0 6px;"><strong style="color:#ece8f5;">3.2 Pull count is a deck constant.</strong> A Beer vessel is 8 pulls whether the tin is 50cl or 25cl &mdash; the app converts to a fraction of the container. What a player can spend never depends on what was in the fridge.</p>
+  <p style="font: 400 13px/1.5 'Space Grotesk', sans-serif; color: #a79fbb; margin: 0 0 6px;"><strong style="color:#ece8f5;">3.3 Cocktails and jugs.</strong> A drink built on more than one measure is several vessels, not a big one. A four-measure jug is four Liquor vessels and refilling means finishing one glass of it.</p>
+  <p style="font: 400 13px/1.5 'Space Grotesk', sans-serif; color: #a79fbb; margin: 0 0 12px;"><strong style="color:#ece8f5;">3.4 Low-and-no.</strong> Anything under 0.5% is Soft regardless of what the label imitates.</p>
+  <div style="border-left: 3px solid #b48ef7; padding-left: 12px;">
+    <p style="font: 400 13px/1.5 'Space Grotesk', sans-serif; color: #a79fbb; margin: 0;"><strong style="color:#b48ef7;">Intent.</strong> Soft must be pickable by someone who could drink. If it ever reads as a penalty the balance is wrong, not the player.</p>
+  </div>
+</section>
+
+<section style="margin-bottom: 32px;">
+  <h2 style="font: 900 13px 'Archivo', sans-serif; letter-spacing: .16em; text-transform: uppercase; color: #ece8f5; margin: 0 0 14px; padding-bottom: 8px; border-bottom: 1px solid rgba(242,238,248,.16);">4 &middot; The vessel economy</h2>
+  <p style="font: 400 14px/1.6 'Space Grotesk', sans-serif; color: #ece8f5; margin: 0 0 12px; max-width: 46em;"><strong>4.1 Pulls are the only resource.</strong> A card's cost is paid in pulls of its own deck, taken from a vessel of that deck. Paying a pull is an instruction to drink; the app tracks the count, the player does the drinking, and nothing verifies it.</p>
+  <ul style="margin: 0 0 12px; padding-left: 18px; font: 400 13.5px/1.55 'Space Grotesk', sans-serif; color: #ece8f5;">
+    <li style="margin-bottom: 6px;"><strong>4.2 Playability gate.</strong> A card MAY be armed only if <code style="font: 500 12px 'IBM Plex Mono', ui-monospace, monospace;">cost &times; handicap &le; pulls_left</code> on a vessel of its deck at the moment of locking. Level gates what you can play, never what you can hold.</li>
+    <li style="margin-bottom: 6px;"><strong>4.3 Finish &amp; draw.</strong> At beat 1 a player MAY finish any one vessel: empty it, open a fresh one of the same deck, and draw five cards <span style="font: 500 11px 'IBM Plex Mono', ui-monospace, monospace; color: #ffb570; background: rgba(255,181,112,.14); border-radius: 3px; padding: 1px 5px; white-space: nowrap;">TBD-4</span> from that deck on top of the hand they keep. The alternative is <strong>KEEP</strong> &mdash; drink nothing, draw nothing, and go into the round on what is left. These are the only two draw rules in the game.</li>
+    <li style="margin-bottom: 6px;"><strong>4.4 More than one drink.</strong> A player MAY register additional vessels at any round boundary. Each is its own deck, its own <code style="font: 500 12px 'IBM Plex Mono', ui-monospace, monospace;">pulls_left</code> and its own draw source; a card MUST be paid from a vessel of its own deck. Finish &amp; draw applies to one vessel per round <span style="font: 500 11px 'IBM Plex Mono', ui-monospace, monospace; color: #ffb570; background: rgba(255,181,112,.14); border-radius: 3px; padding: 1px 5px; white-space: nowrap;">TBD-5</span>. Abandoning a vessel means finishing it first.</li>
+    <li><strong>4.5 Empty vessels.</strong> A vessel at zero pulls is dead weight: its cards stay in hand and stay unplayable until it is finished and refilled. The UI MUST show that as the reason a card is greyed, not as a generic block.</li>
+  </ul>
+  <div style="border-left: 3px solid #b48ef7; padding-left: 12px;">
+    <p style="font: 400 13px/1.5 'Space Grotesk', sans-serif; color: #a79fbb; margin: 0;"><strong style="color:#b48ef7;">Intent.</strong> One decision carries the whole economy: drink now for cards, or stay dry and play what you have. Every earlier mechanic that also spent drink (racks, allocators, spill) has been removed so this choice is unambiguous.</p>
+  </div>
+</section>
+
+<section style="margin-bottom: 32px;">
+  <h2 style="font: 900 13px 'Archivo', sans-serif; letter-spacing: .16em; text-transform: uppercase; color: #ece8f5; margin: 0 0 14px; padding-bottom: 8px; border-bottom: 1px solid rgba(242,238,248,.16);">5 &middot; The round</h2>
+  <p style="font: 400 14px/1.6 'Space Grotesk', sans-serif; color: #ece8f5; margin: 0 0 12px; max-width: 46em;">Six beats. Beats 1&ndash;3 are setup and negotiation, 4&ndash;6 are commitment and consequence. The engine advances on the earlier of &ldquo;all players ready&rdquo; and the beat timer.</p>
+  <table style="width: 100%; border-collapse: collapse; font: 400 13px/1.45 'Space Grotesk', sans-serif; color: #ece8f5; margin-bottom: 12px;">
+    <thead>
+      <tr style="border-bottom: 1px solid rgba(242,238,248,.3);">
+        <th style="text-align: left; padding: 7px 10px 7px 0; font: 700 10px 'Space Grotesk', sans-serif; letter-spacing: .12em; color: #8d87a0; text-transform: uppercase;">Beat</th>
+        <th style="text-align: left; padding: 7px 10px; font: 700 10px 'Space Grotesk', sans-serif; letter-spacing: .12em; color: #8d87a0; text-transform: uppercase;">Player MAY</th>
+        <th style="text-align: left; padding: 7px 10px; font: 700 10px 'Space Grotesk', sans-serif; letter-spacing: .12em; color: #8d87a0; text-transform: uppercase;">Engine MUST</th>
+        <th style="text-align: left; padding: 7px 0 7px 10px; font: 700 10px 'Space Grotesk', sans-serif; letter-spacing: .12em; color: #8d87a0; text-transform: uppercase;">Exit</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr style="border-bottom: 1px solid rgba(242,238,248,.12);"><td style="padding: 8px 10px 8px 0; vertical-align: top;"><strong>1 Draw</strong><div style="font: 500 11px 'IBM Plex Mono', ui-monospace, monospace; color: #8d87a0;">30s</div></td><td style="padding: 8px 10px; vertical-align: top;">Finish &amp; draw, or keep (4.3). Register a new vessel (4.4).</td><td style="padding: 8px 10px; vertical-align: top; color: #a79fbb;">Deal 5 per finished vessel; refill that vessel to <code style="font: 500 12px 'IBM Plex Mono', ui-monospace, monospace;">pulls_max</code>; reshuffle a deck's discard if it runs out.</td><td style="padding: 8px 0 8px 10px; vertical-align: top; color: #a79fbb;">All answered or timer.</td></tr>
+      <tr style="border-bottom: 1px solid rgba(242,238,248,.12);"><td style="padding: 8px 10px 8px 0; vertical-align: top;"><strong>2 Deal</strong><div style="font: 500 11px 'IBM Plex Mono', ui-monospace, monospace; color: #8d87a0;">auto</div></td><td style="padding: 8px 10px; vertical-align: top;">Nothing.</td><td style="padding: 8px 10px; vertical-align: top; color: #a79fbb;">Reveal this round's event (10.1), replacing the last. Deal a replacement tab to anyone who completed one.</td><td style="padding: 8px 0 8px 10px; vertical-align: top; color: #a79fbb;">Immediate.</td></tr>
+      <tr style="border-bottom: 1px solid rgba(242,238,248,.12);"><td style="padding: 8px 10px 8px 0; vertical-align: top;"><strong>3 Diplomacy</strong><div style="font: 500 11px 'IBM Plex Mono', ui-monospace, monospace; color: #8d87a0;">60s <span style="color:#ffb570;">TBD-6</span></div></td><td style="padding: 8px 10px; vertical-align: top;">Talk. Show a card to prove a claim. Swap one card face down with a consenting player.</td><td style="padding: 8px 10px; vertical-align: top; color: #a79fbb;">Enforce the swap (one per pair per round) and nothing else. Deals are not binding and MUST NOT be modelled.</td><td style="padding: 8px 0 8px 10px; vertical-align: top; color: #a79fbb;">Timer, or all ready.</td></tr>
+      <tr style="border-bottom: 1px solid rgba(242,238,248,.12);"><td style="padding: 8px 10px 8px 0; vertical-align: top;"><strong>4 Lock</strong><div style="font: 500 11px 'IBM Plex Mono', ui-monospace, monospace; color: #8d87a0;">45s</div></td><td style="padding: 8px 10px; vertical-align: top;">Arm any number of playable cards, assign targets, LOCK.</td><td style="padding: 8px 10px; vertical-align: top; color: #a79fbb;">Validate 4.2 against live state; hold plays secret; show only a lock tick per seat.</td><td style="padding: 8px 0 8px 10px; vertical-align: top; color: #a79fbb;">All locked or timer (unlocked players play nothing).</td></tr>
+      <tr style="border-bottom: 1px solid rgba(242,238,248,.12);"><td style="padding: 8px 10px 8px 0; vertical-align: top;"><strong>5 Reveal</strong><div style="font: 500 11px 'IBM Plex Mono', ui-monospace, monospace; color: #8d87a0;">20s</div></td><td style="padding: 8px 10px; vertical-align: top;">Play REACTION cards (7.3).</td><td style="padding: 8px 10px; vertical-align: top; color: #a79fbb;">Flip everything at once, charge pulls, compute <code style="font: 500 12px 'IBM Plex Mono', ui-monospace, monospace;">order_key</code> (7.1), open one response window.</td><td style="padding: 8px 0 8px 10px; vertical-align: top; color: #a79fbb;">Window closes.</td></tr>
+      <tr><td style="padding: 8px 10px 8px 0; vertical-align: top;"><strong>6 Resolve</strong><div style="font: 500 11px 'IBM Plex Mono', ui-monospace, monospace; color: #8d87a0;">auto</div></td><td style="padding: 8px 10px; vertical-align: top;">Nothing.</td><td style="padding: 8px 10px; vertical-align: top; color: #a79fbb;">Resolve in order (7.2), apply damage, check elimination, expire effects, discard down (8.4), rotate first seat.</td><td style="padding: 8px 0 8px 10px; vertical-align: top; color: #a79fbb;">Next round, or game over (9.3).</td></tr>
+    </tbody>
+  </table>
+  <div style="border-left: 3px solid #b48ef7; padding-left: 12px;">
+    <p style="font: 400 13px/1.5 'Space Grotesk', sans-serif; color: #a79fbb; margin: 0;"><strong style="color:#b48ef7;">Intent.</strong> A round is deliberately 3&ndash;5 minutes. The slow part is beat 3, which is the only beat where the game is people rather than cards.</p>
+  </div>
+</section>
+
+<section style="margin-bottom: 32px; break-before: page;">
+  <h2 style="font: 900 13px 'Archivo', sans-serif; letter-spacing: .16em; text-transform: uppercase; color: #ece8f5; margin: 0 0 14px; padding-bottom: 8px; border-bottom: 1px solid rgba(242,238,248,.16);">6 &middot; Arming, targeting, locking</h2>
+  <ul style="margin: 0 0 12px; padding-left: 18px; font: 400 13.5px/1.55 'Space Grotesk', sans-serif; color: #ece8f5;">
+    <li style="margin-bottom: 6px;"><strong>6.1 Arming</strong> moves a card from hand to <code style="font: 500 12px 'IBM Plex Mono', ui-monospace, monospace;">armed[]</code>. It is reversible until lock and costs nothing.</li>
+    <li style="margin-bottom: 6px;"><strong>6.2 Targeting.</strong> A card declares its target class in <code style="font: 500 12px 'IBM Plex Mono', ui-monospace, monospace;">targets</code>: self | one | all | table. A play with an illegal or dead target at resolution is discarded with no effect and its pulls are NOT refunded (7.5).</li>
+    <li style="margin-bottom: 6px;"><strong>6.3 Locking</strong> is final. The engine revalidates every armed card against 4.2 at lock time and rejects the lock if any card fails, naming the card.</li>
+    <li><strong>6.4 Payment</strong> happens at reveal, not at lock, so a card cancelled during the response window still costs its pulls. Drinking is not refundable.</li>
+  </ul>
+  <div style="border-left: 3px solid #b48ef7; padding-left: 12px;">
+    <p style="font: 400 13px/1.5 'Space Grotesk', sans-serif; color: #a79fbb; margin: 0;"><strong style="color:#b48ef7;">Intent.</strong> Paying at reveal means a bluffed lock is expensive. It also means the pull count is public information the moment plays flip, which is what feeds the ordering rule.</p>
+  </div>
+</section>
+
+<section style="margin-bottom: 32px;">
+  <h2 style="font: 900 13px 'Archivo', sans-serif; letter-spacing: .16em; text-transform: uppercase; color: #ece8f5; margin: 0 0 14px; padding-bottom: 8px; border-bottom: 1px solid rgba(242,238,248,.16);">7 &middot; Resolution and timing</h2>
+  <ul style="margin: 0 0 12px; padding-left: 18px; font: 400 13.5px/1.55 'Space Grotesk', sans-serif; color: #ece8f5;">
+    <li style="margin-bottom: 6px;"><strong>7.1 Order key.</strong> Plays resolve in descending order of pulls spent by their player this round. Spending most acts first.</li>
+    <li style="margin-bottom: 6px;"><strong>7.2 Ties</strong> break by seat order starting from <code style="font: 500 12px 'IBM Plex Mono', ui-monospace, monospace;">first_seat</code>, which advances one seat per round. Within one player's plays, the player's own arming order applies.</li>
+    <li style="margin-bottom: 6px;"><strong>7.3 Reactions.</strong> REACTION cards are the only cards playable outside beat 4. Played during the response window, they resolve immediately before the play they answer, last-in-first-out per targeted play, and MUST name a play as their target.</li>
+    <li style="margin-bottom: 6px;"><strong>7.4 One pass.</strong> There is no second response window. A reaction cannot be reacted to <span style="font: 500 11px 'IBM Plex Mono', ui-monospace, monospace; color: #ffb570; background: rgba(255,181,112,.14); border-radius: 3px; padding: 1px 5px; white-space: nowrap;">TBD-7</span>.</li>
+    <li style="margin-bottom: 6px;"><strong>7.5 Fizzle.</strong> A play whose target is gone, already cancelled, or otherwise illegal resolves as nothing. It still counts toward the ordering total and still cost its pulls.</li>
+    <li><strong>7.6 State check.</strong> HP is evaluated after every play resolves, not at the end of the beat. Elimination is immediate and removes that player's unresolved plays from the queue.</li>
+  </ul>
+  <div style="border-left: 3px solid #b48ef7; padding-left: 12px;">
+    <p style="font: 400 13px/1.5 'Space Grotesk', sans-serif; color: #a79fbb; margin: 0;"><strong style="color:#b48ef7;">Intent.</strong> Ordering by spend makes drinking a tempo currency as well as a resource, and gives the table something to read during diplomacy: whoever is committing hardest also goes first.</p>
+  </div>
+</section>
+
+<section style="margin-bottom: 32px;">
+  <h2 style="font: 900 13px 'Archivo', sans-serif; letter-spacing: .16em; text-transform: uppercase; color: #ece8f5; margin: 0 0 14px; padding-bottom: 8px; border-bottom: 1px solid rgba(242,238,248,.16);">8 &middot; Hand</h2>
+  <ul style="margin: 0 0 12px; padding-left: 18px; font: 400 13.5px/1.55 'Space Grotesk', sans-serif; color: #ece8f5;">
+    <li style="margin-bottom: 6px;"><strong>8.1 No hard cap.</strong> A hand may exceed the comfortable display size; the wheel UI is endless and does not constrain it.</li>
+    <li style="margin-bottom: 6px;"><strong>8.2 Soft cap.</strong> At the end of beat 6 a player holding more than <strong>12</strong> cards MUST discard down to 12, choosing which. <span style="font: 500 11px 'IBM Plex Mono', ui-monospace, monospace; color: #ffb570; background: rgba(255,181,112,.14); border-radius: 3px; padding: 1px 5px; white-space: nowrap;">TBD-2</span></li>
+    <li style="margin-bottom: 6px;"><strong>8.3 Multi-deck hands</strong> are one hand, not one per vessel. The rail groups by deck colour so the split is legible.</li>
+    <li><strong>8.4 Discards</strong> go to the discard pile of the card's own deck. An empty deck reshuffles its discard at beat 1 and the big screen announces it.</li>
+  </ul>
+  <div style="border-left: 3px solid #b48ef7; padding-left: 12px;">
+    <p style="font: 400 13px/1.5 'Space Grotesk', sans-serif; color: #a79fbb; margin: 0;"><strong style="color:#b48ef7;">Intent.</strong> The soft cap exists to stop hoarding, not to punish a good draw &mdash; it bites once a round, at a moment when nobody is waiting on you.</p>
+  </div>
+</section>
+
+<section style="margin-bottom: 32px;">
+  <h2 style="font: 900 13px 'Archivo', sans-serif; letter-spacing: .16em; text-transform: uppercase; color: #ece8f5; margin: 0 0 14px; padding-bottom: 8px; border-bottom: 1px solid rgba(242,238,248,.16);">9 &middot; Damage, elimination, end of game</h2>
+  <ul style="margin: 0 0 12px; padding-left: 18px; font: 400 13.5px/1.55 'Space Grotesk', sans-serif; color: #ece8f5;">
+    <li style="margin-bottom: 6px;"><strong>9.1 HP</strong> starts at 15 (2.4), has no ceiling from healing <span style="font: 500 11px 'IBM Plex Mono', ui-monospace, monospace; color: #ffb570; background: rgba(255,181,112,.14); border-radius: 3px; padding: 1px 5px; white-space: nowrap;">TBD-3</span>, and is public at all times.</li>
+    <li style="margin-bottom: 6px;"><strong>9.2 Zero is out.</strong> At 0 HP the player is eliminated, finishes what is left in their vessels, and becomes a <strong>ghost</strong>: one vote per round to add +1 damage to any attack already in flight. Ghosts hold no cards and cannot be targeted.</li>
+    <li><strong>9.3 The game ends</strong> when one player remains, or when all remaining players are ghosts (draw). Expect 5&ndash;8 rounds at 15 HP.</li>
+  </ul>
+</section>
+
+<section style="margin-bottom: 32px; break-before: page;">
+  <h2 style="font: 900 13px 'Archivo', sans-serif; letter-spacing: .16em; text-transform: uppercase; color: #ece8f5; margin: 0 0 14px; padding-bottom: 8px; border-bottom: 1px solid rgba(242,238,248,.16);">10 &middot; Persistent systems</h2>
+  <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; margin-bottom: 12px;">
+    <div>
+      <div style="font: 800 14px 'Archivo', sans-serif; color: #ffb570; margin-bottom: 5px;">10.1 Events</div>
+      <p style="font: 400 13px/1.5 'Space Grotesk', sans-serif; color: #a79fbb; margin: 0;">Public, table-wide, exactly one round, dealt at beat 2 before diplomacy so it can be negotiated around. Never two at once. <strong style="color:#ece8f5;">Guardrail:</strong> an event MUST NOT change how much anyone drinks beyond one extra pull.</p>
+    </div>
+    <div>
+      <div style="font: 800 14px 'Archivo', sans-serif; color: #b48ef7; margin-bottom: 5px;">10.2 Tabs</div>
+      <p style="font: 400 13px/1.5 'Space Grotesk', sans-serif; color: #a79fbb; margin: 0;">Private objectives, one per player, dealt at seating and replaced on completion. Completion is engine-detected and announced after the fact, never before.</p>
+    </div>
+    <div>
+      <div style="font: 800 14px 'Archivo', sans-serif; color: #4fd6a8; margin-bottom: 5px;">10.3 Pacts</div>
+      <p style="font: 400 13px/1.5 'Space Grotesk', sans-serif; color: #a79fbb; margin: 0;">Two players are silently paired at setup and dealt matching tabs. Neither is told who the other is. Build this first &mdash; it is the cheapest system with the biggest effect on beat 3.</p>
+    </div>
+  </div>
+  <p style="font: 400 13px/1.5 'Space Grotesk', sans-serif; color: #a79fbb; margin: 0;"><strong style="color:#ece8f5;">10.4 Effects</strong> from cards (curses, shields, rules) live on the room with an <code style="font: 500 12px 'IBM Plex Mono', ui-monospace, monospace;">expires_round</code> and are applied in the order they were created. Two effects of the same keyword on the same subject do not stack unless the keyword says so <span style="font: 500 11px 'IBM Plex Mono', ui-monospace, monospace; color: #ffb570; background: rgba(255,181,112,.14); border-radius: 3px; padding: 1px 5px; white-space: nowrap;">TBD-8</span>.</p>
+</section>
+
+<section style="margin-bottom: 32px;">
+  <h2 style="font: 900 13px 'Archivo', sans-serif; letter-spacing: .16em; text-transform: uppercase; color: #ece8f5; margin: 0 0 14px; padding-bottom: 8px; border-bottom: 1px solid rgba(242,238,248,.16);">11 &middot; Handicap</h2>
+  <p style="font: 400 14px/1.6 'Space Grotesk', sans-serif; color: #ece8f5; margin: 0 0 10px; max-width: 46em;">A per-player multiplier on card cost in pulls, set at seating and public. It is the lever for people who want to play the same game at a different rate: pace yourself, drive, or take a heavier share. It MUST NOT touch HP, damage, or draw &mdash; only what a card costs to play, rounded up.</p>
+  <div style="border-left: 3px solid #b48ef7; padding-left: 12px;">
+    <p style="font: 400 13px/1.5 'Space Grotesk', sans-serif; color: #a79fbb; margin: 0;"><strong style="color:#b48ef7;">Intent.</strong> One dial, in the open, so nobody has to explain themselves twice. Because it multiplies cost and cost drives turn order (7.1), a heavy handicap also buys tempo &mdash; check that this is not dominant in playtest.</p>
+  </div>
+</section>
+
+<section style="margin-bottom: 32px;">
+  <h2 style="font: 900 13px 'Archivo', sans-serif; letter-spacing: .16em; text-transform: uppercase; color: #ece8f5; margin: 0 0 14px; padding-bottom: 8px; border-bottom: 1px solid rgba(242,238,248,.16);">12 &middot; Adjudications</h2>
+  <ul style="margin: 0; padding-left: 18px; font: 400 13.5px/1.55 'Space Grotesk', sans-serif; color: #ece8f5;">
+    <li style="margin-bottom: 6px;"><strong>Disconnect at lock.</strong> A player who does not lock plays nothing and drinks nothing. Their armed cards return to hand.</li>
+    <li style="margin-bottom: 6px;"><strong>Two reactions to one play.</strong> Resolve LIFO. If both cancel it, the second cancels a play that is already cancelled and fizzles (7.5).</li>
+    <li style="margin-bottom: 6px;"><strong>Damage from an eliminated player.</strong> Plays already resolved stand; unresolved plays are removed (7.6).</li>
+    <li style="margin-bottom: 6px;"><strong>Empty deck mid-round.</strong> Draws pause until beat 1 of the next round, when the discard reshuffles. Nobody draws a partial hand.</li>
+    <li><strong>Refusing to drink.</strong> Never enforced and never surfaced. The count moves on; the app does not police anybody.</li>
+  </ul>
+</section>
+
+<section style="margin-bottom: 32px;">
+  <h2 style="font: 900 13px 'Archivo', sans-serif; letter-spacing: .16em; text-transform: uppercase; color: #ece8f5; margin: 0 0 14px; padding-bottom: 8px; border-bottom: 1px solid rgba(242,238,248,.16);">13 &middot; Open values</h2>
+  <table style="width: 100%; border-collapse: collapse; font: 400 13px/1.45 'Space Grotesk', sans-serif; color: #ece8f5;">
+    <thead>
+      <tr style="border-bottom: 1px solid rgba(242,238,248,.3);">
+        <th style="text-align: left; padding: 7px 10px 7px 0; font: 700 10px 'Space Grotesk', sans-serif; letter-spacing: .12em; color: #8d87a0; text-transform: uppercase;">Tag</th>
+        <th style="text-align: left; padding: 7px 10px; font: 700 10px 'Space Grotesk', sans-serif; letter-spacing: .12em; color: #8d87a0; text-transform: uppercase;">Question</th>
+        <th style="text-align: left; padding: 7px 10px; font: 700 10px 'Space Grotesk', sans-serif; letter-spacing: .12em; color: #8d87a0; text-transform: uppercase;">Working value</th>
+        <th style="text-align: left; padding: 7px 0 7px 10px; font: 700 10px 'Space Grotesk', sans-serif; letter-spacing: .12em; color: #8d87a0; text-transform: uppercase;">Decide by</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr style="border-bottom: 1px solid rgba(242,238,248,.12);"><td style="padding: 7px 10px 7px 0; font: 500 12px 'IBM Plex Mono', ui-monospace, monospace; color: #ffb570; white-space: nowrap;">TBD-1</td><td style="padding: 7px 10px;">Starting HP</td><td style="padding: 7px 10px; font: 500 12px 'IBM Plex Mono', ui-monospace, monospace;">15</td><td style="padding: 7px 0 7px 10px; color: #a79fbb;">First full playtest &mdash; count rounds.</td></tr>
+      <tr style="border-bottom: 1px solid rgba(242,238,248,.12);"><td style="padding: 7px 10px 7px 0; font: 500 12px 'IBM Plex Mono', ui-monospace, monospace; color: #ffb570; white-space: nowrap;">TBD-2</td><td style="padding: 7px 10px;">Soft hand cap</td><td style="padding: 7px 10px; font: 500 12px 'IBM Plex Mono', ui-monospace, monospace;">12</td><td style="padding: 7px 0 7px 10px; color: #a79fbb;">Whether anyone ever hits it.</td></tr>
+      <tr style="border-bottom: 1px solid rgba(242,238,248,.12);"><td style="padding: 7px 10px 7px 0; font: 500 12px 'IBM Plex Mono', ui-monospace, monospace; color: #ffb570; white-space: nowrap;">TBD-3</td><td style="padding: 7px 10px;">Healing ceiling</td><td style="padding: 7px 10px; font: 500 12px 'IBM Plex Mono', ui-monospace, monospace;">none</td><td style="padding: 7px 0 7px 10px; color: #a79fbb;">Once Soft's list exists.</td></tr>
+      <tr style="border-bottom: 1px solid rgba(242,238,248,.12);"><td style="padding: 7px 10px 7px 0; font: 500 12px 'IBM Plex Mono', ui-monospace, monospace; color: #ffb570; white-space: nowrap;">TBD-4</td><td style="padding: 7px 10px;">Cards drawn per finished vessel</td><td style="padding: 7px 10px; font: 500 12px 'IBM Plex Mono', ui-monospace, monospace;">5</td><td style="padding: 7px 0 7px 10px; color: #a79fbb;">Playtest &mdash; is a fresh can worth a whole hand?</td></tr>
+      <tr style="border-bottom: 1px solid rgba(242,238,248,.12);"><td style="padding: 7px 10px 7px 0; font: 500 12px 'IBM Plex Mono', ui-monospace, monospace; color: #ffb570; white-space: nowrap;">TBD-5</td><td style="padding: 7px 10px;">Finish &amp; draw &mdash; one vessel per round, or each?</td><td style="padding: 7px 10px; font: 500 12px 'IBM Plex Mono', ui-monospace, monospace;">one</td><td style="padding: 7px 0 7px 10px; color: #a79fbb;">Before multi-deck is built.</td></tr>
+      <tr style="border-bottom: 1px solid rgba(242,238,248,.12);"><td style="padding: 7px 10px 7px 0; font: 500 12px 'IBM Plex Mono', ui-monospace, monospace; color: #ffb570; white-space: nowrap;">TBD-6</td><td style="padding: 7px 10px;">Diplomacy length</td><td style="padding: 7px 10px; font: 500 12px 'IBM Plex Mono', ui-monospace, monospace;">60s</td><td style="padding: 7px 0 7px 10px; color: #a79fbb;">Playtest &mdash; watch for dead air.</td></tr>
+      <tr style="border-bottom: 1px solid rgba(242,238,248,.12);"><td style="padding: 7px 10px 7px 0; font: 500 12px 'IBM Plex Mono', ui-monospace, monospace; color: #ffb570; white-space: nowrap;">TBD-7</td><td style="padding: 7px 10px;">Can a reaction be reacted to?</td><td style="padding: 7px 10px; font: 500 12px 'IBM Plex Mono', ui-monospace, monospace;">no</td><td style="padding: 7px 0 7px 10px; color: #a79fbb;">Only revisit if reactions feel toothless.</td></tr>
+      <tr><td style="padding: 7px 10px 7px 0; font: 500 12px 'IBM Plex Mono', ui-monospace, monospace; color: #ffb570; white-space: nowrap;">TBD-8</td><td style="padding: 7px 10px;">Effect stacking default</td><td style="padding: 7px 10px; font: 500 12px 'IBM Plex Mono', ui-monospace, monospace;">no stack</td><td style="padding: 7px 0 7px 10px; color: #a79fbb;">When the first curse list is written.</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h2 style="font: 900 13px 'Archivo', sans-serif; letter-spacing: .16em; text-transform: uppercase; color: #ece8f5; margin: 0 0 14px; padding-bottom: 8px; border-bottom: 1px solid rgba(242,238,248,.16);">14 &middot; Engine notes</h2>
+  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+    <div>
+      <div style="font: 800 14px 'Archivo', sans-serif; color: #ece8f5; margin-bottom: 6px;">State machine</div>
+      <p style="font: 500 12.5px/1.7 'IBM Plex Mono', ui-monospace, monospace; color: #cdc6dd; margin: 0 0 8px; background: rgba(242,238,248,.05); border-radius: 8px; padding: 12px 14px;">SETUP &rarr; DRAW &rarr; DEAL &rarr; DIPLOMACY &rarr; LOCK &rarr; REVEAL &rarr; RESOLVE &rarr; (DRAW | GAME_OVER)</p>
+      <p style="font: 400 13px/1.5 'Space Grotesk', sans-serif; color: #a79fbb; margin: 0;">One authoritative transition per beat, server-side, driven by ready-count or timer. Clients never advance state; they render it and post intents.</p>
+    </div>
+    <div>
+      <div style="font: 800 14px 'Archivo', sans-serif; color: #ece8f5; margin-bottom: 6px;">Invariants to assert</div>
+      <ul style="margin: 0; padding-left: 17px; font: 400 13px/1.5 'Space Grotesk', sans-serif; color: #a79fbb;">
+        <li style="margin-bottom: 4px;"><code style="font: 500 12px 'IBM Plex Mono', ui-monospace, monospace;">0 &le; pulls_left &le; pulls_max</code> for every vessel.</li>
+        <li style="margin-bottom: 4px;">Every card in <code style="font: 500 12px 'IBM Plex Mono', ui-monospace, monospace;">hand</code> or <code style="font: 500 12px 'IBM Plex Mono', ui-monospace, monospace;">armed</code> has a vessel of its deck registered.</li>
+        <li style="margin-bottom: 4px;">Cards in play + hands + discards = deck size, per deck.</li>
+        <li>No play survives its own resolution; the queue empties every round.</li>
+      </ul>
+    </div>
+  </div>
+  <p style="font: 400 13px/1.5 'Space Grotesk', sans-serif; color: #a79fbb; margin: 14px 0 0;"><strong style="color:#ece8f5;">Transport.</strong> Reuses the existing room shell: SSE for state pushes, the same auth, one connection. Screens: phone GAME tab (hand wheel, cost rail), phone TABLE tab (mini felt), and the big screen at <code style="font: 500 12px 'IBM Plex Mono', ui-monospace, monospace;">/room/{code}/screen</code>. Screen behaviour is specified in <a href="Last Call - Game UI.dc.html">Last Call &mdash; Game UI</a>, not here.</p>
+</section>
+
+</div>
+</doc-page>
+</x-dc>
+</body>
+</html>

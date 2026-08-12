@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Last Call — visual vocabulary</title>
+  <link rel="stylesheet" href="{{ base_path }}/assets/lastcall.css">
+  <script src="{{ base_path }}/assets/lc_motion.js" defer></script>
+  <script src="{{ base_path }}/assets/lc_wheel.js" defer></script>
+</head>
+<body class="lc lc-preview" data-lc-scene>
+  <header class="lc-preview-head">
+    <h1>Last Call — visual vocabulary</h1>
+    <p>Fixture data. No game, no session, no live state. This page is permanent:
+       it is the only way to see a variant without engineering the situation
+       that produces it.</p>
+  </header>
+  <nav class="lc-preview-nav">
+    {% for g in groups %}<a href="#{{ g.id }}">{{ g.title }}</a>{% endfor %}
+  </nav>
+  {% for g in groups %}
+  <section class="lc-preview-group" id="{{ g.id }}">
+    <h2>{{ g.title }}</h2>
+    <p class="lc-preview-note">{{ g.note }}</p>
+    <div class="lc-preview-body">{{ g.body|safe }}</div>
+  </section>
+  {% endfor %}
+  <script>
+  // Preview-only: wire the REPLAY buttons to the shared helper. No animation
+  // logic here — that is the point of the library (spec §7.7).
+  function lcPreviewInit() {
+    document.querySelectorAll("[data-replay]").forEach(function (btn) {
+      if (btn.dataset.lcBound) return;         // double-injection guard
+      btn.dataset.lcBound = "1";
+      btn.addEventListener("click", function () {
+        var from = window.lcAnchor(btn.dataset.from);
+        var to = window.lcAnchor(btn.dataset.to);
+        var n = Number(btn.dataset.count || 1);
+        for (var i = 0; i < n; i++) {
+          window.lcFlight(from, to, {
+            direction: btn.dataset.replay,
+            deck: btn.dataset.deck,
+            scale: btn.dataset.scale,
+            delay: i * 250,
+          });
+        }
+      });
+    });
+    document.querySelectorAll("[data-anchor-check]").forEach(function (el) {
+      el.textContent = window.lcAnchor(el.dataset.anchorCheck) ? "✓" : "✗";
+    });
+    // The hit plaque's is-hit state (shake + HP flash) is CSS-driven, not a
+    // flight: no from/to anchors, so it does not go through lcFlight. This
+    // toggle carries no timing or position logic of its own — restarting a
+    // CSS animation by removing and re-adding its class is the standard
+    // technique, not a reimplementation of anything in lc_motion.js.
+    document.querySelectorAll("[data-replay-state]").forEach(function (btn) {
+      // Own flag, distinct from the [data-replay] loop's lcBound above: an
+      // element carrying both data-replay and data-replay-state would be
+      // claimed by the first loop and skipped by the second if they shared
+      // one flag (M5). No such element exists today, but nothing prevents
+      // one tomorrow.
+      if (btn.dataset.lcBoundState) return;    // double-injection guard
+      btn.dataset.lcBoundState = "1";
+      btn.addEventListener("click", function () {
+        var target = document.querySelector(btn.dataset.target);
+        if (!target) return;
+        target.classList.remove(btn.dataset.replayState);
+        void target.offsetWidth;               // force reflow to restart it
+        target.classList.add(btn.dataset.replayState);
+      });
+    });
+  }
+  document.addEventListener("DOMContentLoaded", lcPreviewInit);
+  document.addEventListener("htmx:afterSwap", lcPreviewInit);
+  </script>
+</body>
+</html>

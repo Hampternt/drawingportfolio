@@ -69,7 +69,7 @@ A design-system-driven redesign of `/artportfolio`.
 | Worktree | `~/projects/drawingportfolio.worktrees/artportfolio-visual-layer` |
 | Branch | `feat/artportfolio-visual-layer` (tracks `origin/feat/artportfolio-visual-layer`) |
 | Touches | `docs/`, `src/`, `static/`, `templates/`, `.sqlx/` |
-| Status | **Slices 1–3 complete.** Slice 1 on 2026-08-10 (`4c786a2`), slice 2 on 2026-08-11 (`cadabbc`), slice 3 plan A (backend) on 2026-08-12 (`3afd6a5`), slice 3 plan B (the UI) on 2026-08-12 (`137b52f`) — the rail, tag pills, active-filter row, per-card pencil/folder-plus popovers and palette entries are all live. `./scripts/verify.sh` is green at 393 tests. Slices 1–2 pushed; slice 3 (both plans) committed locally, not yet pushed — **not merged to `master`**. |
+| Status | **Slices 1–3 complete.** Slice 1 on 2026-08-10 (`4c786a2`), slice 2 on 2026-08-11 (`cadabbc`), slice 3 plan A (backend) on 2026-08-12 (`3afd6a5`), slice 3 plan B (the UI) on 2026-08-12 (`69fa109`, after its final review's fix wave) — the rail, tag pills, active-filter row, per-card pencil/folder-plus popovers and the palette entry are all live. `./scripts/verify.sh` is green at 396 tests. Slices 1–3 **merged to `master` 2026-08-12**; the slice-3 filter UX was visually signed off the same day. |
 | Next | **Slice 4 — the multi-upload tray**, replacing the single-file composer. It codes against the frozen `#art-head-label` OOB seam (`post_grid.html`) the same way `htmx_posts` already does for page 0 — return that OOB label alongside every new card so the head never goes stale after a multi-upload. Rail counts going stale after a card edit (tag/collection changes via the pencil or folder-plus popovers, until the next filter action or page load) is slice 3's accepted trade-off, not slice-4 debt — leave it. Any work here needs `export DATABASE_URL=sqlite:portfolio.db` — **there is no `.env` in this worktree**, and the sqlx macros need a live DB whenever the queries change. |
 
 No ahead/behind counts live in this card on purpose — they are stale the moment
@@ -206,14 +206,19 @@ Plan B `docs/superpowers/plans/2026-08-12-artportfolio-collections-tags-plan-b.m
 (5 tasks). `filter_rail.html` and `rail_collections.html` — collections and tag
 pills as viewer-scoped toggle links, the admin-only `+` new-collection input and
 visibility trio (`b7de771`, `03e5d68`); the active-filter pill row and the
-`#art-rail-state` hidden input that every rail control's `hx-include` reads, so
-toggling one filter never drops another (`99449c0`); a pencil and a folder-plus
-on every card opening the caption/tags edit popover and the collection-membership
-checklist (`09fb2fa`); the popover JS — Esc-to-close, one popover open at a time,
-click-outside-to-close, and one palette entry ("Filter drawings by tag") that
-focuses the first tag pill, falling back to the search field when the rail
-isn't on screen — not a jump straight to a given collection or tag (`137b52f`).
-`./scripts/verify.sh` is green at 393 tests (up from 375 — plan B added 18).
+`#art-rail-state` hidden fields the search input's `hx-include` reads
+(`99449c0`); a pencil and a folder-plus on every card opening the caption/tags
+edit popover and the collection-membership checklist (`09fb2fa`); the popover
+JS — Esc-to-close, one popover open at a time, click-outside-to-close, one
+palette entry focusing the first tag pill (`137b52f`).
+
+Plan B's final review found the rail's links were frozen at render time —
+composing filters by successive clicks dropped the previous one. The fix wave
+(`89bc538`, `69fa109`) re-renders the rail sections as an `#art-rail-filters`
+OOB fragment on every page-0 htmx response (one shared template for both
+paths), pointed anchor `href`s at real page URLs instead of the fragment
+endpoint, and fixed two popover interaction nits. `./scripts/verify.sh` is
+green at 396 tests (up from 375 — plan B added 21).
 
 **Browser checkpoint 2 run 2026-08-12, curl-only — the Chrome extension did not
 connect after three attempts.** Against a seeded dev DB (29 posts: 27 public / 1
