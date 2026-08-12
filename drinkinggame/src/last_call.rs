@@ -624,6 +624,12 @@ pub struct PublicView {
     pub first_seat: usize,
     pub deck_counts: Vec<(Deck, u16)>,
     pub discard_count: usize,
+    /// Plan J, Task 5 (J11): per-deck discard counts, projected from
+    /// `discards` over `Deck::ALL` — discards are open information (DDv2
+    /// beat 6), so this is a plain count with no secrecy gate, the same as
+    /// `discard_count` above. Feeds `lc_render::deck_list_row`'s `disc n`
+    /// figure only.
+    pub discard_counts: Vec<(Deck, usize)>,
     pub revealed: Vec<Play>,
     pub seq: u64,
     pub outcome: Option<LcOutcome>,
@@ -1155,6 +1161,12 @@ impl LastCallState {
             first_seat: self.first_seat,
             deck_counts: self.deck_counts.clone(),
             discard_count: self.discards.len(),
+            // J11: `Deck::ALL` order, matching `deck_counts` above, so
+            // `lc_render::lc_screen_panel` can zip the two by position.
+            discard_counts: Deck::ALL
+                .iter()
+                .map(|&d| (d, self.discards.iter().filter(|c| c.deck == d).count()))
+                .collect(),
             revealed: match self.beat {
                 Beat::Reveal | Beat::Resolve => self.plays.clone(),
                 _ => Vec::new(),
@@ -3743,6 +3755,28 @@ mod tests {
         let view = st.public_view();
         assert!(view.seats[1].locked);
         assert!(view.seats[2].drawing);
+    }
+
+    /// Plan J, Task 5 (J11): three discards, two Beer one Cider — projected
+    /// in `Deck::ALL` order, every other deck at zero.
+    #[test]
+    fn test_public_view_discard_counts_per_deck() {
+        let mut st = seated();
+        let beer = crate::lc_cards::deck_cards(Deck::Beer);
+        let cider = crate::lc_cards::deck_cards(Deck::Cider);
+        st.discards = vec![beer[0].clone(), beer[1].clone(), cider[0].clone()];
+
+        let view = st.public_view();
+        assert_eq!(
+            view.discard_counts,
+            vec![
+                (Deck::Beer, 2),
+                (Deck::Cider, 1),
+                (Deck::Wine, 0),
+                (Deck::Liquor, 0),
+                (Deck::Soft, 0),
+            ]
+        );
     }
 
     #[test]

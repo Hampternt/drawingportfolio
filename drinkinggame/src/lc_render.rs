@@ -500,6 +500,28 @@ pub fn discard_slot(count: usize) -> String {
     )
 }
 
+/// DeckListRow (J11) — the v2 mockup's compact right-rail row for the big
+/// screen: a `card_dot`-style tint, the deck name, its discard count and the
+/// remaining count, in one line. Replaces `deck_stack` in `lc_screen_panel`'s
+/// right rail only; `deck_stack` itself ships unchanged for the preview page
+/// (Plan A-vis's gallery still demonstrates it). States mirror
+/// `deck_stack`'s: `data-low` under `DECK_LOW_THRESHOLD` (and above zero),
+/// `data-empty` at 0 — both bare-presence attributes, never `="false"`, so
+/// the CSS can select on `[data-low]`/`[data-empty]` alone.
+pub fn deck_list_row(deck: Deck, count: u16, discarded: usize) -> String {
+    let slug = deck.slug();
+    let label = deck.label();
+    let low = if count > 0 && count < DECK_LOW_THRESHOLD {
+        " data-low"
+    } else {
+        ""
+    };
+    let empty = if count == 0 { " data-empty" } else { "" };
+    format!(
+        r#"<div class="lc-deckrow" data-deck="{slug}" data-count="{count}"{low}{empty} data-flight-anchor="deck-{slug}"><span class="lc-deckrow-dot lc-deck-{slug}"></span><span class="lc-deckrow-name">{label}</span><span class="lc-deckrow-disc">disc {discarded}</span><span class="lc-deckrow-count">{count}</span></div>"#
+    )
+}
+
 // ---------------------------------------------------------------------
 // Shell components, from the projection
 // ---------------------------------------------------------------------
@@ -1240,13 +1262,19 @@ pub fn lc_screen_panel(view: &PublicView) -> String {
         seats_html = seats_html,
     );
 
-    let deck_stacks: String = view
+    // J11: the v2 mockup's compact deck list rows replace the deck stacks on
+    // the big screen only — `deck_stack` itself still ships for the preview
+    // page. Zipped by position: both `deck_counts` and `discard_counts` are
+    // `Deck::ALL`-ordered (see `public_view`'s projection), so pairing by
+    // index never mismatches a count to the wrong deck.
+    let deck_rows: String = view
         .deck_counts
         .iter()
-        .map(|&(deck, count)| deck_stack(deck, count))
+        .zip(view.discard_counts.iter())
+        .map(|(&(deck, count), &(_, discarded))| deck_list_row(deck, count, discarded))
         .collect();
     let right_rail = format!(
-        r#"<div class="lc-rail lc-rail-right"><div class="lc-rail-kicker">DECKS LEFT</div><div class="lc-rail-decks">{deck_stacks}{discard}</div></div>"#,
+        r#"<div class="lc-rail lc-rail-right"><div class="lc-rail-kicker">DECKS LEFT</div><div class="lc-rail-decks">{deck_rows}{discard}</div></div>"#,
         discard = discard_slot(view.discard_count),
     );
 
@@ -2161,6 +2189,54 @@ mod tests {
         }
     }
 
+    /// Plan J, Task 5 (J11): `deck_list_row`'s states mirror `deck_stack`'s,
+    /// plus the rail swap — the big screen carries rows, not stacks, while
+    /// every `deck-{slug}` anchor still resolves exactly once.
+    #[test]
+    fn test_deck_list_row_states_and_screen_rail_swap() {
+        let low = deck_list_row(Deck::Wine, 4, 16);
+        assert!(low.contains(r#"data-deck="wine""#));
+        assert!(low.contains(r#"data-count="4""#));
+        assert!(low.contains(" data-low"));
+        assert!(!low.contains("data-empty"));
+        assert!(low.contains("disc 16"));
+        assert!(low.contains(r#"data-flight-anchor="deck-wine""#));
+        no_hex(&low);
+
+        let empty = deck_list_row(Deck::Wine, 0, 16);
+        assert!(empty.contains("data-empty"));
+
+        let plenty = deck_list_row(Deck::Wine, 21, 0);
+        assert!(!plenty.contains("data-low"));
+        assert!(!plenty.contains("data-empty"));
+        assert!(!plenty.contains(r#"data-low="false""#));
+        assert!(!plenty.contains(r#"data-empty="false""#));
+
+        let html = lc_screen_panel(&ring_fixture(5));
+        for deck in Deck::ALL {
+            assert!(html.contains(&format!(r#"data-deck="{}""#, deck.slug())));
+        }
+        assert_eq!(
+            html.matches(r#"class="lc-deckrow""#).count(),
+            Deck::ALL.len()
+        );
+        assert!(html.contains("lc-discard"));
+        // `discard_slot` legitimately reuses `.lc-deckstack-count`/`-name`
+        // for its own spans (shared styling), so the rail-swap check looks
+        // for `deck_stack`'s own root class specifically, not the bare
+        // substring "lc-deckstack".
+        assert!(!html.contains(r#"class="lc-deckstack lc-deck-"#));
+        for deck in Deck::ALL {
+            assert_eq!(
+                html.matches(&format!(r#"data-flight-anchor="deck-{}""#, deck.slug()))
+                    .count(),
+                1,
+                "deck-{} anchor should resolve exactly once",
+                deck.slug()
+            );
+        }
+    }
+
     fn seat_fixture() -> PublicSeat {
         preview_state().public_view().seats[0].clone()
     }
@@ -2666,6 +2742,7 @@ mod tests {
             first_seat: 0,
             deck_counts: Deck::ALL.iter().map(|&d| (d, 0)).collect(),
             discard_count: 0,
+            discard_counts: Deck::ALL.iter().map(|&d| (d, 0)).collect(),
             revealed: Vec::new(),
             seq: 0,
             outcome: None,

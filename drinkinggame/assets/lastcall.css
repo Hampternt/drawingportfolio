@@ -252,14 +252,17 @@ button:active { transform: scale(.97); }
    §7.6's component/positioning split puts all four here; their placement on
    the felt ellipse is Plan B, their anatomy is not. */
 
-/* PlayerPlaque (D.1) — 204px, three stacked rows. Plan B positions it.
-   padding-top: 0 plus overflow: hidden lets .lc-rule (the first flex child)
-   sit flush at the very top, full width, clipped by the r10 radius, per the
-   README/brief — overflow: hidden clips the rule's corners to the plaque's
-   own radius but does not clip box-shadow: var(--lc-lift-sm), which is
-   painted outside the border box. */
+/* PlayerPlaque (D.1) — 196px per the v2 big-screen mockup (Game UI outranks
+   Module Spec on pixels; Plan J J10), three stacked rows. Plan B positions
+   it; the seat ring itself (lc_layout.rs) is percentage-based and does not
+   move when this box's own width changes. padding-top: 0 plus
+   overflow: hidden lets .lc-rule (the first flex child) sit flush at the
+   very top, full width, clipped by the r10 radius, per the README/brief —
+   overflow: hidden clips the rule's corners to the plaque's own radius but
+   does not clip box-shadow: var(--lc-lift-sm), which is painted outside the
+   border box. */
 .lc-plaque {
-  width: 204px; padding: 0 14px 12px; border-radius: 10px; overflow: hidden;
+  width: 196px; padding: 0 14px 12px; border-radius: 10px; overflow: hidden;
   background: var(--lc-panel); border: 1px solid var(--lc-ink-66);
   box-shadow: var(--lc-lift-sm);
   display: flex; flex-direction: column; gap: 9px;
@@ -329,6 +332,25 @@ button:active { transform: scale(.97); }
 .lc-deckstack[data-low]   .lc-deckstack-count { color: var(--lc-amber); }
 .lc-deckstack[data-empty] .lc-deckstack-count { font-size: 11px; letter-spacing: .1em;
                                                 color: var(--lc-amber); }
+
+/* DeckListRow (J11) — the v2 mockup's right-rail row: dot, name, disc n,
+   big count. Replaces the deck stacks on the big screen only. */
+.lc-deckrow { display: flex; align-items: center; gap: 10px;
+              background: var(--lc-panel-alt);
+              border: 1px solid var(--lc-hair); border-radius: 9px;
+              padding: 9px 12px; }
+.lc-deckrow-dot { width: 9px; height: 9px; border-radius: 50%;
+                  background: var(--lc-fill); }
+.lc-deckrow-name { font-family: var(--font-ui); font-weight: 700;
+                   font-size: 14px; letter-spacing: .06em;
+                   color: var(--lc-text); }
+.lc-deckrow-disc { font-family: var(--font-ui); font-size: 11px;
+                   letter-spacing: .1em; color: var(--lc-faint);
+                   margin-left: auto; }
+.lc-deckrow-count { font-family: var(--font-display); font-weight: 900;
+                    font-size: 22px; color: var(--lc-text); }
+.lc-deckrow[data-low] .lc-deckrow-count { color: var(--lc-amber); }
+.lc-deckrow[data-empty] { opacity: .55; }
 
 /* plaque states — idle is the base. locked/drawing/hit/eliminated layer on.
    The animations for is-hit and is-drawing are authored in Plan A-vis's
@@ -549,6 +571,9 @@ body.lc { margin: 0; min-height: 100vh; display: flex; flex-direction: column;
             padding: 8px 14px; font-size: 13px; cursor: pointer; }
 .lc-setup-row { display: flex; align-items: center; gap: 8px; font-size: 13px;
                 color: var(--lc-body); }
+/* J12 (Plan A2 carried minor): a two-deck player's dots need a visible gap —
+   the class was already emitted in setup rows but had no rule of its own. */
+.lc-setup-decks { display: inline-flex; gap: 4px; }
 
 /* Plan J Task 4 — the lobby's phone half: who's still unregistered, or the
    all-set line once every seat has a vessel. Lives beside .lc-setup-row,
@@ -892,12 +917,18 @@ body.lc-screen .lc-timer { height: 3px; }
 .lc-seatorder-row[data-first] .lc-seatorder-name { color: #4FD6A8; }
 .lc-seatorder-row[data-out] { opacity: .4; }
 
-/* Five deck stacks and the discard, two across. Plan A's D.4 components. */
+/* Plan J (J11): the five DeckListRows plus the discard slot, one per line —
+   a single-column flex list, not the old two-across grid (that shape
+   belonged to the square DeckStack this rail no longer renders; the preview
+   page still uses `.lc-rail-decks`' predecessor markup nowhere, so nothing
+   else depends on the grid). Flex's default `align-self: stretch` in the
+   column direction is exactly what's wanted here — every row (and the
+   discard slot) fills the rail's width — so no `align-items` override is
+   needed. */
 .lc-rail-decks {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 14px;
-  justify-items: center;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 
 /* The stage is the felt's positioning context and the ring box the
