@@ -1,6 +1,6 @@
 use crate::{
     middleware::OptionalAuth,
-    models::{MonthGroup, Post, PostCounts, Viewer},
+    models::{MonthGroup, Post, PostCounts, PostFilter, Viewer},
     AppState,
 };
 use askama::Template;
@@ -254,13 +254,13 @@ fn effective_viewer(session_is_admin: bool, preview: bool) -> Viewer {
 async fn render_grid(
     state: &Arc<AppState>,
     page: i64,
-    q: Option<&str>,
+    filter: &PostFilter,
     last_month: Option<&str>,
     head_label_oob: Option<String>,
     viewer: Viewer,
     preview: bool,
 ) -> String {
-    let mut posts = crate::db::get_posts_page(&state.pool, q, page, viewer).await;
+    let mut posts = crate::db::get_posts_page(&state.pool, filter, page, viewer).await;
     let has_more = posts.len() > 20;
     if has_more {
         posts.truncate(20);
@@ -269,6 +269,7 @@ async fn render_grid(
     // The next page has to know which month this one ended on, or it draws a
     // duplicate divider for a month already on screen.
     let next_last_month = groups.last().map(|g| g.label.clone());
+    let q = filter.q.as_deref();
     PostGridTemplate {
         has_more,
         is_admin: viewer.is_admin(),
@@ -297,14 +298,17 @@ async fn feed_page(
     // page with no way back to the top of it. PageQuery carries the field for
     // the fragment route's sake.
     let q = normalize_q(query.q.as_deref());
+    let filter = PostFilter {
+        q: q.clone(),
+        ..Default::default()
+    };
 
     // Fetch first page here so posts arrive in the very first HTTP response.
     // Without this, the browser would load the page and then fire a second
     // request to /artportfolio/htmx/posts?page=0 before anything was visible.
     // No out-of-band label here: the shell renders the head itself.
-    let initial_posts_html =
-        render_grid(&state, 0, q.as_deref(), None, None, viewer, preview).await;
-    let counts = crate::db::count_posts(&state.pool, q.as_deref(), viewer).await;
+    let initial_posts_html = render_grid(&state, 0, &filter, None, None, viewer, preview).await;
+    let counts = crate::db::count_posts(&state.pool, &filter, viewer).await;
 
     Html(
         FeedTemplate {
@@ -333,13 +337,17 @@ async fn htmx_posts(
 ) -> Response {
     let page = query.page.unwrap_or(0);
     let q = normalize_q(query.q.as_deref());
+    let filter = PostFilter {
+        q: q.clone(),
+        ..Default::default()
+    };
     let preview = is_preview(&query);
     let viewer = effective_viewer(session_is_admin, preview);
 
     // Page 0 replaces the whole feed, so the head's total has to move with it.
     // Load more only appends, and pays no COUNT.
     let oob = if page == 0 {
-        let counts = crate::db::count_posts(&state.pool, q.as_deref(), viewer).await;
+        let counts = crate::db::count_posts(&state.pool, &filter, viewer).await;
         Some(head_label(&counts, q.as_deref(), viewer))
     } else {
         None
@@ -347,7 +355,7 @@ async fn htmx_posts(
     let html = render_grid(
         &state,
         page,
-        q.as_deref(),
+        &filter,
         query.last_month.as_deref(),
         oob,
         viewer,
@@ -442,10 +450,14 @@ async fn api_posts(
     // The same filter the HTML feed applies, so the two cannot drift on what
     // "matching" means.
     let q = normalize_q(query.q.as_deref());
+    let filter = PostFilter {
+        q,
+        ..Default::default()
+    };
     // Reads the session but deliberately not the preview flag: the API has no
     // head, no pagination UI and nothing to preview.
     let viewer = effective_viewer(session_is_admin, false);
-    let mut posts = crate::db::get_posts_page(&state.pool, q.as_deref(), page, viewer).await;
+    let mut posts = crate::db::get_posts_page(&state.pool, &filter, page, viewer).await;
     let has_more = posts.len() > 20;
     if has_more {
         posts.truncate(20);
@@ -532,7 +544,8 @@ mod tests {
             }
             pool
         };
-        let posts = crate::db::get_posts_page(&pool, None, 0, Viewer::Admin).await;
+        let posts =
+            crate::db::get_posts_page(&pool, &PostFilter::default(), 0, Viewer::Admin).await;
         assert!(posts.len() > 20, "expected 21 rows with has_more=true");
     }
 
@@ -914,7 +927,11 @@ mod tests {
             )
             .await;
         }
-        let hits = crate::db::get_posts_page(&pool, Some("loomis"), 0, Viewer::Admin).await;
+        let filter = PostFilter {
+            q: Some("loomis".to_string()),
+            ..Default::default()
+        };
+        let hits = crate::db::get_posts_page(&pool, &filter, 0, Viewer::Admin).await;
         assert_eq!(
             hits.len(),
             1,

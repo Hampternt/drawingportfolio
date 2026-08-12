@@ -147,6 +147,22 @@ pub struct PostCounts {
     pub hidden: i64,
 }
 
+/// The feed's one filter, threaded through `get_posts_page` and `count_posts`.
+///
+/// `tags` arrive already normalized — `normalize_tags` is applied once, at the
+/// form/query edge, same discipline as `set_post_tags`. `vis` is `None` for
+/// every visitor call: only an admin may request a visibility subset, and
+/// Task 4's query-string parser is what enforces that — this struct itself
+/// places no restriction on the field. `q` is the raw, unescaped search term;
+/// `like_pattern` is applied inside `db.rs`, never by the caller.
+#[derive(Debug, Clone, Default)]
+pub struct PostFilter {
+    pub q: Option<String>,
+    pub tags: Vec<String>,          // normalized; empty = no tag filter
+    pub collection: Option<String>, // slug
+    pub vis: Option<Vec<String>>,   // None = viewer default; Some = admin subset
+}
+
 /// A row of the `collections` table.
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct Collection {

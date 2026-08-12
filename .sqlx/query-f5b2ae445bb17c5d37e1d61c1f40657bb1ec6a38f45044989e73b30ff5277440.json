@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT id, caption, image_url, webp_url, avif_url, format, file_size_bytes, created_at, image_width, image_height, visibility FROM posts WHERE (? OR visibility = 'public') AND caption LIKE ? ESCAPE '\\' ORDER BY created_at DESC LIMIT 21 OFFSET ?",
+  "query": "SELECT id, caption, image_url, webp_url, avif_url, format, file_size_bytes,\n       created_at, image_width, image_height, visibility\nFROM posts WHERE\n    (?1 OR visibility = 'public')\nAND (?2 IS NULL OR caption LIKE ?2 ESCAPE '\\')\nAND (?3 IS NULL OR id IN\n     (SELECT post_id FROM post_collections pc\n      JOIN collections c ON c.id = pc.collection_id WHERE c.slug = ?3))\nAND (?4 IS NULL OR id IN\n     (SELECT post_id FROM post_tags pt\n      JOIN tags t ON t.id = pt.tag_id\n      WHERE t.name IN (SELECT value FROM json_each(?4))\n      GROUP BY post_id\n      HAVING COUNT(DISTINCT t.id) = json_array_length(?4)))\nAND (?5 IS NULL OR visibility IN (SELECT value FROM json_each(?5)))\nORDER BY created_at DESC LIMIT 21 OFFSET ?6",
   "describe": {
     "columns": [
       {
@@ -60,7 +60,7 @@
       }
     ],
     "parameters": {
-      "Right": 3
+      "Right": 6
     },
     "nullable": [
       false,
@@ -76,5 +76,5 @@
       false
     ]
   },
-  "hash": "697b56161c1dfaf0564a358b72a808742d62ce7732a39e726dce65a5c262a93b"
+  "hash": "f5b2ae445bb17c5d37e1d61c1f40657bb1ec6a38f45044989e73b30ff5277440"
 }

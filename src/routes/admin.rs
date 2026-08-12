@@ -52,7 +52,13 @@ async fn htmx_admin_posts(
     // `Viewer::Admin`, and this is the call site that fails quietly if it is
     // not: `Visitor` still compiles, still renders, and simply stops listing the
     // posts an admin most needs to see from the dashboard.
-    let posts = crate::db::get_posts_page(&state.pool, None, 0, crate::models::Viewer::Admin).await;
+    let posts = crate::db::get_posts_page(
+        &state.pool,
+        &crate::models::PostFilter::default(),
+        0,
+        crate::models::Viewer::Admin,
+    )
+    .await;
     let mut html = String::new();
     for post in &posts {
         html.push_str(&admin_post_card_html(post));
