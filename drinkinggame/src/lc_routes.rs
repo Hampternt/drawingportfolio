@@ -799,6 +799,7 @@ struct LcRoomTemplate {
     hand_pane: String,  // lc_render::lc_hand_pane(...)
     table_pane: String, // table_pane_html(&view, me) — the #lc-table fragment
     actions: String,    // lc_render::lc_action_bar(&action_bar_view(&ctx.st, player.id))
+    log_pane: String,   // lc_render::lc_log(&view)
 }
 
 /// `GET /room/{code}/lastcall` — the F.1 phone shell. `load_lc` already gates
@@ -827,6 +828,7 @@ pub async fn lc_page(
         hand_pane,
         table_pane: table_pane_html(&view, me),
         actions,
+        log_pane: lc_render::lc_log(&view),
     };
     Html(tpl.render().unwrap()).into_response()
 }

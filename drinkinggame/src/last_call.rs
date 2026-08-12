@@ -610,6 +610,10 @@ pub struct PublicView {
     /// Projected verbatim from `LastCallState::haunts` (I10): a ghost vote
     /// is public from the moment it's cast — the same rule as `reactions`.
     pub haunts: Vec<Haunt>,
+    /// Plan J, Task 2: the public round log, projected verbatim from
+    /// `LastCallState::log`. Already capped at `LC_LOG_CAP` at the source
+    /// (`push_log`) — this projection does no further trimming.
+    pub log: Vec<LogEntry>,
 }
 
 /// DDv2 9.3 — the two solo ways a game ends — plus the pact win (G2, Task 2).
@@ -1176,6 +1180,10 @@ impl LastCallState {
             // I10: no gating by `beat`, same as `reactions` — a cast vote is
             // public in the same mutation that casts it.
             haunts: self.haunts.clone(),
+            // J2: the log is public by construction (every `push_log` call
+            // site is a public-or-later transition) — no gate, no filter,
+            // the same verbatim clone as `reactions`/`haunts`.
+            log: self.log.clone(),
         }
     }
 
@@ -3577,12 +3585,18 @@ mod tests {
             order_key: 1,
         });
         st.beat = Beat::Lock;
+        // Plan J, Task 2: the log rides the same `public_view()` JSON this
+        // test already scans — a non-empty log must not smuggle the staged
+        // card's title along with it.
+        st.push_log(LogEntry::Lock { seat: 2 });
 
         let view = st.public_view();
         assert_eq!(view.seats.len(), 3);
         assert_eq!(view.seats[0].hand_len, 5); // F6 opener, not the old 4-card deal
         assert!(view.revealed.is_empty());
+        assert!(!view.log.is_empty());
         let json = serde_json::to_string(&view).unwrap();
+        assert!(json.contains("\"t\":\"lock\""));
         assert!(!json.contains("Corked"));
         assert!(!json.contains("beer-01"));
         assert!(!json.contains("cider-01"));

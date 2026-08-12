@@ -5987,6 +5987,45 @@ async fn test_lc_lock_publishes_the_tick_not_the_cards() {
     assert!(!seen.contains("Nudge"), "{seen}"); // beer-01's title
 }
 
+/// Plan J, Task 2: the same rig and the same lock as
+/// `test_lc_lock_publishes_the_tick_not_the_cards`, transport-level pinned
+/// for the LOG pane instead of the plaque tick — `push_log(LogEntry::Lock)`
+/// fires in the same `lock_in` call, so the very next `lcpublic` frame
+/// carries "ALICE LOCKS IN" in `#lc-log` while the staged card (still in
+/// `locked_plays`, not revealed) stays off the wire.
+#[tokio::test]
+async fn test_the_lcpublic_frame_carries_the_log_but_not_staged_identity() {
+    let (app, _pool, code, alice, _bob, _alice_id, _bob_id) = lc_action_rig().await;
+
+    post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/lastcall/arm"),
+        "card_id=beer-01",
+    )
+    .await;
+    post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/lastcall/target"),
+        "card_id=beer-01&target=1", // bob's seat
+    )
+    .await;
+
+    let res = get(&app, &format!("/room/{code}/sse")).await;
+    let mut body = res.into_body().into_data_stream();
+    read_sse_until(&mut body, "event: lcpublic").await; // drain the snapshot
+
+    let res = post_form(&app, &alice, &format!("/room/{code}/lastcall/lock"), "").await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+
+    let seen = read_sse_until(&mut body, "event: lcpublic").await;
+    assert!(seen.contains("data-lc-log"), "{seen}");
+    assert!(seen.contains("LOCKS IN"), "{seen}");
+    assert!(!seen.contains("beer-01"), "{seen}");
+    assert!(!seen.contains("Nudge"), "{seen}"); // beer-01's title, still staged
+}
+
 /// DDv2 6.3: the two named-card refusals carry the card id in a plain-text
 /// 422 body the action bar shows verbatim, rather than collapsing into
 /// `map_lc`'s bare-422 wildcard. beer-01 targets "one" — locking it unarmed

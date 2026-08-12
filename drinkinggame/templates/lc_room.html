@@ -34,9 +34,7 @@
         <button type="submit" class="lc-btn lc-btn-secondary">END GAME</button>
       </form>
     </section>
-    <section class="lc-pane" data-lc-pane="log" hidden>
-      <p class="lc-empty">Nothing logged yet.</p>
-    </section>
+    <section class="lc-pane" data-lc-pane="log" hidden>{{ log_pane|safe }}</section>
   </main>
 
   <div id="lc-actions-note" hidden></div>
@@ -190,6 +188,8 @@ es.addEventListener("lcpublic", e => {
   if (root) lcSeq = Math.max(lcSeq, Number(root.dataset.seq || 0));
   const banner = tpl.querySelector("template[data-lc-banner]");
   if (banner) document.getElementById("lc-banner").outerHTML = banner.innerHTML;
+  const lg = tpl.querySelector("template[data-lc-log]");
+  if (lg) { const cur = document.getElementById("lc-log"); if (cur) cur.outerHTML = lg.innerHTML; }
   // Inline <script> fails silently on a typo/exception (STATUS-recorded
   // property) — guarded so a missing lc_loop.js never breaks the rest of
   // this listener.

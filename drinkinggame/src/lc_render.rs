@@ -5,8 +5,8 @@
 //! a breaking change for Plan A2 and Plan B.
 
 use crate::last_call::{
-    effective_pull_cost_raw, Beat, Card, Deck, LcOutcome, Play, PublicSeat, PublicView, Status,
-    DECK_LOW_THRESHOLD,
+    effective_pull_cost_raw, Beat, Card, Deck, LcOutcome, LogEntry, Play, PublicSeat, PublicView,
+    Status, DECK_LOW_THRESHOLD,
 };
 use crate::lc_events::event_def;
 use crate::lc_layout::{seat_positions, view_index, SeatPos};
@@ -626,18 +626,159 @@ pub fn beat_timer_live(duration_ms: u32, deadline_ms: i64) -> String {
 /// is the banner plus the seq marker; Plan A2 added the banner template,
 /// Plan B (Task 4) adds a second `<template data-lc-screen>` carrying the
 /// big-screen felt so `lc_screen.html` can repaint from the same message —
-/// no new SSE event, no new publish, the frame count is unchanged. Both
-/// `<template>` wrappers mirror the existing `room` event's
+/// no new SSE event, no new publish, the frame count is unchanged. Plan J
+/// (Task 2) adds a third `<template data-lc-log>`, same move again: the LOG
+/// pane repaints off this frame too, no new event, no new publish. Every
+/// `<template>` wrapper mirrors the existing `room` event's
 /// `<template data-topbar>` convention in `room.html` — one SSE message
-/// carrying several destinations. `lc_screen_panel` is a pure string build
-/// (no I/O, no `.await`), so this stays safe to call from `broadcast_lc`,
-/// which must remain awaitless (`1e742d4`).
+/// carrying several destinations. `lc_screen_panel` and `lc_log` are both
+/// pure string builds (no I/O, no `.await`), so this stays safe to call from
+/// `broadcast_lc`, which must remain awaitless (`1e742d4`).
 pub fn lc_public_panel(view: &PublicView) -> String {
     format!(
-        r#"<div data-lc-public data-seq="{seq}"><template data-lc-banner>{banner}</template><template data-lc-screen>{screen}</template></div>"#,
+        r#"<div data-lc-public data-seq="{seq}"><template data-lc-banner>{banner}</template><template data-lc-screen>{screen}</template><template data-lc-log>{log}</template></div>"#,
         seq = view.seq,
         banner = lc_banner(view),
         screen = lc_screen_panel(view),
+        log = lc_log(view),
+    )
+}
+
+// ---------------------------------------------------------------------
+// Plan J additions — Task 2. The public round log: `lc_log` renders
+// `PublicView::log` (J1's capped, public-only `LogEntry` vocabulary) into
+// the `#lc-log` pane, newest first.
+// ---------------------------------------------------------------------
+
+/// A seat's name for the log — uppercased and escaped, or `SEAT {n+1}` when
+/// `view.seats` doesn't carry that index. Distinct from `seat_name_upper`
+/// (which returns `""` in the same case, fine for a caption fragment): a log
+/// line always needs SOME token to fill its `{NAME}` slot, per the brief.
+fn log_seat_name(view: &PublicView, seat: usize) -> String {
+    view.seats
+        .iter()
+        .find(|s| s.seat == seat)
+        .map(|s| html_escape(&s.name.to_uppercase()))
+        .unwrap_or_else(|| format!("SEAT {}", seat + 1))
+}
+
+/// The serde tag `LogEntry`'s `#[serde(tag = "t", rename_all = "snake_case")]`
+/// would produce for `entry` — kept as an explicit match (rather than
+/// serializing and re-parsing) so `lc_log` stays a pure, cheap string build.
+fn log_tag(entry: &LogEntry) -> &'static str {
+    match entry {
+        LogEntry::Round { .. } => "round",
+        LogEntry::Joined { .. } => "joined",
+        LogEntry::Vessel { .. } => "vessel",
+        LogEntry::Handicap { .. } => "handicap",
+        LogEntry::Draw { .. } => "draw",
+        LogEntry::Lock { .. } => "lock",
+        LogEntry::Play { .. } => "play",
+        LogEntry::Hit { .. } => "hit",
+        LogEntry::Heal { .. } => "heal",
+        LogEntry::Shield { .. } => "shield",
+        LogEntry::Drain { .. } => "drain",
+        LogEntry::Fizzle { .. } => "fizzle",
+        LogEntry::Eliminated { .. } => "eliminated",
+        LogEntry::Reshuffle { .. } => "reshuffle",
+        LogEntry::GameOver { .. } => "game_over",
+    }
+}
+
+/// One log entry's copy line, per the brief's table. Names are uppercased
+/// and escaped (`log_seat_name`); card titles are escaped only, never
+/// uppercased. `−` is U+2212 in the damage lines, matching the HP chip
+/// convention.
+fn log_line(view: &PublicView, entry: &LogEntry) -> String {
+    match entry {
+        LogEntry::Round { round } => format!("— ROUND {round} —"),
+        LogEntry::Joined { seat } => format!("{} TAKES A SEAT", log_seat_name(view, *seat)),
+        LogEntry::Vessel { seat, deck } => {
+            format!("{} REGISTERS {}", log_seat_name(view, *seat), deck.label())
+        }
+        LogEntry::Handicap { seat, pct } => {
+            format!("{} HANDICAP {pct}%", log_seat_name(view, *seat))
+        }
+        LogEntry::Draw { seat, deck, n } => format!(
+            "{} FINISHES A {} · +{n}",
+            log_seat_name(view, *seat),
+            deck.label()
+        ),
+        LogEntry::Lock { seat } => format!("{} LOCKS IN", log_seat_name(view, *seat)),
+        LogEntry::Play {
+            seat,
+            title,
+            target,
+        } => match target {
+            Some(t) => format!(
+                "{} PLAYS {} → {}",
+                log_seat_name(view, *seat),
+                html_escape(title),
+                log_seat_name(view, *t)
+            ),
+            None => format!(
+                "{} PLAYS {}",
+                log_seat_name(view, *seat),
+                html_escape(title)
+            ),
+        },
+        LogEntry::Hit {
+            source,
+            target,
+            amount,
+        } => format!(
+            "{} HITS {} −{amount}",
+            log_seat_name(view, *source),
+            log_seat_name(view, *target)
+        ),
+        LogEntry::Heal { seat, amount } => format!("{} +{amount} HP", log_seat_name(view, *seat)),
+        LogEntry::Shield { seat, amount } => {
+            format!("{} SHIELDS {amount}", log_seat_name(view, *seat))
+        }
+        LogEntry::Drain {
+            source,
+            target,
+            amount,
+        } => format!(
+            "{} DRAINS {} −{amount} PULLS",
+            log_seat_name(view, *source),
+            log_seat_name(view, *target)
+        ),
+        LogEntry::Fizzle { title, .. } => format!("{} FIZZLES", html_escape(title)),
+        LogEntry::Eliminated { seat } => format!("{} IS OUT", log_seat_name(view, *seat)),
+        LogEntry::Reshuffle { deck } => format!("{} RESHUFFLES", deck.label()),
+        LogEntry::GameOver { winner } => match winner {
+            Some(w) => format!("GAME OVER — {} OUTLASTS THE TABLE", log_seat_name(view, *w)),
+            None => "GAME OVER — EVERYBODY'S OUT".to_string(),
+        },
+    }
+}
+
+/// The `#lc-log` pane body (§7.8 DOM contract) — newest first, since the
+/// most recent thing that happened is what a viewer opening the tab wants to
+/// see first. `view.log` arrives already capped at `LC_LOG_CAP`
+/// (`LastCallState::push_log`); this renders every entry it's given, no
+/// further truncation.
+pub fn lc_log(view: &PublicView) -> String {
+    if view.log.is_empty() {
+        return r#"<div id="lc-log" data-count="0"><p class="lc-empty">Nothing logged yet.</p></div>"#
+            .to_string();
+    }
+    let rows: String = view
+        .log
+        .iter()
+        .rev()
+        .map(|entry| {
+            format!(
+                r#"<li class="lc-log-row" data-t="{tag}">{line}</li>"#,
+                tag = log_tag(entry),
+                line = log_line(view, entry),
+            )
+        })
+        .collect();
+    format!(
+        r#"<div id="lc-log" data-count="{len}"><ol class="lc-log">{rows}</ol></div>"#,
+        len = view.log.len(),
     )
 }
 
@@ -1347,6 +1488,26 @@ mod tests {
         outcome_settled_view.event = Some("happy-hour".to_string());
         outcome_settled_view.settled = vec!["alice".to_string()];
 
+        // Plan J Task 2: `lc_log`'s own content-bearing fixture. `view`
+        // (from `preview_state()`) only ever pushes Round/Joined/Vessel
+        // entries — nothing here locks a card, resolves a hit, or ends the
+        // game — so a Play title's escaping, the Hit line's U+2212 minus,
+        // and the GameOver em dash would otherwise never reach this sweep.
+        let mut log_view = ring_fixture(2);
+        log_view.log = vec![
+            LogEntry::Play {
+                seat: 0,
+                title: "<b>x</b>".to_string(),
+                target: Some(1),
+            },
+            LogEntry::Hit {
+                source: 0,
+                target: 1,
+                amount: 3,
+            },
+            LogEntry::GameOver { winner: None },
+        ];
+
         let outputs = [
             card_face(card),
             card_face_expanded(card),
@@ -1371,6 +1532,7 @@ mod tests {
             lc_banner(&event_view),
             lc_banner(&settled_view),
             lc_banner(&outcome_settled_view),
+            lc_log(&log_view),
             armed_column(&cards, false),
             cost_rail(&cards, 150, false),
             hand_wheel(&cards),
@@ -2174,6 +2336,113 @@ mod tests {
             settled: Vec::new(),
             reactions: Vec::new(),
             haunts: Vec::new(),
+            log: Vec::new(),
+        }
+    }
+
+    /// Plan J, Task 2: every copy-table row from the brief, newest first,
+    /// escaped, with the empty-log fallback and the `SEAT {n+1}` fallback
+    /// covered elsewhere by construction (a two-seat fixture never exercises
+    /// the fallback itself — `log_seat_name`'s `unwrap_or_else` arm is
+    /// covered structurally: every seat index used below is one of the two
+    /// seats the fixture actually has).
+    #[test]
+    fn test_lc_log_renders_the_copy() {
+        let mut view = ring_fixture(2);
+        view.seats[0].name = "alice".to_string();
+        view.seats[1].name = "bob".to_string();
+
+        let empty = lc_log(&view);
+        assert!(empty.contains("lc-empty"), "{empty}");
+        assert!(empty.contains(r#"data-count="0""#), "{empty}");
+        no_hex(&empty);
+
+        view.log = vec![
+            LogEntry::Round { round: 2 },
+            LogEntry::Joined { seat: 0 },
+            LogEntry::Vessel {
+                seat: 0,
+                deck: Deck::Beer,
+            },
+            LogEntry::Handicap { seat: 0, pct: 80 },
+            LogEntry::Draw {
+                seat: 0,
+                deck: Deck::Beer,
+                n: 2,
+            },
+            LogEntry::Lock { seat: 0 },
+            LogEntry::Play {
+                seat: 0,
+                title: "<b>x</b>".to_string(),
+                target: Some(1),
+            },
+            LogEntry::Play {
+                seat: 1,
+                title: "Nudge".to_string(),
+                target: None,
+            },
+            LogEntry::Hit {
+                source: 0,
+                target: 1,
+                amount: 3,
+            },
+            LogEntry::Heal { seat: 0, amount: 2 },
+            LogEntry::Shield { seat: 0, amount: 4 },
+            LogEntry::Drain {
+                source: 0,
+                target: 1,
+                amount: 5,
+            },
+            LogEntry::Fizzle {
+                seat: 0,
+                title: "Whiff".to_string(),
+            },
+            LogEntry::Eliminated { seat: 1 },
+            LogEntry::Reshuffle { deck: Deck::Cider },
+            LogEntry::GameOver { winner: Some(0) },
+            LogEntry::GameOver { winner: None },
+            // The `SEAT {n+1}` fallback (brief's Produces block): seat 5
+            // doesn't exist in this two-seat fixture's `view.seats`.
+            LogEntry::Joined { seat: 5 },
+        ];
+
+        let html = lc_log(&view);
+        no_hex(&html);
+        assert!(html.contains(r#"data-count="18""#), "{html}");
+        assert!(html.contains(r#"data-t="round""#), "{html}");
+        assert!(html.contains(r#"data-t="game_over""#), "{html}");
+
+        // oldest -> newest push order; rendering is newest-first, so the
+        // find() position of each line must strictly DECREASE down this list.
+        let lines = [
+            "— ROUND 2 —",
+            "ALICE TAKES A SEAT",
+            "ALICE REGISTERS BEER",
+            "ALICE HANDICAP 80%",
+            "ALICE FINISHES A BEER · +2",
+            "ALICE LOCKS IN",
+            "ALICE PLAYS &lt;b&gt;x&lt;/b&gt; → BOB",
+            "BOB PLAYS Nudge",
+            "ALICE HITS BOB −3",
+            "ALICE +2 HP",
+            "ALICE SHIELDS 4",
+            "ALICE DRAINS BOB −5 PULLS",
+            "Whiff FIZZLES",
+            "BOB IS OUT",
+            "CIDER RESHUFFLES",
+            "GAME OVER — ALICE OUTLASTS THE TABLE",
+            "GAME OVER — EVERYBODY'S OUT",
+            "SEAT 6 TAKES A SEAT",
+        ];
+        let positions: Vec<usize> = lines
+            .iter()
+            .map(|l| {
+                html.find(l)
+                    .unwrap_or_else(|| panic!("missing line: {l} in {html}"))
+            })
+            .collect();
+        for w in positions.windows(2) {
+            assert!(w[0] > w[1], "not newest-first: {positions:?} for {lines:?}");
         }
     }
 
