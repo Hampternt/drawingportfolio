@@ -1,14 +1,23 @@
 {#
-  The filter rail: a search field and a keyboard legend, and nothing else.
+  The filter rail: search, collections, tags, the admin visibility trio, and a
+  keyboard legend.
 
-  Collections, tags and the visibility group belong to later slices. A
-  full-screen "Filters" sheet holding one input would be an empty gesture, so
-  below 900px this collapses to the search field alone (see style.css).
+  Every rail control below (collection rows, tag pills, visibility checkboxes)
+  is a pre-built HTMX GET to `/artportfolio/htmx/posts` carrying the full
+  active query string — built in Rust via `filter_url`/`collection_rail_links`
+  /`tag_rail_links`/`vis_checks`, never assembled here. `hx-push-url="true"` is
+  the specced attribute even though the server's page-0 `HX-Push-Url` header
+  is what actually wins the address bar (see routes/feed.rs).
 
-  The input carries its own HTMX attributes: HTMX includes a named input's own
-  value, so no hx-include is needed. There is deliberately no hx-push-url —
-  that pushes the REQUEST url, i.e. the fragment endpoint. The server sends an
-  HX-Push-Url header naming the real page instead (see routes/feed.rs).
+  Below 900px there is no filter sheet — these sections simply stack (see
+  style.css).
+
+  The search input carries its own `q` via HTMX's normal named-input pickup,
+  plus `hx-include="#art-rail-state"` for every OTHER active filter — without
+  it, typing a search would silently drop the active tags/collection/vis.
+  There is deliberately no hx-push-url on the search input either: that would
+  push the REQUEST url (the fragment endpoint); the server's HX-Push-Url
+  header names the real page instead.
 #}
 <aside class="art-rail">
   <form class="art-rail__search" onsubmit="return false">
@@ -21,10 +30,75 @@
              hx-get="/artportfolio/htmx/posts"
              hx-trigger="keyup changed delay:200ms, search"
              hx-target="#feed"
-             hx-swap="innerHTML">
+             hx-swap="innerHTML"
+             hx-include="#art-rail-state">
       <kbd class="hm-kbd">/</kbd>
     </div>
   </form>
+
+  {#- Mirrors every filter the search input does not itself carry, so a search
+      made with an active tag/collection/vis subset does not silently clear
+      them. Each field renders only when its filter is active. #}
+  <div id="art-rail-state" hidden>
+    {% if !active_tags.is_empty() %}
+    <input type="hidden" name="tags" value="{{ active_tags|join(",") }}">
+    {% endif %}
+    {% if let Some(c) = active_collection %}
+    <input type="hidden" name="collection" value="{{ c }}">
+    {% endif %}
+    {% if let Some(vis) = active_vis %}
+    <input type="hidden" name="vis" value="{{ vis|join(",") }}">
+    {% endif %}
+    {% if preview %}
+    <input type="hidden" name="visitor" value="1">
+    {% endif %}
+  </div>
+
+  <div class="art-rail__section">
+    <div class="art-rail__section-head">
+      <span class="art-rail__section-label">Collections</span>
+      {% if is_admin %}
+      {#- Plain `hidden` toggle plus one inline onclick — same precedent as
+          `toggleComposer` in feed.html. #}
+      <button type="button" class="hm-iconbtn hm-iconbtn--sm" id="art-new-collection-toggle"
+              title="New collection" aria-label="New collection"
+              onclick="document.getElementById('art-new-collection-form').hidden = !document.getElementById('art-new-collection-form').hidden">+</button>
+      {% endif %}
+    </div>
+    {% if is_admin %}
+    <form id="art-new-collection-form" class="art-rail__new-collection" hidden
+          hx-post="/api/admin/collections" hx-target="#rail-collections" hx-swap="outerHTML">
+      <input class="hm-input" type="text" name="name" placeholder="Collection name" autocomplete="off">
+    </form>
+    {% endif %}
+    {% include "artportfolio/partials/rail_collections.html" %}
+  </div>
+
+  <div class="art-rail__section">
+    <span class="art-rail__section-label">Tags</span>
+    <div class="art-rail__tags">
+      {% for t in rail_tags %}
+      <a class="art-rail__tag{% if t.active %} is-active{% endif %}"
+         href="{{ t.url }}"
+         hx-get="{{ t.url }}" hx-target="#feed" hx-swap="innerHTML" hx-push-url="true">{{ t.label }}</a>
+      {% endfor %}
+    </div>
+  </div>
+
+  {% if is_admin %}
+  <div class="art-rail__section art-rail__vis">
+    <span class="art-rail__section-label">Visibility · admin</span>
+    {% for v in rail_vis %}
+    {#- A real checkbox's own checked state would fight the HTMX swap — the
+        state lives entirely in the URL, so this is a button styled to look
+        like one. #}
+    <button type="button" class="art-vis-check{% if v.checked %} is-checked{% endif %}"
+            hx-get="{{ v.url }}" hx-target="#feed" hx-swap="innerHTML" hx-push-url="true">
+      <span class="art-vis-check__box" aria-hidden="true"></span>{{ v.label }}
+    </button>
+    {% endfor %}
+  </div>
+  {% endif %}
 
   <div class="art-rail__legend">
     <div class="hm-rule"></div>

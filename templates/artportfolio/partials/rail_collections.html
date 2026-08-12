@@ -1,22 +1,34 @@
 {#
   The collections list inside the filter rail. Its own template because it is
   the swap target for both collection creation and deletion — `hx-target=
-  "#rail-collections" hx-swap="outerHTML"` on both — and because plan B's
-  `filter_rail.html` will `include` this file once collections join the rail
-  for real, sharing field names (`collections`, `is_admin`) with
-  `FeedTemplate`.
+  "#rail-collections" hx-swap="outerHTML"` on both — and because it is
+  `include`d from both `filter_rail.html` (the live feed page) and
+  `RailCollectionsTemplate` (the admin create/delete fragment responses),
+  sharing field names with both.
 
-  Consumes `collections: Vec<CollectionWithCount>` and `is_admin: bool` from
-  scope. The delete button lives behind `{% if is_admin %}` the same way the
-  card controls do — a visitor sees the list with no way to touch it.
+  Consumes `rail_collections: Vec<RailLink>`, `collections: Vec<
+  CollectionWithCount>` (same order — `collection_rail_links` maps the latter
+  into the former 1:1) and `is_admin: bool` from scope. `RailLink` carries no
+  id — `tag_rail_links` builds the identical struct from a source that has
+  none at all — so the admin delete control reaches into the raw `collections`
+  list instead, zipped against `rail_collections` by position.
+
+  Each row is the rail's HTMX GET contract: `hx-target="#feed" hx-swap=
+  "innerHTML" hx-push-url="true"`, `RailLink.url` on both `href` and `hx-get`.
+  The delete button lives behind `{% if is_admin %}` the same way the card
+  controls do — a visitor sees the list with no way to touch it.
 #}
 <div id="rail-collections">
-  {% for c in collections %}
-  <div class="art-rail__collection">
-    <a href="/artportfolio?collection={{ c.slug }}">{{ c.name }}</a>
-    <span class="art-rail__count">{{ c.count }}</span>
+  {% for (link, c) in rail_collections.iter().zip(collections.iter()) %}
+  <div class="art-rail__row">
+    <a class="art-rail__collection{% if link.active %} is-active{% endif %}"
+       href="{{ link.url }}"
+       hx-get="{{ link.url }}" hx-target="#feed" hx-swap="innerHTML" hx-push-url="true">
+      <span>{{ link.label }}</span>
+      <span class="art-rail__count">{{ link.count }}</span>
+    </a>
     {% if is_admin %}
-    <button type="button" class="art-rail__delete" title="Delete" aria-label="Delete collection {{ c.name }}"
+    <button type="button" class="art-rail__delete" title="Delete" aria-label="Delete collection {{ link.label }}"
             hx-delete="/api/admin/collections/{{ c.id }}"
             hx-target="#rail-collections"
             hx-swap="outerHTML"

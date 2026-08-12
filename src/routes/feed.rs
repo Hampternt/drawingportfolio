@@ -1,6 +1,6 @@
 use crate::{
     middleware::OptionalAuth,
-    models::{MonthGroup, Post, PostCounts, PostFilter, Viewer},
+    models::{CollectionWithCount, MonthGroup, Post, PostCounts, PostFilter, TagWithCount, Viewer},
     AppState,
 };
 use askama::Template;
@@ -33,6 +33,36 @@ struct FeedTemplate {
     /// The active search, `""` when there is none. Fills the rail's input so a
     /// shared or reloaded `?q=` URL comes back with its query still on screen.
     q: String,
+    /// The raw list, viewer-scoped, alongside its `rail_collections` projection
+    /// below. `RailLink` carries no id — `tag_rail_links` builds the very same
+    /// struct from a source (`TagWithCount`) that has none at all — so
+    /// `rail_collections.html`'s admin delete control reaches into this list
+    /// instead, in lockstep order with `rail_collections` because
+    /// `collection_rail_links` maps it 1:1.
+    collections: Vec<CollectionWithCount>,
+    /// Rail rows: toggle URL, active state, label and viewer-aware count —
+    /// see `collection_rail_links`.
+    rail_collections: Vec<RailLink>,
+    /// Rail pills — see `tag_rail_links`.
+    rail_tags: Vec<RailLink>,
+    /// The admin-only visibility trio — always 3 entries; the template gates
+    /// rendering behind `is_admin`, not this Vec's length.
+    rail_vis: Vec<VisCheck>,
+    /// `filter.collection`, echoed for two consumers: `rail_collections.html`'s
+    /// active-row highlight (via each `RailLink.active`, computed separately)
+    /// is not this field's job — this one instead feeds the `#art-rail-state`
+    /// hidden input, so a search made while a collection is active does not
+    /// silently drop it.
+    active_collection: Option<String>,
+    /// `filter.tags`, comma-joined for the `#art-rail-state` hidden input.
+    /// Empty when there is no active tag filter.
+    active_tags: Vec<String>,
+    /// `filter.vis`, comma-joined for the `#art-rail-state` hidden input.
+    /// `None` (the viewer-default "all") renders no hidden field at all.
+    active_vis: Option<Vec<String>>,
+    /// The preview flag, so `#art-rail-state` carries `visitor=1` and a search
+    /// made mid-preview does not silently exit it.
+    preview: bool,
 }
 
 /// One description, two consumers: the head label and (in plan B) the empty
@@ -168,6 +198,147 @@ fn append_filter_pairs(
     if preview {
         s.append_pair("visitor", "1");
     }
+}
+
+/// One rail row/pill — a collection row or a tag pill share this shape, which
+/// is why `collection_rail_links` and `tag_rail_links` both produce it. No id:
+/// `tag_rail_links` builds it from `TagWithCount`, which has none, so a field
+/// only one of the two callers could fill has no home here.
+pub(crate) struct RailLink {
+    pub label: String,
+    pub count: i64,
+    pub url: String,
+    pub active: bool,
+}
+
+/// One row of the admin-only Visibility trio.
+pub(crate) struct VisCheck {
+    pub label: &'static str,
+    pub url: String,
+    pub checked: bool,
+}
+
+/// The rail's toggle-link URL: `/artportfolio/htmx/posts?…`, carrying every
+/// active filter pair but never a `page` — every rail click starts a fresh
+/// page 0. Built on `append_filter_pairs` like `load_more_url`/`page_url`, so
+/// all four cannot drift on what the query string contract means. Task 2
+/// reuses this for pill-removal URLs.
+pub(crate) fn filter_url(filter: &PostFilter, preview: bool) -> String {
+    let mut s = url::form_urlencoded::Serializer::new(String::new());
+    append_filter_pairs(&mut s, filter, preview);
+    let qs = s.finish();
+    if qs.is_empty() {
+        "/artportfolio/htmx/posts".to_string()
+    } else {
+        format!("/artportfolio/htmx/posts?{qs}")
+    }
+}
+
+/// Builds the Collections rail: one toggle link per collection. Clicking the
+/// active row's link deselects it — the URL is `filter_url` of the current
+/// filter with `collection` cleared rather than set to itself — so there is
+/// always exactly one way to reach "no collection filter" from any row.
+pub(crate) fn collection_rail_links(
+    collections: &[CollectionWithCount],
+    filter: &PostFilter,
+    preview: bool,
+) -> Vec<RailLink> {
+    collections
+        .iter()
+        .map(|c| {
+            let active = filter.collection.as_deref() == Some(c.slug.as_str());
+            let mut next = filter.clone();
+            next.collection = if active { None } else { Some(c.slug.clone()) };
+            RailLink {
+                label: c.name.clone(),
+                count: c.count,
+                url: filter_url(&next, preview),
+                active,
+            }
+        })
+        .collect()
+}
+
+/// Builds the Tags rail: one toggle pill per tag, added to or removed from
+/// `filter.tags` — survivors keep their given order, so repeated toggling
+/// never reshuffles the query string.
+pub(crate) fn tag_rail_links(
+    tags: &[TagWithCount],
+    filter: &PostFilter,
+    preview: bool,
+) -> Vec<RailLink> {
+    tags.iter()
+        .map(|t| {
+            let active = filter.tags.iter().any(|x| x == &t.name);
+            let mut next = filter.clone();
+            if active {
+                next.tags.retain(|x| x != &t.name);
+            } else {
+                next.tags.push(t.name.clone());
+            }
+            RailLink {
+                label: t.name.clone(),
+                count: t.count,
+                url: filter_url(&next, preview),
+                active,
+            }
+        })
+        .collect()
+}
+
+/// Builds the admin-only Visibility trio. Always 3 entries regardless of
+/// viewer — the template, not this function, decides whether to render them.
+///
+/// `filter.vis: None` means "all" for the viewer, so it is expanded to the
+/// full trio before toggling. Two rules keep the URL sane at the edges:
+/// - A toggle that lands back on all three drops the param entirely
+///   (`vis: None`) — absent already means all, and a URL spelling out
+///   `vis=public,unlisted,hidden` would be noise.
+/// - A toggle that would empty the set (unchecking the one remaining checked
+///   box) is overridden to "every state but the one just clicked" instead —
+///   the same result a click from the untouched default produces. That reads
+///   as a no-op rather than a trap that zeroes the feed.
+pub(crate) fn vis_checks(filter: &PostFilter, preview: bool) -> Vec<VisCheck> {
+    const STATES: [&str; 3] = ["public", "unlisted", "hidden"];
+    let current: Vec<&str> = filter
+        .vis
+        .as_ref()
+        .map(|v| v.iter().map(String::as_str).collect())
+        .unwrap_or_else(|| STATES.to_vec());
+
+    STATES
+        .iter()
+        .map(|&state| {
+            let checked = current.contains(&state);
+            let mut next: Vec<&str> = if checked {
+                current.iter().copied().filter(|&s| s != state).collect()
+            } else {
+                let mut n = current.clone();
+                n.push(state);
+                n
+            };
+            if next.is_empty() {
+                next = STATES.iter().copied().filter(|&s| s != state).collect();
+            }
+            let mut f = filter.clone();
+            f.vis = if next.len() == STATES.len() {
+                None
+            } else {
+                Some(
+                    STATES
+                        .iter()
+                        .filter(|s| next.contains(s))
+                        .map(|s| s.to_string())
+                        .collect(),
+                )
+            };
+            VisCheck {
+                label: state,
+                url: filter_url(&f, preview),
+                checked,
+            }
+        })
+        .collect()
 }
 
 /// The Load more URL, built in Rust because Askama escapes HTML, not URLs — a
@@ -408,6 +579,16 @@ async fn feed_page(
     let initial_posts_html = render_grid(&state, 0, &filter, None, None, viewer, preview).await;
     let counts = crate::db::count_posts(&state.pool, &filter, viewer).await;
 
+    // The rail only renders on the full page — the HTMX fragment route swaps
+    // `#feed`, which sits outside it — so this pair of queries runs here and
+    // nowhere else. Same effective `viewer` as `counts` above: a preview must
+    // see the visitor-scoped collections/tags, not the admin's full set.
+    let collections = crate::db::list_collections_with_counts(&state.pool, viewer).await;
+    let tags = crate::db::list_tags_with_counts(&state.pool, viewer).await;
+    let rail_collections = collection_rail_links(&collections, &filter, preview);
+    let rail_tags = tag_rail_links(&tags, &filter, preview);
+    let rail_vis = vis_checks(&filter, preview);
+
     Html(
         FeedTemplate {
             // The *effective* viewer, never the raw session bool. Under preview
@@ -422,6 +603,14 @@ async fn feed_page(
             head_label: head_label(&counts, &filter, viewer),
             initial_posts_html,
             q: filter.q.clone().unwrap_or_default(),
+            active_collection: filter.collection.clone(),
+            active_tags: filter.tags.clone(),
+            active_vis: filter.vis.clone(),
+            preview,
+            collections,
+            rail_collections,
+            rail_tags,
+            rail_vis,
         }
         .render()
         .unwrap(),
@@ -1815,5 +2004,142 @@ mod tests {
             body.contains(r#"id="art-head-label" hx-swap-oob="true""#),
             "{body}"
         );
+    }
+
+    // ===== The filter rail — toggle-URL builders (Task 1) ====================
+
+    fn collection_with_count(id: i64, name: &str, slug: &str, count: i64) -> CollectionWithCount {
+        CollectionWithCount {
+            id,
+            name: name.to_string(),
+            slug: slug.to_string(),
+            count,
+        }
+    }
+
+    fn tag_with_count(name: &str, count: i64) -> TagWithCount {
+        TagWithCount {
+            name: name.to_string(),
+            count,
+        }
+    }
+
+    #[test]
+    fn test_filter_url_round_trip() {
+        let f = PostFilter {
+            tags: vec!["ink".to_string()],
+            collection: Some("studies".to_string()),
+            ..Default::default()
+        };
+        assert_eq!(
+            filter_url(&f, false),
+            "/artportfolio/htmx/posts?tags=ink&collection=studies"
+        );
+    }
+
+    #[test]
+    fn test_collection_link_toggles_off() {
+        let f = PostFilter {
+            collection: Some("studies".to_string()),
+            ..Default::default()
+        };
+        let collections = vec![collection_with_count(1, "Studies", "studies", 4)];
+        let links = collection_rail_links(&collections, &f, false);
+        assert!(links[0].active);
+        assert!(
+            !links[0].url.contains("collection="),
+            "clicking the active row must deselect it: {}",
+            links[0].url
+        );
+    }
+
+    #[test]
+    fn test_collection_link_preserves_search() {
+        let f = PostFilter {
+            q: Some("cat".to_string()),
+            ..Default::default()
+        };
+        let collections = vec![collection_with_count(1, "Studies", "studies", 4)];
+        let links = collection_rail_links(&collections, &f, false);
+        assert!(links[0].url.contains("q=cat"), "{}", links[0].url);
+        assert!(
+            links[0].url.contains("collection=studies"),
+            "{}",
+            links[0].url
+        );
+    }
+
+    #[test]
+    fn test_tag_link_adds_and_removes() {
+        let f = PostFilter {
+            tags: vec!["ink".to_string()],
+            ..Default::default()
+        };
+        let tags = vec![tag_with_count("perspective", 2), tag_with_count("ink", 5)];
+        let links = tag_rail_links(&tags, &f, false);
+        assert!(
+            links[0].url.contains("tags=ink%2Cperspective"),
+            "adding a tag preserves survivor order: {}",
+            links[0].url
+        );
+        assert!(
+            !links[1].url.contains("tags="),
+            "removing the only active tag drops the param: {}",
+            links[1].url
+        );
+    }
+
+    #[test]
+    fn test_vis_checks_default_all_checked() {
+        let checks = vis_checks(&PostFilter::default(), false);
+        assert_eq!(checks.len(), 3);
+        assert!(checks.iter().all(|c| c.checked));
+    }
+
+    #[test]
+    fn test_vis_check_toggle_off_drops_one() {
+        let checks = vis_checks(&PostFilter::default(), false);
+        let hidden = checks.iter().find(|c| c.label == "hidden").unwrap();
+        assert!(
+            hidden.url.contains("vis=public%2Cunlisted"),
+            "{}",
+            hidden.url
+        );
+    }
+
+    #[test]
+    fn test_vis_check_full_set_drops_param() {
+        let f = PostFilter {
+            vis: Some(vec!["public".to_string(), "unlisted".to_string()]),
+            ..Default::default()
+        };
+        let checks = vis_checks(&f, false);
+        let hidden = checks.iter().find(|c| c.label == "hidden").unwrap();
+        assert!(
+            !hidden.url.contains("vis="),
+            "completing the set drops the param entirely — absent means all: {}",
+            hidden.url
+        );
+    }
+
+    /// The visitor-scoped `list_collections_with_counts`/`list_tags_with_counts`
+    /// queries only surface a collection or tag attached to at least one
+    /// PUBLIC post (db.rs), so the seed here is a public post carrying both —
+    /// not just a bare collection/tag row — or this route test would pass for
+    /// the wrong reason.
+    #[tokio::test]
+    async fn test_rail_renders_on_feed_page() {
+        let (app, pool) = app_with_pool().await;
+        let post_id = seed_id(&pool, "a study", crate::models::Visibility::Public).await;
+        crate::db::set_post_tags(&pool, post_id, &["ink".to_string()]).await;
+        let collection = crate::db::create_collection(&pool, "Figure Studies")
+            .await
+            .unwrap();
+        crate::db::add_post_to_collection(&pool, post_id, collection.id).await;
+
+        let body = body_of(get(&app, "/artportfolio", None).await).await;
+        assert!(body.contains(r#"id="rail-collections""#), "{body}");
+        assert!(body.contains("Figure Studies"), "{body}");
+        assert!(body.contains("ink"), "{body}");
     }
 }

@@ -366,7 +366,13 @@ async fn patch_visibility(
 #[derive(Template)]
 #[template(path = "artportfolio/partials/rail_collections.html")]
 struct RailCollectionsTemplate {
+    /// The raw list, same order as `rail_collections` below (the latter is
+    /// built from it via `collection_rail_links`) — kept alongside it so the
+    /// admin delete control has a numeric id. `RailLink` carries none: it is
+    /// the same struct `tag_rail_links` builds from a source that has no id
+    /// at all.
     collections: Vec<crate::models::CollectionWithCount>,
+    rail_collections: Vec<crate::routes::feed::RailLink>,
     is_admin: bool,
 }
 
@@ -433,8 +439,17 @@ async fn create_collection_route(
             let collections =
                 crate::db::list_collections_with_counts(&state.pool, crate::models::Viewer::Admin)
                     .await;
+            // Admin, default filter: this fragment renders outside any active
+            // search/tag/vis context, so highlighting an active collection
+            // here is not meaningful — the accepted rail-staleness trade-off.
+            let rail_collections = crate::routes::feed::collection_rail_links(
+                &collections,
+                &crate::models::PostFilter::default(),
+                false,
+            );
             let html = RailCollectionsTemplate {
                 collections,
+                rail_collections,
                 is_admin: true,
             }
             .render()
@@ -466,9 +481,15 @@ async fn delete_collection_route(
     let _ = crate::db::delete_collection(&state.pool, id).await;
     let collections =
         crate::db::list_collections_with_counts(&state.pool, crate::models::Viewer::Admin).await;
+    let rail_collections = crate::routes::feed::collection_rail_links(
+        &collections,
+        &crate::models::PostFilter::default(),
+        false,
+    );
     Html(
         RailCollectionsTemplate {
             collections,
+            rail_collections,
             is_admin: true,
         }
         .render()
