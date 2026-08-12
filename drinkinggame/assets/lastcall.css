@@ -550,6 +550,13 @@ body.lc { margin: 0; min-height: 100vh; display: flex; flex-direction: column;
 .lc-setup-row { display: flex; align-items: center; gap: 8px; font-size: 13px;
                 color: var(--lc-body); }
 
+/* Plan J Task 4 — the lobby's phone half: who's still unregistered, or the
+   all-set line once every seat has a vessel. Lives beside .lc-setup-row,
+   the section it sits above. */
+.lc-lobby-wait { font-family: var(--font-ui); font-weight: 700; font-size: 12px;
+                 letter-spacing: .06em; color: var(--lc-faint); margin: 0; }
+.lc-lobby-wait[data-waiting="0"] { color: var(--lc-mint); }
+
 /* Plan J — the LOG tab (J1-J4): a public shared round log, newest first. */
 .lc-log { list-style: none; margin: 0; padding: 4px 2px; display: flex;
           flex-direction: column; gap: 7px; }
@@ -949,6 +956,20 @@ body.lc-screen .lc-timer { height: 3px; }
                      font-family: var(--font-display); font-weight: 900;
                      font-size: 40px; letter-spacing: -.02em;
                      color: var(--lc-text); }
+
+/* Plan J Task 4 — the felt centre's lobby state (E1: round-1 Draw, no
+   outcome), shaped like .lc-centre-victory above — same absolute overlay,
+   same centred column — but a quieter kicker/count pair rather than a
+   headline, since nothing has happened yet. */
+.lc-centre-lobby { position: absolute; inset: 0; display: flex;
+                   flex-direction: column; align-items: center;
+                   justify-content: center; gap: 10px; text-align: center; }
+.lc-lobby-kicker { font-family: var(--font-ui); font-weight: 800; font-size: 12px;
+                   letter-spacing: .22em; color: var(--lc-faint); }
+.lc-lobby-count { font-family: var(--font-display); font-weight: 900;
+                  font-size: 34px; letter-spacing: -.02em; color: var(--lc-text); }
+.lc-lobby-names { font-family: var(--font-ui); font-weight: 700; font-size: 13px;
+                  letter-spacing: .08em; color: var(--lc-faint); }
 
 /* Plan J Task 3 — the end-of-game screen (§7.8's GameOver component). The
    standings/stats board renders on two surfaces off the same builder shape

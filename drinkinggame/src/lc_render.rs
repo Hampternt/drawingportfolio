@@ -840,6 +840,7 @@ pub fn lc_hand_pane(
     hg: &HandGroupView,
     rows: &[SetupRow],
     seq: u64,
+    lobby: bool,
 ) -> String {
     let deck_options: String = Deck::ALL
         .iter()
@@ -851,8 +852,17 @@ pub fn lc_hand_pane(
         .map(|row| {
             let you = if row.player_id == me { " (you)" } else { "" };
             let dots: String = row.decks.iter().map(|&d| card_dot(d)).collect();
+            // Plan J Task 4: unconditional (not just in the lobby) — the
+            // §7.8 setup section marks every player who has registered a
+            // vessel, at any round, so a mid-game handicap tweak still shows
+            // who's dealt in.
+            let ready_attr = if row.decks.is_empty() {
+                ""
+            } else {
+                " data-ready"
+            };
             format!(
-                r#"<form class="lc-setup-row" method="post" action="{base_path}/room/{code}/lastcall/handicap"><input type="hidden" name="target" value="{player_id}"><span>{name}{you}</span><span class="lc-setup-decks">{dots}</span><input type="number" name="handicap_pct" min="25" max="300" step="5" value="{handicap_pct}"><button type="submit">SET</button></form>"#,
+                r#"<form class="lc-setup-row"{ready_attr} method="post" action="{base_path}/room/{code}/lastcall/handicap"><input type="hidden" name="target" value="{player_id}"><span>{name}{you}</span><span class="lc-setup-decks">{dots}</span><input type="number" name="handicap_pct" min="25" max="300" step="5" value="{handicap_pct}"><button type="submit">SET</button></form>"#,
                 player_id = row.player_id,
                 name = html_escape(&row.name),
                 handicap_pct = row.handicap_pct,
@@ -860,8 +870,33 @@ pub fn lc_hand_pane(
         })
         .collect();
 
+    // Plan J Task 4: the phone's half of the lobby polish — who's still
+    // unregistered, or the all-set line once everyone has a vessel. Gated
+    // on `lobby` (round-1 Draw, no outcome — E1's gate, computed by the
+    // caller from `&LastCallState` so this builder stays `PublicView`-only
+    // in spirit without taking the whole view just for two fields) so a
+    // mid-game handicap tweak never grows a stray "WAITING ON" line.
+    let wait_line = if !lobby {
+        String::new()
+    } else {
+        let waiting: Vec<&SetupRow> = rows.iter().filter(|r| r.decks.is_empty()).collect();
+        if waiting.is_empty() {
+            r#"<p class="lc-lobby-wait" data-waiting="0">ALL SET — PRESS START</p>"#.to_string()
+        } else {
+            let names = waiting
+                .iter()
+                .map(|r| html_escape(&r.name.to_uppercase()))
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!(
+                r#"<p class="lc-lobby-wait" data-waiting="{n}">WAITING ON {n}: {names}</p>"#,
+                n = waiting.len(),
+            )
+        }
+    };
+
     format!(
-        r#"<div id="lc-hand" data-seq="{seq}" data-count="{count}" data-flight-anchor="hand"><section class="lc-setup"><h2>Your drink</h2><form method="post" action="{base_path}/room/{code}/lastcall/vessel"><select name="deck">{deck_options}</select><input name="container" maxlength="24" placeholder="50cl can"><button type="submit">REGISTER</button></form><h2>Handicaps</h2>{handicap_rows}</section>{group}</div>"#,
+        r#"<div id="lc-hand" data-seq="{seq}" data-count="{count}" data-flight-anchor="hand"><section class="lc-setup"><h2>Your drink</h2><form method="post" action="{base_path}/room/{code}/lastcall/vessel"><select name="deck">{deck_options}</select><input name="container" maxlength="24" placeholder="50cl can"><button type="submit">REGISTER</button></form>{wait_line}<h2>Handicaps</h2>{handicap_rows}</section>{group}</div>"#,
         count = hg.hand.len(),
         group = hand_group(hg),
     )
@@ -990,6 +1025,30 @@ pub fn final_standings(view: &PublicView) -> Vec<&PublicSeat> {
         (s.status != Status::Alive, rank, s.seat)
     });
     seats
+}
+
+/// Plan J Task 4 / E1: the felt centre's lobby state — round-1 Draw before
+/// the table has enough vessels registered to start. `k` is the number of
+/// seats with at least one vessel (E1's own "ready" test), `n` the seat
+/// count; the names line lists the unregistered seats and is omitted
+/// entirely once `k == n`, matching the phone's own all-set line.
+fn lobby_centre(view: &PublicView) -> String {
+    let n = view.seats.len();
+    let waiting: Vec<&PublicSeat> = view.seats.iter().filter(|s| s.vessels.is_empty()).collect();
+    let k = n - waiting.len();
+    let names_html = if waiting.is_empty() {
+        String::new()
+    } else {
+        let names = waiting
+            .iter()
+            .map(|s| html_escape(&s.name.to_uppercase()))
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!(r#"<span class="lc-lobby-names">WAITING ON {names}</span>"#)
+    };
+    format!(
+        r#"<div class="lc-centre-lobby"><span class="lc-lobby-kicker">LAST CALL</span><span class="lc-lobby-count">{k} / {n} DRINKS IN</span>{names_html}</div>"#
+    )
 }
 
 /// One `<li class="lc-standing">` row — shared by the phone's full table
@@ -1130,16 +1189,20 @@ pub fn lc_screen_panel(view: &PublicView) -> String {
         })
         .collect();
     // Plan E, decision E15: the felt centre. Priority — a decided game shows
-    // the frozen tableau's victory line; otherwise `revealed` (populated
-    // only at Reveal/Resolve, per `public_view`'s own gate — Plan D's
-    // projection tests are the authority on secrecy, not this renderer)
-    // shows the ordered plays; empty either way renders nothing. The two
-    // are mutually exclusive in practice (an outcome only turns `Some`
-    // inside `resolve()`, which drains `plays` before returning), but
-    // `outcome` is checked first regardless — the frozen tableau is never
-    // allowed to show stale plays.
+    // the frozen tableau's victory line; otherwise the lobby gate (Plan J
+    // Task 4 / E1: round-1 Draw with no outcome — mutually exclusive with
+    // both `outcome` and `revealed` by construction, since `revealed` only
+    // populates at Reveal/Resolve); otherwise `revealed` (populated only at
+    // Reveal/Resolve, per `public_view`'s own gate — Plan D's projection
+    // tests are the authority on secrecy, not this renderer) shows the
+    // ordered plays; empty either way renders nothing. `outcome` is checked
+    // first regardless — the frozen tableau is never allowed to show stale
+    // plays.
+    let lobby = view.round == 1 && view.beat == Beat::Draw && view.outcome.is_none();
     let centre = if let Some(outcome) = view.outcome {
         victory_line(view, outcome)
+    } else if lobby {
+        lobby_centre(view)
     } else if !view.revealed.is_empty() {
         let plays: String = view.revealed.iter().map(|p| centre_play(view, p)).collect();
         format!(r#"<div class="lc-centre-plays">{plays}</div>"#)
@@ -1415,7 +1478,7 @@ pub fn lc_tab_panel(tab: Option<&TabDef>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::last_call::{preview_state, Beat, LastCallState};
+    use crate::last_call::{preview_state, Beat, LastCallState, PublicVessel};
     use crate::lc_cards::{self, CATALOG};
 
     /// Flags a hex-colour shape (`#` followed by 3/4/6/8 hex digits) rather
@@ -2381,7 +2444,7 @@ mod tests {
         let armed = [hand[0].clone()];
         let rows = [setup_row(1, "alice", 100, &[Deck::Beer])];
         let view = hg(&hand, &armed);
-        let html = lc_hand_pane("", "QK4M", 1, &view, &rows, 7);
+        let html = lc_hand_pane("", "QK4M", 1, &view, &rows, 7, false);
         assert!(html.contains(r#"id="lc-hand""#));
         assert!(html.contains(r#"data-seq="7""#));
         assert!(html.contains(&format!(r#"data-count="{}""#, hand.len())));
@@ -2403,7 +2466,7 @@ mod tests {
             setup_row(2, "bob", 150, &[Deck::Wine]),
         ];
         let view = hg(&hand, &[]);
-        let html = lc_hand_pane("/drinks", "QK4M", 1, &view, &rows, 1);
+        let html = lc_hand_pane("/drinks", "QK4M", 1, &view, &rows, 1, false);
         assert!(html.contains(r#"action="/drinks/room/QK4M/lastcall/vessel""#));
         assert!(html.contains(r#"action="/drinks/room/QK4M/lastcall/handicap""#));
         assert_eq!(
@@ -2425,7 +2488,7 @@ mod tests {
             setup_row(3, "cara", 100, &[Deck::Soft]),
         ];
         let view = hg(&hand, &[]);
-        let html = lc_hand_pane("", "QK4M", 2, &view, &rows, 1);
+        let html = lc_hand_pane("", "QK4M", 2, &view, &rows, 1, false);
         assert_eq!(html.matches(">SET<").count(), 3);
         assert_eq!(html.matches("(you)").count(), 1);
         assert!(html.contains("bob (you)"));
@@ -2435,12 +2498,86 @@ mod tests {
     fn test_lc_hand_pane_empty_hand() {
         let rows = [setup_row(1, "alice", 100, &[])];
         let view = hg(&[], &[]);
-        let html = lc_hand_pane("", "QK4M", 1, &view, &rows, 0);
+        let html = lc_hand_pane("", "QK4M", 1, &view, &rows, 0, false);
         assert!(html.contains("lc-empty"));
         assert!(html.contains("Register your drink to be dealt a hand."));
         assert!(!html.contains("lc-cardface"));
         assert!(!html.contains("lc-wheel"));
         assert!(html.contains(r#"data-count="0""#));
+    }
+
+    /// Plan J Task 4 / E1: the lobby is round-1 `Beat::Draw` with no
+    /// outcome — "ready" is having a vessel, on both the felt (`{k}/{n}`,
+    /// names of the unregistered) and the phone (`data-ready` rows, the
+    /// same waiting/all-set line). Both surfaces go quiet the moment the
+    /// gate no longer holds, whether because the round moved on or the game
+    /// ended.
+    #[test]
+    fn test_the_lobby_says_who_it_waits_on() {
+        let mut view = ring_fixture(3);
+        view.seats[0].vessels = vec![PublicVessel {
+            deck: Deck::Beer,
+            pulls_left: 1,
+            pulls_max: 1,
+        }];
+
+        let one_of_three = lc_screen_panel(&view);
+        assert!(one_of_three.contains("lc-centre-lobby"));
+        assert!(one_of_three.contains("1 / 3 DRINKS IN"));
+        assert!(one_of_three.contains("WAITING ON "));
+        assert!(one_of_three.contains("PLAYER2"));
+        assert!(one_of_three.contains("PLAYER3"));
+        no_hex(&one_of_three);
+
+        let mut all_vesselled = view.clone();
+        for seat in &mut all_vesselled.seats {
+            seat.vessels = vec![PublicVessel {
+                deck: Deck::Beer,
+                pulls_left: 1,
+                pulls_max: 1,
+            }];
+        }
+        let all_html = lc_screen_panel(&all_vesselled);
+        assert!(all_html.contains("3 / 3 DRINKS IN"));
+        assert!(!all_html.contains("lc-lobby-names"));
+        no_hex(&all_html);
+
+        let mut round_two = view.clone();
+        round_two.round = 2;
+        assert!(!lc_screen_panel(&round_two).contains("lc-centre-lobby"));
+
+        let mut decided = view.clone();
+        decided.outcome = Some(LcOutcome::Winner(0));
+        assert!(!lc_screen_panel(&decided).contains("lc-centre-lobby"));
+
+        // The phone half — same states, `setup_rows`-shaped input.
+        let rows = [
+            setup_row(1, "player1", 100, &[Deck::Beer]),
+            setup_row(2, "player2", 100, &[]),
+            setup_row(3, "player3", 100, &[]),
+        ];
+        let hg_view = hg(&[], &[]);
+        let waiting_html = lc_hand_pane("", "QK4M", 1, &hg_view, &rows, 1, true);
+        assert_eq!(waiting_html.matches("data-ready").count(), 1);
+        assert!(waiting_html.contains(r#"<form class="lc-setup-row" data-ready"#));
+        assert!(waiting_html.contains(r#"data-waiting="2">WAITING ON 2: "#));
+        assert!(waiting_html.contains("PLAYER2"));
+        assert!(waiting_html.contains("PLAYER3"));
+        no_hex(&waiting_html);
+
+        let all_rows = [
+            setup_row(1, "player1", 100, &[Deck::Beer]),
+            setup_row(2, "player2", 100, &[Deck::Wine]),
+            setup_row(3, "player3", 100, &[Deck::Soft]),
+        ];
+        let all_ready_html = lc_hand_pane("", "QK4M", 1, &hg_view, &all_rows, 1, true);
+        assert_eq!(all_ready_html.matches("data-ready").count(), 3);
+        assert!(all_ready_html.contains(r#"data-waiting="0">ALL SET — PRESS START"#));
+
+        // Round 2: no wait line at all, though `data-ready` is unconditional.
+        let round_two_html = lc_hand_pane("", "QK4M", 1, &hg_view, &rows, 1, false);
+        assert!(!round_two_html.contains("lc-lobby-wait"));
+        assert_eq!(round_two_html.matches("data-ready").count(), 1);
     }
 
     #[test]
@@ -2870,6 +3007,11 @@ mod tests {
         // (Plan D's mandatory §3.4.1 test) — this test only pins what the
         // renderer does with a `revealed` vec once handed one.
         let mut view = ring_fixture(4);
+        // Plan J Task 4: `revealed` only ever populates at Reveal/Resolve in
+        // production (this test's own comment above) — round-1 Draw with no
+        // outcome is now the lobby gate, so the fixture has to leave that
+        // state or it exercises the lobby centre instead of this one.
+        view.beat = Beat::Reveal;
         let targeted = centre_card("cider-target", Deck::Cider, "one", "Targeted Play");
         let untargeted = centre_card("wine-all", Deck::Wine, "all", "Table Play");
         view.revealed = vec![
@@ -2912,6 +3054,10 @@ mod tests {
     #[test]
     fn test_centre_chips_ride_their_play() {
         let mut view = ring_fixture(3);
+        // Plan J Task 4: same reasoning as the test above — `revealed` is a
+        // Reveal/Resolve-only field in production, and round-1 Draw is now
+        // the lobby gate.
+        view.beat = Beat::Reveal;
         let atk = centre_card("wine-atk", Deck::Wine, "one", "Table Play");
         view.revealed = vec![
             Play {

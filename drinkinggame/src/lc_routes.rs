@@ -496,7 +496,11 @@ fn hand_pane_html(base_path: &str, code: &str, st: &LastCallState, player_id: i6
         // what the engine will actually charge.
         halved: st.cost_halved(),
     };
-    let pane = lc_render::lc_hand_pane(base_path, code, player_id, &hg, &rows, st.seq);
+    // Plan J Task 4 / E1: the lobby is round-1 Draw with no outcome — the
+    // early return above already ruled outcome out, so the gate collapses
+    // to these two fields.
+    let lobby = st.round == 1 && st.beat == Beat::Draw;
+    let pane = lc_render::lc_hand_pane(base_path, code, player_id, &hg, &rows, st.seq, lobby);
     let targets = seat
         .map(|s| targets_section_html(st, s))
         .unwrap_or_default();
