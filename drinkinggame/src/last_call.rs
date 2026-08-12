@@ -442,8 +442,18 @@ pub enum LogEntry {
     Reshuffle {
         deck: Deck,
     },
+    /// Plan J fix wave (Important 1): `winner` alone could not represent a
+    /// shared pact win, so the log line named only the lower seat with
+    /// solo-outlast phrasing while the end card, banner and felt centre all
+    /// said "the pact holds" — the durable record contradicted every other
+    /// surface. `winner2` carries the second winner for a pact victory only
+    /// (`#[serde(default)]` since it is a variant field addition, though the
+    /// game is undeployed and no blob predates it); `Some(a), None` still
+    /// means a solo win, `None, _` still means a draw.
     GameOver {
         winner: Option<usize>,
+        #[serde(default)]
+        winner2: Option<usize>,
     },
     /// Task 1 erratum (Task 2's adjudication): a pact betrayal (G5, "loud,
     /// by name") — the knife and the victim, mirroring the seats
@@ -2692,21 +2702,19 @@ impl LastCallState {
         // Step 7: bump seq; stop here if the game just ended (D16).
         self.seq += 1;
         if let Some(outcome) = self.outcome() {
-            // J2/J5: the frozen final tableau's log line.
-            let winner = match outcome {
-                LcOutcome::Winner(s) => Some(s),
-                // G2: a shared pact win has two winners, but `GameOver`'s
-                // `winner` field is exactly one `Option<usize>` (Tasks 2-4
-                // build against this shape) — the lower seat of the pair
-                // stands in as the log line's representative. This drops no
-                // secret: both winners are already public in full via
-                // `public_view().outcome`'s `LcOutcome::Pact(a, b)` — this
-                // log line is a supplementary announcement, not the record
-                // of who won.
-                LcOutcome::Pact(a, _b) => Some(a),
-                LcOutcome::Draw => None,
+            // J2/J5: the frozen final tableau's log line. Fix wave
+            // (Important 1): a shared pact win now carries both winners —
+            // `winner2` — so the log's copy can say "the pact holds" like
+            // every other surface, instead of naming one seat in
+            // solo-outlast phrasing. No secrecy change either way: both
+            // winners were already public via `public_view().outcome`'s
+            // `LcOutcome::Pact(a, b)`.
+            let (winner, winner2) = match outcome {
+                LcOutcome::Winner(s) => (Some(s), None),
+                LcOutcome::Pact(a, b) => (Some(a), Some(b)),
+                LcOutcome::Draw => (None, None),
             };
-            self.push_log(LogEntry::GameOver { winner });
+            self.push_log(LogEntry::GameOver { winner, winner2 });
             return Ok(());
         }
 
@@ -3502,7 +3510,16 @@ mod tests {
         assert_eq!(st.outcome(), Some(LcOutcome::Pact(0, 1)));
         assert_eq!(st.public_view().outcome, Some(LcOutcome::Pact(0, 1)));
         assert_eq!(st.beat, Beat::Resolve); // frozen final tableau (D16)
-                                            // Without a pact the same tableau plays on:
+                                            // Fix wave (Important 1): the GameOver log line now names both
+                                            // winners, not just the lower seat.
+        assert_eq!(
+            st.log.last(),
+            Some(&LogEntry::GameOver {
+                winner: Some(0),
+                winner2: Some(1)
+            })
+        );
+        // Without a pact the same tableau plays on:
         let mut st2 = at_diplomacy();
         st2.players[2].status = Status::Eliminated;
         st2.players[3].status = Status::Eliminated;

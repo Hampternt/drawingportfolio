@@ -773,9 +773,19 @@ fn log_line(view: &PublicView, entry: &LogEntry) -> String {
         LogEntry::Fizzle { title, .. } => format!("{} FIZZLES", html_escape(title)),
         LogEntry::Eliminated { seat } => format!("{} IS OUT", log_seat_name(view, *seat)),
         LogEntry::Reshuffle { deck } => format!("{} RESHUFFLES", deck.label()),
-        LogEntry::GameOver { winner } => match winner {
-            Some(w) => format!("GAME OVER — {} OUTLASTS THE TABLE", log_seat_name(view, *w)),
-            None => "GAME OVER — EVERYBODY'S OUT".to_string(),
+        // Fix wave (Important 1): a pact win names both winners, matching
+        // the end card's/banner's "THE PACT HOLDS" framing on the same
+        // screen instead of the solo-outlast copy for one of the two.
+        LogEntry::GameOver { winner, winner2 } => match (winner, winner2) {
+            (Some(a), Some(b)) => format!(
+                "GAME OVER — {} & {} — THE PACT HOLDS",
+                log_seat_name(view, *a),
+                log_seat_name(view, *b)
+            ),
+            (Some(w), None) => {
+                format!("GAME OVER — {} OUTLASTS THE TABLE", log_seat_name(view, *w))
+            }
+            (None, _) => "GAME OVER — EVERYBODY'S OUT".to_string(),
         },
         // Task 1 erratum (Task 2 adjudication) — the four social events.
         LogEntry::PactBreak { betrayer, betrayed } => format!(
@@ -1097,7 +1107,16 @@ fn standing_row_html(
     let fate = if seat.status == Status::Alive {
         format!("HP {}", seat.hp)
     } else {
-        format!("OUT #{}", seat.elim_order.unwrap_or(0))
+        // Fix wave (M4): `elim_order` is 1-based (J5) — every seat the
+        // engine actually eliminates gets one at the same site its status
+        // flips (`resolve()`, last_call.rs). `None` here can only come from
+        // a hand-built or corrupt blob; fall back to a bare "OUT" rather
+        // than the nonsense ordinal "OUT #0" a naive `unwrap_or(0)` would
+        // print.
+        match seat.elim_order {
+            Some(n) => format!("OUT #{n}"),
+            None => "OUT".to_string(),
+        }
     };
     format!(
         r#"<li class="lc-standing" data-seat="{s}"{me_attr}{winner_attr}><span class="lc-standing-place">{place}</span><span class="lc-standing-name">{name}</span><span class="lc-standing-fate">{fate}</span><span class="lc-standing-stats">DMG {dmg} · PULLS {pulls} · CARDS {cards}</span></li>"#,
@@ -1730,7 +1749,10 @@ mod tests {
                 target: 1,
                 amount: 3,
             },
-            LogEntry::GameOver { winner: None },
+            LogEntry::GameOver {
+                winner: None,
+                winner2: None,
+            },
             // Task 1 erratum (Task 2 adjudication): the four social events —
             // otherwise this sweep never scans their `log_line` arms either.
             LogEntry::PactBreak {
@@ -2758,10 +2780,15 @@ mod tests {
 
     /// Plan J, Task 2: every copy-table row from the brief, newest first,
     /// escaped, with the empty-log fallback and the `SEAT {n+1}` fallback
-    /// covered elsewhere by construction (a two-seat fixture never exercises
-    /// the fallback itself — `log_seat_name`'s `unwrap_or_else` arm is
-    /// covered structurally: every seat index used below is one of the two
-    /// seats the fixture actually has).
+    /// (M1, fix wave: this test body pushes `Joined { seat: 5 }` — a seat
+    /// absent from this two-seat fixture's `view.seats` — and asserts
+    /// `log_seat_name`'s `unwrap_or_else` arm renders "SEAT 6 TAKES A SEAT"
+    /// directly below, rather than relying on coverage from elsewhere).
+    /// Keep the variant list here and
+    /// `test_log_tag_matches_the_serde_tag_for_every_variant`'s list in
+    /// sync — a variant this test's log doesn't exercise is untested for
+    /// copy, one the other test doesn't build is unpinned for its `data-t`
+    /// tag; a new variant needs an entry in both.
     #[test]
     fn test_lc_log_renders_the_copy() {
         let mut view = ring_fixture(2);
@@ -2815,8 +2842,20 @@ mod tests {
             },
             LogEntry::Eliminated { seat: 1 },
             LogEntry::Reshuffle { deck: Deck::Cider },
-            LogEntry::GameOver { winner: Some(0) },
-            LogEntry::GameOver { winner: None },
+            LogEntry::GameOver {
+                winner: Some(0),
+                winner2: None,
+            },
+            // Fix wave (Important 1): the pact-win shape — both winners,
+            // "THE PACT HOLDS" copy, matching the end card/banner.
+            LogEntry::GameOver {
+                winner: Some(0),
+                winner2: Some(1),
+            },
+            LogEntry::GameOver {
+                winner: None,
+                winner2: None,
+            },
             // The `SEAT {n+1}` fallback (brief's Produces block): seat 5
             // doesn't exist in this two-seat fixture's `view.seats`.
             LogEntry::Joined { seat: 5 },
@@ -2842,7 +2881,7 @@ mod tests {
 
         let html = lc_log(&view);
         no_hex(&html);
-        assert!(html.contains(r#"data-count="23""#), "{html}");
+        assert!(html.contains(r#"data-count="24""#), "{html}");
         assert!(html.contains(r#"data-t="round""#), "{html}");
         // Review Minor 2: the three styled tags (`lastcall.css:560-561`) —
         // asserted individually so a typo in any `log_tag` arm loses the
@@ -2874,6 +2913,7 @@ mod tests {
             "BOB IS OUT",
             "CIDER RESHUFFLES",
             "GAME OVER — ALICE OUTLASTS THE TABLE",
+            "GAME OVER — ALICE & BOB — THE PACT HOLDS",
             "GAME OVER — EVERYBODY'S OUT",
             "SEAT 6 TAKES A SEAT",
             "ALICE BROKE THEIR PACT WITH BOB",
@@ -2891,6 +2931,89 @@ mod tests {
             .collect();
         for w in positions.windows(2) {
             assert!(w[0] > w[1], "not newest-first: {positions:?} for {lines:?}");
+        }
+    }
+
+    /// Review Minor 3 (fix wave): `log_tag` hand-mirrors
+    /// `LogEntry`'s `#[serde(tag = "t", rename_all = "snake_case")]` with
+    /// nothing pinning the two together — a variant rename could silently
+    /// drift the `data-t` DOM contract out of sync with the wire tag. One
+    /// instance of every variant, round-tripped through `serde_json` and
+    /// compared against `log_tag`'s own answer. Keep this list in sync with
+    /// `test_lc_log_renders_the_copy`'s `view.log` — see its doc comment.
+    #[test]
+    fn test_log_tag_matches_the_serde_tag_for_every_variant() {
+        let entries = vec![
+            LogEntry::Round { round: 1 },
+            LogEntry::Joined { seat: 0 },
+            LogEntry::Vessel {
+                seat: 0,
+                deck: Deck::Beer,
+            },
+            LogEntry::Handicap { seat: 0, pct: 50 },
+            LogEntry::Draw {
+                seat: 0,
+                deck: Deck::Beer,
+                n: 1,
+            },
+            LogEntry::Lock { seat: 0 },
+            LogEntry::Play {
+                seat: 0,
+                title: "x".to_string(),
+                target: None,
+            },
+            LogEntry::Hit {
+                source: 0,
+                target: 1,
+                amount: 1,
+            },
+            LogEntry::Heal { seat: 0, amount: 1 },
+            LogEntry::Shield { seat: 0, amount: 1 },
+            LogEntry::Drain {
+                source: 0,
+                target: 1,
+                amount: 1,
+            },
+            LogEntry::Fizzle {
+                seat: 0,
+                title: "x".to_string(),
+            },
+            LogEntry::Eliminated { seat: 0 },
+            LogEntry::Reshuffle { deck: Deck::Beer },
+            LogEntry::GameOver {
+                winner: Some(0),
+                winner2: None,
+            },
+            LogEntry::GameOver {
+                winner: Some(0),
+                winner2: Some(1),
+            },
+            LogEntry::PactBreak {
+                betrayer: 0,
+                betrayed: 1,
+            },
+            LogEntry::TabSettle { seat: 0 },
+            LogEntry::ReactionPlay {
+                seat: 0,
+                title: "x".to_string(),
+            },
+            LogEntry::Haunt {
+                seat: 0,
+                target: Some(1),
+            },
+            LogEntry::Haunt {
+                seat: 0,
+                target: None,
+            },
+        ];
+        for entry in &entries {
+            let value = serde_json::to_value(entry).unwrap();
+            let wire_tag = value["t"].as_str().unwrap();
+            assert_eq!(
+                wire_tag,
+                log_tag(entry),
+                "log_tag drifted from the serde tag for {entry:?}"
+            );
         }
     }
 
@@ -3286,6 +3409,24 @@ mod tests {
         assert!(html.contains("CARDS 3"));
         assert!(html.contains("OUT #1"));
         no_hex(&html);
+    }
+
+    /// Fix wave (M4): an Eliminated seat with no `elim_order` — only
+    /// reachable via a hand-built or corrupt blob, never the engine itself
+    /// (`elim_order` is always set at the same site status flips) — renders
+    /// a bare "OUT", never the nonsense ordinal "OUT #0".
+    #[test]
+    fn test_end_card_out_fate_falls_back_without_a_number_when_elim_order_is_missing() {
+        let mut view = ring_fixture(2);
+        view.beat = Beat::Resolve;
+        view.beat_deadline_ms = None;
+        view.outcome = Some(LcOutcome::Winner(1));
+        view.seats[0].status = Status::Eliminated;
+        view.seats[0].elim_order = None;
+
+        let html = lc_end_card(&view, None);
+        assert!(html.contains("OUT</span>"), "{html}");
+        assert!(!html.contains("OUT #"), "{html}");
     }
 
     // -------------------------------------------------------------

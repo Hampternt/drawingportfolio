@@ -463,6 +463,12 @@ fn hand_pane_html(base_path: &str, code: &str, st: &LastCallState, player_id: i6
     if st.outcome().is_some() {
         let view = st.public_view();
         let me = st.seat_of(player_id);
+        // M5 (fix wave): `data-count` elsewhere on `#lc-hand` is the live
+        // card count (`hand.len()`); a finished game has no hand to count,
+        // and no JS reads this attribute — `lcApply`'s stale-drop keys off
+        // `data-seq` alone (see the fn doc above). Hardcoded 0 to keep the
+        // §7.8 DOM contract's attribute present rather than to feed a
+        // consumer.
         let pane = format!(
             r#"<div id="lc-hand" data-seq="{seq}" data-count="0">{card}</div>"#,
             seq = view.seq,
