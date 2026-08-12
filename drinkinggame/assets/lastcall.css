@@ -919,10 +919,11 @@ body.lc-screen .lc-timer { height: 3px; }
 
 /* Plan J (J11): the five DeckListRows plus the discard slot, one per line —
    a single-column flex list, not the old two-across grid (that shape
-   belonged to the square DeckStack this rail no longer renders; the preview
-   page still uses `.lc-rail-decks`' predecessor markup nowhere, so nothing
-   else depends on the grid). Flex's default `align-self: stretch` in the
-   column direction is exactly what's wanted here — every row (and the
+   belonged to the square DeckStack this rail no longer renders). This class
+   has exactly one caller (`lc_screen_panel`'s right rail, grepped) — the
+   preview page never references `.lc-rail-decks` — so changing its layout
+   here can't affect anything else. Flex's default `align-self: stretch` in
+   the column direction is exactly what's wanted here — every row (and the
    discard slot) fills the rail's width — so no `align-items` override is
    needed. */
 .lc-rail-decks {
