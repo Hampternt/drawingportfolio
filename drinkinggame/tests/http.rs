@@ -7218,3 +7218,49 @@ async fn test_a_settlement_announces_the_name_not_the_tab() {
     assert!(!screen.contains("lie-low"), "{screen}");
     assert!(!screen.contains("LIE LOW"), "{screen}");
 }
+
+/// Review fix round 1, item 3 (⚠️ 1 / erratum a2e66ab): a settle in the very
+/// round the game ends on must not go unannounced. `public_view().settled`'s
+/// `ended && t.round == self.round` arm (a2e66ab) exists exactly for this —
+/// a resolve() that ends the game returns before the round rollover a
+/// non-terminal settle would otherwise ride to the "round after" — but
+/// `settled` has exactly one consumer, `lc_banner`, and Task 4's rule 1
+/// (H6/E13) used to suppress the whole strip whenever `outcome.is_some()`,
+/// making the erratum's arm permanently unreachable on every surface. The
+/// event chip still yields to the victory presentation (never
+/// "HAPPY HOUR"/`data-event` here) — only the settle NAME survives onto the
+/// frozen tableau, on both the phone shell and the screen.
+#[tokio::test]
+async fn test_a_final_round_settle_reaches_the_frozen_game_over_banner() {
+    let (app, pool, code, alice, _bob, _alice_id, _bob_id) = lc_action_rig().await;
+
+    let mut st = lc_state(&pool, &code).await;
+    st.beat = Beat::Resolve;
+    st.beat_deadline_ms = None;
+    st.players[1].status = drinkinggame::last_call::Status::Eliminated; // bob out -> alice (seat 0) wins
+    st.event = Some("happy-hour".to_string()); // must not reach either surface
+    st.tab_ledger.push(drinkinggame::last_call::TabSettle {
+        seat: 0, // alice's real seat
+        tab: "lie-low".to_string(),
+        round: st.round, // settled in the game-ending round itself
+    });
+    assert!(st.outcome().is_some());
+    let game_id = lc_game_id(&pool, &code).await;
+    drinkinggame::db::set_game_state(&pool, game_id, &st.to_json()).await;
+
+    let shell = body_string(get_shell(&app, &alice, &code).await).await;
+    assert!(shell.contains("GAME OVER"), "{shell}");
+    assert!(shell.contains("ALICE SETTLED A TAB"), "{shell}");
+    assert!(!shell.contains("HAPPY HOUR"), "{shell}");
+    assert!(!shell.contains(r#"data-event"#), "{shell}");
+    assert!(!shell.contains("lie-low"), "{shell}");
+    assert!(!shell.contains("LIE LOW"), "{shell}");
+
+    let screen = body_string(get(&app, &format!("/room/{code}/screen")).await).await;
+    assert!(screen.contains("GAME OVER"), "{screen}");
+    assert!(screen.contains("ALICE SETTLED A TAB"), "{screen}");
+    assert!(!screen.contains("HAPPY HOUR"), "{screen}");
+    assert!(!screen.contains(r#"data-event"#), "{screen}");
+    assert!(!screen.contains("lie-low"), "{screen}");
+    assert!(!screen.contains("LIE LOW"), "{screen}");
+}

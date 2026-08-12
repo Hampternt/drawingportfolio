@@ -519,11 +519,16 @@ pub fn lc_banner(view: &PublicView) -> String {
     // the reason): no timer is emitted either way, since `beat_deadline_ms`
     // is `None` at the freeze regardless of which branch runs here.
     if view.outcome.is_some() {
-        // Plan H, decision H6: the game-over banner owns the moment — no
-        // event strip, no settlement announcement, regardless of what
-        // `view.event`/`view.settled` still carry.
+        // Plan H review fix (⚠️ 1 / erratum a2e66ab): game over owns the
+        // EVENT chip outright (H6) — no event strip ever renders here — but
+        // a settle from the game-ending round still has nowhere else to
+        // surface (`PublicView.settled`'s only consumer is this function),
+        // so the erratum's `ended && t.round == self.round` arm would
+        // otherwise be permanently dead. Names render on the frozen
+        // tableau; the event does not.
+        let strip = settled_strip(&view.settled);
         return format!(
-            r#"<div class="lc-banner lc-beat-rose" id="lc-banner" data-beat="{slug}" data-round="{round}"><span class="lc-banner-beat">GAME OVER</span><span class="lc-banner-meta">ROUND {round} &middot; LAST CALL</span></div>"#,
+            r#"<div class="lc-banner lc-beat-rose" id="lc-banner" data-beat="{slug}" data-round="{round}"><span class="lc-banner-beat">GAME OVER</span><span class="lc-banner-meta">ROUND {round} &middot; LAST CALL</span>{strip}</div>"#,
             slug = beat.slug(),
             round = view.round,
         );
@@ -547,15 +552,7 @@ pub fn lc_banner(view: &PublicView) -> String {
             None => String::new(),
         }
     } else if beat == Beat::Draw && !view.settled.is_empty() {
-        view.settled
-            .iter()
-            .map(|name| {
-                format!(
-                    r#"<div class="lc-event" data-settled><span class="lc-event-name">{name} SETTLED A TAB</span></div>"#,
-                    name = html_escape(&name.to_uppercase()),
-                )
-            })
-            .collect::<String>()
+        settled_strip(&view.settled)
     } else {
         String::new()
     };
@@ -567,6 +564,32 @@ pub fn lc_banner(view: &PublicView) -> String {
         label = beat.label(),
         index = beat.index(),
     )
+}
+
+/// Plan H review fix (Important 1): collapses every settled name into a
+/// single `.lc-event` row, never more. The spectator screen scales this
+/// component up into `.lc-screen-head`, a fixed `height: 88px` /
+/// `flex: 0 0 88px` box (F.2, authored design — it does not grow); a
+/// second wrapped row measured ~31px of overflow spilling through the
+/// header's border into the felt/rail below. The first settling name
+/// always renders in full; any more collapse into a `+{n}` count rather
+/// than a second line — never a second `.lc-event` div. Empty input (the
+/// common case — most rounds settle nothing) renders nothing.
+fn settled_strip(settled: &[String]) -> String {
+    let Some(first) = settled.first() else {
+        return String::new();
+    };
+    let name = html_escape(&first.to_uppercase());
+    let extra = settled.len() - 1;
+    if extra == 0 {
+        format!(
+            r#"<div class="lc-event" data-settled><span class="lc-event-name">{name} SETTLED A TAB</span></div>"#
+        )
+    } else {
+        format!(
+            r#"<div class="lc-event" data-settled><span class="lc-event-name">{name} SETTLED A TAB</span><span class="lc-event-text">&middot; +{extra}</span></div>"#
+        )
+    }
 }
 
 /// The beat timer. Its inline `style` sets only a duration custom property —
@@ -1189,6 +1212,25 @@ mod tests {
         outcome_view.beat_deadline_ms = None;
         outcome_view.outcome = Some(LcOutcome::Winner(0));
 
+        // Review fix (Important 2): `preview_state()`/`outcome_view` never
+        // set `event`/`settled`, so the sweep below never scanned the new
+        // strip markup at all — three more `lc_banner` variants that
+        // actually take each of Task 4's three live branches (event chip,
+        // collapsed multi-name settlement, and the review fix's game-over
+        // settlement) so a future edit to the strip stays guarded here too.
+        let mut event_view = ring_fixture(2);
+        event_view.beat = Beat::Deal;
+        event_view.event = Some("happy-hour".to_string());
+        let mut settled_view = ring_fixture(2);
+        settled_view.beat = Beat::Draw;
+        settled_view.settled = vec!["alice".to_string(), "bob".to_string()];
+        let mut outcome_settled_view = ring_fixture(2);
+        outcome_settled_view.beat = Beat::Resolve;
+        outcome_settled_view.beat_deadline_ms = None;
+        outcome_settled_view.outcome = Some(LcOutcome::Winner(0));
+        outcome_settled_view.event = Some("happy-hour".to_string());
+        outcome_settled_view.settled = vec!["alice".to_string()];
+
         let outputs = [
             card_face(card),
             card_face_expanded(card),
@@ -1209,6 +1251,9 @@ mod tests {
             lc_screen_panel(&revealed_view),
             lc_banner(&outcome_view),
             lc_screen_panel(&outcome_view),
+            lc_banner(&event_view),
+            lc_banner(&settled_view),
+            lc_banner(&outcome_settled_view),
             armed_column(&cards, false),
             cost_rail(&cards, 150),
             hand_wheel(&cards),
@@ -1698,15 +1743,29 @@ mod tests {
         assert_eq!(html.matches(r#"class="lc-event""#).count(), 1);
         no_hex(&html);
 
-        // event None, settled two names, beat Draw: one line per name.
+        // event None, settled two names, beat Draw: review fix (Important
+        // 1) — the screen's fixed-88px header has no room for a second
+        // wrapped row, so multiple settles collapse into ONE row: the
+        // first name in full, the rest as a `+{n}` count.
         let mut view = ring_fixture(2);
         view.beat = Beat::Draw;
         view.settled = vec!["alice".to_string(), "bob".to_string()];
         let html = lc_banner(&view);
-        assert!(html.contains("ALICE SETTLED A TAB"));
-        assert!(html.contains("BOB SETTLED A TAB"));
+        assert!(html.contains("ALICE SETTLED A TAB"), "{html}");
+        assert!(!html.contains("BOB SETTLED A TAB"), "{html}"); // collapsed, not a second name
+        assert!(html.contains("+1"), "{html}");
         assert!(!html.contains("data-event"));
-        assert_eq!(html.matches(r#"class="lc-event""#).count(), 2);
+        assert_eq!(html.matches(r#"class="lc-event""#).count(), 1, "{html}");
+        no_hex(&html);
+
+        // Three settles: still exactly one row, count grows to +2.
+        let mut view = ring_fixture(2);
+        view.beat = Beat::Draw;
+        view.settled = vec!["alice".to_string(), "bob".to_string(), "cara".to_string()];
+        let html = lc_banner(&view);
+        assert!(html.contains("ALICE SETTLED A TAB"), "{html}");
+        assert!(html.contains("+2"), "{html}");
+        assert_eq!(html.matches(r#"class="lc-event""#).count(), 1, "{html}");
         no_hex(&html);
 
         // event None, settled non-empty, beat Lock: announcements are a
@@ -1718,13 +1777,32 @@ mod tests {
         assert!(!html.contains(r#"class="lc-event""#));
         no_hex(&html);
 
-        // event Some, outcome Some: game over owns the banner (H6/E13) — no
-        // strip at all, regardless of what event/settled still carry.
+        // event Some, outcome Some, settled empty: game over owns the
+        // banner (H6/E13) — no strip at all when there is nothing to
+        // announce.
         let mut view = ring_fixture(2);
         view.event = Some("happy-hour".to_string());
         view.outcome = Some(LcOutcome::Winner(0));
         let html = lc_banner(&view);
         assert!(!html.contains(r#"class="lc-event""#));
+        no_hex(&html);
+
+        // Review fix (⚠️ 1 / erratum a2e66ab): outcome Some AND settled
+        // non-empty — the event still never renders (game over owns that
+        // chip), but a final-round settle is not lost: the name still
+        // appears on the frozen tableau, or the erratum's whole reason for
+        // existing (a settle in the game-ending round) would be
+        // unreachable on every surface.
+        let mut view = ring_fixture(2);
+        view.event = Some("happy-hour".to_string());
+        view.outcome = Some(LcOutcome::Winner(0));
+        view.settled = vec!["alice".to_string()];
+        let html = lc_banner(&view);
+        assert!(html.contains("GAME OVER"), "{html}");
+        assert!(html.contains("ALICE SETTLED A TAB"), "{html}");
+        assert!(!html.contains(r#"data-event"#), "{html}"); // no event, ever, on game over
+        assert!(!html.contains("HAPPY HOUR"), "{html}");
+        assert_eq!(html.matches(r#"class="lc-event""#).count(), 1, "{html}");
         no_hex(&html);
 
         // an id `event_def` does not recognise renders nothing (H3's
