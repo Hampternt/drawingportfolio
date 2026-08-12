@@ -45,12 +45,45 @@ function artfeedInit() {
   if (window.artfeedBound) return;
   window.artfeedBound = true;
 
+  document.addEventListener('click', function (e) {
+    const trigger = e.target.closest('[data-art-pop]');
+    const openPop = document.querySelector('.art-pop:not([hidden])');
+
+    if (trigger) {
+      const card = trigger.closest('.hm-post');
+      const pop = card && card.querySelector('.art-pop');
+      if (!pop) return;
+      const wasOpen = pop === openPop && !pop.hidden;
+      // Only one popover open at a time: close whichever other one is open
+      // before (possibly) opening this card's own.
+      if (openPop && openPop !== pop) openPop.hidden = true;
+      pop.hidden = wasOpen; // toggle: was open -> hide, was closed -> show
+      return;
+    }
+
+    // Click outside any popover and outside a trigger button closes the
+    // open popover, if there is one.
+    if (openPop && !e.target.closest('.art-pop')) {
+      openPop.hidden = true;
+    }
+  });
+
   document.addEventListener('keydown', function (e) {
     // Leave chords alone so Ctrl+K still reaches the command palette.
     if (e.ctrlKey || e.metaKey || e.altKey) return;
 
     const search = document.getElementById('art-search');
     const active = document.activeElement;
+
+    // Popover Esc is handled before the search-field Esc branch: one popover
+    // open at a time, so one Esc closes it and the next leaves the search
+    // field. This runs before artfeedIsTyping too, so Esc works while focus
+    // is inside the popover's own textarea.
+    const openPop = document.querySelector('.art-pop:not([hidden])');
+    if (e.key === 'Escape' && openPop) {
+      openPop.hidden = true;
+      return;
+    }
 
     // Esc is handled before the typing guard on purpose: leaving the field is
     // the one thing that has to work while the field has focus.

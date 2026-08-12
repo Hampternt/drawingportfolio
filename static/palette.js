@@ -34,6 +34,19 @@ const COMMANDS = [
     },
   },
   {
+    label: 'Filter drawings by tag',
+    keywords: ['filter', 'tags', 'tag', 'collection', 'rail', 'search'],
+    action() {
+      const rail = document.querySelector('.art-rail');
+      if (rail) {
+        const target = rail.querySelector('.art-rail__tags .art-rail__tag') || document.getElementById('art-search');
+        if (target) target.focus();
+      } else {
+        location.href = '/artportfolio';
+      }
+    },
+  },
+  {
     label: 'Go to Drawing Tasks',
     keywords: ['tasks', 'practice', 'prompts', 'drills', 'study', 'leetcode', 'exercises'],
     action() { location.href = '/tasks'; },
