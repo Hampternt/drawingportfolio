@@ -347,7 +347,7 @@ body.lc { margin: 0; min-height: 100vh; display: flex; flex-direction: column;
 .lc-status { height: 40px; padding: 0 20px; display: flex; align-items: center;
              justify-content: space-between; font-family: var(--font-mono);
              font-size: 12px; color: var(--lc-label); }
-#lc-banner { padding: 0 18px 12px; display: flex; align-items: baseline;
+#lc-banner { padding: 0 18px 12px; display: flex; flex-wrap: wrap; align-items: baseline;
              justify-content: space-between; gap: 12px; position: relative; }
 /* Plan E: the beat timer is a child of the banner (decision E10) so the
    lcpublic banner swap replaces both atomically. */
@@ -364,9 +364,16 @@ body.lc { margin: 0; min-height: 100vh; display: flex; flex-direction: column;
    Plan A-vis's motion section below (.lc-timer rules), same as is-hit/is-drawing
    above. */
 /* Plan H: the banner's event strip — one occupant at a time (decision H6):
-   the round's event from Deal on, settlement announcements at Draw. */
+   the round's event from Deal on, settlement announcements at Draw. Forced
+   onto its own row under the beat name / meta pair: `#lc-banner` gained
+   `flex-wrap: wrap` above and this rule claims the full row via
+   `flex-basis: 100%` (`min-width: 0` alone left it squeezed into whatever
+   space the other two flex items didn't claim on the same line — the meta
+   span has no `white-space: nowrap` of its own, so it broke across three
+   lines while the event text ellipsis-truncated to a couple of characters;
+   caught by looking at a real render, not by any test). */
 .lc-event { display: flex; align-items: baseline; gap: 8px; padding: 3px 0 1px;
-            border-top: 1px solid var(--lc-hair); min-width: 0; }
+            border-top: 1px solid var(--lc-hair); min-width: 0; flex-basis: 100%; }
 .lc-event-name { font-family: var(--font-ui); font-weight: 800; font-size: 11px;
                  letter-spacing: .12em; white-space: nowrap; color: var(--lc-text); }
 .lc-event-text { font-family: var(--font-ui); font-size: 11px; color: var(--lc-faint);
