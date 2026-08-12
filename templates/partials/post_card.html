@@ -1,5 +1,93 @@
-<article class="post-card" id="post-{{ post.id }}">
-  <img src="{{ post.image_url }}" alt="{{ post.caption }}" loading="lazy">
-  <p class="caption">{{ post.caption }}</p>
-  <small class="date">{{ post.created_at }}</small>
+{#
+  One drawing card. The single source of card markup for the whole app.
+
+  Rendered three ways, which is why it lives in a file rather than a format
+  string: inlined into the first page by feed_page, returned by the HTMX
+  pagination route, and returned by the upload handler in admin.rs so a new
+  post arrives styled like every other card.
+
+  Consumes `post` (a &Post), `is_first` (bool) and `is_admin` (bool) from the
+  caller's scope — either PostCardTemplate's fields or, when included from
+  post_grid.html, a loop variable, a `{% let %}` binding, and the grid's own
+  `is_admin` field.
+
+  `is_admin` is the EFFECTIVE viewer, not the raw session. Under `?visitor=1`
+  it is false, so the badge and the controls vanish along with the hidden
+  posts — which is the whole point of the preview.
+
+  Askama auto-escapes every {{ }}, so this replaces the hand-rolled
+  html_escape() the old format string needed.
+#}
+{#- tabindex="-1" makes the card focusable for J/K without putting 20 cards
+    into the Tab order, which would be worse than no keyboard support. -#}
+{#- The hidden card's dimming is a modifier class rather than an inline style,
+    so `prefers-reduced-motion` and the responsive rules can reach it. -#}
+<article class="hm-post{% if is_admin && post.visibility == "hidden" %} hm-post--dimmed{% endif %}" id="post-{{ post.id }}" tabindex="-1">
+  <div class="hm-post__media">
+    {% if is_admin %}
+    {#- Admin chrome. All of it is inside this one guard so a preview drops the
+        lot at once rather than one control at a time. -#}
+    <span class="art-badge art-badge--{{ post.visibility }}">{{ post.visibility }}</span>
+    <div class="art-card-controls">
+      {#- hx-patch sends form-encoded, which is what the route's `Form`
+          extractor reads. Swapping the returned card outerHTML into the closest
+          .hm-post is what keeps the badge and the dimming in step with the
+          database without a reload. -#}
+      {% if post.visibility != "hidden" %}
+      <button type="button" class="art-card-controls__btn" title="Hide" aria-label="Hide this drawing"
+              hx-patch="/api/admin/posts/{{ post.id }}/visibility"
+              hx-vals='{"visibility": "hidden"}'
+              hx-target="closest .hm-post" hx-swap="outerHTML">⦸</button>
+      {% endif %}
+      {% if post.visibility != "unlisted" %}
+      <button type="button" class="art-card-controls__btn" title="Unlist" aria-label="Make this drawing unlisted"
+              hx-patch="/api/admin/posts/{{ post.id }}/visibility"
+              hx-vals='{"visibility": "unlisted"}'
+              hx-target="closest .hm-post" hx-swap="outerHTML">🔗</button>
+      {% endif %}
+      {% if post.visibility != "public" %}
+      <button type="button" class="art-card-controls__btn" title="Make public" aria-label="Make this drawing public"
+              hx-patch="/api/admin/posts/{{ post.id }}/visibility"
+              hx-vals='{"visibility": "public"}'
+              hx-target="closest .hm-post" hx-swap="outerHTML">👁</button>
+      {% endif %}
+      {#- Popover triggers. Task 4 wires the show/hide + "one popover at a
+          time" behaviour off `data-art-pop`; here they are plain HTMX GETs
+          that fill the shared `.art-pop` container below. -#}
+      <button type="button" class="art-card-controls__btn" title="Edit caption & tags" aria-label="Edit caption and tags"
+              data-art-pop="edit"
+              hx-get="/api/admin/posts/{{ post.id }}/edit"
+              hx-target="#art-pop-{{ post.id }}" hx-swap="innerHTML">✎</button>
+      <button type="button" class="art-card-controls__btn" title="Collections" aria-label="Manage collections"
+              data-art-pop="collections"
+              hx-get="/api/admin/posts/{{ post.id }}/collections"
+              hx-target="#art-pop-{{ post.id }}" hx-swap="innerHTML">⊞</button>
+    </div>
+    {#- Shared popover container: one per card, filled by whichever fragment
+        was last fetched. Starts `hidden` — Task 4's JS reveals it on
+        trigger click and is the only thing that ever removes `hidden`. -#}
+    <div class="art-pop" id="art-pop-{{ post.id }}" hidden></div>
+    {% endif %}
+    {#- tabindex="-1" on the anchor as well as the article. The article carries
+        it so J/K navigation does not push twenty cards into the Tab order; an
+        ordinarily-focusable link inside would undo exactly that. -#}
+    <a class="hm-post__link" href="/artportfolio/{{ post.id }}" tabindex="-1">
+    <picture>
+      {#- An empty variant URL means that encode failed or has not finished.
+          AVIF in particular is produced by a detached task after the response
+          is sent, so a freshly uploaded post genuinely has none for a moment. -#}
+      {% if !post.avif_url.is_empty() %}<source srcset="{{ post.avif_url }}" type="image/avif">{% endif %}
+      {% if !post.webp_url.is_empty() %}<source srcset="{{ post.webp_url }}" type="image/webp">{% endif %}
+      <img src="{{ post.image_url }}" alt="{{ post.caption }}"
+           {#- Both dimensions or neither: width="0" would collapse the image.
+               Pre-012 rows carry 0 and simply render as they always did. -#}
+           {% if post.image_width > 0 && post.image_height > 0 %} width="{{ post.image_width }}" height="{{ post.image_height }}"{% endif %}
+           {% if is_first %} loading="eager" fetchpriority="high"{% else %} loading="lazy"{% endif %}>
+    </picture>
+    </a>
+  </div>
+  <div class="hm-post__body">
+    {% if !post.caption.is_empty() %}<p class="hm-post__caption">{{ post.caption }}</p>{% endif %}
+    <div class="hm-post__meta"><time datetime="{{ post.created_at }}">{{ post.created_at }}</time></div>
+  </div>
 </article>

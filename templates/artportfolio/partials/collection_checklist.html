@@ -1,0 +1,33 @@
+{#
+  One post's collection membership, rendered wholesale on every toggle and
+  swapped `outerHTML` into its own id — `hx-target="#art-checklist-
+  {{ post_id }}"` — so each render always carries the right verb per row: a
+  member's checkbox fires `hx-delete` to leave, a non-member's fires
+  `hx-post` to join. Two static attributes per branch beat client-side
+  logic here.
+
+  Consumes `post_id: i64`, `items: Vec<ChecklistItem>` from scope, where
+  `ChecklistItem { id, name, member }`.
+#}
+<div class="art-checklist" id="art-checklist-{{ post_id }}">
+  {% if items.is_empty() %}
+  <p class="art-checklist__empty">No collections yet.</p>
+  {% else %}
+  {% for item in items %}
+  <label class="art-checklist__item">
+    {% if item.member %}
+    <input type="checkbox" checked
+           hx-delete="/api/admin/posts/{{ post_id }}/collections/{{ item.id }}"
+           hx-target="#art-checklist-{{ post_id }}"
+           hx-swap="outerHTML">
+    {% else %}
+    <input type="checkbox"
+           hx-post="/api/admin/posts/{{ post_id }}/collections/{{ item.id }}"
+           hx-target="#art-checklist-{{ post_id }}"
+           hx-swap="outerHTML">
+    {% endif %}
+    {{ item.name }}
+  </label>
+  {% endfor %}
+  {% endif %}
+</div>

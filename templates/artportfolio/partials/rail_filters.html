@@ -1,0 +1,67 @@
+{#
+  The rail's filterable sections — Collections, Tags and the admin Visibility
+  trio — wrapped in one container so a page-0 htmx filter response can
+  re-render the whole thing out of band (Finding 1: rail link URLs are frozen
+  at full-page render, so composing two filters in a row — a collection click
+  then a tag click — silently dropped the first).
+
+  `{% include %}`d from both `filter_rail.html` (the full-page render,
+  `rail_filters_oob=false`) and `post_grid.html` (the htmx page-0 response,
+  `rail_filters_oob=true`), so the two paths share one template and cannot
+  drift on markup.
+
+  Deliberately excludes the search form: an in-flight OOB swap of it mid-
+  keystroke would steal focus from the input. The search input's own
+  hx-include target (`#art-rail-state`) is a separate block for that reason.
+
+  Consumes `is_admin`, `rail_collections`/`rail_tags`/`rail_vis`/
+  `collections` (viewer-aware, rebuilt from the just-applied filter) and
+  `rail_filters_oob` from scope.
+#}
+<div id="art-rail-filters"{% if rail_filters_oob %} hx-swap-oob="true"{% endif %}>
+  <div class="art-rail__section">
+    <div class="art-rail__section-head">
+      <span class="art-rail__section-label">Collections</span>
+      {% if is_admin %}
+      {#- Plain `hidden` toggle plus one inline onclick — same precedent as
+          `toggleComposer` in feed.html. #}
+      <button type="button" class="hm-iconbtn hm-iconbtn--sm" id="art-new-collection-toggle"
+              title="New collection" aria-label="New collection"
+              onclick="document.getElementById('art-new-collection-form').hidden = !document.getElementById('art-new-collection-form').hidden">+</button>
+      {% endif %}
+    </div>
+    {% if is_admin %}
+    <form id="art-new-collection-form" class="art-rail__new-collection" hidden
+          hx-post="/api/admin/collections" hx-target="#rail-collections" hx-swap="outerHTML">
+      <input class="hm-input" type="text" name="name" placeholder="Collection name" autocomplete="off">
+    </form>
+    {% endif %}
+    {% include "artportfolio/partials/rail_collections.html" %}
+  </div>
+
+  <div class="art-rail__section">
+    <span class="art-rail__section-label">Tags</span>
+    <div class="art-rail__tags">
+      {% for t in rail_tags %}
+      <a class="art-rail__tag{% if t.active %} is-active{% endif %}"
+         href="{{ t.page_url }}"
+         hx-get="{{ t.url }}" hx-target="#feed" hx-swap="innerHTML" hx-push-url="true">{{ t.label }}</a>
+      {% endfor %}
+    </div>
+  </div>
+
+  {% if is_admin %}
+  <div class="art-rail__section art-rail__vis">
+    <span class="art-rail__section-label">Visibility · admin</span>
+    {% for v in rail_vis %}
+    {#- A real checkbox's own checked state would fight the HTMX swap — the
+        state lives entirely in the URL, so this is a button styled to look
+        like one. No `href`: it is a `<button>`, not a link. #}
+    <button type="button" class="art-vis-check{% if v.checked %} is-checked{% endif %}"
+            hx-get="{{ v.url }}" hx-target="#feed" hx-swap="innerHTML" hx-push-url="true">
+      <span class="art-vis-check__box" aria-hidden="true"></span>{{ v.label }}
+    </button>
+    {% endfor %}
+  </div>
+  {% endif %}
+</div>

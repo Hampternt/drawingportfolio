@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+
+{% block title %}{% if !post.caption.is_empty() %}{{ post.caption }}{% else %}Drawing{% endif %} — Drawing Portfolio{% endblock %}
+
+{% block body_class %}art-page{% endblock %}
+
+{% block content %}
+{#- `.art-feed` must stay the outermost element here for the same reason it must
+    in feed.html: base.html's theme script keys off `main .art-feed` to re-apply
+    the art-page body class after a boosted navigation, which drops body
+    attributes. A card links here, and that link is boosted — without this
+    wrapper the permalink would arrive unstyled. -#}
+<div class="art-feed">
+
+  <div class="art-head">
+    <div class="art-head__inner">
+      <div class="hm-eyebrow art-head__label">
+        <a class="art-permalink__back" href="/artportfolio">← Back to the feed</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="art-body">
+    <div class="art-main">
+      <article class="art-permalink">
+        <div class="hm-post__media art-permalink__media">
+          <picture>
+            {#- Same variant fallback the card uses. AVIF is produced by a
+                detached task after the upload response is sent, so a post
+                reached seconds after upload genuinely has none yet. -#}
+            {% if !post.avif_url.is_empty() %}<source srcset="{{ post.avif_url }}" type="image/avif">{% endif %}
+            {% if !post.webp_url.is_empty() %}<source srcset="{{ post.webp_url }}" type="image/webp">{% endif %}
+            <img src="{{ post.image_url }}" alt="{{ post.caption }}"
+                 {#- Both dimensions or neither: width="0" would collapse the image. -#}
+                 {% if post.image_width > 0 && post.image_height > 0 %} width="{{ post.image_width }}" height="{{ post.image_height }}"{% endif %}
+                 loading="eager" fetchpriority="high">
+          </picture>
+        </div>
+        <div class="art-permalink__body">
+          {% if !post.caption.is_empty() %}<p class="art-permalink__caption">{{ post.caption }}</p>{% endif %}
+          <div class="hm-post__meta">
+            <time datetime="{{ post.created_at }}">{{ post.created_at }}</time>
+            {#- Admin-only, and it is the only place the state is stated in
+                words. A visitor cannot tell an unlisted post from a public one
+                by looking at it, which is the intent. -#}
+            {% if is_admin %}<span class="art-permalink__state">{{ post.visibility }}</span>{% endif %}
+          </div>
+        </div>
+      </article>
+    </div>
+  </div>
+
+</div>
+{% endblock %}

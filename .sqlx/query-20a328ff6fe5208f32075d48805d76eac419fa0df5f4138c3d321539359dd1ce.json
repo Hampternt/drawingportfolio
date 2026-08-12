@@ -1,0 +1,38 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT c.id AS \"id!: i64\", c.name, c.slug, COUNT(pc.post_id) AS \"count!: i64\"\n               FROM collections c\n               LEFT JOIN post_collections pc ON pc.collection_id = c.id\n               GROUP BY c.id, c.name, c.slug\n               ORDER BY c.name ASC",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!: i64",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "name",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "slug",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "count!: i64",
+        "ordinal": 3,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      true,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "20a328ff6fe5208f32075d48805d76eac419fa0df5f4138c3d321539359dd1ce"
+}

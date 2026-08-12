@@ -1,8 +1,13 @@
-use crate::{middleware::OptionalAuth, models::Post, AppState};
+use crate::{
+    middleware::OptionalAuth,
+    models::{CollectionWithCount, MonthGroup, Post, PostCounts, PostFilter, TagWithCount, Viewer},
+    AppState,
+};
 use askama::Template;
 use axum::{
-    extract::{Query, State},
-    response::{Html, IntoResponse},
+    extract::{Path, Query, State},
+    http::StatusCode,
+    response::{Html, IntoResponse, Response},
     routing::get,
     Json, Router,
 };
@@ -12,35 +17,752 @@ use std::sync::Arc;
 #[derive(Template)]
 #[template(path = "artportfolio/feed.html")]
 struct FeedTemplate {
+    /// The **effective** viewer's admin-ness, not the raw session bool. Under
+    /// `?visitor=1` this is false, so every admin affordance on the page goes
+    /// away at once rather than one control at a time.
     is_admin: bool,
+    /// True only for an admin who is currently previewing. Drives the "exit
+    /// preview" affordance, which is the one thing that must render while
+    /// `is_admin` is false — and must never render for a real visitor.
+    is_previewing: bool,
+    /// The page head's micro-label, pre-computed — see `head_label()`.
+    head_label: String,
     /// First page of posts rendered as HTML, injected directly into the page.
     /// Eliminates the extra HTMX round trip that would otherwise happen on load.
     initial_posts_html: String,
+    /// The active search, `""` when there is none. Fills the rail's input so a
+    /// shared or reloaded `?q=` URL comes back with its query still on screen.
+    q: String,
+    /// The raw list, viewer-scoped, alongside its `rail_collections` projection
+    /// below. `RailLink` carries no id — `tag_rail_links` builds the very same
+    /// struct from a source (`TagWithCount`) that has none at all — so
+    /// `rail_collections.html`'s admin delete control reaches into this list
+    /// instead, in lockstep order with `rail_collections` because
+    /// `collection_rail_links` maps it 1:1.
+    collections: Vec<CollectionWithCount>,
+    /// Rail rows: toggle URL, active state, label and viewer-aware count —
+    /// see `collection_rail_links`.
+    rail_collections: Vec<RailLink>,
+    /// Rail pills — see `tag_rail_links`.
+    rail_tags: Vec<RailLink>,
+    /// The admin-only visibility trio — always 3 entries; the template gates
+    /// rendering behind `is_admin`, not this Vec's length.
+    rail_vis: Vec<VisCheck>,
+    /// `filter.collection`, echoed for two consumers: `rail_collections.html`'s
+    /// active-row highlight (via each `RailLink.active`, computed separately)
+    /// is not this field's job — this one instead feeds the `#art-rail-state`
+    /// hidden input, so a search made while a collection is active does not
+    /// silently drop it.
+    active_collection: Option<String>,
+    /// `filter.tags`, comma-joined for the `#art-rail-state` hidden input.
+    /// Empty when there is no active tag filter.
+    active_tags: Vec<String>,
+    /// `filter.vis`, comma-joined for the `#art-rail-state` hidden input.
+    /// `None` (the viewer-default "all") renders no hidden field at all.
+    active_vis: Option<Vec<String>>,
+    /// The preview flag, so `#art-rail-state` carries `visitor=1` and a search
+    /// made mid-preview does not silently exit it.
+    preview: bool,
+    /// Always `false` on the full-page render — only `PostGridTemplate`'s
+    /// htmx page-0 response ever sets this `true`. Exists purely so
+    /// `rail_filters.html` (shared via `{% include %}` between this template
+    /// and `PostGridTemplate`) can read the same field name from either
+    /// scope; see `PostGridTemplate::rail_filters_oob`.
+    rail_filters_oob: bool,
+}
+
+/// One description, two consumers: the head label and (in plan B) the empty
+/// state. Pinned shape: tags in their given order, then the quoted search,
+/// then the collection slug, all joined by ` + ` — e.g.
+/// `perspective + ink + "loomis" + studies`, or `None` when nothing filters.
+///
+/// The `vis` subset is deliberately absent — it is admin plumbing, not a
+/// search a viewer typed.
+fn filter_desc(filter: &PostFilter) -> Option<String> {
+    let mut parts: Vec<String> = filter.tags.clone();
+    if let Some(q) = &filter.q {
+        parts.push(format!("\"{q}\""));
+    }
+    if let Some(c) = &filter.collection {
+        parts.push(c.clone());
+    }
+    if parts.is_empty() {
+        None
+    } else {
+        Some(parts.join(" + "))
+    }
+}
+
+/// Builds the page head's micro-label from the real counts.
+///
+/// `count_posts` runs only on a full page render — never on HTMX pagination,
+/// where the head is not re-rendered and the COUNT would be wasted work on
+/// every Load more.
+///
+/// `counts.total` already encodes the viewer — an admin's total is every post, a
+/// visitor's is the public count — so `viewer` here decides only the *shape* of
+/// the label, not its numbers.
+///
+/// It matters that the out-of-band label on the page-0 path passes the same
+/// effective viewer: a search made while previewing would otherwise paint an
+/// admin-shaped head (`· 7 hidden`) above a visitor-shaped feed.
+fn head_label(counts: &PostCounts, filter: &PostFilter, viewer: Viewer) -> String {
+    let total = counts.total;
+    let noun = if total == 1 { "drawing" } else { "drawings" };
+
+    // The split REPLACES the sort suffix and FOLLOWS an active search. Sort
+    // order is already stated by the feed itself, so spending the head's one
+    // line on it while withholding the counts would be the wrong trade.
+    let tail = if viewer.is_admin() {
+        format!(
+            " · {} public · {} unlisted · {} hidden",
+            counts.public, counts.unlisted, counts.hidden
+        )
+    } else {
+        String::new()
+    };
+
+    // Deliberately unescaped: the template renders this through `{{ }}` and
+    // Askama escapes it on the way out. Escaping here too would paint
+    // entities on the page.
+    match filter_desc(filter) {
+        Some(desc) => format!("{total} {noun} · matching {desc}{tail}"),
+        None if viewer.is_admin() => format!("{total} {noun}{tail}"),
+        None => format!("{total} {noun} · newest first"),
+    }
+}
+
+/// Trims the raw query and treats blank as absent.
+///
+/// One normalisation at the handler edge kills three separate defects: a head
+/// label reading `matching ""`, a `%%` pattern that matches every row, and a
+/// pushed URL carrying a pointless empty `?q=`.
+fn normalize_q(raw: Option<&str>) -> Option<String> {
+    raw.map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+}
+
+/// Splits a page of posts into month sections.
+///
+/// `created_at` is ISO8601 `TEXT`, so its first seven characters are `YYYY-MM`.
+/// Rows arrive already sorted `created_at DESC`, so this is one pass over
+/// consecutive runs — a hash map would risk reordering the feed.
+///
+/// `last_month` is the month the previous page ended on. When the first group
+/// matches it, that group's divider is suppressed: page 1 opening with more
+/// June posts must not draw a second `2026-06` rule under the one page 0 drew.
+fn group_by_month(posts: Vec<Post>, last_month: Option<&str>) -> Vec<MonthGroup> {
+    let mut groups: Vec<MonthGroup> = Vec::new();
+    for post in posts {
+        // `get(..7)` rather than `[..7]`: a malformed short timestamp would
+        // panic on a slice, and one bad row is not worth a 500.
+        let label = post.created_at.get(..7).unwrap_or("").to_string();
+        match groups.last_mut() {
+            Some(group) if group.label == label => {
+                group.count += 1;
+                group.posts.push(post);
+            }
+            _ => groups.push(MonthGroup {
+                // Only the leading group can be a continuation of the previous
+                // page; every later one starts a month this page opened.
+                show_divider: !groups.is_empty() || Some(label.as_str()) != last_month,
+                label,
+                count: 1,
+                posts: vec![post],
+            }),
+        }
+    }
+    groups
+}
+
+/// Writes the URL contract's query pairs onto an in-progress serializer, in
+/// this order and only when present: `q`, `tags` (comma-joined — the
+/// serializer percent-encodes the commas to `%2C`, which is fine), `collection`,
+/// `vis` (comma-joined), then `visitor=1` when `preview`.
+///
+/// The single producer for both `load_more_url` and `page_url`, so the two
+/// cannot drift — and plan B's rail-toggle URLs build on this same helper. The
+/// pair order is a contract, not a style choice.
+fn append_filter_pairs(
+    s: &mut url::form_urlencoded::Serializer<'_, String>,
+    filter: &PostFilter,
+    preview: bool,
+) {
+    if let Some(q) = &filter.q {
+        s.append_pair("q", q);
+    }
+    if !filter.tags.is_empty() {
+        s.append_pair("tags", &filter.tags.join(","));
+    }
+    if let Some(c) = &filter.collection {
+        s.append_pair("collection", c);
+    }
+    if let Some(vis) = &filter.vis {
+        s.append_pair("vis", &vis.join(","));
+    }
+    if preview {
+        s.append_pair("visitor", "1");
+    }
+}
+
+/// One rail row/pill — a collection row or a tag pill share this shape, which
+/// is why `collection_rail_links` and `tag_rail_links` both produce it. No id:
+/// `tag_rail_links` builds it from `TagWithCount`, which has none, so a field
+/// only one of the two callers could fill has no home here.
+pub(crate) struct RailLink {
+    pub label: String,
+    pub count: i64,
+    /// The fragment endpoint — `hx-get`'s target, never `href`. A middle-click
+    /// or a crawler following `href` here would land on a shell-less grid.
+    pub url: String,
+    /// The real page carrying the same next-state query string — `href`'s
+    /// target, built by `page_url` alongside `url` so the two cannot drift on
+    /// what the next click applies.
+    pub page_url: String,
+    pub active: bool,
+}
+
+/// One row of the admin-only Visibility trio.
+pub(crate) struct VisCheck {
+    pub label: &'static str,
+    pub url: String,
+    pub checked: bool,
+}
+
+/// One removable pill in the active-filter row — a tag, the quoted search, or
+/// the collection. `remove_url` is `filter_url` of the filter with just that
+/// one part cleared, so clicking it always lands on "everything else, minus
+/// this."
+pub(crate) struct FilterPill {
+    pub label: String,
+    /// The fragment endpoint for `hx-get`. Never `href` — see `RailLink::url`.
+    pub remove_url: String,
+    /// The real page for `href`, built alongside `remove_url` by `page_url`.
+    pub remove_page_url: String,
+}
+
+/// One pill per active filter part, in `filter_desc`'s exact order (tags,
+/// quoted q, collection) so the active-filter row and the empty state read
+/// identically. The `vis` subset gets no pill — mirroring `filter_desc`, it is
+/// the rail's admin plumbing, not something a viewer searched for.
+pub(crate) fn active_pills(filter: &PostFilter, preview: bool) -> Vec<FilterPill> {
+    let mut pills = Vec::new();
+    for tag in &filter.tags {
+        let mut next = filter.clone();
+        next.tags.retain(|t| t != tag);
+        pills.push(FilterPill {
+            label: tag.clone(),
+            remove_url: filter_url(&next, preview),
+            remove_page_url: page_url(&next, preview),
+        });
+    }
+    if let Some(q) = &filter.q {
+        let mut next = filter.clone();
+        next.q = None;
+        pills.push(FilterPill {
+            label: format!("\"{q}\""),
+            remove_url: filter_url(&next, preview),
+            remove_page_url: page_url(&next, preview),
+        });
+    }
+    if let Some(c) = &filter.collection {
+        let mut next = filter.clone();
+        next.collection = None;
+        pills.push(FilterPill {
+            label: c.clone(),
+            remove_url: filter_url(&next, preview),
+            remove_page_url: page_url(&next, preview),
+        });
+    }
+    pills
+}
+
+/// The rail's toggle-link URL: `/artportfolio/htmx/posts?…`, carrying every
+/// active filter pair but never a `page` — every rail click starts a fresh
+/// page 0. Built on `append_filter_pairs` like `load_more_url`/`page_url`, so
+/// all four cannot drift on what the query string contract means. Task 2
+/// reuses this for pill-removal URLs and `clear_url` (`filter_url` of
+/// `PostFilter::default()`, which is why `clear_url` still carries `preview`
+/// — clearing every filter must not also exit a preview).
+pub(crate) fn filter_url(filter: &PostFilter, preview: bool) -> String {
+    let mut s = url::form_urlencoded::Serializer::new(String::new());
+    append_filter_pairs(&mut s, filter, preview);
+    let qs = s.finish();
+    if qs.is_empty() {
+        "/artportfolio/htmx/posts".to_string()
+    } else {
+        format!("/artportfolio/htmx/posts?{qs}")
+    }
+}
+
+/// Builds the Collections rail: one toggle link per collection. Clicking the
+/// active row's link deselects it — the URL is `filter_url` of the current
+/// filter with `collection` cleared rather than set to itself — so there is
+/// always exactly one way to reach "no collection filter" from any row.
+pub(crate) fn collection_rail_links(
+    collections: &[CollectionWithCount],
+    filter: &PostFilter,
+    preview: bool,
+) -> Vec<RailLink> {
+    collections
+        .iter()
+        .map(|c| {
+            let active = filter.collection.as_deref() == Some(c.slug.as_str());
+            let mut next = filter.clone();
+            next.collection = if active { None } else { Some(c.slug.clone()) };
+            RailLink {
+                label: c.name.clone(),
+                count: c.count,
+                url: filter_url(&next, preview),
+                page_url: page_url(&next, preview),
+                active,
+            }
+        })
+        .collect()
+}
+
+/// Builds the Tags rail: one toggle pill per tag, added to or removed from
+/// `filter.tags` — survivors keep their given order, so repeated toggling
+/// never reshuffles the query string.
+pub(crate) fn tag_rail_links(
+    tags: &[TagWithCount],
+    filter: &PostFilter,
+    preview: bool,
+) -> Vec<RailLink> {
+    tags.iter()
+        .map(|t| {
+            let active = filter.tags.iter().any(|x| x == &t.name);
+            let mut next = filter.clone();
+            if active {
+                next.tags.retain(|x| x != &t.name);
+            } else {
+                next.tags.push(t.name.clone());
+            }
+            RailLink {
+                label: t.name.clone(),
+                count: t.count,
+                url: filter_url(&next, preview),
+                page_url: page_url(&next, preview),
+                active,
+            }
+        })
+        .collect()
+}
+
+/// Builds the admin-only Visibility trio. Always 3 entries regardless of
+/// viewer — the template, not this function, decides whether to render them.
+///
+/// `filter.vis: None` means "all" for the viewer, so it is expanded to the
+/// full trio before toggling. Two rules keep the URL sane at the edges:
+/// - A toggle that lands back on all three drops the param entirely
+///   (`vis: None`) — absent already means all, and a URL spelling out
+///   `vis=public,unlisted,hidden` would be noise.
+/// - A toggle that would empty the set (unchecking the one remaining checked
+///   box) is overridden to "every state but the one just clicked" instead —
+///   the same result a click from the untouched default produces. That reads
+///   as a no-op rather than a trap that zeroes the feed.
+pub(crate) fn vis_checks(filter: &PostFilter, preview: bool) -> Vec<VisCheck> {
+    const STATES: [&str; 3] = ["public", "unlisted", "hidden"];
+    let current: Vec<&str> = filter
+        .vis
+        .as_ref()
+        .map(|v| v.iter().map(String::as_str).collect())
+        .unwrap_or_else(|| STATES.to_vec());
+
+    STATES
+        .iter()
+        .map(|&state| {
+            let checked = current.contains(&state);
+            let mut next: Vec<&str> = if checked {
+                current.iter().copied().filter(|&s| s != state).collect()
+            } else {
+                let mut n = current.clone();
+                n.push(state);
+                n
+            };
+            if next.is_empty() {
+                next = STATES.iter().copied().filter(|&s| s != state).collect();
+            }
+            let mut f = filter.clone();
+            f.vis = if next.len() == STATES.len() {
+                None
+            } else {
+                Some(
+                    STATES
+                        .iter()
+                        .filter(|s| next.contains(s))
+                        .map(|s| s.to_string())
+                        .collect(),
+                )
+            };
+            VisCheck {
+                label: state,
+                url: filter_url(&f, preview),
+                checked,
+            }
+        })
+        .collect()
+}
+
+/// The Load more URL, built in Rust because Askama escapes HTML, not URLs — a
+/// query containing `&` or `%` must be percent-encoded before it reaches an
+/// attribute.
+///
+/// The preview flag rides along with the filter and `last_month`. Without it,
+/// page 0 renders as a visitor and the first Load more renders as an admin —
+/// hidden posts appear mid-feed, in the middle of the preview that exists to
+/// prove they do not.
+fn load_more_url(
+    next_page: i64,
+    filter: &PostFilter,
+    last_month: Option<&str>,
+    preview: bool,
+) -> String {
+    let mut s = url::form_urlencoded::Serializer::new(String::new());
+    s.append_pair("page", &next_page.to_string());
+    append_filter_pairs(&mut s, filter, preview);
+    if let Some(m) = last_month {
+        s.append_pair("last_month", m);
+    }
+    format!("/artportfolio/htmx/posts?{}", s.finish())
+}
+
+/// The URL the address bar should show for a filtered page — a real page, not
+/// the fragment endpoint that produced the swap. See `htmx_posts`.
+///
+/// Carries the preview flag for the same reason `load_more_url` does — a
+/// search while previewing must push a URL that reloads back into the
+/// preview, not out of it.
+fn page_url(filter: &PostFilter, preview: bool) -> String {
+    if filter.q.is_none()
+        && filter.tags.is_empty()
+        && filter.collection.is_none()
+        && filter.vis.is_none()
+        && !preview
+    {
+        return "/artportfolio".to_string();
+    }
+    let mut s = url::form_urlencoded::Serializer::new(String::new());
+    append_filter_pairs(&mut s, filter, preview);
+    format!("/artportfolio?{}", s.finish())
+}
+
+/// One drawing card — the single source of card markup in the app.
+///
+/// `pub` because `routes::admin` renders it for the upload response: a new post
+/// must come back as an `hm-post` like every other card, not as the legacy
+/// markup the admin dashboard still uses.
+#[derive(Template)]
+#[template(path = "partials/post_card.html")]
+pub struct PostCardTemplate<'a> {
+    pub post: &'a Post,
+    pub is_first: bool,
+    /// Gates the badge and the hover control cluster. Fed from the **effective**
+    /// viewer, so a preview drops them along with the hidden posts.
+    pub is_admin: bool,
+}
+
+/// A page of month sections plus Load more. Rendered by both the inline first
+/// page and the HTMX pagination route, so the two cannot drift.
+#[derive(Template)]
+#[template(path = "artportfolio/partials/post_grid.html")]
+struct PostGridTemplate {
+    groups: Vec<MonthGroup>,
+    /// Threaded to the card, which is `include`d from this template with
+    /// `{% let %}` bindings rather than constructed. Put the field on
+    /// `PostCardTemplate` alone and every card in the feed loses its badge while
+    /// the upload response keeps one — which reads as a caching bug.
+    is_admin: bool,
+    has_more: bool,
+    /// Pre-built, carrying the active query and the month this page ended on.
+    load_more_url: String,
+    /// Drives two things: whether an empty result renders the empty state (page
+    /// 1 of nothing means no drawings; page 3 of nothing just means the end),
+    /// and which single image gets `fetchpriority="high"`.
+    is_first_page: bool,
+    /// The page head's label, re-rendered as an out-of-band swap, or `""` to
+    /// leave the head alone.
+    ///
+    /// A search swaps `#feed` only, so without this the head would go on
+    /// claiming "32 drawings · newest first" above a single result — a visible
+    /// lie, not a stale nicety. Sent on page 0 of an HTMX request (a search or
+    /// a cleared filter); never on Load more, which appends and leaves the
+    /// total unchanged.
+    head_label_oob: String,
+    /// The active-filter row's removable pills, in `filter_desc`'s order.
+    /// Rendered only when `is_first_page` — see the template.
+    pills: Vec<FilterPill>,
+    /// `filter_url` of `PostFilter::default()` — clears every filter part but
+    /// keeps `preview`, so clearing filters mid-preview does not also exit it.
+    /// Feeds `hx-get`; `clear_page_url` feeds `href`.
+    clear_url: String,
+    /// `page_url` of `PostFilter::default()`, same `preview` handling as
+    /// `clear_url` — the real page a middle-click on Clear/Reset filters
+    /// should land on.
+    clear_page_url: String,
+    /// `filter_desc(filter).unwrap_or_default()` — `""` when nothing filters,
+    /// which is the empty state's cue to render "no drawings yet." instead of
+    /// naming a filter that does not exist.
+    filter_desc: String,
+    /// The plan gap this task also closes: the rail's search input
+    /// `hx-include`s `#art-rail-state`'s hidden fields, but a rail click only
+    /// swaps `#feed` — so without re-rendering this container out of band, the
+    /// next keystroke silently drops the tag/collection a rail click just
+    /// applied. `true` only for an htmx page-0 response (mirrors
+    /// `head_label_oob`'s own page-0-only, htmx-only rule); `false` for the
+    /// inlined first page (the shell already renders the real
+    /// `#art-rail-state`) and for Load more (which changes no filter).
+    rail_state_oob: bool,
+    /// The four fields below feed `rail_state_oob`'s markup — same shape and
+    /// names as `FeedTemplate`'s own, so the OOB block matches
+    /// `filter_rail.html`'s `#art-rail-state` byte for byte.
+    active_tags: Vec<String>,
+    active_collection: Option<String>,
+    active_vis: Option<Vec<String>>,
+    preview: bool,
+    /// The Finding-1 fix: rail toggle URLs were frozen at full-page render, so
+    /// composing two filters in a row (a collection click then a tag click)
+    /// silently dropped the first. `rail_filters.html` (shared via `{%
+    /// include %}` with `filter_rail.html`, so the two paths cannot drift) is
+    /// re-rendered here from the filter that just took effect, out of band,
+    /// same page-0-htmx-only rule as `rail_state_oob`. Deliberately excludes
+    /// the search form — an in-flight OOB swap of it mid-keystroke would
+    /// steal focus from the input.
+    rail_filters_oob: bool,
+    /// Feeds `rail_filters_oob`'s markup — same fields `FeedTemplate` passes
+    /// to the very same `rail_filters.html` partial, empty/default when
+    /// `rail_filters_oob` is false (Load more, or the inlined first page,
+    /// which never renders this block at all).
+    collections: Vec<CollectionWithCount>,
+    rail_collections: Vec<RailLink>,
+    rail_tags: Vec<RailLink>,
+    rail_vis: Vec<VisCheck>,
 }
 
 #[derive(Deserialize)]
 pub struct PageQuery {
     pub page: Option<i64>,
+    pub q: Option<String>,
+    /// The month the previous page ended on, so a month split across pages
+    /// renders one divider rather than two.
+    pub last_month: Option<String>,
+    /// `?visitor=1` — an admin asking to be shown a visitor's view.
+    ///
+    /// A string rather than a bool: serde parses `Option<bool>` from
+    /// `true`/`false`, not from `1`.
+    pub visitor: Option<String>,
+    /// Comma-separated, raw — normalized by `filter()`.
+    pub tags: Option<String>,
+    /// A collection slug, raw.
+    pub collection: Option<String>,
+    /// Comma-separated subset of `public,unlisted,hidden`, raw — admin-only in
+    /// effect. `filter()` drops it entirely for a non-admin viewer.
+    pub vis: Option<String>,
 }
 
-async fn feed_page(
-    OptionalAuth(is_admin): OptionalAuth,
-    State(state): State<Arc<AppState>>,
-) -> impl IntoResponse {
-    // Fetch first page here so posts arrive in the very first HTTP response.
-    // Without this, the browser would load the page and then fire a second
-    // request to /artportfolio/htmx/posts?page=0 before anything was visible.
-    let mut posts = crate::db::get_posts(&state.pool, 0).await;
+impl PageQuery {
+    /// The single owner of the parse. `viewer` must be the EFFECTIVE
+    /// viewer — a previewing admin has already been downgraded to
+    /// `Viewer::Visitor` by the time this runs, so `vis` is silently dropped
+    /// for them the same as any other visitor.
+    pub fn filter(&self, viewer: Viewer) -> PostFilter {
+        let vis = if viewer.is_admin() {
+            self.vis
+                .as_deref()
+                .map(|raw| {
+                    let mut list: Vec<String> = Vec::new();
+                    for v in raw.split(',').map(str::trim) {
+                        // unknown states are dropped, duplicates kept once,
+                        // first-occurrence order preserved
+                        if ["public", "unlisted", "hidden"].contains(&v)
+                            && !list.iter().any(|x| x == v)
+                        {
+                            list.push(v.to_string());
+                        }
+                    }
+                    list
+                })
+                .filter(|v| !v.is_empty())
+        } else {
+            // Silently ignored for visitors — the feed is public, and a 4xx
+            // here would leak that the param exists. A previewing admin is a
+            // visitor by the time this runs, because the caller passes the
+            // EFFECTIVE viewer.
+            None
+        };
+        PostFilter {
+            q: normalize_q(self.q.as_deref()),
+            tags: self
+                .tags
+                .as_deref()
+                .map(crate::db::normalize_tags)
+                .unwrap_or_default(),
+            collection: self
+                .collection
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_string),
+            vis,
+        }
+    }
+}
+
+fn is_preview(query: &PageQuery) -> bool {
+    query.visitor.as_deref() == Some("1")
+}
+
+/// The single viewer every other decision on the page is made from.
+///
+/// Deriving the db filter and the template flags separately is the failure this
+/// function exists to prevent: that combination renders a visitor's post set
+/// with admin badges and controls over it, so the preview gets wrong precisely
+/// the thing it exists to show.
+///
+/// The flag only ever downgrades. A visitor sending `?visitor=0` gains nothing,
+/// because the session bool is still false.
+fn effective_viewer(session_is_admin: bool, preview: bool) -> Viewer {
+    if session_is_admin && !preview {
+        Viewer::Admin
+    } else {
+        Viewer::Visitor
+    }
+}
+
+/// Fetches one page and renders its month sections.
+///
+/// `get_posts_page` asks for 21 rows to answer "is there another page?" without
+/// a COUNT; the 21st is dropped before grouping.
+///
+/// `emit_rail_state` is the page-0/htmx-only signal for the `#art-rail-state`
+/// AND `#art-rail-filters` OOB blocks — see `PostGridTemplate::rail_state_oob`
+/// / `rail_filters_oob`. `feed_page` always passes `false`; `htmx_posts`
+/// passes `page == 0`.
+///
+/// `rail_filters` is `Some((collections, tags))` exactly when the caller also
+/// wants the `#art-rail-filters` OOB block rendered — i.e. when
+/// `emit_rail_state` is true and the caller bothered to fetch the viewer-aware
+/// lists. `feed_page` always passes `None`: `emit_rail_state` is `false`
+/// there, so the block never renders and the lists would go unused.
+async fn render_grid(
+    state: &Arc<AppState>,
+    page: i64,
+    filter: &PostFilter,
+    last_month: Option<&str>,
+    head_label_oob: Option<String>,
+    viewer: Viewer,
+    preview: bool,
+    emit_rail_state: bool,
+    rail_filters: Option<(Vec<CollectionWithCount>, Vec<TagWithCount>)>,
+) -> String {
+    let mut posts = crate::db::get_posts_page(&state.pool, filter, page, viewer).await;
     let has_more = posts.len() > 20;
     if has_more {
         posts.truncate(20);
     }
-    let initial_posts_html = render_posts_html(&posts, has_more, 1);
+    let groups = group_by_month(posts, last_month);
+    // The next page has to know which month this one ended on, or it draws a
+    // duplicate divider for a month already on screen.
+    let next_last_month = groups.last().map(|g| g.label.clone());
+
+    // Rebuilt from the filter that just took effect — the fix for Finding 1's
+    // frozen rail: without this, a tag click after a collection click would
+    // toggle the tag but the collection would vanish from the URL the tag
+    // pill itself carries.
+    let (collections, rail_collections, rail_tags, rail_vis) = match rail_filters {
+        Some((collections, tags)) => {
+            let rail_collections = collection_rail_links(&collections, filter, preview);
+            let rail_tags = tag_rail_links(&tags, filter, preview);
+            let rail_vis = vis_checks(filter, preview);
+            (collections, rail_collections, rail_tags, rail_vis)
+        }
+        None => (Vec::new(), Vec::new(), Vec::new(), Vec::new()),
+    };
+
+    PostGridTemplate {
+        has_more,
+        is_admin: viewer.is_admin(),
+        load_more_url: load_more_url(page + 1, filter, next_last_month.as_deref(), preview),
+        is_first_page: page == 0,
+        head_label_oob: head_label_oob.unwrap_or_default(),
+        pills: active_pills(filter, preview),
+        clear_url: filter_url(&PostFilter::default(), preview),
+        clear_page_url: page_url(&PostFilter::default(), preview),
+        filter_desc: filter_desc(filter).unwrap_or_default(),
+        rail_state_oob: emit_rail_state,
+        active_tags: filter.tags.clone(),
+        active_collection: filter.collection.clone(),
+        active_vis: filter.vis.clone(),
+        preview,
+        rail_filters_oob: emit_rail_state,
+        collections,
+        rail_collections,
+        rail_tags,
+        rail_vis,
+        groups,
+    }
+    .render()
+    .unwrap()
+}
+
+async fn feed_page(
+    OptionalAuth(session_is_admin): OptionalAuth,
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<PageQuery>,
+) -> impl IntoResponse {
+    let preview = is_preview(&query);
+    let viewer = effective_viewer(session_is_admin, preview);
+    // `?q=`/`?tags=`/`?collection=`/`?vis=` are read here as well as on the
+    // fragment route, so a filtered feed survives a reload and is linkable.
+    //
+    // `?page=` is deliberately ignored: the inlined first page is always page 0,
+    // and deep-linking into the middle of an append-only feed would render a
+    // page with no way back to the top of it. PageQuery carries the field for
+    // the fragment route's sake.
+    let filter = query.filter(viewer);
+
+    // Fetch first page here so posts arrive in the very first HTTP response.
+    // Without this, the browser would load the page and then fire a second
+    // request to /artportfolio/htmx/posts?page=0 before anything was visible.
+    // No out-of-band label here: the shell renders the head itself.
+    let initial_posts_html =
+        render_grid(&state, 0, &filter, None, None, viewer, preview, false, None).await;
+    let counts = crate::db::count_posts(&state.pool, &filter, viewer).await;
+
+    // The rail only renders on the full page — the HTMX fragment route swaps
+    // `#feed`, which sits outside it — so this pair of queries runs here and
+    // nowhere else. Same effective `viewer` as `counts` above: a preview must
+    // see the visitor-scoped collections/tags, not the admin's full set.
+    let collections = crate::db::list_collections_with_counts(&state.pool, viewer).await;
+    let tags = crate::db::list_tags_with_counts(&state.pool, viewer).await;
+    let rail_collections = collection_rail_links(&collections, &filter, preview);
+    let rail_tags = tag_rail_links(&tags, &filter, preview);
+    let rail_vis = vis_checks(&filter, preview);
 
     Html(
         FeedTemplate {
-            is_admin,
+            // The *effective* viewer, never the raw session bool. Under preview
+            // this is false, so the `{% if is_admin %}` upload composer
+            // disappears along with the badges — correct, since a visitor has no
+            // composer, and it will read as a regression to anyone who has not
+            // seen this comment.
+            is_admin: viewer.is_admin(),
+            // The one thing the raw session bool is for. A real visitor must
+            // never see the "exit preview" affordance.
+            is_previewing: session_is_admin && preview,
+            head_label: head_label(&counts, &filter, viewer),
             initial_posts_html,
+            q: filter.q.clone().unwrap_or_default(),
+            active_collection: filter.collection.clone(),
+            active_tags: filter.tags.clone(),
+            active_vis: filter.vis.clone(),
+            preview,
+            collections,
+            rail_collections,
+            rail_tags,
+            rail_vis,
+            rail_filters_oob: false,
         }
         .render()
         .unwrap(),
@@ -48,41 +770,113 @@ async fn feed_page(
 }
 
 async fn htmx_posts(
+    OptionalAuth(session_is_admin): OptionalAuth,
     State(state): State<Arc<AppState>>,
-    Query(q): Query<PageQuery>,
-) -> impl IntoResponse {
-    let page = q.page.unwrap_or(0);
-    let mut posts = crate::db::get_posts(&state.pool, page).await;
-    let has_more = posts.len() > 20;
-    if has_more {
-        posts.truncate(20);
+    Query(query): Query<PageQuery>,
+) -> Response {
+    let page = query.page.unwrap_or(0);
+    let preview = is_preview(&query);
+    let viewer = effective_viewer(session_is_admin, preview);
+    let filter = query.filter(viewer);
+
+    // Page 0 replaces the whole feed, so the head's total has to move with it.
+    // Load more only appends, and pays no COUNT.
+    let oob = if page == 0 {
+        let counts = crate::db::count_posts(&state.pool, &filter, viewer).await;
+        Some(head_label(&counts, &filter, viewer))
+    } else {
+        None
+    };
+    // The Finding-1 fix: only page 0 needs the viewer-scoped lists behind the
+    // `#art-rail-filters` OOB block — Load more changes no filter, so this
+    // pair of queries would be dead weight there, same rule `oob` follows
+    // just above.
+    let rail_filters = if page == 0 {
+        let collections = crate::db::list_collections_with_counts(&state.pool, viewer).await;
+        let tags = crate::db::list_tags_with_counts(&state.pool, viewer).await;
+        Some((collections, tags))
+    } else {
+        None
+    };
+    let html = render_grid(
+        &state,
+        page,
+        &filter,
+        query.last_month.as_deref(),
+        oob,
+        viewer,
+        preview,
+        page == 0,
+        rail_filters,
+    )
+    .await;
+
+    if page == 0 {
+        // Page 0 is a search or a cleared filter — the address bar should read
+        // /artportfolio?q=…, a page that actually renders. `hx-push-url="true"`
+        // would push this fragment endpoint instead, and reloading THAT gives a
+        // bare grid with no shell, styles or nav.
+        //
+        // Load more (page >= 1) pushes nothing: it appends to what is already
+        // on screen and must not rewrite history.
+        ([("HX-Push-Url", page_url(&filter, preview))], Html(html)).into_response()
+    } else {
+        Html(html).into_response()
     }
-    Html(render_posts_html(&posts, has_more, page + 1))
 }
 
-/// Renders a page of posts into an HTML string.
-/// Used both for the inline first page (feed_page) and subsequent HTMX loads (htmx_posts),
-/// so the two code paths always produce identical markup.
-fn render_posts_html(posts: &[Post], has_more: bool, next_page: i64) -> String {
-    if posts.is_empty() && next_page == 1 {
-        return r#"<div class="empty-state"><p>No posts yet.</p></div>"#.to_string();
+#[derive(Template)]
+#[template(path = "artportfolio/post.html")]
+struct PostPageTemplate {
+    post: Post,
+    is_admin: bool,
+}
+
+/// `is_admin` is not decoration here — `base.html` renders it into the
+/// `IS_ADMIN` constant the command palette reads, so every page that extends the
+/// shell must supply it. The 404 always reports false: it is the response a
+/// visitor gets, and an admin who lands on it has asked for an id that does not
+/// exist.
+#[derive(Template)]
+#[template(path = "artportfolio/not_found.html")]
+struct NotFoundTemplate {
+    is_admin: bool,
+}
+
+/// One drawing at its own URL.
+///
+/// This route is what makes `unlisted` mean anything. Without somewhere to reach
+/// an unlisted post, unlisted and hidden would be the same state.
+///
+/// A hidden post and a missing id produce the same 404 page, byte for byte. A
+/// distinguishable response — a 403, or a different message — would confirm the
+/// row exists, which is precisely what hiding it is meant to withhold.
+async fn post_permalink(
+    OptionalAuth(session_is_admin): OptionalAuth,
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<i64>,
+    Query(query): Query<PageQuery>,
+) -> Response {
+    // A previewing admin gets the visitor's 404, or the preview lies about the
+    // one thing it exists to show.
+    let viewer = effective_viewer(session_is_admin, is_preview(&query));
+
+    match crate::db::get_post_by_id(&state.pool, id, viewer).await {
+        Some(post) => Html(
+            PostPageTemplate {
+                post,
+                is_admin: viewer.is_admin(),
+            }
+            .render()
+            .unwrap(),
+        )
+        .into_response(),
+        None => (
+            StatusCode::NOT_FOUND,
+            Html(NotFoundTemplate { is_admin: false }.render().unwrap()),
+        )
+            .into_response(),
     }
-    let mut html = String::new();
-    for (i, post) in posts.iter().enumerate() {
-        html.push_str(&post_card_html(post, i == 0));
-    }
-    if has_more {
-        html.push_str(&format!(
-            "<div class=\"load-more\" id=\"load-more\">\
-              <button hx-get=\"/artportfolio/htmx/posts?page={next_page}\" \
-                      hx-target=\"#load-more\" \
-                      hx-swap=\"outerHTML\">\
-                Load more\
-              </button>\
-            </div>"
-        ));
-    }
-    html
 }
 
 #[derive(serde::Serialize)]
@@ -92,11 +886,19 @@ struct PostsResponse {
 }
 
 async fn api_posts(
+    OptionalAuth(session_is_admin): OptionalAuth,
     State(state): State<Arc<AppState>>,
-    Query(q): Query<PageQuery>,
+    Query(query): Query<PageQuery>,
 ) -> impl IntoResponse {
-    let page = q.page.unwrap_or(0);
-    let mut posts = crate::db::get_posts(&state.pool, page).await;
+    let page = query.page.unwrap_or(0);
+    // Reads the session but deliberately not the preview flag: the API has no
+    // head, no pagination UI and nothing to preview.
+    let viewer = effective_viewer(session_is_admin, false);
+    // The same filter the HTML feed applies, so the two cannot drift on what
+    // "matching" means. Same params, no preview, JSON shape unchanged — the
+    // recorded trade-off is no tags/collections in the payload.
+    let filter = query.filter(viewer);
+    let mut posts = crate::db::get_posts_page(&state.pool, &filter, page, viewer).await;
     let has_more = posts.len() > 20;
     if has_more {
         posts.truncate(20);
@@ -104,62 +906,15 @@ async fn api_posts(
     Json(PostsResponse { posts, has_more })
 }
 
-pub fn post_card_html(post: &Post, is_first: bool) -> String {
-    let caption_html = if post.caption.is_empty() {
-        String::new()
-    } else {
-        format!(
-            "  <p class=\"caption\">{}</p>\n",
-            html_escape(&post.caption)
-        )
-    };
-    let loading = if is_first {
-        r#"loading="eager" fetchpriority="high""#
-    } else {
-        r#"loading="lazy""#
-    };
-    let avif_source = if !post.avif_url.is_empty() {
-        format!(
-            "    <source srcset=\"{}\" type=\"image/avif\">\n",
-            html_escape(&post.avif_url)
-        )
-    } else {
-        String::new()
-    };
-    let webp_source = if !post.webp_url.is_empty() {
-        format!(
-            "    <source srcset=\"{}\" type=\"image/webp\">\n",
-            html_escape(&post.webp_url)
-        )
-    } else {
-        String::new()
-    };
-    format!(
-        r#"<article class="post-card" id="post-{}">
-  <picture>
-{avif_source}{webp_source}    <img src="{}" alt="{}" {loading}>
-  </picture>
-{caption_html}  <small class="date">{}</small>
-</article>"#,
-        post.id,
-        html_escape(&post.image_url),
-        html_escape(&post.caption),
-        html_escape(&post.created_at),
-    )
-}
-
-pub fn html_escape(s: &str) -> String {
-    s.replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-}
-
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/artportfolio", get(feed_page))
         .route("/artportfolio/htmx/posts", get(htmx_posts))
         .route("/artportfolio/api/posts", get(api_posts))
+        // Registered last so the file reads in specificity order. There is no
+        // collision to avoid — the two routes above are two segments deep and
+        // this one is a single segment.
+        .route("/artportfolio/{id}", get(post_permalink))
 }
 
 #[cfg(test)]
@@ -222,13 +977,48 @@ mod tests {
                     "",
                     crate::models::PostFormat::Single.as_str(),
                     0,
+                    0,
+                    0,
+                    crate::models::Visibility::Public,
                 )
                 .await;
             }
             pool
         };
-        let posts = crate::db::get_posts(&pool, 0).await;
+        let posts =
+            crate::db::get_posts_page(&pool, &PostFilter::default(), 0, Viewer::Admin).await;
         assert!(posts.len() > 20, "expected 21 rows with has_more=true");
+    }
+
+    /// Renders one card the way every caller now does. These four assertions
+    /// were written against the old `post_card_html()` format string; they are
+    /// ported rather than dropped because they pin behaviour the template still
+    /// owes — escaping, the picture fallback, and the empty-caption case.
+    fn card(post: &crate::models::Post, is_first: bool) -> String {
+        PostCardTemplate {
+            post,
+            is_first,
+            is_admin: false,
+        }
+        .render()
+        .unwrap()
+    }
+
+    /// A Post with the fields these tests do not care about filled in.
+    fn sample_post(id: i64, caption: &str) -> crate::models::Post {
+        crate::models::Post {
+            id,
+            caption: caption.to_string(),
+            image_url: "https://example.com/img.jpg".to_string(),
+            webp_url: "".to_string(),
+            avif_url: "".to_string(),
+            format: "single".to_string(),
+            file_size_bytes: 0,
+            created_at: "2024-01-01T00:00:00".to_string(),
+            image_width: 0,
+            image_height: 0,
+            visibility: crate::models::Visibility::Public.as_str().to_string(),
+        }
     }
 
     #[test]
@@ -242,11 +1032,14 @@ mod tests {
             format: "single".to_string(),
             file_size_bytes: 0,
             created_at: "2024-01-01T00:00:00".to_string(),
+            image_width: 0,
+            image_height: 0,
+            visibility: crate::models::Visibility::Public.as_str().to_string(),
         };
-        let html = post_card_html(&post, false);
+        let html = card(&post, false);
         assert!(
-            !html.contains("class=\"caption\""),
-            "empty caption must not render p.caption"
+            !html.contains("hm-post__caption"),
+            "empty caption must not render the caption paragraph"
         );
     }
 
@@ -261,13 +1054,28 @@ mod tests {
             format: crate::models::PostFormat::Single.as_str().to_string(),
             file_size_bytes: 0,
             created_at: "2024-01-01T00:00:00".to_string(),
+            image_width: 0,
+            image_height: 0,
+            visibility: crate::models::Visibility::Public.as_str().to_string(),
         };
-        let html = post_card_html(&post, false);
+        let html = card(&post, false);
+        // The security property, and the only part that must never change: no
+        // raw tag survives into the output, in the caption or the alt text.
         assert!(
-            !html.contains("<script>"),
-            "raw script tag should be escaped"
+            !html.contains("<script>") && !html.contains("</script>"),
+            "raw script tag should be escaped: {html}"
         );
-        assert!(html.contains("&lt;script&gt;"));
+
+        // Askama escapes to NUMERIC character references (&#60;), where the
+        // hand-rolled html_escape this replaced used named ones (&lt;). Both are
+        // valid HTML and render identically, so accept either rather than
+        // pinning one engine's spelling — the assertion above is the real test.
+        let escaped_lt = html.contains("&#60;") || html.contains("&lt;");
+        let escaped_gt = html.contains("&#62;") || html.contains("&gt;");
+        assert!(
+            escaped_lt && escaped_gt,
+            "angle brackets must appear as entities: {html}"
+        );
     }
 
     #[test]
@@ -281,8 +1089,11 @@ mod tests {
             format: "single".to_string(),
             file_size_bytes: 0,
             created_at: "2024-01-01T00:00:00".to_string(),
+            image_width: 0,
+            image_height: 0,
+            visibility: crate::models::Visibility::Public.as_str().to_string(),
         };
-        let html = post_card_html(&post, false);
+        let html = card(&post, false);
         assert!(html.contains("<picture>"), "should contain picture element");
         assert!(
             html.contains("type=\"image/avif\""),
@@ -307,13 +1118,1483 @@ mod tests {
             format: "single".to_string(),
             file_size_bytes: 0,
             created_at: "2024-01-01T00:00:00".to_string(),
+            image_width: 0,
+            image_height: 0,
+            visibility: crate::models::Visibility::Public.as_str().to_string(),
         };
-        let html = post_card_html(&post, false);
+        let html = card(&post, false);
         assert!(
             html.contains("<picture>"),
             "picture element should always be present"
         );
         assert!(!html.contains("image/avif"), "no avif source for empty url");
         assert!(!html.contains("image/webp"), "no webp source for empty url");
+    }
+
+    /// A visitor-shaped `PostCounts` — `total` is all these assertions read.
+    fn visitor_counts(total: i64) -> PostCounts {
+        PostCounts {
+            total,
+            public: total,
+            unlisted: 0,
+            hidden: 0,
+        }
+    }
+
+    /// A `PostFilter` with only `q` set — mirrors `db.rs`'s own `q_filter` test
+    /// helper.
+    fn q_filter(q: &str) -> PostFilter {
+        PostFilter {
+            q: Some(q.to_string()),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn test_head_label_states_the_real_total() {
+        // Replaces the pre-count_posts version of this test, which pinned a
+        // vaguer fallback ("newest first" with no number) that existed only
+        // because there was no COUNT to state a total with.
+        assert_eq!(
+            head_label(
+                &visitor_counts(117),
+                &PostFilter::default(),
+                Viewer::Visitor
+            ),
+            "117 drawings · newest first"
+        );
+        assert_eq!(
+            head_label(&visitor_counts(1), &PostFilter::default(), Viewer::Visitor),
+            "1 drawing · newest first"
+        );
+        assert_eq!(
+            head_label(&visitor_counts(0), &PostFilter::default(), Viewer::Visitor),
+            "0 drawings · newest first"
+        );
+    }
+
+    #[test]
+    fn test_head_label_names_the_active_search() {
+        assert_eq!(
+            head_label(&visitor_counts(12), &q_filter("loomis"), Viewer::Visitor),
+            "12 drawings · matching \"loomis\""
+        );
+        assert_eq!(
+            head_label(&visitor_counts(1), &q_filter("loomis"), Viewer::Visitor),
+            "1 drawing · matching \"loomis\""
+        );
+    }
+
+    #[test]
+    fn test_normalize_q_treats_blank_as_absent() {
+        assert_eq!(normalize_q(None), None);
+        assert_eq!(normalize_q(Some("")), None);
+        assert_eq!(normalize_q(Some("   ")), None);
+        assert_eq!(normalize_q(Some("  loomis ")).as_deref(), Some("loomis"));
+    }
+
+    /// A post carrying only the field month grouping reads.
+    fn post_dated(id: i64, created_at: &str) -> crate::models::Post {
+        let mut post = sample_post(id, "");
+        post.created_at = created_at.to_string();
+        post
+    }
+
+    #[test]
+    fn test_group_by_month_splits_on_the_iso_prefix() {
+        let posts = vec![
+            post_dated(1, "2026-08-03T10:00:00"),
+            post_dated(2, "2026-08-01T10:00:00"),
+            post_dated(3, "2026-07-20T10:00:00"),
+            post_dated(4, "2026-06-30T10:00:00"),
+            post_dated(5, "2026-06-02T10:00:00"),
+        ];
+        let groups = group_by_month(posts, None);
+
+        assert_eq!(groups.len(), 3);
+        assert_eq!(groups[0].label, "2026-08");
+        assert_eq!(groups[0].count, 2);
+        assert_eq!(groups[1].label, "2026-07");
+        assert_eq!(groups[1].count, 1);
+        assert_eq!(groups[2].label, "2026-06");
+        assert_eq!(groups[2].count, 2);
+        assert!(
+            groups.iter().all(|g| g.show_divider),
+            "with no previous page every month opens with its own divider"
+        );
+        assert_eq!(
+            groups.iter().map(|g| g.posts.len()).sum::<usize>(),
+            5,
+            "grouping loses no posts"
+        );
+    }
+
+    #[test]
+    fn test_last_month_suppresses_only_a_matching_leading_divider() {
+        // Page 1 opens with more July posts, then rolls into June.
+        let posts = vec![
+            post_dated(1, "2026-07-09T10:00:00"),
+            post_dated(2, "2026-06-28T10:00:00"),
+        ];
+        let groups = group_by_month(posts, Some("2026-07"));
+
+        assert!(
+            !groups[0].show_divider,
+            "2026-07 is already on screen from the previous page"
+        );
+        assert_eq!(
+            groups[0].label, "2026-07",
+            "the label survives suppression — the next page's last_month is built from it"
+        );
+        assert!(groups[1].show_divider, "June is new on this page");
+    }
+
+    #[test]
+    fn test_a_last_month_that_does_not_match_suppresses_nothing() {
+        let posts = vec![post_dated(1, "2026-07-09T10:00:00")];
+        let groups = group_by_month(posts, Some("2026-05"));
+        assert!(groups[0].show_divider);
+    }
+
+    #[test]
+    fn test_group_by_month_of_nothing_is_empty() {
+        assert!(group_by_month(vec![], None).is_empty());
+        assert!(group_by_month(vec![], Some("2026-07")).is_empty());
+    }
+
+    #[test]
+    fn test_load_more_url_percent_encodes_the_query() {
+        assert_eq!(
+            load_more_url(1, &q_filter("100%"), Some("2026-07"), false),
+            "/artportfolio/htmx/posts?page=1&q=100%25&last_month=2026-07"
+        );
+        assert_eq!(
+            load_more_url(1, &PostFilter::default(), None, false),
+            "/artportfolio/htmx/posts?page=1"
+        );
+        assert_eq!(
+            load_more_url(3, &q_filter("a&b"), None, false),
+            "/artportfolio/htmx/posts?page=3&q=a%26b"
+        );
+    }
+
+    #[test]
+    fn test_page_url_is_the_page_not_the_fragment_endpoint() {
+        assert_eq!(page_url(&PostFilter::default(), false), "/artportfolio");
+        assert_eq!(
+            page_url(&q_filter("loomis"), false),
+            "/artportfolio?q=loomis"
+        );
+        assert_eq!(page_url(&q_filter("100%"), false), "/artportfolio?q=100%25");
+    }
+
+    #[test]
+    fn test_load_more_url_carries_filters() {
+        let f = PostFilter {
+            q: Some("loomis".to_string()),
+            tags: vec!["ink".to_string(), "perspective".to_string()],
+            collection: Some("studies".to_string()),
+            vis: None,
+        };
+        assert_eq!(
+            load_more_url(1, &f, None, false),
+            "/artportfolio/htmx/posts?page=1&q=loomis&tags=ink%2Cperspective&collection=studies"
+        );
+    }
+
+    #[test]
+    fn test_page_url_carries_filters() {
+        let f = PostFilter {
+            tags: vec!["ink".to_string()],
+            ..Default::default()
+        };
+        assert_eq!(page_url(&f, true), "/artportfolio?tags=ink&visitor=1");
+    }
+
+    #[tokio::test]
+    async fn test_htmx_page_0_pushes_the_page_url_not_the_fragment_url() {
+        let app = test_app().await;
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .uri("/artportfolio/htmx/posts?q=loomis")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(
+            resp.headers().get("HX-Push-Url").unwrap(),
+            "/artportfolio?q=loomis",
+            "pushing the fragment URL would give a bare grid on reload"
+        );
+    }
+
+    /// Renders a fragment route and returns its body as a string.
+    async fn fragment(app: Router, uri: &str) -> String {
+        let resp = app
+            .oneshot(Request::builder().uri(uri).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        String::from_utf8(body.to_vec()).unwrap()
+    }
+
+    #[tokio::test]
+    async fn test_search_re_renders_the_head_label_out_of_band() {
+        // A search swaps #feed alone, so the head has to travel with it or it
+        // goes on stating the unfiltered total above a filtered feed.
+        let html = fragment(test_app().await, "/artportfolio/htmx/posts?q=loomis").await;
+        assert!(
+            html.contains(r#"id="art-head-label" hx-swap-oob="true""#),
+            "the fragment must carry the head label as an OOB swap: {html}"
+        );
+        assert!(
+            html.contains("matching"),
+            "and the label must name the active search: {html}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_load_more_leaves_the_head_label_alone() {
+        let html = fragment(test_app().await, "/artportfolio/htmx/posts?page=1").await;
+        assert!(
+            !html.contains("hx-swap-oob"),
+            "appending changes no total, so it must not touch the head: {html}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_load_more_pushes_no_url() {
+        let app = test_app().await;
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .uri("/artportfolio/htmx/posts?page=1")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert!(
+            resp.headers().get("HX-Push-Url").is_none(),
+            "appending to the feed must not rewrite the address bar"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_api_posts_applies_the_same_caption_filter() {
+        let pool = SqlitePoolOptions::new()
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        crate::db::run_migrations(&pool).await;
+        for caption in ["Loomis head", "figure drawing"] {
+            crate::db::insert_post(
+                &pool,
+                caption,
+                "https://example.com/img.jpg",
+                "",
+                "",
+                crate::models::PostFormat::Single.as_str(),
+                0,
+                0,
+                0,
+                crate::models::Visibility::Public,
+            )
+            .await;
+        }
+        let filter = PostFilter {
+            q: Some("loomis".to_string()),
+            ..Default::default()
+        };
+        let hits = crate::db::get_posts_page(&pool, &filter, 0, Viewer::Admin).await;
+        assert_eq!(
+            hits.len(),
+            1,
+            "the JSON API filters through the same db call"
+        );
+    }
+
+    #[test]
+    fn test_post_card_emits_dimensions_when_known() {
+        let mut post = sample_post(5, "a drawing");
+        post.image_width = 1600;
+        post.image_height = 900;
+        let html = card(&post, false);
+        assert!(
+            html.contains("width=\"1600\""),
+            "known width is emitted so the masonry can reserve the box: {html}"
+        );
+        assert!(html.contains("height=\"900\""));
+    }
+
+    #[test]
+    fn test_post_card_omits_dimensions_when_zero() {
+        // Pre-012 rows carry 0. width="0" would collapse the image to nothing,
+        // so both attributes must be absent rather than zero.
+        let html = card(&sample_post(6, "legacy row"), false);
+        assert!(!html.contains("width=\"0\""), "width=0 would collapse it");
+        assert!(!html.contains("height=\"0\""));
+    }
+
+    #[test]
+    fn test_post_card_first_is_eager_rest_are_lazy() {
+        let post = sample_post(7, "above the fold");
+        let first = card(&post, true);
+        assert!(first.contains("loading=\"eager\""));
+        assert!(
+            first.contains("fetchpriority=\"high\""),
+            "the first card is the LCP candidate"
+        );
+
+        let rest = card(&post, false);
+        assert!(rest.contains("loading=\"lazy\""));
+        assert!(!rest.contains("fetchpriority"));
+    }
+
+    #[test]
+    fn test_upload_response_renders_the_same_card_markup_as_the_feed() {
+        // routes::admin renders PostCardTemplate for the composer's upload
+        // response (source=gallery) and swaps it into #feed. If that path ever
+        // diverges from the feed's own markup, a fresh upload looks broken
+        // among its neighbours while the build stays green — so pin the class
+        // the feed's CSS actually targets.
+        let html = card(&sample_post(8, "just uploaded"), false);
+        assert!(
+            html.contains("class=\"hm-post\""),
+            "upload response must be design-system markup, not legacy .post-card: {html}"
+        );
+        assert!(
+            !html.contains("class=\"post-card\""),
+            "legacy card class must not appear in the feed's card"
+        );
+    }
+
+    // ===== Visibility enforcement (slice 2) =====
+
+    /// A router plus the pool behind it, so a test can seed rows and sessions
+    /// the handlers will actually see. `test_app()` keeps its pool private.
+    async fn app_with_pool() -> (Router, crate::db::DbPool) {
+        let pool = SqlitePoolOptions::new()
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        crate::db::run_migrations(&pool).await;
+        let storage = crate::storage::ObjectStorage::from_env().await;
+        let rp_origin = url::Url::parse("http://localhost:3000").unwrap();
+        let webauthn = webauthn_rs::prelude::WebauthnBuilder::new("localhost", &rp_origin)
+            .unwrap()
+            .build()
+            .unwrap();
+        let state = Arc::new(crate::AppState {
+            pool: pool.clone(),
+            storage,
+            webauthn,
+        });
+        (router().with_state(state), pool)
+    }
+
+    async fn seed(pool: &crate::db::DbPool, caption: &str, visibility: crate::models::Visibility) {
+        let post = crate::db::insert_post(
+            pool,
+            caption,
+            "https://example.com/img.jpg",
+            "",
+            "",
+            crate::models::PostFormat::Single.as_str(),
+            0,
+            0,
+            0,
+            crate::models::Visibility::Public,
+        )
+        .await;
+        crate::db::set_post_visibility(pool, post.id, visibility).await;
+    }
+
+    /// A session row plus the cookie header that presents it.
+    async fn admin_cookie(pool: &crate::db::DbPool) -> String {
+        crate::db::create_session(pool, "test-session", "2099-01-01 00:00:00").await;
+        "session=test-session".to_string()
+    }
+
+    async fn body_of(resp: axum::response::Response) -> String {
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        String::from_utf8(bytes.to_vec()).unwrap()
+    }
+
+    async fn get(app: &Router, uri: &str, cookie: Option<&str>) -> axum::response::Response {
+        let mut req = Request::builder().uri(uri);
+        if let Some(c) = cookie {
+            req = req.header("cookie", c);
+        }
+        app.clone()
+            .oneshot(req.body(Body::empty()).unwrap())
+            .await
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn test_feed_page_visitor_omits_hidden() {
+        let (app, pool) = app_with_pool().await;
+        seed(&pool, "on show", crate::models::Visibility::Public).await;
+        seed(&pool, "kept back", crate::models::Visibility::Hidden).await;
+        seed(&pool, "by link only", crate::models::Visibility::Unlisted).await;
+        let body = body_of(get(&app, "/artportfolio", None).await).await;
+        assert!(body.contains("on show"));
+        assert!(!body.contains("kept back"));
+        assert!(!body.contains("by link only"));
+    }
+
+    #[tokio::test]
+    async fn test_feed_page_admin_sees_all() {
+        let (app, pool) = app_with_pool().await;
+        seed(&pool, "on show", crate::models::Visibility::Public).await;
+        seed(&pool, "kept back", crate::models::Visibility::Hidden).await;
+        let cookie = admin_cookie(&pool).await;
+        let body = body_of(get(&app, "/artportfolio", Some(&cookie)).await).await;
+        assert!(body.contains("on show"));
+        assert!(body.contains("kept back"));
+    }
+
+    #[tokio::test]
+    async fn test_htmx_posts_visitor_omits_hidden_page_0() {
+        let (app, pool) = app_with_pool().await;
+        seed(&pool, "on show", crate::models::Visibility::Public).await;
+        seed(&pool, "kept back", crate::models::Visibility::Hidden).await;
+        let body = body_of(get(&app, "/artportfolio/htmx/posts?page=0", None).await).await;
+        assert!(body.contains("on show"));
+        assert!(!body.contains("kept back"));
+    }
+
+    /// The leak this task exists to close. `htmx_posts` never extracted
+    /// `OptionalAuth`, so page 0 could render filtered while the first Load more
+    /// handed back everything — a page-0-only test would pass throughout.
+    #[tokio::test]
+    async fn test_htmx_posts_visitor_omits_hidden_page_1() {
+        let (app, pool) = app_with_pool().await;
+        for i in 0..25 {
+            seed(
+                &pool,
+                &format!("public {i}"),
+                crate::models::Visibility::Public,
+            )
+            .await;
+        }
+        seed(&pool, "kept back", crate::models::Visibility::Hidden).await;
+        let body = body_of(get(&app, "/artportfolio/htmx/posts?page=1", None).await).await;
+        assert!(!body.contains("kept back"));
+    }
+
+    #[tokio::test]
+    async fn test_api_posts_visitor_omits_hidden() {
+        let (app, pool) = app_with_pool().await;
+        seed(&pool, "on show", crate::models::Visibility::Public).await;
+        seed(&pool, "kept back", crate::models::Visibility::Hidden).await;
+        let body = body_of(get(&app, "/artportfolio/api/posts", None).await).await;
+        assert!(body.contains("on show"));
+        assert!(!body.contains("kept back"));
+    }
+
+    /// Unlisted is out of the API as well as the feed. Serving it here would
+    /// make the JSON endpoint a way to enumerate exactly what the feed hides.
+    #[tokio::test]
+    async fn test_api_posts_visitor_omits_unlisted() {
+        let (app, pool) = app_with_pool().await;
+        seed(&pool, "by link only", crate::models::Visibility::Unlisted).await;
+        let body = body_of(get(&app, "/artportfolio/api/posts", None).await).await;
+        assert!(!body.contains("by link only"));
+    }
+
+    #[tokio::test]
+    async fn test_load_more_url_carries_visitor_flag() {
+        assert!(load_more_url(1, &PostFilter::default(), None, true).contains("visitor=1"));
+        assert!(!load_more_url(1, &PostFilter::default(), None, false).contains("visitor"));
+    }
+
+    #[tokio::test]
+    async fn test_page_url_carries_visitor_flag() {
+        let url = page_url(&q_filter("cat"), true);
+        assert!(url.contains("q=cat"), "{url}");
+        assert!(url.contains("visitor=1"), "{url}");
+        assert_eq!(page_url(&PostFilter::default(), false), "/artportfolio");
+        assert_eq!(
+            page_url(&PostFilter::default(), true),
+            "/artportfolio?visitor=1"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_effective_viewer_preview_downgrades_admin() {
+        assert_eq!(effective_viewer(true, false), Viewer::Admin);
+        assert_eq!(effective_viewer(true, true), Viewer::Visitor);
+    }
+
+    /// The flag only ever downgrades — a visitor cannot promote themselves by
+    /// omitting it, or by sending any value at all.
+    #[tokio::test]
+    async fn test_effective_viewer_preview_flag_cannot_promote() {
+        assert_eq!(effective_viewer(false, false), Viewer::Visitor);
+        assert_eq!(effective_viewer(false, true), Viewer::Visitor);
+    }
+
+    #[tokio::test]
+    async fn test_preview_hides_hidden_posts_from_admin() {
+        let (app, pool) = app_with_pool().await;
+        seed(&pool, "on show", crate::models::Visibility::Public).await;
+        seed(&pool, "kept back", crate::models::Visibility::Hidden).await;
+        let cookie = admin_cookie(&pool).await;
+        let body = body_of(get(&app, "/artportfolio?visitor=1", Some(&cookie)).await).await;
+        assert!(body.contains("on show"));
+        assert!(!body.contains("kept back"));
+    }
+
+    // ===== Permalink (slice 2) =====
+
+    /// Returns the post id as well, since the permalink is addressed by it.
+    async fn seed_id(
+        pool: &crate::db::DbPool,
+        caption: &str,
+        visibility: crate::models::Visibility,
+    ) -> i64 {
+        let post = crate::db::insert_post(
+            pool,
+            caption,
+            "https://example.com/img.jpg",
+            "",
+            "",
+            crate::models::PostFormat::Single.as_str(),
+            0,
+            0,
+            0,
+            crate::models::Visibility::Public,
+        )
+        .await;
+        crate::db::set_post_visibility(pool, post.id, visibility).await;
+        post.id
+    }
+
+    #[tokio::test]
+    async fn test_permalink_public_is_200_for_visitor() {
+        let (app, pool) = app_with_pool().await;
+        let id = seed_id(&pool, "on show", crate::models::Visibility::Public).await;
+        let resp = get(&app, &format!("/artportfolio/{id}"), None).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert!(body_of(resp).await.contains("on show"));
+    }
+
+    /// The state's entire reason to exist: out of the feed, still served here.
+    #[tokio::test]
+    async fn test_permalink_unlisted_is_200_for_visitor() {
+        let (app, pool) = app_with_pool().await;
+        let id = seed_id(&pool, "by link only", crate::models::Visibility::Unlisted).await;
+        let resp = get(&app, &format!("/artportfolio/{id}"), None).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert!(body_of(resp).await.contains("by link only"));
+    }
+
+    #[tokio::test]
+    async fn test_permalink_hidden_is_404_for_visitor() {
+        let (app, pool) = app_with_pool().await;
+        let id = seed_id(&pool, "kept back", crate::models::Visibility::Hidden).await;
+        let resp = get(&app, &format!("/artportfolio/{id}"), None).await;
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+        assert!(!body_of(resp).await.contains("kept back"));
+    }
+
+    #[tokio::test]
+    async fn test_permalink_hidden_is_200_for_admin() {
+        let (app, pool) = app_with_pool().await;
+        let id = seed_id(&pool, "kept back", crate::models::Visibility::Hidden).await;
+        let cookie = admin_cookie(&pool).await;
+        let resp = get(&app, &format!("/artportfolio/{id}"), Some(&cookie)).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert!(body_of(resp).await.contains("kept back"));
+    }
+
+    /// A hidden post and a missing id must be indistinguishable from outside —
+    /// same status *and* same bytes. Anything that differed would confirm the
+    /// row exists.
+    #[tokio::test]
+    async fn test_permalink_unknown_id_is_404() {
+        let (app, pool) = app_with_pool().await;
+        let hidden = seed_id(&pool, "kept back", crate::models::Visibility::Hidden).await;
+
+        let missing_resp = get(&app, "/artportfolio/999999", None).await;
+        assert_eq!(missing_resp.status(), StatusCode::NOT_FOUND);
+        let missing_body = body_of(missing_resp).await;
+
+        let hidden_resp = get(&app, &format!("/artportfolio/{hidden}"), None).await;
+        let hidden_body = body_of(hidden_resp).await;
+
+        assert_eq!(missing_body, hidden_body);
+    }
+
+    #[tokio::test]
+    async fn test_permalink_hidden_is_404_for_previewing_admin() {
+        let (app, pool) = app_with_pool().await;
+        let id = seed_id(&pool, "kept back", crate::models::Visibility::Hidden).await;
+        let cookie = admin_cookie(&pool).await;
+        let resp = get(
+            &app,
+            &format!("/artportfolio/{id}?visitor=1"),
+            Some(&cookie),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    /// The card has to link somewhere, or the permalink is unreachable by
+    /// anything but a typed URL.
+    #[tokio::test]
+    async fn test_card_links_to_its_permalink() {
+        let post = sample_post(42, "linked");
+        assert!(card(&post, false).contains("href=\"/artportfolio/42\""));
+    }
+
+    // ===== Card badge and controls (slice 2) =====
+
+    fn card_as(post: &crate::models::Post, is_admin: bool) -> String {
+        PostCardTemplate {
+            post,
+            is_first: false,
+            is_admin,
+        }
+        .render()
+        .unwrap()
+    }
+
+    fn post_in(state: crate::models::Visibility) -> crate::models::Post {
+        let mut post = sample_post(7, "a drawing");
+        post.visibility = state.as_str().to_string();
+        post
+    }
+
+    /// The check that keeps slice 1's output intact: a visitor's card must not
+    /// gain a single byte from this slice.
+    #[test]
+    fn test_visitor_card_has_no_admin_chrome() {
+        let html = card_as(&post_in(crate::models::Visibility::Hidden), false);
+        assert!(!html.contains("art-badge"));
+        assert!(!html.contains("art-card-controls"));
+        assert!(!html.contains("hm-post--dimmed"));
+        assert!(!html.contains("hx-patch"));
+    }
+
+    #[test]
+    fn test_admin_card_carries_the_badge() {
+        let html = card_as(&post_in(crate::models::Visibility::Unlisted), true);
+        assert!(html.contains("art-badge--unlisted"), "{html}");
+        assert!(html.contains(">unlisted<"), "{html}");
+    }
+
+    #[test]
+    fn test_admin_hidden_card_is_dimmed() {
+        let html = card_as(&post_in(crate::models::Visibility::Hidden), true);
+        assert!(html.contains("hm-post--dimmed"), "{html}");
+        assert!(
+            !card_as(&post_in(crate::models::Visibility::Public), true).contains("hm-post--dimmed")
+        );
+    }
+
+    /// The control for a post's *current* state is omitted — a "hide" button on
+    /// an already-hidden card is a no-op that looks like a control.
+    #[test]
+    fn test_admin_card_omits_the_current_state_control() {
+        let hidden = card_as(&post_in(crate::models::Visibility::Hidden), true);
+        assert!(!hidden.contains(r#""visibility": "hidden""#), "{hidden}");
+        assert!(hidden.contains(r#""visibility": "public""#), "{hidden}");
+        assert!(hidden.contains(r#""visibility": "unlisted""#), "{hidden}");
+
+        let public = card_as(&post_in(crate::models::Visibility::Public), true);
+        assert!(!public.contains(r#""visibility": "public""#), "{public}");
+        assert!(public.contains(r#""visibility": "hidden""#), "{public}");
+    }
+
+    #[test]
+    fn test_admin_card_controls_target_the_card() {
+        let html = card_as(&post_in(crate::models::Visibility::Public), true);
+        assert!(html.contains(r#"hx-target="closest .hm-post""#), "{html}");
+        assert!(html.contains(r#"hx-swap="outerHTML""#), "{html}");
+        assert!(html.contains("/api/admin/posts/7/visibility"), "{html}");
+    }
+
+    // ===== Split head counts (slice 2) =====
+
+    fn counts(total: i64, public: i64, unlisted: i64, hidden: i64) -> PostCounts {
+        PostCounts {
+            total,
+            public,
+            unlisted,
+            hidden,
+        }
+    }
+
+    #[test]
+    fn test_head_label_visitor_no_search() {
+        assert_eq!(
+            head_label(
+                &counts(117, 117, 0, 0),
+                &PostFilter::default(),
+                Viewer::Visitor
+            ),
+            "117 drawings · newest first"
+        );
+    }
+
+    #[test]
+    fn test_head_label_visitor_with_search() {
+        assert_eq!(
+            head_label(&counts(12, 12, 0, 0), &q_filter("cat"), Viewer::Visitor),
+            "12 drawings · matching \"cat\""
+        );
+    }
+
+    /// The split replaces the sort suffix — the feed already states its order,
+    /// and the head has one line.
+    #[test]
+    fn test_head_label_admin_no_search() {
+        assert_eq!(
+            head_label(
+                &counts(128, 117, 4, 7),
+                &PostFilter::default(),
+                Viewer::Admin
+            ),
+            "128 drawings · 117 public · 4 unlisted · 7 hidden"
+        );
+    }
+
+    /// …and follows an active search rather than replacing it.
+    #[test]
+    fn test_head_label_admin_with_search() {
+        assert_eq!(
+            head_label(&counts(12, 9, 2, 1), &q_filter("cat"), Viewer::Admin),
+            "12 drawings · matching \"cat\" · 9 public · 2 unlisted · 1 hidden"
+        );
+    }
+
+    #[test]
+    fn test_head_label_singular() {
+        assert_eq!(
+            head_label(&counts(1, 1, 0, 0), &PostFilter::default(), Viewer::Visitor),
+            "1 drawing · newest first"
+        );
+        assert_eq!(
+            head_label(&counts(1, 1, 0, 0), &PostFilter::default(), Viewer::Admin),
+            "1 drawing · 1 public · 0 unlisted · 0 hidden"
+        );
+    }
+
+    /// A zero state renders as `0 hidden`, not as an omitted clause. A head
+    /// whose shape changed with the data would be harder to read at a glance,
+    /// not easier.
+    #[test]
+    fn test_head_label_admin_zero_states_still_render() {
+        let label = head_label(&counts(2, 2, 0, 0), &PostFilter::default(), Viewer::Admin);
+        assert!(label.contains("0 unlisted"), "{label}");
+        assert!(label.contains("0 hidden"), "{label}");
+    }
+
+    #[test]
+    fn test_head_label_with_tags_and_search() {
+        let f = PostFilter {
+            q: Some("loomis".to_string()),
+            tags: vec!["ink".to_string(), "perspective".to_string()],
+            collection: None,
+            vis: None,
+        };
+        assert_eq!(
+            head_label(&visitor_counts(12), &f, Viewer::Visitor),
+            "12 drawings · matching ink + perspective + \"loomis\""
+        );
+    }
+
+    #[test]
+    fn test_head_label_collection_only() {
+        let f = PostFilter {
+            collection: Some("studies".to_string()),
+            ..Default::default()
+        };
+        assert_eq!(
+            head_label(&visitor_counts(3), &f, Viewer::Visitor),
+            "3 drawings · matching studies"
+        );
+    }
+
+    /// The exact string slice 2 pinned — a search-only filter's `desc` is just
+    /// the quoted term, so this label must not gain a byte from tags/collection
+    /// support existing.
+    #[test]
+    fn test_head_label_plain_search_unchanged() {
+        assert_eq!(
+            head_label(&visitor_counts(12), &q_filter("cat"), Viewer::Visitor),
+            "12 drawings · matching \"cat\""
+        );
+    }
+
+    #[tokio::test]
+    async fn test_feed_page_admin_head_shows_the_split() {
+        let (app, pool) = app_with_pool().await;
+        seed(&pool, "on show", crate::models::Visibility::Public).await;
+        seed(&pool, "kept back", crate::models::Visibility::Hidden).await;
+        let cookie = admin_cookie(&pool).await;
+        let body = body_of(get(&app, "/artportfolio", Some(&cookie)).await).await;
+        assert!(body.contains("1 public"), "head did not split");
+        assert!(body.contains("1 hidden"), "head did not split");
+    }
+
+    /// The preview must reshape the head too. Without the viewer reaching
+    /// head_label, a previewing admin would read "· 1 hidden" above a feed with
+    /// nothing hidden in it.
+    #[tokio::test]
+    async fn test_preview_head_is_visitor_shaped() {
+        let (app, pool) = app_with_pool().await;
+        seed(&pool, "on show", crate::models::Visibility::Public).await;
+        seed(&pool, "kept back", crate::models::Visibility::Hidden).await;
+        let cookie = admin_cookie(&pool).await;
+        let body = body_of(get(&app, "/artportfolio?visitor=1", Some(&cookie)).await).await;
+        assert!(
+            !body.contains("hidden</div>"),
+            "admin split leaked into preview"
+        );
+        assert!(
+            body.contains("1 drawing · newest first"),
+            "{}",
+            &body[..200.min(body.len())]
+        );
+    }
+
+    #[tokio::test]
+    async fn test_admin_head_offers_the_preview_toggle() {
+        let (app, pool) = app_with_pool().await;
+        let cookie = admin_cookie(&pool).await;
+        let body = body_of(get(&app, "/artportfolio", Some(&cookie)).await).await;
+        assert!(body.contains("art-visitor-toggle"));
+        assert!(body.contains("/artportfolio?visitor=1"));
+    }
+
+    /// A real visitor must never see a way to leave a preview they are not in.
+    #[tokio::test]
+    async fn test_visitor_never_sees_the_preview_controls() {
+        let (app, _pool) = app_with_pool().await;
+        let body = body_of(get(&app, "/artportfolio", None).await).await;
+        assert!(!body.contains("art-visitor-toggle"));
+        assert!(!body.contains("Previewing as a visitor"));
+    }
+
+    #[tokio::test]
+    async fn test_previewing_admin_sees_the_exit_control() {
+        let (app, pool) = app_with_pool().await;
+        let cookie = admin_cookie(&pool).await;
+        let body = body_of(get(&app, "/artportfolio?visitor=1", Some(&cookie)).await).await;
+        assert!(body.contains("Previewing as a visitor"), "no preview flag");
+        assert!(body.contains("Exit preview"), "no way out");
+    }
+
+    // ===== PageQuery::filter — the URL contract (Task 4) ====================
+
+    /// A `PageQuery` with every field absent, so a test only has to override
+    /// the one field it cares about.
+    fn empty_query() -> PageQuery {
+        PageQuery {
+            page: None,
+            q: None,
+            last_month: None,
+            visitor: None,
+            tags: None,
+            collection: None,
+            vis: None,
+        }
+    }
+
+    #[test]
+    fn test_pagequery_filter_drops_vis_for_visitor() {
+        let query = PageQuery {
+            vis: Some("hidden".to_string()),
+            ..empty_query()
+        };
+        assert_eq!(query.filter(Viewer::Visitor).vis, None);
+    }
+
+    #[test]
+    fn test_pagequery_filter_keeps_vis_for_admin() {
+        let query = PageQuery {
+            vis: Some("hidden".to_string()),
+            ..empty_query()
+        };
+        assert_eq!(
+            query.filter(Viewer::Admin).vis,
+            Some(vec!["hidden".to_string()])
+        );
+    }
+
+    #[test]
+    fn test_pagequery_filter_drops_junk_vis() {
+        let query = PageQuery {
+            vis: Some("public,bogus".to_string()),
+            ..empty_query()
+        };
+        assert_eq!(
+            query.filter(Viewer::Admin).vis,
+            Some(vec!["public".to_string()])
+        );
+
+        let query = PageQuery {
+            vis: Some("bogus".to_string()),
+            ..empty_query()
+        };
+        assert_eq!(query.filter(Viewer::Admin).vis, None);
+    }
+
+    #[test]
+    fn test_pagequery_filter_normalizes_tags() {
+        let query = PageQuery {
+            tags: Some("Ink, ink,,PERSPECTIVE".to_string()),
+            ..empty_query()
+        };
+        assert_eq!(
+            query.filter(Viewer::Visitor).tags,
+            vec!["ink".to_string(), "perspective".to_string()]
+        );
+    }
+
+    #[tokio::test]
+    async fn test_route_vis_is_ignored_for_visitors() {
+        let (app, pool) = app_with_pool().await;
+        seed(&pool, "pub-cat", crate::models::Visibility::Public).await;
+        seed(&pool, "hid-cat", crate::models::Visibility::Hidden).await;
+        let body = body_of(get(&app, "/artportfolio/htmx/posts?vis=hidden", None).await).await;
+        assert!(body.contains("pub-cat"));
+        assert!(!body.contains("hid-cat"));
+    }
+
+    #[tokio::test]
+    async fn test_route_vis_subset_for_admin() {
+        let (app, pool) = app_with_pool().await;
+        seed(&pool, "pub-cat", crate::models::Visibility::Public).await;
+        seed(&pool, "hid-cat", crate::models::Visibility::Hidden).await;
+        let cookie = admin_cookie(&pool).await;
+        let body =
+            body_of(get(&app, "/artportfolio/htmx/posts?vis=hidden", Some(&cookie)).await).await;
+        assert!(!body.contains("pub-cat"));
+        assert!(body.contains("hid-cat"));
+    }
+
+    /// The auth-adjacent wiring itself: `filter()` must be handed the
+    /// EFFECTIVE viewer, not the raw session bool, so a previewing admin gets
+    /// `vis` stripped exactly like a visitor. Every other vis test here would
+    /// still pass if the handler passed `session_is_admin` straight through —
+    /// this is the one that would catch it.
+    #[tokio::test]
+    async fn test_route_vis_is_ignored_for_previewing_admin() {
+        let (app, pool) = app_with_pool().await;
+        seed(&pool, "pub-cat", crate::models::Visibility::Public).await;
+        seed(&pool, "hid-cat", crate::models::Visibility::Hidden).await;
+        let cookie = admin_cookie(&pool).await;
+        let body = body_of(
+            get(
+                &app,
+                "/artportfolio/htmx/posts?vis=hidden&visitor=1",
+                Some(&cookie),
+            )
+            .await,
+        )
+        .await;
+        assert!(body.contains("pub-cat"), "{body}");
+        assert!(!body.contains("hid-cat"), "{body}");
+    }
+
+    /// A post carrying the caption + tags this section's tests seed.
+    async fn seed_tagged(pool: &crate::db::DbPool, caption: &str, tags: &[&str]) -> i64 {
+        let post = crate::db::insert_post(
+            pool,
+            caption,
+            "https://example.com/img.jpg",
+            "",
+            "",
+            crate::models::PostFormat::Single.as_str(),
+            0,
+            0,
+            0,
+            crate::models::Visibility::Public,
+        )
+        .await;
+        let tags: Vec<String> = tags.iter().map(|t| t.to_string()).collect();
+        crate::db::set_post_tags(pool, post.id, &tags).await;
+        post.id
+    }
+
+    #[tokio::test]
+    async fn test_route_tags_filter_applies() {
+        let (app, pool) = app_with_pool().await;
+        seed_tagged(&pool, "tagged one", &["ink"]).await;
+        seed(&pool, "untagged", crate::models::Visibility::Public).await;
+        let body = body_of(get(&app, "/artportfolio/htmx/posts?tags=ink", None).await).await;
+        assert!(body.contains("tagged one"));
+        assert!(!body.contains("untagged"));
+    }
+
+    #[tokio::test]
+    async fn test_pagination_carries_the_filter() {
+        let (app, pool) = app_with_pool().await;
+        for i in 0..21 {
+            seed_tagged(&pool, &format!("ink drawing {i}"), &["ink"]).await;
+        }
+        let body = body_of(get(&app, "/artportfolio/htmx/posts?page=0&tags=ink", None).await).await;
+        assert!(body.contains("tags=ink"), "{body}");
+        assert!(body.contains("page=1"), "{body}");
+    }
+
+    #[tokio::test]
+    async fn test_api_posts_honours_tags() {
+        let (app, pool) = app_with_pool().await;
+        seed_tagged(&pool, "tagged", &["ink"]).await;
+        seed(&pool, "untagged", crate::models::Visibility::Public).await;
+        let body = body_of(get(&app, "/artportfolio/api/posts?tags=ink", None).await).await;
+        let parsed: serde_json::Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(parsed["posts"].as_array().unwrap().len(), 1, "{body}");
+    }
+
+    #[tokio::test]
+    async fn test_oob_label_keeps_the_frozen_seam() {
+        let (app, pool) = app_with_pool().await;
+        seed_tagged(&pool, "tagged", &["ink"]).await;
+        let body = body_of(get(&app, "/artportfolio/htmx/posts?page=0&tags=ink", None).await).await;
+        assert!(
+            body.contains(r#"id="art-head-label" hx-swap-oob="true""#),
+            "{body}"
+        );
+    }
+
+    // ===== The filter rail — toggle-URL builders (Task 1) ====================
+
+    fn collection_with_count(id: i64, name: &str, slug: &str, count: i64) -> CollectionWithCount {
+        CollectionWithCount {
+            id,
+            name: name.to_string(),
+            slug: slug.to_string(),
+            count,
+        }
+    }
+
+    fn tag_with_count(name: &str, count: i64) -> TagWithCount {
+        TagWithCount {
+            name: name.to_string(),
+            count,
+        }
+    }
+
+    #[test]
+    fn test_filter_url_round_trip() {
+        let f = PostFilter {
+            tags: vec!["ink".to_string()],
+            collection: Some("studies".to_string()),
+            ..Default::default()
+        };
+        assert_eq!(
+            filter_url(&f, false),
+            "/artportfolio/htmx/posts?tags=ink&collection=studies"
+        );
+    }
+
+    #[test]
+    fn test_collection_link_toggles_off() {
+        let f = PostFilter {
+            collection: Some("studies".to_string()),
+            ..Default::default()
+        };
+        let collections = vec![collection_with_count(1, "Studies", "studies", 4)];
+        let links = collection_rail_links(&collections, &f, false);
+        assert!(links[0].active);
+        assert!(
+            !links[0].url.contains("collection="),
+            "clicking the active row must deselect it: {}",
+            links[0].url
+        );
+    }
+
+    #[test]
+    fn test_collection_link_preserves_search() {
+        let f = PostFilter {
+            q: Some("cat".to_string()),
+            ..Default::default()
+        };
+        let collections = vec![collection_with_count(1, "Studies", "studies", 4)];
+        let links = collection_rail_links(&collections, &f, false);
+        assert!(links[0].url.contains("q=cat"), "{}", links[0].url);
+        assert!(
+            links[0].url.contains("collection=studies"),
+            "{}",
+            links[0].url
+        );
+    }
+
+    #[test]
+    fn test_tag_link_adds_and_removes() {
+        let f = PostFilter {
+            tags: vec!["ink".to_string()],
+            ..Default::default()
+        };
+        let tags = vec![tag_with_count("perspective", 2), tag_with_count("ink", 5)];
+        let links = tag_rail_links(&tags, &f, false);
+        assert!(
+            links[0].url.contains("tags=ink%2Cperspective"),
+            "adding a tag preserves survivor order: {}",
+            links[0].url
+        );
+        assert!(
+            !links[1].url.contains("tags="),
+            "removing the only active tag drops the param: {}",
+            links[1].url
+        );
+    }
+
+    #[test]
+    fn test_vis_checks_default_all_checked() {
+        let checks = vis_checks(&PostFilter::default(), false);
+        assert_eq!(checks.len(), 3);
+        assert!(checks.iter().all(|c| c.checked));
+    }
+
+    #[test]
+    fn test_vis_check_toggle_off_drops_one() {
+        let checks = vis_checks(&PostFilter::default(), false);
+        let hidden = checks.iter().find(|c| c.label == "hidden").unwrap();
+        assert!(
+            hidden.url.contains("vis=public%2Cunlisted"),
+            "{}",
+            hidden.url
+        );
+    }
+
+    #[test]
+    fn test_vis_check_full_set_drops_param() {
+        let f = PostFilter {
+            vis: Some(vec!["public".to_string(), "unlisted".to_string()]),
+            ..Default::default()
+        };
+        let checks = vis_checks(&f, false);
+        let hidden = checks.iter().find(|c| c.label == "hidden").unwrap();
+        assert!(
+            !hidden.url.contains("vis="),
+            "completing the set drops the param entirely — absent means all: {}",
+            hidden.url
+        );
+    }
+
+    /// The visitor-scoped `list_collections_with_counts`/`list_tags_with_counts`
+    /// queries only surface a collection or tag attached to at least one
+    /// PUBLIC post (db.rs), so the seed here is a public post carrying both —
+    /// not just a bare collection/tag row — or this route test would pass for
+    /// the wrong reason.
+    #[tokio::test]
+    async fn test_rail_renders_on_feed_page() {
+        let (app, pool) = app_with_pool().await;
+        let post_id = seed_id(&pool, "a study", crate::models::Visibility::Public).await;
+        crate::db::set_post_tags(&pool, post_id, &["ink".to_string()]).await;
+        let collection = crate::db::create_collection(&pool, "Figure Studies")
+            .await
+            .unwrap();
+        crate::db::add_post_to_collection(&pool, post_id, collection.id).await;
+
+        let body = body_of(get(&app, "/artportfolio", None).await).await;
+        assert!(body.contains(r#"id="rail-collections""#), "{body}");
+        assert!(body.contains("Figure Studies"), "{body}");
+        assert!(body.contains("ink"), "{body}");
+    }
+
+    /// The unfiltered render above proves the rail exists; it proves nothing
+    /// about `is-active`/`is-checked` or `#art-rail-state`, since every one of
+    /// those is empty on an unfiltered page. This test drives real filters
+    /// through so both are actually exercised end to end.
+    #[tokio::test]
+    async fn test_rail_reflects_active_filters_and_state_inputs() {
+        let (app, pool) = app_with_pool().await;
+        let post_id = seed_id(&pool, "a study", crate::models::Visibility::Public).await;
+        crate::db::set_post_tags(&pool, post_id, &["ink".to_string()]).await;
+        let collection = crate::db::create_collection(&pool, "Figure Studies")
+            .await
+            .unwrap();
+        crate::db::add_post_to_collection(&pool, post_id, collection.id).await;
+        seed(&pool, "kept back", crate::models::Visibility::Hidden).await;
+        let cookie = admin_cookie(&pool).await;
+
+        let body = body_of(
+            get(
+                &app,
+                "/artportfolio?tags=ink&collection=figure-studies&q=cat",
+                None,
+            )
+            .await,
+        )
+        .await;
+        assert!(
+            body.contains(r#"class="art-rail__tag is-active""#),
+            "the ink pill must render active: {body}"
+        );
+        assert!(
+            body.contains(r#"class="art-rail__collection is-active""#),
+            "the collection row must render active: {body}"
+        );
+        assert!(
+            body.contains(r#"name="tags" value="ink""#),
+            "the hidden state input must carry the active tag: {body}"
+        );
+        assert!(
+            body.contains(r#"name="collection" value="figure-studies""#),
+            "the hidden state input must carry the active collection: {body}"
+        );
+        // The active collection's OWN row is the deselect toggle: no
+        // `collection=` in its href, but the search and tag still ride along.
+        // Askama HTML-escapes the `&` inside the attribute (`&#38;`). `href`
+        // is the real page (Finding 5) — `hx-get` still carries the fragment
+        // endpoint, asserted separately below.
+        assert!(
+            body.contains("href=\"/artportfolio?q=cat&#38;tags=ink\""),
+            "clicking the active collection row must deselect it while keeping q and tags: {body}"
+        );
+        assert!(
+            body.contains("hx-get=\"/artportfolio/htmx/posts?q=cat&#38;tags=ink\""),
+            "hx-get must still target the fragment endpoint: {body}"
+        );
+
+        let admin_body = body_of(get(&app, "/artportfolio?vis=hidden", Some(&cookie)).await).await;
+        assert!(
+            admin_body.contains(r#"name="vis" value="hidden""#),
+            "the hidden state input must carry the active vis subset: {admin_body}"
+        );
+
+        let preview_body = body_of(get(&app, "/artportfolio?visitor=1", Some(&cookie)).await).await;
+        assert!(
+            preview_body.contains(r#"name="visitor" value="1""#),
+            "the hidden state input must carry the preview flag: {preview_body}"
+        );
+    }
+
+    // ===== The active-filter row and the filter-aware empty state (Task 2) ===
+
+    /// A filter carrying one of each part — the fixture `active_pills`' order
+    /// and remove-url tests share.
+    fn full_filter() -> PostFilter {
+        PostFilter {
+            tags: vec!["ink".to_string(), "perspective".to_string()],
+            q: Some("loomis".to_string()),
+            collection: Some("studies".to_string()),
+            vis: None,
+        }
+    }
+
+    #[test]
+    fn test_active_pills_order_and_labels() {
+        let labels: Vec<String> = active_pills(&full_filter(), false)
+            .into_iter()
+            .map(|p| p.label)
+            .collect();
+        assert_eq!(
+            labels,
+            vec![
+                "ink".to_string(),
+                "perspective".to_string(),
+                "\"loomis\"".to_string(),
+                "studies".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_pill_remove_url_drops_only_its_part() {
+        let pills = active_pills(&full_filter(), false);
+        let ink = &pills[0];
+        assert_eq!(ink.label, "ink");
+        assert!(
+            ink.remove_url.contains("tags=perspective"),
+            "{}",
+            ink.remove_url
+        );
+        assert!(ink.remove_url.contains("q=loomis"), "{}", ink.remove_url);
+        assert!(
+            ink.remove_url.contains("collection=studies"),
+            "{}",
+            ink.remove_url
+        );
+        assert!(!ink.remove_url.contains("ink"), "{}", ink.remove_url);
+    }
+
+    #[test]
+    fn test_q_pill_remove_keeps_tags() {
+        let pills = active_pills(&full_filter(), false);
+        let q_pill = pills
+            .iter()
+            .find(|p| p.label == "\"loomis\"")
+            .expect("q pill present");
+        assert!(!q_pill.remove_url.contains("q="), "{}", q_pill.remove_url);
+        assert!(
+            q_pill.remove_url.contains("tags=ink%2Cperspective"),
+            "{}",
+            q_pill.remove_url
+        );
+    }
+
+    #[test]
+    fn test_vis_gets_no_pill() {
+        let f = PostFilter {
+            vis: Some(vec!["hidden".to_string()]),
+            ..Default::default()
+        };
+        assert!(active_pills(&f, false).is_empty());
+    }
+
+    /// `clear_url` (built in `render_grid` from `filter_url(&PostFilter::
+    /// default(), preview)`) survives a preview — clearing every filter part
+    /// must not also exit one.
+    #[test]
+    fn test_clear_url_keeps_preview() {
+        assert_eq!(
+            filter_url(&PostFilter::default(), true),
+            "/artportfolio/htmx/posts?visitor=1"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_filter_row_renders_on_page_0() {
+        let (app, _pool) = app_with_pool().await;
+        let body0 =
+            body_of(get(&app, "/artportfolio/htmx/posts?page=0&tags=ink", None).await).await;
+        assert!(body0.contains("art-filter-row"), "{body0}");
+        assert!(body0.contains("Clear filters"), "{body0}");
+
+        let body1 =
+            body_of(get(&app, "/artportfolio/htmx/posts?page=1&tags=ink", None).await).await;
+        assert!(
+            !body1.contains("art-filter-row"),
+            "Load more must not duplicate the filter row: {body1}"
+        );
+        assert!(!body1.contains("Clear filters"), "{body1}");
+    }
+
+    #[tokio::test]
+    async fn test_empty_state_names_the_filter() {
+        let (app, _pool) = app_with_pool().await;
+        let body = body_of(
+            get(
+                &app,
+                "/artportfolio/htmx/posts?page=0&tags=ink&q=loomis",
+                None,
+            )
+            .await,
+        )
+        .await;
+        // Askama's html escaper writes decimal numeric entities (&#34;), not
+        // the named &quot; — accept either the same way
+        // test_post_card_html_escapes_content does for angle brackets, since
+        // the entity spelling is not the property under test.
+        assert!(
+            body.contains("no drawings match ink + &#34;loomis&#34;.")
+                || body.contains("no drawings match ink + &quot;loomis&quot;."),
+            "{body}"
+        );
+        assert!(body.contains("Reset filters"), "{body}");
+    }
+
+    // ===== #art-rail-state's OOB re-render (controller resolution of the
+    // rail/search staleness gap Task 1 surfaced) ======================
+
+    #[tokio::test]
+    async fn test_rail_state_oob_renders_on_page_0() {
+        let (app, _pool) = app_with_pool().await;
+        let body = body_of(get(&app, "/artportfolio/htmx/posts?page=0&tags=ink", None).await).await;
+        assert!(
+            body.contains(r#"id="art-rail-state" hx-swap-oob="true""#),
+            "{body}"
+        );
+        assert!(body.contains(r#"name="tags" value="ink""#), "{body}");
+    }
+
+    /// Load more (page >= 1) changes no filter, so re-sending the state block
+    /// would be dead weight — matches `head_label_oob`'s own page-0-only rule.
+    #[tokio::test]
+    async fn test_rail_state_oob_absent_on_load_more() {
+        let (app, _pool) = app_with_pool().await;
+        let body = body_of(get(&app, "/artportfolio/htmx/posts?page=1&tags=ink", None).await).await;
+        assert!(!body.contains(r#"id="art-rail-state""#), "{body}");
+    }
+
+    // ===== #art-rail-filters' OOB re-render (Finding 1: rail links were
+    // frozen at full-page render, so composing two filters in a row silently
+    // dropped the first) ========================================================
+
+    /// The composition Finding 1 exists to fix: click collection `studies`,
+    /// then click tag `ink` — the tag pill's own URL, rebuilt here from the
+    /// filter that was just applied, must still carry the collection.
+    #[tokio::test]
+    async fn test_rail_filters_oob_composes_with_the_applied_filter() {
+        let (app, pool) = app_with_pool().await;
+        let post_id = seed_id(&pool, "a study", crate::models::Visibility::Public).await;
+        crate::db::set_post_tags(&pool, post_id, &["ink".to_string()]).await;
+        let collection = crate::db::create_collection(&pool, "Studies")
+            .await
+            .unwrap();
+        crate::db::add_post_to_collection(&pool, post_id, collection.id).await;
+
+        let body =
+            body_of(get(&app, "/artportfolio/htmx/posts?collection=studies", None).await).await;
+        assert!(
+            body.contains(r#"id="art-rail-filters" hx-swap-oob="true""#),
+            "{body}"
+        );
+        assert!(
+            body.contains(r#"hx-get="/artportfolio/htmx/posts?tags=ink&#38;collection=studies""#),
+            "the tag pill's URL must carry the collection filter that was just applied: {body}"
+        );
+    }
+
+    /// Same page-0-htmx-only rule `art-rail-state` and `head_label_oob`
+    /// follow — Load more changes no filter, so re-sending this block would
+    /// be dead weight.
+    #[tokio::test]
+    async fn test_rail_filters_oob_absent_on_load_more() {
+        let (app, _pool) = app_with_pool().await;
+        let body = body_of(get(&app, "/artportfolio/htmx/posts?page=1", None).await).await;
+        assert!(!body.contains(r#"id="art-rail-filters""#), "{body}");
+    }
+
+    // ===== Multi-tag AND-composition survives pagination (carried-due) =====
+
+    /// `?tags=ink%2Cperspective` — axum decodes the `%2C` to a literal comma
+    /// before `normalize_tags` ever splits it, so this exercises the same
+    /// path a real browser's percent-encoded rail URL takes. `db::
+    /// get_posts_page`'s `HAVING COUNT(DISTINCT t.id) = json_array_length`
+    /// AND-composes rather than OR-composes; this pins that through the route
+    /// AND through pagination (`page=1`), not just through the db layer.
+    #[tokio::test]
+    async fn test_multi_tag_and_composition_survives_pagination() {
+        let (app, pool) = app_with_pool().await;
+        for i in 0..25 {
+            seed_tagged(&pool, &format!("both {i}"), &["ink", "perspective"]).await;
+        }
+        seed_tagged(&pool, "only ink", &["ink"]).await;
+
+        let body = body_of(
+            get(
+                &app,
+                "/artportfolio/htmx/posts?tags=ink%2Cperspective&page=1",
+                None,
+            )
+            .await,
+        )
+        .await;
+        assert!(
+            body.contains("both "),
+            "a post tagged with both must appear on page 1: {body}"
+        );
+        assert!(
+            !body.contains("only ink"),
+            "a post tagged with only one of the two must not: {body}"
+        );
     }
 }

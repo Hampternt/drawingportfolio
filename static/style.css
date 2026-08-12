@@ -815,3 +815,1141 @@ body.fitness-dark #quickadd-results .search-row:first-child { background: var(--
 }
 .task-image-row .task-thumb { width: 40px; height: 40px; }
 .task-image-title { flex: 1; font-size: 0.9rem; }
+
+/* ── Drawing Portfolio ──────────────────────────────────────────────────────
+   The Hampter Design System, applied to /artportfolio only.
+
+   Lifted from docs/design/artportfolio-redesign/_ds/hampter-design-system-.../
+   with two deliberate deviations, both recorded in the slice-1 spec:
+     1. tokens/base.css is NOT lifted as-is. Its resets are unscoped and would
+        turn every page on the site dark; they are rewritten under body.art-page.
+     2. tokens/legacy-nocturne.css is excluded entirely. It repoints every
+        --noc-* variable and would shift /fitness from #9184d9 to #B48EF7 as a
+        side effect of this slice.
+
+   Token declarations sit on bare :root because custom properties are inert —
+   nothing that does not read them is affected. Verified: the rest of this
+   stylesheet declares only --noc-* names and reads no token defined here.
+
+   Everything that PAINTS is prefixed body.art-page. Comments from the source
+   files are stripped: CSS comments do not nest, and a lifted opening marker
+   inside this block would silently drop the next rule. Guarded by
+   tests/static_assets.rs.
+   ────────────────────────────────────────────────────────────────────────── */
+
+/* Tokens: colors.css */
+:root {
+  --ink-1000:#07060B;
+  --ink-950:#0B0910;
+  --ink-900:#0E0C14;
+  --ink-850:#17141F;
+  --ink-800:#1C1926;
+  --ink-750:#221E2E;
+  --ink-700:#262232;
+  --ink-600:#322C42;
+  --ink-500:#443C58;
+  --ink-400:#5F5876;
+  --ink-300:#8D87A0;
+  --ink-200:#ADA6BE;
+  --ink-100:#CDC6DD;
+  --ink-050:#F2EEF8;
+  --ink-000:#FFFFFF;
+
+  --violet-700:#4A3A78;
+  --violet-600:#6A53A8;
+  --violet-500:#8F6FD8;
+  --violet-400:#B48EF7;
+  --violet-300:#CBB0FF;
+  --violet-200:#DED0FF;
+  --violet-100:#EFE8FF;
+
+  --mint-400:#4FD6A8;
+  --mint-600:#1F7F63;
+  --amber-400:#FFB570;
+  --amber-600:#A86A34;
+  --rose-400:#F7768E;
+  --rose-600:#8F3346;
+  --azure-400:#7AA2F7;
+  --azure-600:#2F4C8F;
+
+  --violet-a08:rgba(180,142,247,.08);
+  --violet-a14:rgba(180,142,247,.14);
+  --violet-a28:rgba(180,142,247,.28);
+  --violet-a45:rgba(180,142,247,.45);
+  --white-a04:rgba(242,238,248,.04);
+  --white-a07:rgba(242,238,248,.07);
+  --white-a12:rgba(242,238,248,.12);
+  --white-a20:rgba(242,238,248,.20);
+  --black-a40:rgba(7,6,11,.40);
+  --black-a70:rgba(7,6,11,.72);
+
+  --surface-void:var(--ink-1000);
+  --surface-page:var(--ink-950);
+  --surface-raised:var(--ink-900);
+  --surface-card:var(--ink-850);
+  --surface-inset:var(--ink-900);
+  --surface-chip:var(--ink-700);
+  --surface-overlay:var(--ink-850);
+  --surface-hover:var(--white-a04);
+  --surface-active:var(--white-a07);
+  --surface-selected:var(--violet-a14);
+  --scrim:var(--black-a70);
+
+  --text-strong:var(--ink-050);
+  --text-body:var(--ink-100);
+  --text-muted:var(--ink-300);
+  --text-faint:var(--ink-400);
+  --text-accent:var(--violet-300);
+  --text-on-accent:#191624;
+  --text-link:var(--violet-300);
+  --text-link-hover:var(--violet-200);
+
+  --border-subtle:var(--white-a07);
+  --border-default:var(--ink-700);
+  --border-strong:var(--ink-600);
+  --border-accent:var(--violet-a45);
+  --border-focus:var(--violet-400);
+
+  --accent:var(--violet-400);
+  --accent-hover:var(--violet-300);
+  --accent-press:var(--violet-500);
+  --accent-tint:var(--violet-a14);
+  --accent-glow:var(--violet-a28);
+  --accent-warm:var(--amber-400);
+
+  --status-success:var(--mint-400);
+  --status-success-dim:var(--mint-600);
+  --status-warning:var(--amber-400);
+  --status-warning-dim:var(--amber-600);
+  --status-danger:var(--rose-400);
+  --status-danger-dim:var(--rose-600);
+  --status-info:var(--azure-400);
+  --status-info-dim:var(--azure-600);
+}
+
+/* Tokens: typography.css */
+:root {
+  --font-display:"Archivo",system-ui,sans-serif;
+  --font-sans:"Space Grotesk",system-ui,sans-serif;
+  --font-mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+
+  --text-11:11px;
+  --text-12:12px;
+  --text-13:13px;
+  --text-14:14px;
+  --text-15:15px;
+  --text-16:16px;
+  --text-18:18px;
+  --text-21:21px;
+  --text-26:26px;
+  --text-32:32px;
+  --text-40:40px;
+  --text-52:52px;
+  --text-68:68px;
+
+  --leading-tight:1.04;
+  --leading-snug:1.22;
+  --leading-normal:1.5;
+  --leading-loose:1.7;
+
+  --tracking-tight:-0.025em;
+  --tracking-snug:-0.01em;
+  --tracking-normal:0;
+  --tracking-wide:0.04em;
+  --tracking-caps:0.10em;
+
+  --weight-regular:400;
+  --weight-medium:500;
+  --weight-semibold:600;
+  --weight-bold:700;
+  --weight-black:900;
+
+  --type-display:var(--weight-black) var(--text-68)/var(--leading-tight) var(--font-display);
+  --type-h1:800 var(--text-40)/var(--leading-snug) var(--font-display);
+  --type-h2:700 var(--text-26)/var(--leading-snug) var(--font-display);
+  --type-body:var(--weight-regular) var(--text-15)/var(--leading-normal) var(--font-sans);
+  --type-body-sm:var(--weight-regular) var(--text-13)/var(--leading-normal) var(--font-sans);
+  --type-ui:var(--weight-medium) var(--text-14)/1.2 var(--font-sans);
+  --type-mono:var(--weight-regular) var(--text-13)/1.45 var(--font-mono);
+  --type-label:var(--weight-medium) var(--text-11)/1.2 var(--font-mono);
+}
+
+/* Tokens: spacing.css */
+:root {
+  --space-0:0px;
+  --space-1:2px;
+  --space-2:4px;
+  --space-3:6px;
+  --space-4:8px;
+  --space-5:12px;
+  --space-6:16px;
+  --space-7:20px;
+  --space-8:24px;
+  --space-9:32px;
+  --space-10:40px;
+  --space-11:48px;
+  --space-12:64px;
+  --space-13:80px;
+  --space-14:112px;
+  --space-15:160px;
+
+  --gutter:24px;
+  --page-max:1180px;
+  --prose-max:68ch;
+  --rail-width:236px;
+  --header-height:56px;
+  --control-height-sm:28px;
+  --control-height-md:34px;
+  --control-height-lg:42px;
+}
+
+/* Tokens: shape.css */
+:root {
+  --radius-xs:3px;
+  --radius-sm:5px;
+  --radius-md:8px;
+  --radius-lg:12px;
+  --radius-xl:18px;
+  --radius-pill:999px;
+
+  --border-width:1px;
+  --border-width-thick:2px;
+
+  --shadow-flat:none;
+  --shadow-1:0 1px 2px rgba(0,0,0,.5);
+  --shadow-2:0 4px 14px rgba(0,0,0,.45);
+  --shadow-3:0 18px 48px rgba(0,0,0,.6);
+  --shadow-inset-hairline:inset 0 1px 0 rgba(242,238,248,.05);
+  --focus-ring:0 0 0 2px var(--surface-page),0 0 0 4px var(--violet-400);
+  --focus-ring-tight:0 0 0 2px var(--violet-400);
+  --glow-accent:0 0 0 1px var(--violet-a45),0 0 24px -6px var(--violet-a45);
+
+  --grid-line:rgba(242,238,248,.045);
+  --texture-grid:linear-gradient(var(--grid-line) 1px,transparent 1px),linear-gradient(90deg,var(--grid-line) 1px,transparent 1px);
+  --texture-grid-size:32px 32px;
+}
+
+/* Tokens: motion.css */
+:root {
+  --dur-instant:80ms;
+  --dur-fast:130ms;
+  --dur-base:190ms;
+  --dur-slow:280ms;
+  --dur-slower:460ms;
+
+  --ease-snap:cubic-bezier(.2,.8,.3,1);
+  --ease-out:cubic-bezier(.16,1,.3,1);
+  --ease-in-out:cubic-bezier(.65,0,.35,1);
+  --ease-linear:linear;
+
+  --transition-control:background-color var(--dur-fast) var(--ease-snap),border-color var(--dur-fast) var(--ease-snap),color var(--dur-fast) var(--ease-snap),box-shadow var(--dur-fast) var(--ease-snap),transform var(--dur-instant) var(--ease-snap);
+  --transition-surface:background-color var(--dur-base) var(--ease-snap),border-color var(--dur-base) var(--ease-snap),transform var(--dur-base) var(--ease-snap);
+}
+
+/* Zeroing the duration tokens is the primary reduced-motion mechanism: every
+   transition below is expressed in them, so this one block disarms the lot. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-instant:0ms;
+    --dur-fast:0ms;
+    --dur-base:0ms;
+    --dur-slow:0ms;
+    --dur-slower:0ms;
+  }
+}
+
+/* Faces. Self-hosted from /static/fonts — no third-party handshake, matching
+   how base.html self-hosts HTMX. Archivo 600 is deliberately absent: nothing
+   lifted here uses --type-h3, the only role that asks for it. */
+@font-face { font-family:"Archivo"; font-style:normal; font-weight:700; font-display:swap; src:url("/static/fonts/archivo-700.woff2") format("woff2"); }
+@font-face { font-family:"Archivo"; font-style:normal; font-weight:800; font-display:swap; src:url("/static/fonts/archivo-800.woff2") format("woff2"); }
+@font-face { font-family:"Archivo"; font-style:normal; font-weight:900; font-display:swap; src:url("/static/fonts/archivo-900.woff2") format("woff2"); }
+@font-face { font-family:"Space Grotesk"; font-style:normal; font-weight:400; font-display:swap; src:url("/static/fonts/space-grotesk-400.woff2") format("woff2"); }
+@font-face { font-family:"Space Grotesk"; font-style:normal; font-weight:500; font-display:swap; src:url("/static/fonts/space-grotesk-500.woff2") format("woff2"); }
+@font-face { font-family:"IBM Plex Mono"; font-style:normal; font-weight:400; font-display:swap; src:url("/static/fonts/ibm-plex-mono-400.woff2") format("woff2"); }
+@font-face { font-family:"IBM Plex Mono"; font-style:normal; font-weight:500; font-display:swap; src:url("/static/fonts/ibm-plex-mono-500.woff2") format("woff2"); }
+
+/* Resets — tokens/base.css, rewritten under body.art-page. Linking that file
+   as-is would repaint every page on the site on the next request. */
+body.art-page,
+body.art-page *,
+body.art-page *::before,
+body.art-page *::after { box-sizing: border-box; }
+body.art-page {
+  margin: 0;
+  background: var(--surface-page);
+  color: var(--text-body);
+  font: var(--type-body);
+  letter-spacing: var(--tracking-normal);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+body.art-page h1,
+body.art-page h2,
+body.art-page h3,
+body.art-page h4 {
+  margin: 0;
+  color: var(--text-strong);
+  font-family: var(--font-display);
+  letter-spacing: var(--tracking-tight);
+  text-wrap: balance;
+}
+body.art-page p { margin: 0; text-wrap: pretty; }
+body.art-page a {
+  color: var(--text-link);
+  text-decoration: none;
+  text-underline-offset: 3px;
+  transition: color var(--dur-fast) var(--ease-snap);
+}
+body.art-page a:hover { color: var(--text-link-hover); text-decoration: underline; }
+body.art-page code,
+body.art-page kbd,
+body.art-page pre,
+body.art-page samp { font-family: var(--font-mono); }
+body.art-page ::selection { background: var(--violet-a28); color: var(--ink-050); }
+body.art-page :focus-visible { outline: none; box-shadow: var(--focus-ring); }
+body.art-page button,
+body.art-page input,
+body.art-page select,
+body.art-page textarea { font: inherit; color: inherit; }
+body.art-page hr { border: none; border-top: 1px solid var(--border-subtle); margin: 0; }
+
+/* Site chrome from base.html, restyled in place. The markup is untouched.
+
+   These two overrides are load-bearing, not cosmetic. The global rules earlier
+   in this file set `main { max-width: 640px; margin: 2rem auto; padding: 0 1rem }`
+   and `header { padding: 1rem 2rem }` — the first would clamp the 1180px feed to
+   640px and kill the masonry outright, and the second fights the 56px bar. */
+body.art-page main {
+  max-width: none;
+  margin: 0;
+  padding: 0;
+}
+body.art-page header {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  height: var(--header-height);
+  padding: 0 var(--gutter);
+  gap: var(--space-9);
+  background: rgba(14,12,20,.82);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--border-subtle);
+}
+body.art-page header .site-title {
+  font: 800 17px/1 var(--font-display);
+  letter-spacing: -0.035em;
+  color: var(--text-strong);
+}
+/* The shared stylesheet never gives `nav` a display or a gap, so its links are
+   inline elements separated by one space of whitespace. At this type size they
+   read as one run-on string; lay them out explicitly. */
+body.art-page header nav {
+  display: flex;
+  align-items: center;
+  gap: var(--space-7);
+}
+body.art-page header nav a {
+  font: var(--weight-medium) var(--text-14)/1.2 var(--font-sans);
+  color: var(--text-muted);
+}
+body.art-page header nav a:hover { color: var(--text-strong); text-decoration: none; }
+
+/* The Ctrl-K affordance, which base.html renders as a bare <button> of <kbd>s. */
+body.art-page header .palette-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-left: auto;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+}
+body.art-page header .palette-hint kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 var(--space-3);
+  border: var(--border-width) solid var(--border-default);
+  border-bottom-width: 2px;
+  border-radius: var(--radius-xs);
+  background: var(--ink-800);
+  color: var(--text-muted);
+  font: var(--type-label);
+  text-transform: uppercase;
+}
+
+/* Icons — Lucide as CSS masks, so a glyph inherits currentColor and needs no
+   recolouring per context. */
+body.art-page .hm-icon {
+  display: inline-block;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  background-color: currentColor;
+  -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
+  -webkit-mask-position: center; mask-position: center;
+  -webkit-mask-size: 100% 100%; mask-size: 100% 100%;
+}
+body.art-page .hm-icon--search { -webkit-mask-image: url("/static/icons/search.svg"); mask-image: url("/static/icons/search.svg"); }
+body.art-page .hm-icon--chevron-down { -webkit-mask-image: url("/static/icons/chevron-down.svg"); mask-image: url("/static/icons/chevron-down.svg"); }
+body.art-page .hm-icon--x { -webkit-mask-image: url("/static/icons/x.svg"); mask-image: url("/static/icons/x.svg"); }
+
+/* Button */
+body.art-page .hm-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  border: var(--border-width) solid transparent;
+  border-radius: var(--radius-sm);
+  font: var(--type-ui);
+  letter-spacing: var(--tracking-snug);
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+  text-decoration: none;
+  transition: var(--transition-control);
+}
+body.art-page .hm-btn:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+body.art-page .hm-btn:active { transform: translateY(1px); }
+body.art-page .hm-btn[disabled],
+body.art-page .hm-btn[aria-disabled="true"] { opacity: .42; pointer-events: none; }
+body.art-page .hm-btn--sm { height: var(--control-height-sm); padding: 0 var(--space-5); font-size: var(--text-13); }
+body.art-page .hm-btn--md { height: var(--control-height-md); padding: 0 var(--space-6); }
+body.art-page .hm-btn--primary {
+  background: var(--accent);
+  color: var(--text-on-accent);
+  border-color: var(--violet-300);
+  box-shadow: var(--shadow-inset-hairline);
+}
+body.art-page .hm-btn--primary:hover { background: var(--accent-hover); }
+body.art-page .hm-btn--primary:active { background: var(--accent-press); }
+body.art-page .hm-btn--secondary { background: var(--ink-800); color: var(--text-strong); border-color: var(--border-default); }
+body.art-page .hm-btn--secondary:hover { background: var(--ink-750); border-color: var(--border-strong); }
+body.art-page .hm-btn--secondary:active { background: var(--ink-800); }
+body.art-page .hm-btn--ghost { background: transparent; color: var(--text-muted); }
+body.art-page .hm-btn--ghost:hover { background: var(--surface-hover); color: var(--text-strong); }
+
+/* IconButton */
+body.art-page .hm-iconbtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: var(--border-width) solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: var(--transition-control);
+}
+body.art-page .hm-iconbtn:hover { background: var(--surface-hover); color: var(--text-strong); }
+body.art-page .hm-iconbtn:active { transform: translateY(1px); }
+body.art-page .hm-iconbtn:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+body.art-page .hm-iconbtn--sm { width: var(--control-height-sm); height: var(--control-height-sm); }
+body.art-page .hm-iconbtn--md { width: var(--control-height-md); height: var(--control-height-md); }
+
+/* Kbd */
+body.art-page .hm-kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 var(--space-3);
+  border: var(--border-width) solid var(--border-default);
+  border-bottom-width: 2px;
+  border-radius: var(--radius-xs);
+  background: var(--ink-800);
+  color: var(--text-muted);
+  font: var(--type-label);
+  font-size: var(--text-11);
+  text-transform: uppercase;
+}
+body.art-page .hm-kbd-group {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--text-faint);
+  font: var(--type-label);
+}
+
+/* Field primitives — the search field in the next slice is built from these. */
+body.art-page .hm-field { display: flex; flex-direction: column; gap: var(--space-3); }
+body.art-page .hm-field__label {
+  font: var(--type-label);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+body.art-page .hm-field__hint { font: var(--type-body-sm); color: var(--text-faint); }
+body.art-page .hm-input-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  height: var(--control-height-md);
+  padding: 0 var(--space-5);
+  background: var(--surface-inset);
+  border: var(--border-width) solid var(--border-default);
+  border-radius: var(--radius-sm);
+  color: var(--text-faint);
+  transition: var(--transition-control);
+}
+body.art-page .hm-input-wrap:hover { border-color: var(--border-strong); }
+body.art-page .hm-input-wrap:focus-within { border-color: var(--border-focus); box-shadow: 0 0 0 3px var(--violet-a14); }
+body.art-page .hm-input {
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: none;
+  outline: none;
+  color: var(--text-strong);
+  font: var(--type-body);
+  font-size: var(--text-14);
+}
+body.art-page .hm-input::placeholder { color: var(--text-faint); }
+
+/* PostCard */
+body.art-page .hm-post {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--surface-card);
+  border: var(--border-width) solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  transition: var(--transition-surface), box-shadow var(--dur-base) var(--ease-snap);
+}
+body.art-page .hm-post:hover {
+  border-color: var(--border-strong);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-2);
+}
+body.art-page .hm-post__media {
+  position: relative;
+  background: var(--ink-900);
+  background-image: var(--texture-grid);
+  background-size: var(--texture-grid-size);
+  overflow: hidden;
+  min-height: 120px;
+}
+/* No object-fit here, deliberately. components.css sets it to cover, which
+   crops; the design brief mandates drawings render uncropped at natural ratio
+   and says they are never force-cropped to a tile. */
+body.art-page .hm-post__media img { width: 100%; height: auto; display: block; }
+body.art-page .hm-post__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-5) var(--space-6) var(--space-6);
+}
+body.art-page .hm-post__caption { font: var(--type-body); color: var(--text-body); }
+body.art-page .hm-post__meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  font: var(--type-label);
+  color: var(--text-faint);
+}
+
+/* Utility surfaces */
+body.art-page .hm-grid-bg {
+  background-color: var(--surface-page);
+  background-image: var(--texture-grid);
+  background-size: var(--texture-grid-size);
+}
+body.art-page .hm-eyebrow {
+  font: var(--type-label);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+body.art-page .hm-rule { height: 1px; background: var(--border-subtle); }
+
+/* Page layout */
+body.art-page .art-head {
+  padding: var(--space-11) var(--gutter) var(--space-9);
+  border-bottom: 1px solid var(--border-subtle);
+  background-color: var(--surface-page);
+  background-image: var(--texture-grid);
+  background-size: var(--texture-grid-size);
+}
+body.art-page .art-head__inner { max-width: var(--page-max); margin: 0 auto; }
+body.art-page .art-head__label { margin-bottom: var(--space-4); }
+body.art-page .art-head h1 { font: var(--type-h1); letter-spacing: var(--tracking-tight); }
+body.art-page .art-head__intro {
+  margin-top: var(--space-5);
+  max-width: var(--prose-max);
+  font: var(--type-body);
+  color: var(--text-muted);
+}
+/* Rail + main. The rail is a real column at >= 900px and collapses to a
+   full-width search field above the grid below that — see the media queries. */
+body.art-page .art-body {
+  max-width: var(--page-max);
+  margin: 0 auto;
+  padding: var(--space-9) var(--gutter) var(--space-12);
+  display: flex;
+  gap: var(--space-9);
+  align-items: flex-start;
+}
+body.art-page .art-rail {
+  flex: 0 0 var(--rail-width);
+  position: sticky;
+  top: 80px;
+  /* Search, the new sections and the legend now stack on one shared gap
+     instead of each carrying its own margin — matches the design handoff's
+     aside gap:24px. */
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-8);
+}
+/* `min-width: 0` is not optional: a flex item defaults to `min-width: auto`,
+   so a multi-column child sizes the row to its own content and pushes the page
+   wider than the viewport instead of narrowing. */
+body.art-page .art-main { flex: 1; min-width: 0; }
+
+body.art-page .art-rail__search { display: flex; flex-direction: column; gap: var(--space-3); }
+body.art-page .art-rail__legend .hm-rule { margin-bottom: var(--space-5); }
+body.art-page .art-rail__legend p {
+  margin: 0 0 var(--space-3);
+  font: var(--type-mono);
+  font-size: var(--text-11);
+  color: var(--text-faint);
+}
+
+/* Filter rail — Collections, Tags and Visibility · admin (Task 1 of the
+   collections/tags plan). Every control below is a pre-built HTMX GET link,
+   assembled in Rust (routes/feed.rs) — this stylesheet only paints states.
+   Below 900px the existing `.art-rail` collapse rule (see the responsive
+   block) already turns these into a plain stack; there is no separate sheet. */
+body.art-page .art-rail__section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+body.art-page .art-rail__section-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+body.art-page .art-rail__section-head .hm-iconbtn { margin-left: auto; font-size: 15px; line-height: 1; }
+body.art-page .art-rail__section-label {
+  font: var(--type-label);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+/* Collections — rows 6px/8px padding, radius 5px, label 14px, count 11px
+   mono right-aligned; hover rgba(242,238,248,.04) (design handoff S1). */
+body.art-page .art-rail__row { display: flex; align-items: center; gap: var(--space-3); }
+body.art-page .art-rail__collection {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  text-decoration: none;
+  color: var(--text-body);
+  font-size: var(--text-14);
+}
+body.art-page .art-rail__collection:hover { background: var(--white-a04); color: var(--text-strong); text-decoration: none; }
+body.art-page .art-rail__collection.is-active { background: var(--surface-selected); color: var(--text-strong); }
+body.art-page .art-rail__count {
+  margin-left: auto;
+  flex: none;
+  font: var(--type-label);
+  color: var(--text-faint);
+}
+body.art-page .art-rail__delete {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+}
+body.art-page .art-rail__delete:hover { background: var(--white-a07); color: var(--text-strong); }
+body.art-page .art-rail__new-collection .hm-input { height: var(--control-height-sm); }
+
+/* Tags — pill list, 24px tall, wrap, 6px gap, lowercase; active = filled
+   (design handoff S1/S2). */
+body.art-page .art-rail__tags { display: flex; flex-wrap: wrap; gap: 6px; }
+body.art-page .art-rail__tag {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 var(--space-4);
+  border-radius: var(--radius-pill);
+  border: var(--border-width) solid var(--border-default);
+  background: var(--surface-chip);
+  color: var(--text-body);
+  font-size: var(--text-13);
+  text-transform: lowercase;
+  text-decoration: none;
+}
+body.art-page .art-rail__tag:hover { border-color: var(--border-strong); color: var(--text-strong); text-decoration: none; }
+body.art-page .art-rail__tag.is-active {
+  background: var(--accent-tint);
+  border-color: var(--border-accent);
+  color: var(--text-accent);
+}
+
+/* Visibility · admin — rendered as <button>, not <input type="checkbox">: the
+   checked state lives entirely in the URL, and a real checkbox's own DOM
+   state would fight the HTMX swap that follows every click. */
+body.art-page .art-vis-check {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  height: 24px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-body);
+  font: var(--type-ui);
+  cursor: pointer;
+}
+body.art-page .art-vis-check:hover { color: var(--text-strong); }
+body.art-page .art-vis-check__box {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  border-radius: var(--radius-xs);
+  border: var(--border-width) solid var(--border-strong);
+  background: transparent;
+}
+body.art-page .art-vis-check.is-checked .art-vis-check__box {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+/* Active-filter row (Task 2 of the collections/tags plan) — one removable
+   pill per active tag/search/collection plus a ghost Clear filters button,
+   right-aligned. Lives at the top of #feed's payload, above the month
+   sections, so it travels with both the inlined first page and an htmx
+   page-0 swap. Pills reuse the rail's active-pill look (`.art-rail__tag.
+   is-active`'s tint) rather than inventing a second one. */
+body.art-page .art-filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: var(--space-7);
+}
+body.art-page .art-filter-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  height: 24px;
+  padding: 0 var(--space-4);
+  border-radius: var(--radius-pill);
+  border: var(--border-width) solid var(--border-accent);
+  background: var(--accent-tint);
+  color: var(--text-accent);
+  font-size: var(--text-13);
+  text-decoration: none;
+}
+body.art-page .art-filter-pill:hover { border-color: var(--violet-a45); text-decoration: none; }
+body.art-page .art-filter-pill__x {
+  font-size: var(--text-14);
+  line-height: 1;
+  opacity: .7;
+}
+body.art-page .art-filter-clear { margin-left: auto; }
+
+/* Month sections. Each month owns its OWN column block, which is the whole
+   reason the feed is not one flat masonry: in a CSS multi-column flow content
+   fills column 1 before column 2, so a divider placed inline would span one
+   column's width and the chronology would read vertically per column. */
+body.art-page .art-month + .art-month { margin-top: var(--space-9); }
+body.art-page .art-month__divider {
+  display: flex;
+  align-items: center;
+  gap: var(--space-5);
+  margin-bottom: var(--space-6);
+}
+body.art-page .art-month__label {
+  font: var(--type-mono);
+  font-size: var(--text-11);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+body.art-page .art-month__rule { flex: 1; height: 1px; background: var(--border-subtle); }
+
+/* `display: block` is not redundant. The pre-existing `#feed` rule earlier in
+   this file sets `display: flex; flex-direction: column`, and flex items would
+   make the month sections carry a gap nobody designed. `gap: normal` goes with
+   it, since column-gap and the per-card margin-bottom own the spacing now.
+   `columns` lives on the per-month grid below, never here — a flex container
+   ignores it in silence. */
+body.art-page #feed {
+  display: block;
+  gap: normal;
+}
+body.art-page .art-month__grid {
+  columns: 3;
+  column-gap: var(--space-6);
+}
+body.art-page #feed .hm-post {
+  break-inside: avoid;
+  -webkit-column-break-inside: avoid;
+  margin-bottom: var(--space-6);
+}
+
+/* Load more and the empty state are children of #feed, outside every column
+   block — they span the content width because nothing narrows them. */
+body.art-page .load-more {
+  display: flex;
+  justify-content: center;
+  padding-top: var(--space-8);
+}
+body.art-page .art-empty {
+  font: var(--type-mono);
+  font-size: var(--text-13);
+  color: var(--text-faint);
+  padding: var(--space-12) 0;
+  text-align: center;
+}
+/* The filter-aware empty state's Reset filters button (Task 2) — `.art-empty`
+   itself is unchanged, this only places the button under its line. */
+body.art-page .art-empty__reset {
+  display: block;
+  margin: var(--space-5) auto 0;
+}
+
+/* Admin composer. Markup and HTMX contract are untouched — the multi-upload
+   tray that replaces this is a later slice — but without these rules it renders
+   as unstyled light-mode controls against a near-black page. */
+body.art-page #composer-wrap {
+  max-width: var(--page-max);
+  margin: 0 auto;
+  padding: var(--space-8) var(--gutter) 0;
+}
+body.art-page #new-post-btn {
+  display: inline-flex;
+  align-items: center;
+  height: var(--control-height-md);
+  padding: 0 var(--space-6);
+  border: var(--border-width) solid var(--violet-300);
+  border-radius: var(--radius-sm);
+  background: var(--accent);
+  color: var(--text-on-accent);
+  font: var(--type-ui);
+  cursor: pointer;
+  transition: var(--transition-control);
+}
+body.art-page #new-post-btn:hover { background: var(--accent-hover); }
+body.art-page #new-post-btn:active { transform: translateY(1px); }
+body.art-page #composer {
+  margin-top: var(--space-6);
+  padding: var(--space-7);
+  background: var(--surface-card);
+  border: var(--border-width) solid var(--border-subtle);
+  border-radius: var(--radius-md);
+}
+body.art-page .composer-formats { display: flex; gap: var(--space-3); margin-bottom: var(--space-6); }
+body.art-page .fmt-btn {
+  height: var(--control-height-sm);
+  padding: 0 var(--space-5);
+  border: var(--border-width) solid var(--border-default);
+  border-radius: var(--radius-sm);
+  background: var(--ink-800);
+  color: var(--text-muted);
+  font: var(--type-ui);
+  font-size: var(--text-13);
+  cursor: pointer;
+}
+body.art-page .fmt-btn.active { background: var(--accent-tint); border-color: var(--violet-a45); color: var(--violet-300); }
+body.art-page .fmt-btn[disabled] { opacity: .42; pointer-events: none; }
+body.art-page .drop-zone {
+  padding: var(--space-8);
+  border: 1px dashed var(--white-a20);
+  border-radius: var(--radius-md);
+  background-color: var(--surface-inset);
+  background-image: var(--texture-grid);
+  background-size: var(--texture-grid-size);
+  text-align: center;
+  color: var(--text-muted);
+}
+body.art-page .file-name-hint { display: block; margin-top: var(--space-3); font: var(--type-label); color: var(--text-faint); }
+body.art-page #composer textarea {
+  width: 100%;
+  min-height: 72px;
+  margin-top: var(--space-5);
+  padding: var(--space-5);
+  resize: vertical;
+  background: var(--surface-inset);
+  border: var(--border-width) solid var(--border-default);
+  border-radius: var(--radius-sm);
+  color: var(--text-strong);
+  font: var(--type-body);
+  font-size: var(--text-14);
+  outline: none;
+  transition: var(--transition-control);
+}
+body.art-page #composer textarea:focus { border-color: var(--border-focus); box-shadow: 0 0 0 3px var(--violet-a14); }
+body.art-page .composer-actions { display: flex; gap: var(--space-4); margin-top: var(--space-6); }
+body.art-page .composer-actions .btn-primary {
+  height: var(--control-height-md);
+  padding: 0 var(--space-6);
+  border: var(--border-width) solid var(--violet-300);
+  border-radius: var(--radius-sm);
+  background: var(--accent);
+  color: var(--text-on-accent);
+  font: var(--type-ui);
+  cursor: pointer;
+}
+body.art-page .composer-actions .btn-secondary {
+  height: var(--control-height-md);
+  padding: 0 var(--space-6);
+  border: var(--border-width) solid var(--border-default);
+  border-radius: var(--radius-sm);
+  background: var(--ink-800);
+  color: var(--text-strong);
+  font: var(--type-ui);
+  cursor: pointer;
+}
+
+/* Responsive. The bands are disjoint on purpose: the design brief's "2 columns
+   780-1179" and "under 900px the rail collapses" overlap, so 780-899 is spelled
+   out rather than left to whichever rule happens to win.
+
+     >= 1180   rail 236px sticky   3 columns
+     900-1179  rail 236px sticky   2 columns
+     780-899   rail collapsed      2 columns
+     < 780     rail collapsed      1 column                                   */
+@media (max-width: 1179px) {
+  body.art-page .art-month__grid { columns: 2; }
+}
+@media (max-width: 899px) {
+  body.art-page .art-body { display: block; }
+  body.art-page .art-rail {
+    position: static;
+    width: auto;
+    margin-bottom: var(--space-7);
+  }
+  /* The legend documents keys that need a hardware keyboard. */
+  body.art-page .art-rail__legend { display: none; }
+}
+@media (max-width: 779px) {
+  body.art-page .art-month__grid { columns: 1; }
+  body.art-page .art-head { padding: var(--space-9) var(--space-6) var(--space-8); }
+  body.art-page .art-head h1 { font-size: var(--text-32); }
+  body.art-page .art-body { padding: var(--space-8) var(--space-6) var(--space-11); }
+  body.art-page #composer-wrap { padding: var(--space-6) var(--space-6) 0; }
+}
+
+/* Belt and braces: the duration tokens above already zero out, but a transition
+   or transform written literally anywhere in this section would survive that. */
+@media (prefers-reduced-motion: reduce) {
+  body.art-page *,
+  body.art-page *::before,
+  body.art-page *::after {
+    transition-duration: 0ms !important;
+    animation-duration: 0ms !important;
+    animation-iteration-count: 1 !important;
+  }
+  body.art-page .hm-post:hover { transform: none; }
+}
+
+/* Permalink page — one drawing at its own URL.
+   The state chip is admin-only; a visitor cannot tell an unlisted post from a
+   public one by looking at it, which is the intent of the state. */
+body.art-page .hm-post__link { display: block; text-decoration: none; color: inherit; }
+
+body.art-page .art-permalink {
+  max-width: var(--page-max);
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
+body.art-page .art-permalink__media {
+  border-radius: var(--radius-3);
+  overflow: hidden;
+}
+/* `width: auto` rather than the `100%` the feed's cards use. A card is a
+   thumbnail and should fill its column; a permalink is the drawing at its own
+   size, and stretching a 400px study across a 1132px container renders it
+   blurry. `max-height` keeps a tall portrait from pushing its own caption off
+   the fold.
+
+   Centred with `margin`, NOT by making the wrapper a flex container: `width:
+   auto` on a flex item whose intrinsic size is indefinite — an SVG with a
+   viewBox and no width/height — collapses the image to 0x0. Raster uploads
+   carry intrinsic dimensions and would have survived it, which is exactly why
+   it would not have been noticed until someone uploaded an SVG. */
+body.art-page .art-permalink__media img {
+  width: auto;
+  max-width: 100%;
+  max-height: 85vh;
+  height: auto;
+  display: block;
+  margin-inline: auto;
+}
+body.art-page .art-permalink__caption {
+  font: var(--type-body);
+  color: var(--text-body);
+  max-width: 60ch;
+}
+body.art-page .art-permalink__back { color: inherit; text-decoration: none; }
+body.art-page .art-permalink__back:hover { text-decoration: underline; }
+body.art-page .art-permalink__state {
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  opacity: .7;
+}
+
+/* Visibility badge and card controls — admin only.
+   Both live inside the card's `{% if is_admin %}`, so a visitor's card is
+   byte-identical to what slice 1 shipped. Tones from the design handoff, S2. */
+body.art-page .hm-post { position: relative; }
+
+body.art-page .art-badge {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 2;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill, 999px);
+  font: var(--type-micro, 500 11px/1.4 ui-monospace, monospace);
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  background: rgba(0, 0, 0, .55);
+  backdrop-filter: blur(4px);
+}
+body.art-page .art-badge--public { color: #4FD6A8; }
+body.art-page .art-badge--unlisted { color: #FFB570; }
+body.art-page .art-badge--hidden { color: var(--text-muted, #9a94a6); }
+
+body.art-page .hm-post--dimmed { opacity: .5; }
+body.art-page .hm-post--dimmed:hover { opacity: 1; }
+
+body.art-page .art-card-controls {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 2;
+  display: flex;
+  gap: 6px;
+  opacity: 0;
+  transition: opacity 130ms cubic-bezier(.2, .8, .3, 1);
+}
+body.art-page .hm-post:hover .art-card-controls,
+body.art-page .hm-post:focus-within .art-card-controls { opacity: 1; }
+
+body.art-page .art-card-controls__btn {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: var(--radius-2, 8px);
+  cursor: pointer;
+  background: rgba(0, 0, 0, .55);
+  color: var(--text-body, #f2eef8);
+  backdrop-filter: blur(4px);
+}
+body.art-page .art-card-controls__btn:active { transform: translateY(1px); }
+
+/* A touch device has no hover, so a hover-only control is no control. */
+@media (max-width: 899px) {
+  body.art-page .art-card-controls { opacity: 1; }
+  body.art-page .art-card-controls__btn { width: 44px; height: 44px; }
+}
+
+/* Card popovers — pencil (caption/tags) and folder-plus (collections).
+   One shared `.art-pop` per card, filled by whichever fragment was last
+   fetched (see post_card.html) — Task 4 owns showing/hiding it. Positioned
+   within `.hm-post__media`, already the context for the badge and the
+   control cluster it sits under.
+
+   Both `.hm-post` and `.hm-post__media` clip their contents (rounded
+   corners on the thumbnail), which would silently clip a popover taller
+   than the thumbnail underneath it. Relax that clip on exactly the card
+   whose popover is open, and nowhere else — cheaper than any of Task 4's
+   JS reaching back into layout to do the same thing. */
+body.art-page .hm-post:has(.art-pop:not([hidden])),
+body.art-page .hm-post:has(.art-pop:not([hidden])) .hm-post__media {
+  overflow: visible;
+}
+body.art-page .art-pop {
+  position: absolute;
+  top: 44px;
+  left: 8px;
+  z-index: 3;
+  width: max-content;
+  max-width: 260px;
+  padding: var(--space-5, 12px);
+  background: #17141F;
+  border: 1px solid rgba(242, 238, 248, .10);
+  border-radius: var(--radius-2, 8px);
+  box-shadow: var(--shadow-3);
+}
+/* The `hidden` attribute already beats a bare `.art-pop` under the UA
+   stylesheet's own rule, but this makes it explicit so a later rule on the
+   class itself can never win that fight by accident. */
+body.art-page .art-pop[hidden] { display: none; }
+
+body.art-page .art-pop__form { display: flex; flex-direction: column; gap: var(--space-4, 8px); }
+body.art-page .art-pop__save { align-self: flex-start; }
+
+body.art-page .art-checklist { display: flex; flex-direction: column; gap: var(--space-3, 6px); }
+body.art-page .art-checklist__item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3, 6px);
+  font: var(--type-body-sm);
+  color: var(--text-body, #f2eef8);
+}
+body.art-page .art-checklist__empty { font: var(--type-body-sm); color: var(--text-faint); }
+
+/* Same "always visible, roomier target" rule as the control cluster above —
+   the cluster is 44px tall down here, so the popover sits lower, and it may
+   span the card rather than staying pinned to a fixed max-width. */
+@media (max-width: 899px) {
+  body.art-page .art-pop { top: 60px; max-width: none; width: calc(100% - 16px); }
+}
+
+/* Head actions — the preview toggle and the flag that says you are in one. */
+body.art-page .art-head__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4, 12px);
+  margin-top: var(--space-5, 16px);
+}
+body.art-page .art-head__action {
+  font: var(--type-micro, 500 12px/1.4 ui-monospace, monospace);
+  color: var(--text-body, #f2eef8);
+  text-decoration: none;
+  padding: 6px 10px;
+  border-radius: var(--radius-2, 8px);
+  border: 1px solid rgba(242, 238, 248, .18);
+}
+body.art-page .art-head__action:hover { border-color: rgba(242, 238, 248, .4); }
+body.art-page .art-head__action kbd {
+  font: inherit;
+  opacity: .6;
+  margin-left: 4px;
+}
+body.art-page .art-preview-flag {
+  font: var(--type-micro, 500 12px/1.4 ui-monospace, monospace);
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: #FFB570;
+}

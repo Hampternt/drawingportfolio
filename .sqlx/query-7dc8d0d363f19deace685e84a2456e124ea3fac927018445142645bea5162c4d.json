@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO posts (caption, image_url, webp_url, avif_url, format, file_size_bytes, image_width, image_height, visibility) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
+  "describe": {
+    "columns": [
+      {
+        "name": "id",
+        "ordinal": 0,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 9
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "7dc8d0d363f19deace685e84a2456e124ea3fac927018445142645bea5162c4d"
+}

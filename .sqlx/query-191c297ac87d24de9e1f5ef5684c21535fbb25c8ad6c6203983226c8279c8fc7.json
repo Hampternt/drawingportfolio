@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT visibility AS \"visibility!: String\", COUNT(*) AS \"n: i64\"\nFROM posts WHERE\n    (?1 IS NULL OR caption LIKE ?1 ESCAPE '\\')\nAND (?2 IS NULL OR id IN\n     (SELECT post_id FROM post_collections pc\n      JOIN collections c ON c.id = pc.collection_id WHERE c.slug = ?2))\nAND (?3 IS NULL OR id IN\n     (SELECT post_id FROM post_tags pt\n      JOIN tags t ON t.id = pt.tag_id\n      WHERE t.name IN (SELECT value FROM json_each(?3))\n      GROUP BY post_id\n      HAVING COUNT(DISTINCT t.id) = json_array_length(?3)))\nAND (?4 IS NULL OR visibility IN (SELECT value FROM json_each(?4)))\nGROUP BY visibility",
+  "describe": {
+    "columns": [
+      {
+        "name": "visibility!: String",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "n: i64",
+        "ordinal": 1,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "191c297ac87d24de9e1f5ef5684c21535fbb25c8ad6c6203983226c8279c8fc7"
+}

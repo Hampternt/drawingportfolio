@@ -1,6 +1,7 @@
 use crate::models::{
-    AuthChallengeState, DrawingTaskWithImage, FoodItem, MealEntryWithFood, PasskeyCredential, Post,
-    Session, Targets, TaskImage,
+    AuthChallengeState, Collection, CollectionWithCount, CreateCollectionError,
+    DrawingTaskWithImage, FoodItem, MealEntryWithFood, PasskeyCredential, Post, PostCounts,
+    PostFilter, Session, TagWithCount, Targets, TaskImage, Viewer, Visibility,
 };
 use sqlx::{
     sqlite::{SqliteConnectOptions, SqlitePoolOptions},
@@ -77,12 +78,164 @@ pub async fn run_migrations(pool: &DbPool) {
     let _ = sqlx::query(include_str!("../migrations/011_weights_recipes.sql"))
         .execute(pool)
         .await;
+
+    // Migration 012: intrinsic image dimensions.
+    //
+    // The art feed lays cards out in a CSS multi-column masonry. Without
+    // width/height on the <img>, each image reserves no height until it loads
+    // and the column reflows under it. Storing the real ratio lets the browser
+    // reserve the box up front.
+    //
+    // Existing rows keep 0 — no backfill. The originals are in object storage
+    // and re-fetching them at startup would stall the boot for a layout
+    // optimisation; post_card.html omits both attributes when either is 0, so
+    // legacy rows render exactly as they did before.
+    let _ = sqlx::query(include_str!("../migrations/012_image_dimensions.sql"))
+        .execute(pool)
+        .await;
+
+    // Migration 013: visibility model — public / unlisted / hidden.
+    //
+    // Existing rows default to 'public'. Slice 1 took 012 for image dimensions,
+    // so this is 013 even though the design handoff reserved 012 for it —
+    // migration numbers follow ship order, not the order a document listed them.
+    let _ = sqlx::query(include_str!("../migrations/013_post_visibility.sql"))
+        .execute(pool)
+        .await;
+
+    // Migration 014: collections + tags (slice 3). Four new tables and two
+    // indexes; no existing row is touched. The REFERENCES clauses are
+    // documentation — the pool does not enable foreign_keys, so deletes clean
+    // their own join rows in Rust.
+    let _ = sqlx::query(include_str!("../migrations/014_collections_tags.sql"))
+        .execute(pool)
+        .await;
 }
 
-pub async fn get_posts(pool: &DbPool, page: i64) -> Vec<Post> {
-    let offset = page * 20;
-    sqlx::query_as!(Post,
-        "SELECT id, caption, image_url, webp_url, avif_url, format, file_size_bytes, created_at FROM posts ORDER BY created_at DESC LIMIT 21 OFFSET ?",
+/// Builds the `LIKE` pattern for a caption search.
+///
+/// Escapes the escape character first, then LIKE's two wildcards, then wraps the
+/// result in `%…%`. The order is not a style choice: escaping `%` before `\`
+/// would send the second pass back over the backslashes the first one just
+/// introduced and double them.
+///
+/// Without this, a search for `100%` becomes the pattern `%100%%`, which matches
+/// every row in the table.
+pub fn like_pattern(q: &str) -> String {
+    let escaped = q
+        .replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_");
+    format!("%{escaped}%")
+}
+
+/// Normalizes a comma-separated tag list from a form field: trims, lowercases,
+/// drops empties, dedupes preserving first occurrence, drops tags over 40
+/// chars, and caps the result at 20 tags — all silently, no error path.
+pub fn normalize_tags(raw: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for part in raw.split(',') {
+        let tag = part.trim().to_lowercase();
+        if tag.is_empty() || tag.chars().count() > 40 || out.contains(&tag) {
+            continue; // empties, over-length and duplicates are silently dropped
+        }
+        out.push(tag);
+        if out.len() == 20 {
+            break; // max 20 tags per post — excess silently dropped
+        }
+    }
+    out
+}
+
+/// Turns a collection name into a URL-safe slug: lowercase, runs of
+/// non-alphanumerics collapsed to a single '-', with no leading or trailing
+/// dash.
+pub fn slugify(name: &str) -> String {
+    let mut slug = String::new();
+    let mut pending_dash = false;
+    for c in name.chars() {
+        if c.is_alphanumeric() {
+            if pending_dash && !slug.is_empty() {
+                slug.push('-');
+            }
+            pending_dash = false;
+            for lc in c.to_lowercase() {
+                slug.push(lc);
+            }
+        } else {
+            pending_dash = true; // runs of non-alphanumerics collapse to one '-'
+        }
+    }
+    slug // leading/trailing '-' never appear by construction
+}
+
+/// One page of posts, filtered by `PostFilter`.
+///
+/// Asks for 21 rows to answer "is there another page?" without a COUNT; the
+/// caller drops the 21st. SQLite's `LIKE` is ASCII-case-insensitive by default,
+/// which is the behaviour the search wants — no `COLLATE NOCASE` needed.
+///
+/// One `query_as!` macro answers every combination of search, collection, tags
+/// and (admin-only) visibility subset — each clause is an `(?n IS NULL OR …)`
+/// guard rather than a branch. That used to be two hand-written branches (see
+/// the git history for why: sqlx's SQLite macro was thought not to support
+/// reusing a numbered placeholder), but the tag and visibility filters turn
+/// "two branches" into "sixteen branches" the moment they cross each other, so
+/// this rewrite proves the numbered-placeholder reuse works after all — `json_each`
+/// on a `NULL` bind yields zero rows, which is what lets the `IS NULL` guard win
+/// outright and keeps every filter compile-time checked, list params included.
+///
+/// The **viewer** is a bool bind (`?1`) for the same reason it always was:
+/// crossing it with every other filter as literal branches would multiply out
+/// of hand, not just double.
+///
+/// Migration 014 shipped `idx_posts_visibility_created`, so the caveat that used
+/// to live here — no index over `(visibility, created_at DESC)` because the OR
+/// predicate couldn't use one — no longer applies.
+pub async fn get_posts_page(
+    pool: &DbPool,
+    filter: &PostFilter,
+    page: i64,
+    viewer: Viewer,
+) -> Vec<Post> {
+    let all = viewer.is_admin(); // ?1
+    let pattern = filter.q.as_deref().map(like_pattern); // ?2
+    let collection = filter.collection.as_deref(); // ?3
+    let tags_json = if filter.tags.is_empty() {
+        // ?4
+        None
+    } else {
+        Some(serde_json::to_string(&filter.tags).unwrap())
+    };
+    let vis_json = filter
+        .vis
+        .as_ref()
+        .map(|v| serde_json::to_string(v).unwrap()); // ?5
+    let offset = page * 20; // ?6
+
+    sqlx::query_as!(
+        Post,
+        r#"SELECT id, caption, image_url, webp_url, avif_url, format, file_size_bytes,
+       created_at, image_width, image_height, visibility
+FROM posts WHERE
+    (?1 OR visibility = 'public')
+AND (?2 IS NULL OR caption LIKE ?2 ESCAPE '\')
+AND (?3 IS NULL OR id IN
+     (SELECT post_id FROM post_collections pc
+      JOIN collections c ON c.id = pc.collection_id WHERE c.slug = ?3))
+AND (?4 IS NULL OR id IN
+     (SELECT post_id FROM post_tags pt
+      JOIN tags t ON t.id = pt.tag_id
+      WHERE t.name IN (SELECT value FROM json_each(?4))
+      GROUP BY post_id
+      HAVING COUNT(DISTINCT t.id) = json_array_length(?4)))
+AND (?5 IS NULL OR visibility IN (SELECT value FROM json_each(?5)))
+ORDER BY created_at DESC LIMIT 21 OFFSET ?6"#,
+        all,
+        pattern,
+        collection,
+        tags_json,
+        vis_json,
         offset
     )
     .fetch_all(pool)
@@ -90,6 +243,442 @@ pub async fn get_posts(pool: &DbPool, page: i64) -> Vec<Post> {
     .unwrap_or_default()
 }
 
+/// The real total for the page head.
+///
+/// Called only on a full page render — never on HTMX pagination, where the head
+/// is not re-rendered and the COUNT would be wasted work on every Load more.
+///
+/// The `AS "n: i64"` override is load-bearing: sqlx infers SQLite's `COUNT(*)`
+/// as `i32`.
+///
+/// Note there is **no viewer branch in the SQL at all**. The query counts every
+/// state and the viewer decides only what `total` means, which keeps the
+/// viewer-dependence to one line of Rust instead of a second pair of branches.
+pub async fn count_posts(pool: &DbPool, filter: &PostFilter, viewer: Viewer) -> PostCounts {
+    struct Row {
+        visibility: String,
+        n: i64,
+    }
+
+    let pattern = filter.q.as_deref().map(like_pattern); // ?1
+    let collection = filter.collection.as_deref(); // ?2
+    let tags_json = if filter.tags.is_empty() {
+        // ?3
+        None
+    } else {
+        Some(serde_json::to_string(&filter.tags).unwrap())
+    };
+    let vis_json = filter
+        .vis
+        .as_ref()
+        .map(|v| serde_json::to_string(v).unwrap()); // ?4
+
+    let rows: Vec<Row> = sqlx::query_as!(
+        Row,
+        r#"SELECT visibility AS "visibility!: String", COUNT(*) AS "n: i64"
+FROM posts WHERE
+    (?1 IS NULL OR caption LIKE ?1 ESCAPE '\')
+AND (?2 IS NULL OR id IN
+     (SELECT post_id FROM post_collections pc
+      JOIN collections c ON c.id = pc.collection_id WHERE c.slug = ?2))
+AND (?3 IS NULL OR id IN
+     (SELECT post_id FROM post_tags pt
+      JOIN tags t ON t.id = pt.tag_id
+      WHERE t.name IN (SELECT value FROM json_each(?3))
+      GROUP BY post_id
+      HAVING COUNT(DISTINCT t.id) = json_array_length(?3)))
+AND (?4 IS NULL OR visibility IN (SELECT value FROM json_each(?4)))
+GROUP BY visibility"#,
+        pattern,
+        collection,
+        tags_json,
+        vis_json
+    )
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default();
+
+    let mut counts = PostCounts::default();
+    // GROUP BY returns no row for a state with zero posts, so accumulate into
+    // defaults rather than indexing the result. A portfolio with nothing hidden
+    // is the normal case, not an edge one.
+    for row in rows {
+        match Visibility::from_row(&row.visibility) {
+            Visibility::Public => counts.public = row.n,
+            Visibility::Unlisted => counts.unlisted = row.n,
+            Visibility::Hidden => counts.hidden = row.n,
+        }
+    }
+    counts.total = if viewer.is_admin() {
+        counts.public + counts.unlisted + counts.hidden
+    } else {
+        counts.public
+    };
+    counts
+}
+
+/// One post, or `None` when this viewer may not have it.
+///
+/// A missing id and a hidden post are the same answer on purpose: the caller
+/// turns both into a 404, so from outside they are indistinguishable. A
+/// distinguishable error would confirm the row exists, which is the one fact
+/// hiding it is meant to withhold.
+///
+/// `unlisted` is deliberately **not** filtered here — reachable by permalink
+/// while absent from the feed is the entire definition of the state.
+pub async fn get_post_by_id(pool: &DbPool, id: i64, viewer: Viewer) -> Option<Post> {
+    let post = sqlx::query_as!(Post,
+        "SELECT id, caption, image_url, webp_url, avif_url, format, file_size_bytes, created_at, image_width, image_height, visibility FROM posts WHERE id = ?", id
+    )
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten()?;
+
+    match (Visibility::from_row(&post.visibility), viewer) {
+        (Visibility::Hidden, Viewer::Visitor) => None,
+        _ => Some(post),
+    }
+}
+
+/// Sets one post's state. `false` means no such id, which the route turns into
+/// a 404.
+pub async fn set_post_visibility(pool: &DbPool, id: i64, visibility: Visibility) -> bool {
+    let value = visibility.as_str();
+    sqlx::query!("UPDATE posts SET visibility = ? WHERE id = ?", value, id)
+        .execute(pool)
+        .await
+        .map(|r| r.rows_affected() == 1)
+        .unwrap_or(false)
+}
+
+// ── Collections & tags (migration 014) ──────────────────────────────────────
+//
+// The pool never sets the foreign_keys pragma, so nothing here relies on
+// ON DELETE CASCADE — every delete cleans its own join rows in a transaction,
+// following `delete_task_image` (below, ~line 1080).
+
+/// Every collection with its post count, ordered by name.
+///
+/// Viewer-aware: an admin's count is every member post; a visitor's is public
+/// members only. `LEFT JOIN` on purpose — an admin sees an empty collection
+/// (count 0) they just created, because deleting it needs a row to click. A
+/// visitor never sees a collection whose visible count is 0.
+pub async fn list_collections_with_counts(
+    pool: &DbPool,
+    viewer: Viewer,
+) -> Vec<CollectionWithCount> {
+    if viewer.is_admin() {
+        sqlx::query_as!(
+            CollectionWithCount,
+            r#"SELECT c.id AS "id!: i64", c.name, c.slug, COUNT(pc.post_id) AS "count!: i64"
+               FROM collections c
+               LEFT JOIN post_collections pc ON pc.collection_id = c.id
+               GROUP BY c.id, c.name, c.slug
+               ORDER BY c.name ASC"#
+        )
+        .fetch_all(pool)
+        .await
+        .unwrap_or_default()
+    } else {
+        sqlx::query_as!(
+            CollectionWithCount,
+            r#"SELECT c.id AS "id!: i64", c.name, c.slug, COUNT(p.id) AS "count!: i64"
+               FROM collections c
+               LEFT JOIN post_collections pc ON pc.collection_id = c.id
+               LEFT JOIN posts p ON p.id = pc.post_id AND p.visibility = 'public'
+               GROUP BY c.id, c.name, c.slug
+               HAVING COUNT(p.id) > 0
+               ORDER BY c.name ASC"#
+        )
+        .fetch_all(pool)
+        .await
+        .unwrap_or_default()
+    }
+}
+
+/// Every tag with its post count, ordered by name.
+///
+/// `INNER JOIN` through `post_tags` to `posts` on purpose — an orphan tag (no
+/// posts left carrying it) naturally disappears for everyone, no `HAVING`
+/// needed. Viewer-aware: a visitor additionally loses tags whose public count
+/// is 0, via the `WHERE` clause on `posts.visibility`.
+pub async fn list_tags_with_counts(pool: &DbPool, viewer: Viewer) -> Vec<TagWithCount> {
+    if viewer.is_admin() {
+        sqlx::query_as!(
+            TagWithCount,
+            r#"SELECT t.name, COUNT(*) AS "count!: i64"
+               FROM tags t
+               INNER JOIN post_tags pt ON pt.tag_id = t.id
+               INNER JOIN posts p ON p.id = pt.post_id
+               GROUP BY t.id, t.name
+               ORDER BY t.name ASC"#
+        )
+        .fetch_all(pool)
+        .await
+        .unwrap_or_default()
+    } else {
+        sqlx::query_as!(
+            TagWithCount,
+            r#"SELECT t.name, COUNT(*) AS "count!: i64"
+               FROM tags t
+               INNER JOIN post_tags pt ON pt.tag_id = t.id
+               INNER JOIN posts p ON p.id = pt.post_id
+               WHERE p.visibility = 'public'
+               GROUP BY t.id, t.name
+               ORDER BY t.name ASC"#
+        )
+        .fetch_all(pool)
+        .await
+        .unwrap_or_default()
+    }
+}
+
+/// Creates a collection, slugging the trimmed name for the URL/dedup key
+/// while storing the trimmed name as typed (display case preserved).
+///
+/// A slug that comes out empty (the name was pure punctuation/whitespace)
+/// fails fast with `InvalidName` before touching the database. Otherwise the
+/// insert is attempted directly — detecting the UNIQUE violation on `slug`
+/// rather than pre-checking, since a pre-check races a concurrent insert of
+/// the same slug. On that violation, the existing row is re-read by slug and
+/// its name is returned so the caller can say "you already have one".
+pub async fn create_collection(
+    pool: &DbPool,
+    name: &str,
+) -> Result<Collection, CreateCollectionError> {
+    let trimmed = name.trim();
+    let slug = slugify(trimmed);
+    if slug.is_empty() {
+        return Err(CreateCollectionError::InvalidName);
+    }
+
+    let inserted = sqlx::query!(
+        "INSERT INTO collections (name, slug) VALUES (?, ?) RETURNING id",
+        trimmed,
+        slug
+    )
+    .fetch_one(pool)
+    .await;
+
+    let id = match inserted {
+        Ok(row) => row.id,
+        Err(e) => {
+            let is_unique_violation = e
+                .as_database_error()
+                .map(|db_err| db_err.is_unique_violation())
+                .unwrap_or(false);
+            if !is_unique_violation {
+                return Err(CreateCollectionError::InvalidName);
+            }
+            let existing = sqlx::query_as!(
+                Collection,
+                r#"SELECT id AS "id!: i64", name, slug, created_at FROM collections WHERE slug = ?"#,
+                slug
+            )
+            .fetch_optional(pool)
+            .await
+            .ok()
+            .flatten();
+            return match existing {
+                Some(c) => Err(CreateCollectionError::DuplicateSlug(c.name)),
+                None => Err(CreateCollectionError::InvalidName),
+            };
+        }
+    };
+
+    let collection = sqlx::query_as!(
+        Collection,
+        "SELECT id, name, slug, created_at FROM collections WHERE id = ?",
+        id
+    )
+    .fetch_one(pool)
+    .await
+    .expect("failed to fetch inserted collection");
+    Ok(collection)
+}
+
+/// Deletes a collection and its membership rows, leaving member posts intact.
+/// Returns a bool; the route ignores this and re-renders the rail fragment either way (idempotent by contract).
+pub async fn delete_collection(pool: &DbPool, id: i64) -> bool {
+    let mut tx = match pool.begin().await {
+        Ok(tx) => tx,
+        Err(_) => return false,
+    };
+
+    if sqlx::query!("DELETE FROM post_collections WHERE collection_id = ?", id)
+        .execute(&mut *tx)
+        .await
+        .is_err()
+    {
+        return false;
+    }
+
+    let result = sqlx::query!("DELETE FROM collections WHERE id = ?", id)
+        .execute(&mut *tx)
+        .await;
+
+    match result {
+        Ok(r) if r.rows_affected() == 1 => {
+            tx.commit().await.ok();
+            true
+        }
+        _ => false,
+    }
+}
+
+/// Replaces a post's tag set wholesale. Callers pass already-normalized tags
+/// (`normalize_tags` is applied once, at the form/PATCH edge) — this function
+/// does not re-normalize. `false` if the post does not exist; the `tags`
+/// table gains no new row in that case.
+pub async fn set_post_tags(pool: &DbPool, post_id: i64, tags: &[String]) -> bool {
+    let mut tx = match pool.begin().await {
+        Ok(tx) => tx,
+        Err(_) => return false,
+    };
+
+    let post_exists = sqlx::query!("SELECT id FROM posts WHERE id = ?", post_id)
+        .fetch_optional(&mut *tx)
+        .await
+        .ok()
+        .flatten()
+        .is_some();
+    if !post_exists {
+        return false;
+    }
+
+    if sqlx::query!("DELETE FROM post_tags WHERE post_id = ?", post_id)
+        .execute(&mut *tx)
+        .await
+        .is_err()
+    {
+        return false;
+    }
+
+    for tag in tags {
+        if sqlx::query!("INSERT OR IGNORE INTO tags (name) VALUES (?)", tag)
+            .execute(&mut *tx)
+            .await
+            .is_err()
+        {
+            return false;
+        }
+        let tag_id = match sqlx::query!("SELECT id FROM tags WHERE name = ?", tag)
+            .fetch_optional(&mut *tx)
+            .await
+            .ok()
+            .flatten()
+        {
+            Some(row) => row.id,
+            None => return false,
+        };
+        if sqlx::query!(
+            "INSERT INTO post_tags (post_id, tag_id) VALUES (?, ?)",
+            post_id,
+            tag_id
+        )
+        .execute(&mut *tx)
+        .await
+        .is_err()
+        {
+            return false;
+        }
+    }
+
+    tx.commit().await.is_ok()
+}
+
+/// Plain caption update. `false` for an unknown id.
+pub async fn update_post_caption(pool: &DbPool, post_id: i64, caption: &str) -> bool {
+    sqlx::query!(
+        "UPDATE posts SET caption = ? WHERE id = ?",
+        caption,
+        post_id
+    )
+    .execute(pool)
+    .await
+    .map(|r| r.rows_affected() == 1)
+    .unwrap_or(false)
+}
+
+/// Adds a post to a collection, idempotently. `false` if either the post or
+/// the collection is missing — the FK pragma is off, so a dangling insert
+/// would otherwise succeed silently. A second call with the same pair is
+/// still `true`, and still leaves exactly one join row (`INSERT OR IGNORE`
+/// on the composite primary key).
+pub async fn add_post_to_collection(pool: &DbPool, post_id: i64, collection_id: i64) -> bool {
+    let post_exists = sqlx::query!("SELECT id FROM posts WHERE id = ?", post_id)
+        .fetch_optional(pool)
+        .await
+        .ok()
+        .flatten()
+        .is_some();
+    if !post_exists {
+        return false;
+    }
+    let collection_exists = sqlx::query!("SELECT id FROM collections WHERE id = ?", collection_id)
+        .fetch_optional(pool)
+        .await
+        .ok()
+        .flatten()
+        .is_some();
+    if !collection_exists {
+        return false;
+    }
+
+    sqlx::query!(
+        "INSERT OR IGNORE INTO post_collections (post_id, collection_id) VALUES (?, ?)",
+        post_id,
+        collection_id
+    )
+    .execute(pool)
+    .await
+    .is_ok()
+}
+
+/// Removes a post from a collection, idempotently — the route re-renders the
+/// checklist either way, so `true` regardless of whether a row was there.
+pub async fn remove_post_from_collection(pool: &DbPool, post_id: i64, collection_id: i64) -> bool {
+    sqlx::query!(
+        "DELETE FROM post_collections WHERE post_id = ? AND collection_id = ?",
+        post_id,
+        collection_id
+    )
+    .execute(pool)
+    .await
+    .ok();
+    true
+}
+
+/// A post's tags, name-ordered.
+pub async fn get_post_tags(pool: &DbPool, post_id: i64) -> Vec<String> {
+    sqlx::query!(
+        "SELECT t.name FROM post_tags pt JOIN tags t ON t.id = pt.tag_id WHERE pt.post_id = ? ORDER BY t.name",
+        post_id
+    )
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default()
+    .into_iter()
+    .map(|row| row.name)
+    .collect()
+}
+
+/// A post's collection memberships, id-ordered.
+pub async fn get_post_collection_ids(pool: &DbPool, post_id: i64) -> Vec<i64> {
+    sqlx::query!(
+        "SELECT collection_id FROM post_collections WHERE post_id = ? ORDER BY collection_id",
+        post_id
+    )
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default()
+    .into_iter()
+    .map(|row| row.collection_id)
+    .collect()
+}
+
+#[allow(clippy::too_many_arguments)]
 pub async fn insert_post(
     pool: &DbPool,
     caption: &str,
@@ -98,10 +687,14 @@ pub async fn insert_post(
     avif_url: &str,
     format: &str,
     file_size_bytes: i64,
+    image_width: i64,
+    image_height: i64,
+    visibility: Visibility,
 ) -> Post {
+    let visibility = visibility.as_str();
     let id = sqlx::query!(
-        "INSERT INTO posts (caption, image_url, webp_url, avif_url, format, file_size_bytes) VALUES (?, ?, ?, ?, ?, ?) RETURNING id",
-        caption, image_url, webp_url, avif_url, format, file_size_bytes
+        "INSERT INTO posts (caption, image_url, webp_url, avif_url, format, file_size_bytes, image_width, image_height, visibility) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
+        caption, image_url, webp_url, avif_url, format, file_size_bytes, image_width, image_height, visibility
     )
     .fetch_one(pool)
     .await
@@ -109,7 +702,7 @@ pub async fn insert_post(
     .id;
 
     sqlx::query_as!(Post,
-        "SELECT id, caption, image_url, webp_url, avif_url, format, file_size_bytes, created_at FROM posts WHERE id = ?", id
+        "SELECT id, caption, image_url, webp_url, avif_url, format, file_size_bytes, created_at, image_width, image_height, visibility FROM posts WHERE id = ?", id
     )
     .fetch_one(pool)
     .await
@@ -146,6 +739,19 @@ pub async fn delete_post_and_get_urls(pool: &DbPool, id: i64) -> Option<PostUrls
     .flatten();
 
     if let Some(r) = row {
+        // The pool never sets the foreign_keys pragma, so ON DELETE CASCADE
+        // never fires — join rows are cleaned explicitly before the post row
+        // goes, or they'd dangle and corrupt every tag/collection count.
+        // Orphaned tags themselves are left in place (the spec's recorded
+        // trade-off); only join rows are not.
+        sqlx::query!("DELETE FROM post_tags WHERE post_id = ?", id)
+            .execute(&mut *tx)
+            .await
+            .ok();
+        sqlx::query!("DELETE FROM post_collections WHERE post_id = ?", id)
+            .execute(&mut *tx)
+            .await
+            .ok();
         sqlx::query!("DELETE FROM posts WHERE id = ?", id)
             .execute(&mut *tx)
             .await
@@ -991,10 +1597,13 @@ mod tests {
             "",
             crate::models::PostFormat::Single.as_str(),
             0,
+            0,
+            0,
+            crate::models::Visibility::Public,
         )
         .await;
         assert_eq!(post.caption, "test caption");
-        let posts = get_posts(&pool, 0).await;
+        let posts = get_posts_page(&pool, &PostFilter::default(), 0, Viewer::Admin).await;
         assert_eq!(posts.len(), 1);
         assert_eq!(posts[0].id, post.id);
     }
@@ -1010,6 +1619,9 @@ mod tests {
             "https://example.com/img-avif.avif",
             crate::models::PostFormat::Single.as_str(),
             0,
+            0,
+            0,
+            crate::models::Visibility::Public,
         )
         .await;
         let urls = delete_post_and_get_urls(&pool, post.id).await;
@@ -1018,7 +1630,11 @@ mod tests {
         assert_eq!(urls.image_url, "https://example.com/img.jpg");
         assert_eq!(urls.webp_url, "https://example.com/img-webp.webp");
         assert_eq!(urls.avif_url, "https://example.com/img-avif.avif");
-        assert!(get_posts(&pool, 0).await.is_empty());
+        assert!(
+            get_posts_page(&pool, &PostFilter::default(), 0, Viewer::Admin)
+                .await
+                .is_empty()
+        );
     }
 
     #[tokio::test]
@@ -1067,6 +1683,9 @@ mod tests {
             "",
             fmt,
             12345,
+            0,
+            0,
+            crate::models::Visibility::Public,
         )
         .await;
         assert_eq!(post.format, "single");
@@ -1077,8 +1696,281 @@ mod tests {
     async fn test_insert_post_empty_caption() {
         let pool = test_pool().await;
         let fmt = crate::models::PostFormat::Single.as_str();
-        let post = insert_post(&pool, "", "https://example.com/img.jpg", "", "", fmt, 0).await;
+        let post = insert_post(
+            &pool,
+            "",
+            "https://example.com/img.jpg",
+            "",
+            "",
+            fmt,
+            0,
+            0,
+            0,
+            crate::models::Visibility::Public,
+        )
+        .await;
         assert_eq!(post.caption, "");
+    }
+
+    #[tokio::test]
+    async fn test_migrations_are_idempotent() {
+        let pool = test_pool().await;
+        // test_pool() has already run them once; a second pass must not panic.
+        // SQLite has no ADD COLUMN IF NOT EXISTS, so every re-run returns a
+        // duplicate-column error that the `let _ =` in run_migrations discards.
+        run_migrations(&pool).await;
+        assert!(
+            get_posts_page(&pool, &PostFilter::default(), 0, Viewer::Admin)
+                .await
+                .is_empty()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_insert_post_persists_dimensions() {
+        let pool = test_pool().await;
+        let post = insert_post(
+            &pool,
+            "dimensioned",
+            "https://example.com/img.jpg",
+            "",
+            "",
+            crate::models::PostFormat::Single.as_str(),
+            0,
+            1600,
+            900,
+            crate::models::Visibility::Public,
+        )
+        .await;
+        assert_eq!(post.image_width, 1600);
+        assert_eq!(post.image_height, 900);
+
+        let fetched = &get_posts_page(&pool, &PostFilter::default(), 0, Viewer::Admin).await[0];
+        assert_eq!(
+            fetched.image_width, 1600,
+            "dimensions survive the insert/select round trip"
+        );
+        assert_eq!(fetched.image_height, 900);
+    }
+
+    #[tokio::test]
+    async fn test_legacy_rows_read_back_as_zero_dimensions() {
+        let pool = test_pool().await;
+        // A pre-012 row: inserted without touching the new columns, exactly as
+        // the old insert_post would have. NOT NULL DEFAULT 0 on an ALTER over an
+        // existing table is worth pinning down — a NULL here would make Post's
+        // i64 fail to decode at runtime rather than at compile time.
+        sqlx::query(
+            "INSERT INTO posts (caption, image_url, webp_url, avif_url, format, file_size_bytes) \
+             VALUES ('old', 'https://example.com/old.jpg', '', '', 'single', 0)",
+        )
+        .execute(&pool)
+        .await
+        .expect("legacy-shaped insert succeeds");
+
+        let post = &get_posts_page(&pool, &PostFilter::default(), 0, Viewer::Admin).await[0];
+        assert_eq!(post.image_width, 0, "legacy rows read back as 0, not NULL");
+        assert_eq!(post.image_height, 0);
+    }
+
+    /// Inserts a post carrying only a caption — the field caption search reads.
+    async fn seed_caption(pool: &DbPool, caption: &str) {
+        insert_post(
+            pool,
+            caption,
+            "https://example.com/img.jpg",
+            "",
+            "",
+            crate::models::PostFormat::Single.as_str(),
+            0,
+            0,
+            0,
+            crate::models::Visibility::Public,
+        )
+        .await;
+    }
+
+    /// A `PostFilter` with only `q` set — the shape every caption-search test
+    /// below used before the filter grew a `q`-only path through `PostFilter`.
+    fn q_filter(q: &str) -> PostFilter {
+        PostFilter {
+            q: Some(q.to_string()),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn test_like_pattern_escapes_wildcards() {
+        assert_eq!(like_pattern("100%"), "%100\\%%");
+        assert_eq!(like_pattern("a_b"), "%a\\_b%");
+        // The escape character itself is doubled first, so it survives as a
+        // literal rather than escaping whatever follows it.
+        assert_eq!(like_pattern("c:\\x"), "%c:\\\\x%");
+        assert_eq!(like_pattern("loomis"), "%loomis%");
+    }
+
+    #[test]
+    fn test_normalize_tags_trims_and_lowercases() {
+        assert_eq!(
+            normalize_tags(" Ink , PERSPECTIVE "),
+            vec!["ink".to_string(), "perspective".to_string()]
+        );
+    }
+
+    #[test]
+    fn test_normalize_tags_drops_empties_and_dupes() {
+        assert_eq!(
+            normalize_tags("ink,,Ink, ink ,wash"),
+            vec!["ink".to_string(), "wash".to_string()]
+        );
+    }
+
+    #[test]
+    fn test_normalize_tags_drops_over_40_chars() {
+        let long_tag = "a".repeat(41);
+        let raw = format!("{long_tag},ok");
+        assert_eq!(normalize_tags(&raw), vec!["ok".to_string()]);
+    }
+
+    #[test]
+    fn test_normalize_tags_caps_at_20() {
+        let raw = (1..=25)
+            .map(|i| format!("t{i}"))
+            .collect::<Vec<_>>()
+            .join(",");
+        let result = normalize_tags(&raw);
+        assert_eq!(result.len(), 20);
+        let expected: Vec<String> = (1..=20).map(|i| format!("t{i}")).collect();
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_normalize_tags_empty_input() {
+        assert_eq!(normalize_tags(""), Vec::<String>::new());
+    }
+
+    #[test]
+    fn test_slugify_basic() {
+        assert_eq!(slugify("Figure Studies"), "figure-studies");
+    }
+
+    #[test]
+    fn test_slugify_collapses_runs_and_trims() {
+        assert_eq!(slugify("  Ink & Wash!  "), "ink-wash");
+    }
+
+    #[test]
+    fn test_slugify_leading_trailing() {
+        assert_eq!(slugify("--Inks--"), "inks");
+    }
+
+    #[test]
+    fn test_slugify_all_junk_is_empty() {
+        assert_eq!(slugify("!!!"), "");
+    }
+
+    #[tokio::test]
+    async fn test_migration_014_is_idempotent() {
+        let pool = test_pool().await;
+        // test_pool() has already run migrations (including 014) once.
+        run_migrations(&pool).await;
+        sqlx::query("INSERT INTO tags (name) VALUES ('x')")
+            .execute(&pool)
+            .await
+            .expect("insert into tags should succeed after idempotent re-run");
+    }
+
+    #[tokio::test]
+    async fn test_get_posts_page_unfiltered_keeps_the_n_plus_1_probe() {
+        let pool = test_pool().await;
+        for i in 0..21 {
+            seed_caption(&pool, &format!("caption {i}")).await;
+        }
+        // 21 rows come back on page 0: 20 to render plus the has_more probe,
+        // which the caller truncates. Page 1 holds the single leftover.
+        assert_eq!(
+            get_posts_page(&pool, &PostFilter::default(), 0, Viewer::Admin)
+                .await
+                .len(),
+            21
+        );
+        assert_eq!(
+            get_posts_page(&pool, &PostFilter::default(), 1, Viewer::Admin)
+                .await
+                .len(),
+            1
+        );
+    }
+
+    #[tokio::test]
+    async fn test_get_posts_page_filters_captions_case_insensitively() {
+        let pool = test_pool().await;
+        seed_caption(&pool, "Loomis head").await;
+        seed_caption(&pool, "figure drawing").await;
+
+        let hits = get_posts_page(&pool, &q_filter("loomis"), 0, Viewer::Admin).await;
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].caption, "Loomis head");
+    }
+
+    #[tokio::test]
+    async fn test_search_for_a_literal_percent_does_not_match_every_row() {
+        let pool = test_pool().await;
+        seed_caption(&pool, "100% cotton paper").await;
+        seed_caption(&pool, "graphite study").await;
+
+        // Unescaped, the pattern would be %100%% — two wildcards around a
+        // literal, which matches every row in the table.
+        let hits = get_posts_page(&pool, &q_filter("100%"), 0, Viewer::Admin).await;
+        assert_eq!(hits.len(), 1, "a literal % must not act as a wildcard");
+        assert_eq!(hits[0].caption, "100% cotton paper");
+    }
+
+    #[tokio::test]
+    async fn test_search_for_a_literal_underscore_is_not_a_wildcard() {
+        let pool = test_pool().await;
+        seed_caption(&pool, "study_01").await;
+        seed_caption(&pool, "studyA01").await;
+
+        let hits = get_posts_page(&pool, &q_filter("study_0"), 0, Viewer::Admin).await;
+        assert_eq!(hits.len(), 1, "_ must match itself, not any character");
+        assert_eq!(hits[0].caption, "study_01");
+    }
+
+    #[tokio::test]
+    async fn test_count_posts_agrees_with_the_filtered_result() {
+        let pool = test_pool().await;
+        seed_caption(&pool, "gesture study").await;
+        seed_caption(&pool, "hand study").await;
+        seed_caption(&pool, "colour thumbnail").await;
+
+        assert_eq!(
+            count_posts(&pool, &PostFilter::default(), Viewer::Admin)
+                .await
+                .total,
+            3
+        );
+        assert_eq!(
+            count_posts(&pool, &q_filter("study"), Viewer::Admin)
+                .await
+                .total,
+            2
+        );
+        assert_eq!(
+            count_posts(&pool, &q_filter("nothing here"), Viewer::Admin)
+                .await
+                .total,
+            0
+        );
+        assert_eq!(
+            count_posts(&pool, &q_filter("study"), Viewer::Admin)
+                .await
+                .total as usize,
+            get_posts_page(&pool, &q_filter("study"), 0, Viewer::Admin)
+                .await
+                .len(),
+            "the head count and the rendered page must not disagree"
+        );
     }
 
     #[tokio::test]
@@ -1708,5 +2600,590 @@ mod tests {
             .unwrap();
         let entries = get_meal_entries_for_date(&pool, "2026-04-09").await;
         assert!(entries.is_empty());
+    }
+
+    // ===== Visibility model (migration 013) =====
+
+    /// Inserts a post and sets its state.
+    ///
+    /// Two steps because `insert_post` does not take a visibility yet — the
+    /// upload's field arrives with the PATCH route. Every post therefore starts
+    /// `public` and is moved, which also exercises `set_post_visibility` on the
+    /// way to every other assertion.
+    async fn post_with(pool: &DbPool, caption: &str, visibility: Visibility) -> Post {
+        let post = insert_post(
+            pool,
+            caption,
+            "https://example.com/img.jpg",
+            "",
+            "",
+            crate::models::PostFormat::Single.as_str(),
+            0,
+            0,
+            0,
+            crate::models::Visibility::Public,
+        )
+        .await;
+        set_post_visibility(pool, post.id, visibility).await;
+        post
+    }
+
+    async fn one_of_each(pool: &DbPool) {
+        post_with(pool, "shown", Visibility::Public).await;
+        post_with(pool, "linked", Visibility::Unlisted).await;
+        post_with(pool, "secret", Visibility::Hidden).await;
+    }
+
+    #[tokio::test]
+    async fn test_get_posts_page_visitor_sees_only_public() {
+        let pool = test_pool().await;
+        one_of_each(&pool).await;
+        let posts = get_posts_page(&pool, &PostFilter::default(), 0, Viewer::Visitor).await;
+        assert_eq!(posts.len(), 1);
+        assert_eq!(posts[0].caption, "shown");
+    }
+
+    #[tokio::test]
+    async fn test_get_posts_page_admin_sees_all() {
+        let pool = test_pool().await;
+        one_of_each(&pool).await;
+        assert_eq!(
+            get_posts_page(&pool, &PostFilter::default(), 0, Viewer::Admin)
+                .await
+                .len(),
+            3
+        );
+    }
+
+    #[tokio::test]
+    async fn test_get_posts_page_visitor_filter_applies_with_search() {
+        let pool = test_pool().await;
+        post_with(&pool, "a cat study", Visibility::Public).await;
+        post_with(&pool, "a cat secret", Visibility::Hidden).await;
+        let hits = get_posts_page(&pool, &q_filter("cat"), 0, Viewer::Visitor).await;
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].caption, "a cat study");
+    }
+
+    #[tokio::test]
+    async fn test_count_posts_visitor_total_is_public_only() {
+        let pool = test_pool().await;
+        post_with(&pool, "shown", Visibility::Public).await;
+        post_with(&pool, "linked", Visibility::Unlisted).await;
+        post_with(&pool, "secret one", Visibility::Hidden).await;
+        post_with(&pool, "secret two", Visibility::Hidden).await;
+        let counts = count_posts(&pool, &PostFilter::default(), Viewer::Visitor).await;
+        assert_eq!(counts.total, 1);
+        assert_eq!(counts.public, 1);
+    }
+
+    #[tokio::test]
+    async fn test_count_posts_admin_total_is_everything() {
+        let pool = test_pool().await;
+        post_with(&pool, "shown", Visibility::Public).await;
+        post_with(&pool, "linked", Visibility::Unlisted).await;
+        post_with(&pool, "secret one", Visibility::Hidden).await;
+        post_with(&pool, "secret two", Visibility::Hidden).await;
+        let counts = count_posts(&pool, &PostFilter::default(), Viewer::Admin).await;
+        assert_eq!(counts.total, 4);
+        assert_eq!(counts.public, 1);
+        assert_eq!(counts.unlisted, 1);
+        assert_eq!(counts.hidden, 2);
+    }
+
+    /// `GROUP BY` returns no row for a state with zero posts, so the struct has
+    /// to accumulate into defaults rather than index the result. A portfolio
+    /// with nothing hidden is the normal case, not an edge one.
+    #[tokio::test]
+    async fn test_count_posts_absent_states_are_zero() {
+        let pool = test_pool().await;
+        post_with(&pool, "one", Visibility::Public).await;
+        post_with(&pool, "two", Visibility::Public).await;
+        let counts = count_posts(&pool, &PostFilter::default(), Viewer::Admin).await;
+        assert_eq!(counts.public, 2);
+        assert_eq!(counts.unlisted, 0);
+        assert_eq!(counts.hidden, 0);
+        assert_eq!(counts.total, 2);
+    }
+
+    #[tokio::test]
+    async fn test_get_post_by_id_hidden_is_none_for_visitor() {
+        let pool = test_pool().await;
+        let post = post_with(&pool, "secret", Visibility::Hidden).await;
+        assert!(get_post_by_id(&pool, post.id, Viewer::Visitor)
+            .await
+            .is_none());
+        assert!(get_post_by_id(&pool, post.id, Viewer::Admin)
+            .await
+            .is_some());
+    }
+
+    /// The whole point of the state: out of the feed, still served by its
+    /// permalink.
+    #[tokio::test]
+    async fn test_get_post_by_id_unlisted_is_some_for_visitor() {
+        let pool = test_pool().await;
+        let post = post_with(&pool, "linked", Visibility::Unlisted).await;
+        assert!(get_post_by_id(&pool, post.id, Viewer::Visitor)
+            .await
+            .is_some());
+        assert!(get_post_by_id(&pool, post.id, Viewer::Admin)
+            .await
+            .is_some());
+    }
+
+    #[tokio::test]
+    async fn test_get_post_by_id_unknown_id_is_none() {
+        let pool = test_pool().await;
+        assert!(get_post_by_id(&pool, 9999, Viewer::Admin).await.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_visibility_from_row_fails_closed() {
+        assert_eq!(Visibility::from_row("bogus"), Visibility::Hidden);
+        assert_eq!(Visibility::from_row(""), Visibility::Hidden);
+        assert_eq!(Visibility::from_row("public"), Visibility::Public);
+    }
+
+    #[tokio::test]
+    async fn test_visibility_from_str_rejects_unknown() {
+        assert!(Visibility::from_str("bogus").is_none());
+        assert_eq!(Visibility::from_str("unlisted"), Some(Visibility::Unlisted));
+    }
+
+    #[tokio::test]
+    async fn test_set_post_visibility_round_trip() {
+        let pool = test_pool().await;
+        let post = post_with(&pool, "moves", Visibility::Public).await;
+        assert!(set_post_visibility(&pool, post.id, Visibility::Hidden).await);
+        let stored = get_post_by_id(&pool, post.id, Viewer::Admin).await.unwrap();
+        assert_eq!(Visibility::from_row(&stored.visibility), Visibility::Hidden);
+    }
+
+    #[tokio::test]
+    async fn test_set_post_visibility_unknown_id_is_false() {
+        let pool = test_pool().await;
+        assert!(!set_post_visibility(&pool, 9999, Visibility::Hidden).await);
+    }
+
+    /// Guards `admin.rs`'s dashboard call site. Passing `Viewer::Visitor` there
+    /// still compiles and still renders — it just silently stops listing the
+    /// posts an admin most needs to see.
+    #[tokio::test]
+    async fn test_admin_dashboard_query_sees_all_states() {
+        let pool = test_pool().await;
+        one_of_each(&pool).await;
+        assert_eq!(
+            get_posts_page(&pool, &PostFilter::default(), 0, Viewer::Admin)
+                .await
+                .len(),
+            3
+        );
+    }
+
+    // ===== Collections & tags (migration 014) =====
+
+    #[tokio::test]
+    async fn test_create_collection_slugs_the_name() {
+        let pool = test_pool().await;
+        let collection = create_collection(&pool, "Figure Studies")
+            .await
+            .expect("valid name creates a collection");
+        assert_eq!(collection.slug, "figure-studies");
+        assert_eq!(collection.name, "Figure Studies");
+    }
+
+    #[tokio::test]
+    async fn test_create_collection_duplicate_slug() {
+        let pool = test_pool().await;
+        create_collection(&pool, "Figure Studies").await.unwrap();
+        let result = create_collection(&pool, "figure  studies!").await;
+        match result {
+            Err(CreateCollectionError::DuplicateSlug(name)) => {
+                assert_eq!(name, "Figure Studies");
+            }
+            other => panic!("expected DuplicateSlug(\"Figure Studies\"), got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_create_collection_junk_name() {
+        let pool = test_pool().await;
+        let result = create_collection(&pool, "!!!").await;
+        assert!(matches!(result, Err(CreateCollectionError::InvalidName)));
+    }
+
+    #[tokio::test]
+    async fn test_delete_collection_unlinks_but_keeps_posts() {
+        let pool = test_pool().await;
+        let post = post_with(&pool, "keeper", Visibility::Public).await;
+        let collection = create_collection(&pool, "Figure Studies").await.unwrap();
+        assert!(add_post_to_collection(&pool, post.id, collection.id).await);
+
+        assert!(delete_collection(&pool, collection.id).await);
+        assert!(get_post_by_id(&pool, post.id, Viewer::Admin)
+            .await
+            .is_some());
+        assert!(get_post_collection_ids(&pool, post.id).await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_delete_collection_unknown_id() {
+        let pool = test_pool().await;
+        assert!(!delete_collection(&pool, 9999).await);
+    }
+
+    #[tokio::test]
+    async fn test_set_post_tags_replaces() {
+        let pool = test_pool().await;
+        let post = post_with(&pool, "tagged", Visibility::Public).await;
+        assert!(set_post_tags(&pool, post.id, &["ink".to_string(), "wash".to_string()]).await);
+        assert!(set_post_tags(&pool, post.id, &["wash".to_string(), "pencil".to_string()]).await);
+        assert_eq!(
+            get_post_tags(&pool, post.id).await,
+            vec!["pencil".to_string(), "wash".to_string()]
+        );
+    }
+
+    #[tokio::test]
+    async fn test_set_post_tags_empty_clears() {
+        let pool = test_pool().await;
+        let post = post_with(&pool, "tagged", Visibility::Public).await;
+        assert!(set_post_tags(&pool, post.id, &["ink".to_string()]).await);
+        assert!(set_post_tags(&pool, post.id, &[]).await);
+        assert!(get_post_tags(&pool, post.id).await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_set_post_tags_unknown_post() {
+        let pool = test_pool().await;
+        assert!(!set_post_tags(&pool, 9999, &["ink".to_string()]).await);
+        let tag_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM tags")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(tag_count, 0, "an unknown post must not create a tag row");
+    }
+
+    #[tokio::test]
+    async fn test_add_post_to_collection_idempotent() {
+        let pool = test_pool().await;
+        let post = post_with(&pool, "member", Visibility::Public).await;
+        let collection = create_collection(&pool, "Figure Studies").await.unwrap();
+        assert!(add_post_to_collection(&pool, post.id, collection.id).await);
+        assert!(add_post_to_collection(&pool, post.id, collection.id).await);
+        assert_eq!(get_post_collection_ids(&pool, post.id).await.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_add_post_to_unknown_collection() {
+        let pool = test_pool().await;
+        let post = post_with(&pool, "lonely", Visibility::Public).await;
+        assert!(!add_post_to_collection(&pool, post.id, 999).await);
+        assert!(get_post_collection_ids(&pool, post.id).await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_remove_post_from_collection() {
+        let pool = test_pool().await;
+        let post = post_with(&pool, "member", Visibility::Public).await;
+        let collection = create_collection(&pool, "Figure Studies").await.unwrap();
+        assert!(add_post_to_collection(&pool, post.id, collection.id).await);
+        assert!(remove_post_from_collection(&pool, post.id, collection.id).await);
+        assert!(get_post_collection_ids(&pool, post.id).await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_update_post_caption_round_trip() {
+        let pool = test_pool().await;
+        let post = post_with(&pool, "old caption", Visibility::Public).await;
+        assert!(update_post_caption(&pool, post.id, "new caption").await);
+        let fetched = get_post_by_id(&pool, post.id, Viewer::Admin).await.unwrap();
+        assert_eq!(fetched.caption, "new caption");
+        assert!(!update_post_caption(&pool, 9999, "whatever").await);
+    }
+
+    #[tokio::test]
+    async fn test_list_collections_counts_are_viewer_aware() {
+        let pool = test_pool().await;
+        let public_post = post_with(&pool, "shown", Visibility::Public).await;
+        let hidden_post = post_with(&pool, "secret", Visibility::Hidden).await;
+        let collection = create_collection(&pool, "Figure Studies").await.unwrap();
+        assert!(add_post_to_collection(&pool, public_post.id, collection.id).await);
+        assert!(add_post_to_collection(&pool, hidden_post.id, collection.id).await);
+
+        let visitor_list = list_collections_with_counts(&pool, Viewer::Visitor).await;
+        assert_eq!(visitor_list.len(), 1);
+        assert_eq!(visitor_list[0].count, 1);
+
+        let admin_list = list_collections_with_counts(&pool, Viewer::Admin).await;
+        assert_eq!(admin_list.len(), 1);
+        assert_eq!(admin_list[0].count, 2);
+    }
+
+    #[tokio::test]
+    async fn test_list_collections_empty_hidden_from_visitors() {
+        let pool = test_pool().await;
+        create_collection(&pool, "Empty").await.unwrap();
+
+        let visitor_list = list_collections_with_counts(&pool, Viewer::Visitor).await;
+        assert!(visitor_list.is_empty());
+
+        let admin_list = list_collections_with_counts(&pool, Viewer::Admin).await;
+        assert_eq!(admin_list.len(), 1);
+        assert_eq!(admin_list[0].count, 0);
+    }
+
+    #[tokio::test]
+    async fn test_list_tags_counts_are_viewer_aware() {
+        let pool = test_pool().await;
+        let public_post = post_with(&pool, "shown", Visibility::Public).await;
+        let hidden_post = post_with(&pool, "secret", Visibility::Hidden).await;
+        let hidden_only_post = post_with(&pool, "shadow", Visibility::Hidden).await;
+
+        assert!(set_post_tags(&pool, public_post.id, &["ink".to_string()]).await);
+        assert!(set_post_tags(&pool, hidden_post.id, &["ink".to_string()]).await);
+        assert!(set_post_tags(&pool, hidden_only_post.id, &["charcoal".to_string()]).await);
+
+        let visitor_tags = list_tags_with_counts(&pool, Viewer::Visitor).await;
+        let ink = visitor_tags.iter().find(|t| t.name == "ink");
+        assert_eq!(ink.map(|t| t.count), Some(1));
+        assert!(
+            visitor_tags.iter().all(|t| t.name != "charcoal"),
+            "a tag on hidden posts only must not appear for a visitor"
+        );
+
+        let admin_tags = list_tags_with_counts(&pool, Viewer::Admin).await;
+        let ink = admin_tags.iter().find(|t| t.name == "ink").unwrap();
+        assert_eq!(ink.count, 2);
+        let charcoal = admin_tags.iter().find(|t| t.name == "charcoal").unwrap();
+        assert_eq!(charcoal.count, 1);
+    }
+
+    #[tokio::test]
+    async fn test_delete_post_cleans_join_rows() {
+        let pool = test_pool().await;
+        let post = post_with(&pool, "doomed", Visibility::Public).await;
+        let collection = create_collection(&pool, "Figure Studies").await.unwrap();
+        assert!(set_post_tags(&pool, post.id, &["ink".to_string()]).await);
+        assert!(add_post_to_collection(&pool, post.id, collection.id).await);
+
+        assert!(delete_post_and_get_urls(&pool, post.id).await.is_some());
+
+        assert!(get_post_tags(&pool, post.id).await.is_empty());
+        assert!(get_post_collection_ids(&pool, post.id).await.is_empty());
+    }
+
+    // ===== PostFilter: the one-macro filter query (Task 3) ==================
+
+    fn tag_filter(tags: &[&str]) -> PostFilter {
+        PostFilter {
+            tags: tags.iter().map(|s| s.to_string()).collect(),
+            ..Default::default()
+        }
+    }
+
+    #[tokio::test]
+    async fn test_filter_multi_tag_is_and() {
+        let pool = test_pool().await;
+        let post_a = post_with(&pool, "post a", Visibility::Public).await;
+        let post_b = post_with(&pool, "post b", Visibility::Public).await;
+        assert!(set_post_tags(&pool, post_a.id, &["ink".to_string()]).await);
+        assert!(
+            set_post_tags(
+                &pool,
+                post_b.id,
+                &["ink".to_string(), "perspective".to_string()]
+            )
+            .await
+        );
+
+        let both = get_posts_page(
+            &pool,
+            &tag_filter(&["ink", "perspective"]),
+            0,
+            Viewer::Admin,
+        )
+        .await;
+        assert_eq!(both.len(), 1, "AND semantics: only the post with both tags");
+        assert_eq!(both[0].id, post_b.id);
+
+        let ink_only = get_posts_page(&pool, &tag_filter(&["ink"]), 0, Viewer::Admin).await;
+        assert_eq!(ink_only.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_filter_unknown_collection_is_empty() {
+        let pool = test_pool().await;
+        post_with(&pool, "one", Visibility::Public).await;
+        post_with(&pool, "two", Visibility::Public).await;
+
+        let filter = PostFilter {
+            collection: Some("no-such-slug".to_string()),
+            ..Default::default()
+        };
+        let hits = get_posts_page(&pool, &filter, 0, Viewer::Admin).await;
+        assert!(
+            hits.is_empty(),
+            "unknown slug must not error, just match nothing"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_filter_collection_scopes() {
+        let pool = test_pool().await;
+        let post_a = post_with(&pool, "in the collection", Visibility::Public).await;
+        let post_b = post_with(&pool, "not in the collection", Visibility::Public).await;
+        let collection = create_collection(&pool, "Studies").await.unwrap();
+        assert_eq!(collection.slug, "studies");
+        assert!(add_post_to_collection(&pool, post_a.id, collection.id).await);
+
+        let filter = PostFilter {
+            collection: Some("studies".to_string()),
+            ..Default::default()
+        };
+        let hits = get_posts_page(&pool, &filter, 0, Viewer::Admin).await;
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].id, post_a.id);
+        assert!(hits.iter().all(|p| p.id != post_b.id));
+    }
+
+    #[tokio::test]
+    async fn test_filter_like_escape_with_tags() {
+        let pool = test_pool().await;
+        let matching = post_with(&pool, "100% ink study", Visibility::Public).await;
+        let other = post_with(&pool, "loose gesture", Visibility::Public).await;
+        assert!(set_post_tags(&pool, matching.id, &["ink".to_string()]).await);
+        assert!(set_post_tags(&pool, other.id, &["ink".to_string()]).await);
+
+        let filter = PostFilter {
+            q: Some("100%".to_string()),
+            tags: vec!["ink".to_string()],
+            ..Default::default()
+        };
+        let hits = get_posts_page(&pool, &filter, 0, Viewer::Admin).await;
+        assert_eq!(
+            hits.len(),
+            1,
+            "the LIKE escape must still hold once combined with the tag filter"
+        );
+        assert_eq!(hits[0].id, matching.id);
+    }
+
+    #[tokio::test]
+    async fn test_filter_visitor_stays_public_with_tags() {
+        let pool = test_pool().await;
+        let public_post = post_with(&pool, "public tagged", Visibility::Public).await;
+        let hidden_post = post_with(&pool, "hidden tagged", Visibility::Hidden).await;
+        assert!(set_post_tags(&pool, public_post.id, &["ink".to_string()]).await);
+        assert!(set_post_tags(&pool, hidden_post.id, &["ink".to_string()]).await);
+
+        let filter = tag_filter(&["ink"]);
+        let visitor_hits = get_posts_page(&pool, &filter, 0, Viewer::Visitor).await;
+        assert_eq!(visitor_hits.len(), 1);
+        assert_eq!(visitor_hits[0].id, public_post.id);
+
+        let admin_hits = get_posts_page(&pool, &filter, 0, Viewer::Admin).await;
+        assert_eq!(admin_hits.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_filter_vis_subset() {
+        let pool = test_pool().await;
+        one_of_each(&pool).await; // public "shown", unlisted "linked", hidden "secret"
+
+        let hidden_only = PostFilter {
+            vis: Some(vec!["hidden".to_string()]),
+            ..Default::default()
+        };
+        let hits = get_posts_page(&pool, &hidden_only, 0, Viewer::Admin).await;
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].caption, "secret");
+
+        // Safety net for the self-review item: even if a `vis` subset reached
+        // this function for a non-admin viewer — which Task 4's parser is
+        // supposed to prevent — clause 1's `(?1 OR visibility = 'public')`
+        // still wins, because `?1` is false for a visitor. No hidden row leaks.
+        let visitor_attempt = get_posts_page(&pool, &hidden_only, 0, Viewer::Visitor).await;
+        assert!(
+            visitor_attempt.is_empty(),
+            "a visitor must never see a non-public row, whatever vis is passed"
+        );
+
+        let public_and_unlisted = PostFilter {
+            vis: Some(vec!["public".to_string(), "unlisted".to_string()]),
+            ..Default::default()
+        };
+        let hits = get_posts_page(&pool, &public_and_unlisted, 0, Viewer::Admin).await;
+        assert_eq!(hits.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_filter_default_matches_slice2_behaviour() {
+        let pool = test_pool().await;
+        post_with(&pool, "shown", Visibility::Public).await;
+        post_with(&pool, "secret", Visibility::Hidden).await;
+
+        let filter = PostFilter::default();
+        assert_eq!(
+            get_posts_page(&pool, &filter, 0, Viewer::Visitor)
+                .await
+                .len(),
+            1
+        );
+        assert_eq!(
+            get_posts_page(&pool, &filter, 0, Viewer::Admin).await.len(),
+            2
+        );
+    }
+
+    #[tokio::test]
+    async fn test_filter_keeps_n_plus_1_probe() {
+        let pool = test_pool().await;
+        for i in 0..22 {
+            seed_caption(&pool, &format!("post {i}")).await;
+        }
+        let hits = get_posts_page(&pool, &PostFilter::default(), 0, Viewer::Admin).await;
+        assert_eq!(hits.len(), 21);
+    }
+
+    /// Seeds 2 public posts tagged `ink`, 1 public post untagged, and 1 hidden
+    /// post tagged `ink` — the shared scenario the next two tests both read.
+    async fn seed_tag_and_vis_scenario(pool: &DbPool) {
+        let public_a = post_with(pool, "public a", Visibility::Public).await;
+        let public_b = post_with(pool, "public b", Visibility::Public).await;
+        post_with(pool, "public untagged", Visibility::Public).await;
+        let hidden = post_with(pool, "hidden tagged", Visibility::Hidden).await;
+        assert!(set_post_tags(pool, public_a.id, &["ink".to_string()]).await);
+        assert!(set_post_tags(pool, public_b.id, &["ink".to_string()]).await);
+        assert!(set_post_tags(pool, hidden.id, &["ink".to_string()]).await);
+    }
+
+    #[tokio::test]
+    async fn test_count_posts_reflects_tag_filter() {
+        let pool = test_pool().await;
+        seed_tag_and_vis_scenario(&pool).await;
+
+        let filter = tag_filter(&["ink"]);
+        let visitor_counts = count_posts(&pool, &filter, Viewer::Visitor).await;
+        assert_eq!(visitor_counts.total, 2);
+
+        let admin_counts = count_posts(&pool, &filter, Viewer::Admin).await;
+        assert_eq!(admin_counts.total, 3);
+        assert_eq!(admin_counts.hidden, 1);
+    }
+
+    #[tokio::test]
+    async fn test_count_posts_reflects_vis_subset() {
+        let pool = test_pool().await;
+        seed_tag_and_vis_scenario(&pool).await;
+
+        let filter = PostFilter {
+            vis: Some(vec!["hidden".to_string()]),
+            ..Default::default()
+        };
+        let counts = count_posts(&pool, &filter, Viewer::Admin).await;
+        assert_eq!(counts.total, 1);
+        assert_eq!(counts.public, 0);
     }
 }

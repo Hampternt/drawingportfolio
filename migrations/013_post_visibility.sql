@@ -1,0 +1,12 @@
+-- Visibility model: public / unlisted / hidden.
+--
+-- Existing rows become 'public', which is what they already were in effect --
+-- every post has been publicly listed since the feed existed, so this backfill
+-- changes no behaviour, it only names the behaviour that was already there.
+--
+-- No CHECK constraint. SQLite cannot add one to an existing table without a
+-- full table rebuild, and the value is validated in Rust on the way in
+-- (Visibility::from_str) and again on the way out (Visibility::from_row, which
+-- fails closed to Hidden). A constraint here would buy a rebuild and duplicate
+-- a guarantee we already have.
+ALTER TABLE posts ADD COLUMN visibility TEXT NOT NULL DEFAULT 'public';

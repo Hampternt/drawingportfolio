@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<script src="./ds-base.js"></script>
+<style>
+body{margin:0;background:#08070C}
+a{color:#B48EF7}
+a:hover{color:#C9AEFA}
+</style>
+</helmet>
+<div style="padding:64px;display:flex;flex-direction:column;gap:64px;background:#08070C;font:400 15px/1.5 'Space Grotesk',system-ui,sans-serif;color:#CDC6DD">
+
+<div style="display:flex;flex-direction:column;gap:8px">
+<h1 style="margin:0;font:900 44px/1.04 'Archivo',system-ui,sans-serif;letter-spacing:-0.025em;color:#F2EEF8">Drawing Portfolio<span style="color:#B48EF7">.</span></h1>
+<p style="margin:0;max-width:68ch;color:#8D87A0;text-wrap:pretty">Direction 1a, built out. Five states of <a href="#S1">/artportfolio</a>: visitor, admin, select mode, upload tray, and the filtered/empty state. Specs and the implementation plan live in <code style="font:500 13px/1.2 'IBM Plex Mono',monospace;color:#B48EF7">design_handoff_artportfolio/README.md</code>.</p>
+</div>
+
+<section id="S1" data-screen-label="S1 Visitor" style="display:flex;flex-direction:column;gap:12px">
+<div style="display:flex;align-items:baseline;gap:12px">
+<span style="font:500 11px/1.2 'IBM Plex Mono',monospace;letter-spacing:.10em;text-transform:uppercase;color:#B48EF7">S1</span>
+<h2 style="margin:0;font:700 22px/1.22 'Archivo',system-ui,sans-serif;letter-spacing:-0.02em;color:#F2EEF8">Visitor view</h2>
+<span style="font:500 11px/1.2 'IBM Plex Mono',monospace;letter-spacing:.10em;text-transform:uppercase;color:#5F5876">is_admin = false · public posts only · no admin chrome</span>
+</div>
+<div style="width:1280px;flex:none;border:1px solid rgba(242,238,248,.10);border-radius:8px;overflow:hidden;background:#0B0910">
+<header style="height:56px;display:flex;align-items:center;gap:24px;padding:0 32px;background:rgba(14,12,20,.82);border-bottom:1px solid rgba(242,238,248,.07)">
+<span style="font-family:'Archivo',system-ui,sans-serif;font-weight:800;font-size:17px;letter-spacing:-0.035em;color:#F2EEF8">hampter<span style="color:#B48EF7">.</span></span>
+<nav style="display:flex;align-items:center;gap:20px;font-size:14px;font-weight:500">
+<a href="#S1" style="color:#F2EEF8;text-decoration:none">Drawing Portfolio</a>
+<a href="#S1" style="color:#8D87A0;text-decoration:none">Drawing Tasks</a>
+<a href="#S1" style="color:#8D87A0;text-decoration:none">Fitness</a>
+</nav>
+<div style="margin-left:auto">
+<x-import component-from-global-scope="HampterDesignSystem_03c259.KbdGroup" keys="{{ paletteKeys }}" hint="commands" hint-size="130px,20px"></x-import>
+</div>
+</header>
+<div style="padding:48px 32px 32px;background-color:#0B0910;background-image:linear-gradient(rgba(242,238,248,.045) 1px,transparent 1px),linear-gradient(90deg,rgba(242,238,248,.045) 1px,transparent 1px);background-size:32px 32px;border-bottom:1px solid rgba(242,238,248,.07)">
+<span style="font:500 11px/1.2 'IBM Plex Mono',monospace;letter-spacing:.10em;text-transform:uppercase;color:#5F5876">117 drawings · newest first</span>
+<h1 style="margin:8px 0 0;font:800 40px/1.22 'Archivo',system-ui,sans-serif;letter-spacing:-0.025em;color:#F2EEF8">Drawing Portfolio</h1>
+<p style="max-width:68ch;margin:12px 0 0;color:#8D87A0;text-wrap:pretty">Mostly practice — studies, drills, and the odd finished piece.</p>
+</div>
+<div style="display:flex;gap:32px;padding:28px 32px 64px;align-items:flex-start">
+<aside style="width:236px;flex:none;display:flex;flex-direction:column;gap:24px">
+<x-import component-from-global-scope="HampterDesignSystem_03c259.Input" icon="search" shortcut="/" placeholder="Search captions" hint-size="100%,34px"></x-import>
+<div style="display:flex;flex-direction:column;gap:8px">
+<span style="font:500 11px/1.2 'IBM Plex Mono',monospace;letter-spacing:.10em;text-transform:uppercase;color:#5F5876">Collections</span>
+<sc-for list="{{ publicCollections }}" as="c" hint-placeholder-count="4">
+<a href="#S1" style="display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:5px;text-decoration:none;color:#CDC6DD;font-size:14px" style-hover="background:rgba(242,238,248,.04);color:#F2EEF8">
+<span>{{ c.name }}</span>
+<span style="margin-left:auto;font:500 11px/1.2 'IBM Plex Mono',monospace;color:#5F5876">{{ c.count }}</span>
+</a>
+</sc-for>
+</div>
+<div style="display:flex;flex-direction:column;gap:10px">
+<span style="font:500 11px/1.2 'IBM Plex Mono',monospace;letter-spacing:.10em;text-transform:uppercase;color:#5F5876">Tags</span>
+<div style="display:flex;flex-wrap:wrap;gap:6px">
+<sc-for list="{{ tags }}" as="t" hint-placeholder-count="7">
+<x-import component-from-global-scope="HampterDesignSystem_03c259.Tag" interactive="{{ true }}" hint-size="70px,24px">{{ t }}</x-import>
+</sc-for>
+</div>
+</div>
+<div style="padding-top:16px;border-top:1px solid rgba(242,238,248,.07);font:500 11px/1.6 'IBM Plex Mono',monospace;letter-spacing:.06em;color:#5F5876">
+<div>J / K — next, previous</div>
+<div>? — all shortcuts</div>
+</div>
+</aside>
+<div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:20px">
+<div style="display:flex;align-items:center;gap:12px;padding-bottom:12px;border-bottom:1px solid rgba(242,238,248,.07)">
+<span style="font:500 11px/1.2 'IBM Plex Mono',monospace;letter-spacing:.10em;text-transform:uppercase;color:#5F5876">2026-07 · 5 drawings</span>
+<div style="flex:1;height:1px;background:rgba(242,238,248,.07)"></div>
+</div>
+<div style="columns:3;column-gap:16px">
+<sc-for list="{{ publicPosts }}" as="p" hint-placeholder-count="6">
+<div style="break-inside:avoid;margin-bottom:16px">
+<x-import component-from-global-scope="HampterDesignSystem_03c259.PostCard" image="{{ p.img }}" caption="{{ p.caption }}" date="{{ p.date }}" hint-size="100%,240px"></x-import>
+</div>
+</sc-for>
+</div>
+<div style="display:flex;justify-content:center;padding:16px 0 0">
+<x-import component-from-global-scope="HampterDesignSystem_03c259.Button" icon="chevron-down" hint-size="130px,34px">Load more</x-import>
+</div>
+</div>
+</div>
+</div>
+</section>
+
+<section id="S2" data-screen-label="S2 Admin" style="display:flex;flex-direction:column;gap:12px">
+<div style="display:flex;align-items:baseline;gap:12px">
+<span style="font:500 11px/1.2 'IBM Plex Mono',monospace;letter-spacing:.10em;text-transform:uppercase;color:#B48EF7">S2</span>
+<h2 style="margin:0;font:700 22px/1.22 'Archivo',system-ui,sans-serif;letter-spacing:-0.02em;color:#F2EEF8">Admin view</h2>
+<span style="font:500 11px/1.2 'IBM Plex Mono',monospace;letter-spacing:.10em;text-transform:uppercase;color:#5F5876">is_admin = true · hidden posts at 50% · per-card controls on hover</span>
+</div>
+<div style="width:1280px;flex:none;border:1px solid rgba(242,238,248,.10);border-radius:8px;overflow:hidden;background:#0B0910">
+<header style="height:56px;display:flex;align-items:center;gap:24px;padding:0 32px;background:rgba(14,12,20,.82);border-bottom:1px solid rgba(242,238,248,.07)">
+<span style="font-family:'Archivo',system-ui,sans-serif;font-weight:800;font-size:17px;letter-spacing:-0.035em;color:#F2EEF8">hampter<span style="color:#B48EF7">.</span></span>
+<nav style="display:flex;align-items:center;gap:20px;font-size:14px;font-weight:500">
+<a href="#S2" style="color:#F2EEF8;text-decoration:none">Drawing Portfolio</a>
+<a href="#S2" style="color:#8D87A0;text-decoration:none">Drawing Tasks</a>
+<a href="#S2" style="color:#8D87A0;text-decoration:none">Fitness</a>
+</nav>
+<div style="margin-left:auto;display:flex;align-items:center;gap:12px">
+<x-import component-from-global-scope="HampterDesignSystem_03c259.KbdGroup" keys="{{ paletteKeys }}" hint="commands" hint-size="130px,20px"></x-import>
+<x-import component-from-global-scope="HampterDesignSystem_03c259.Badge" tone="accent" dot="{{ true }}" hint-size="60px,20px">admin</x-import>
+</div>
+</header>
+<div style="padding:48px 32px 32px;background-color:#0B0910;background-image:linear-gradient(rgba(242,238,248,.045) 1px,transparent 1px),linear-gradient(90deg,rgba(242,238,248,.045) 1px,transparent 1px);background-size:32px 32px;border-bottom:1px solid rgba(242,238,248,.07)">
+<div style="display:flex;align-items:flex-end;gap:24px">
+<div style="display:flex;flex-direction:column;gap:8px">
+<span style="font:500 11px/1.2 'IBM Plex Mono',monospace;letter-spacing:.10em;text-transform:uppercase;color:#5F5876">128 drawings · 117 public · 4 unlisted · 7 hidden</span>
+<h1 style="margin:0;font:800 40px/1.22 'Archivo',system-ui,sans-serif;letter-spacing:-0.025em;color:#F2EEF8">Drawing Portfolio</h1>
+</div>
+<div style="margin-left:auto;display:flex;align-items:center;gap:12px">
+<x-import component-from-global-scope="HampterDesignSystem_03c259.Button" icon="eye" shortcut="V" hint-size="160px,34px">View as visitor</x-import>
+<x-import component-from-global-scope="HampterDesignSystem_03c259.Button" variant="primary" icon="upload" shortcut="U" hint-size="130px,34px">Upload</x-import>
+</div>
+</div>
+<p style="max-width:68ch;margin:12px 0 0;color:#8D87A0;text-wrap:pretty">Mostly practice — studies, drills, and the odd finished piece.</p>
+</div>
+<div style="display:flex;gap:32px;padding:28px 32px 64px;align-items:flex-start">
+<aside style="width:236px;flex:none;display:flex;flex-direction:column;gap:24px">
+<x-import component-from-global-scope="HampterDesignSystem_03c259.Input" icon="search" shortcut="/" placeholder="Search captions" hint-size="100%,34px"></x-import>
+<div style="display:flex;flex-direction:column;gap:8px">
+<div style="display:flex;align-items:center;gap:8px">
+<span style="font:500 11px/1.2 'IBM Plex Mono',monospace;letter-spacing:.10em;text-transform:uppercase;color:#5F5876">Collections</span>
+<span style="margin-left:auto">
+<x-import component-from-global-scope="HampterDesignSystem_03c259.IconButton" icon="plus" label="New collection" size="sm" hint-size="28px,28px"></x-import>
+</span>
+</div>
+<sc-for list="{{ adminCollections }}" as="c" hint-placeholder-count="5">
+<a href="#S2" style="display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:5px;text-decoration:none;color:#CDC6DD;font-size:14px" style-hover="background:rgba(242,238,248,.04);color:#F2EEF8">
+<span>{{ c.name }}</span>
+<span style="margin-left:auto;font:500 11px/1.2 'IBM Plex Mono',monospace;color:#5F5876">{{ c.count }}</span>
+</a>
+</sc-for>
+</div>
+<div style="display:flex;flex-direction:column;gap:10px">
+<span style="font:500 11px/1.2 'IBM Plex Mono',monospace;letter-spacing:.10em;text-transform:uppercase;color:#5F5876">Tags</span>
+<div style="display:flex;flex-wrap:wrap;gap:6px">
+<sc-for list="{{ tags }}" as="t" hint-placeholder-count="7">
+<x-import component-from-global-scope="HampterDesignSystem_03c259.Tag" interactive="{{ true }}" hint-size="70px,24px">{{ t }}</x-import>
+</sc-for>
+</div>
+</div>
+<div style="display:flex;flex-direction:column;gap:10px;padding-top:16px;border-top:1px solid rgba(242,238,248,.07)">
+<span style="font:500 11px/1.2 'IBM Plex Mono',monospace;letter-spacing:.10em;text-transform:uppercase;color:#5F5876">Visibility · admin</span>
+<x-import component-from-global-scope="HampterDesignSystem_03c259.Checkbox" label="Public" checked="{{ true }}" hint-size="100%,24px"></x-import>
+<x-import component-from-global-scope="HampterDesignSystem_03c259.Checkbox" label="Unlisted" checked="{{ true }}" hint-size="100%,24px"></x-import>
+<x-import component-from-global-scope="HampterDesignSystem_03c259.Checkbox" label="Hidden" checked="{{ true }}" hint-size="100%,24px"></x-import>
+</div>
+</aside>
+<div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:20px">
+<div style="display:flex;align-items:center;gap:12px;padding-bottom:12px;border-bottom:1px solid rgba(242,238,248,.07)">
+<span style="font:500 11px/1.2 'IBM Plex Mono',monospace;letter-spacing:.10em;text-transform:uppercase;color:#5F5876">2026-07 · 6 drawings</span>
+<div style="margin-left:auto;display:flex;align-items:center;gap:8px">
+<x-import component-from-global-scope="HampterDesignSystem_03c259.Button" size="sm" icon="check-square" shortcut="S" hint-size="110px,28px">Select</x-import>
+<x-import component-from-global-scope="HampterDesignSystem_03c259.Button" size="sm" icon="arrow-up-down" hint-size="100px,28px">Newest</x-import>
+</div>
+</div>
+<div style="columns:3;column-gap:16px">
+<sc-for list="{{ adminPosts }}" as="p" hint-placeholder-count="6">
+<div style="break-inside:avoid;margin-bottom:16px;position:relative;opacity:{{ p.op }}">
+<x-import component-from-global-scope="HampterDesignSystem_03c259.PostCard" image="{{ p.img }}" caption="{{ p.caption }}" date="{{ p.date }}" hint-size="100%,240px"></x-import>
+<div style="position:absolute;top:8px;right:8px">
+<x-import component-from-global-scope="HampterDesignSystem_03c259.Badge" tone="{{ p.tone }}" dot="{{ true }}" hint-size="70px,20px">{{ p.vis }}</x-import>
+</div>
+</div>
+</sc-for>
+</div>
+<div style="display:flex;align-items:center;gap:12px;padding:12px 16px;border:1px solid rgba(180,142,247,.45);border-radius:8px;background:rgba(180,142,247,.10)">
+<span style="font:500 11px/1.2 'IBM Plex Mono',monospace;letter-spacing:.10em;text-transform:uppercase;color:#D6BDFB">card hover</span>
+<div style="display:flex;align-items:center;gap:6px">
+<x-import component-from-global-scope="HampterDesignSystem_03c259.IconButton" icon="eye-off" label="Hide" size="sm" hint-size="28px,28px"></x-import>
+<x-import component-from-global-scope="HampterDesignSystem_03c259.IconButton" icon="link" label="Unlist" size="sm" hint-size="28px,28px"></x-import>
+<x-import component-from-global-scope="HampterDesignSystem_03c259.IconButton" icon="pencil" label="Edit caption and tags" size="sm" hint-size="28px,28px"></x-import>
+<x-import component-from-global-scope="HampterDesignSystem_03c259.IconButton" icon="folder-plus" label="Add to collection" size="sm" hint-size="28px,28px"></x-import>
+<x-import component-from-global-scope="HampterDesignSystem_03c259.IconButton" icon="trash-2" label="Delete" size="sm" hint-size="28px,28px"></x-import>
+</div>
+<span style="margin-left:auto;font-size:13px;color:#8D87A0">Overlaid at the card's top-left, 130ms fade on hover and on keyboard focus.</span>
+</div>
+<div style="display:flex;justify-content:center;padding:4px 0 0">
+<x-import component-from-global-scope="HampterDesignSystem_03c259.Button" icon="chevron-down" hint-size="130px,34px">Load more</x-import>
+</div>
+</div>
+</div>
+</div>
+</section>
+
+<section id="S3" data-screen-label="S3 Select mode" style="display:flex;flex-direction:column;gap:12px">
+<div style="display:flex;align-items:baseline;gap:12px">
+<span style="font:500 11px/1.2 'IBM Plex Mono',monospace;letter-spacing:.10em;text-transform:uppercase;color:#B48EF7">S3</span>
+<h2 style="margin:0;font:700 22px/1.22 'Archivo',system-ui,sans-serif;letter-spacing:-0.02em;color:#F2EEF8">Select mode</h2>
+<span style="font:500 11px/1.2 'IBM Plex Mono',monospace;letter-spacing:.10em;text-transform:uppercase;color:#5F5876">feed region only · bar sticks under the header at top 56px</span>
+</div>
+<div style="width:1280px;flex:none;border:1px solid rgba(242,238,248,.10);border-radius:8px;overflow:hidden;background:#0B0910">
+<div style="display:flex;align-items:center;gap:16px;padding:10px 32px;background:rgba(180,142,247,.10);border-bottom:1px solid rgba(180,142,247,.45)">
+<span style="font:500 11px/1.2 'IBM Plex Mono',monospace;letter-spacing:.10em;text-transform:uppercase;color:#D6BDFB">3 selected</span>
+<div style="display:flex;align-items:center;gap:8px">
+<x-import component-from-global-scope="HampterDesignSystem_03c259.Button" size="sm" icon="globe" hint-size="130px,28px">Make public</x-import>
+<x-import component-from-global-scope="HampterDesignSystem_03c259.Button" size="sm" icon="link" hint-size="90px,28px">Unlist</x-import>
+<x-import component-from-global-scope="HampterDesignSystem_03c259.Button" size="sm" icon="eye-off" hint-size="90px,28px">Hide</x-import>
+<x-import component-from-global-scope="HampterDesignSystem_03c259.Button" size="sm" icon="folder-plus" hint-size="180px,28px">Add to collection</x-import>
+<x-import component-from-global-scope="HampterDesignSystem_03c259.Button" size="sm" icon="trash-2" hint-size="100px,28px">Delete</x-import>
+</div>
+<span style="margin-left:auto;display:flex;align-items:center;gap:10px">
+<span style="font:500 11px/1.2 'IBM Plex Mono',monospace;letter-spacing:.06em;color:#8D87A0">Esc to leave</span>
+<x-import component-from-global-scope="HampterDesignSystem_03c259.Button" size="sm" variant="ghost" icon="x" hint-size="90px,28px">Clear</x-import>
+</span>
+</div>
+<div style="padding:24px 32px 32px">
+<div style="columns:3;column-gap:16px">
+<sc-for list="{{ adminPosts }}" as="p" hint-placeholder-count="6">
+<div style="break-inside:avoid;margin-bottom:16px;position:relative;opacity:{{ p.op }}">
+<x-import component-from-global-scope="HampterDesignSystem_03c259.PostCard" image="{{ p.img }}" caption="{{ p.caption }}" date="{{ p.date }}" hint-size="100%,240px"></x-import>
+<div style="position:absolute;top:8px;left:8px">
+<x-import component-from-global-scope="HampterDesignSystem_03c259.Checkbox" checked="{{ p.sel }}" hint-size="18px,18px"></x-import>
+</div>
+<div style="position:absolute;top:8px;right:8px">
+<x-import component-from-global-scope="HampterDesignSystem_03c259.Badge" tone="{{ p.tone }}" dot="{{ true }}" hint-size="70px,20px">{{ p.vis }}</x-import>
+</div>
+</div>
+</sc-for>
+</div>
+</div>
+</div>
+</section>
+
+<section id="S4" data-screen-label="S4 Upload tray" style="display:flex;flex-direction:column;gap:12px">
+<div style="display:flex;align-items:baseline;gap:12px">
+<span style="font:500 11px/1.2 'IBM Plex Mono',monospace;letter-spacing:.10em;text-transform:uppercase;color:#B48EF7">S4</span>
+<h2 style="margin:0;font:700 22px/1.22 'Archivo',system-ui,sans-serif;letter-spacing:-0.02em;color:#F2EEF8">Multi-upload tray</h2>
+<span style="font:500 11px/1.2 'IBM Plex Mono',monospace;letter-spacing:.10em;text-transform:uppercase;color:#5F5876">dialog · 720px · one XHR per file, sequential</span>
+</div>
+<div style="width:720px;flex:none;border:1px solid rgba(242,238,248,.10);border-radius:12px;overflow:hidden;background:#17141F">
+<div style="display:flex;align-items:center;gap:12px;padding:16px 20px;border-bottom:1px solid rgba(242,238,248,.07)">
+<h3 style="margin:0;font:700 20px/1.22 'Archivo',system-ui,sans-serif;letter-spacing:-0.02em;color:#F2EEF8">Upload drawings</h3>
+<span style="font:500 11px/1.2 'IBM Plex Mono',monospace;letter-spacing:.10em;text-transform:uppercase;color:#5F5876">4 files · 21.5 MB · 35 MB limit each</span>
+<span style="margin-left:auto">
+<x-import component-from-global-scope="HampterDesignSystem_03c259.IconButton" icon="x" label="Close" size="sm" hint-size="28px,28px"></x-import>
+</span>
+</div>
+<div style="padding:20px;display:flex;flex-direction:column;gap:16px">
+<div style="display:flex;flex-direction:column;align-items:center;gap:6px;padding:24px;border:1px dashed rgba(242,238,248,.20);border-radius:8px;background-color:#0E0C14;background-image:linear-gradient(rgba(242,238,248,.045) 1px,transparent 1px),linear-gradient(90deg,rgba(242,238,248,.045) 1px,transparent 1px);background-size:32px 32px">
+<span style="color:#F2EEF8;font-weight:500">Drop drawings here</span>
+<span style="font:500 11px/1.2 'IBM Plex Mono',monospace;letter-spacing:.10em;text-transform:uppercase;color:#5F5876">jpeg · png · webp — or click to browse</span>
+</div>
+<div style="display:flex;flex-direction:column;gap:8px">
+<span style="font:500 11px/1.2 'IBM Plex Mono',monospace;letter-spacing:.10em;text-transform:uppercase;color:#5F5876">Order · drag to reorder · first upload posts last</span>
+<sc-for list="{{ uploadFiles }}" as="f" hint-placeholder-count="4">
+<div style="display:flex;align-items:center;gap:12px;padding:8px;border:1px solid rgba(242,238,248,.07);border-radius:8px;background:#0E0C14">
+<x-import component-from-global-scope="HampterDesignSystem_03c259.Icon" name="grip-vertical" size="16" hint-size="16px,16px"></x-import>
+<div style="width:44px;height:44px;flex:none;border-radius:5px;background-color:#17141F;background-image:linear-gradient(rgba(242,238,248,.045) 1px,transparent 1px),linear-gradient(90deg,rgba(242,238,248,.045) 1px,transparent 1px);background-size:16px 16px;border:1px solid rgba(242,238,248,.07)"></div>
+<div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:5px">
+<span style="color:#F2EEF8;font-size:14px;font-weight:500">{{ f.name }}</span>
+<div style="display:flex;align-items:center;gap:8px">
+<span style="font:500 11px/1.2 'IBM Plex Mono',monospace;letter-spacing:.06em;color:#5F5876">{{ f.size }}</span>
+<span style="font:500 11px/1.2 'IBM Plex Mono',monospace;letter-spacing:.06em;color:#5F5876">{{ f.state }}</span>
+</div>
+<div style="height:3px;border-radius:3px;background:rgba(242,238,248,.07)">
+<div style="height:3px;border-radius:3px;background:#B48EF7;width:{{ f.pct }}"></div>
+</div>
+</div>
+<x-import component-from-global-scope="HampterDesignSystem_03c259.Select" options="{{ visOptions }}" default-value="{{ f.vis }}" size="sm" hint-size="120px,28px"></x-import>
+<x-import component-from-global-scope="HampterDesignSystem_03c259.IconButton" icon="x" label="Remove" size="sm" hint-size="28px,28px"></x-import>
+</div>
+</sc-for>
+</div>
+<x-import component-from-global-scope="HampterDesignSystem_03c259.Textarea" label="Caption for all four" placeholder="Optional — applied to every file, editable per drawing afterwards" rows="2" hint-size="100%,72px"></x-import>
+<x-import component-from-global-scope="HampterDesignSystem_03c259.Input" label="Tags" icon="tag" placeholder="figure, timed" hint-size="100%,34px"></x-import>
+</div>
+<div style="display:flex;align-items:center;gap:12px;padding:16px 20px;border-top:1px solid rgba(242,238,248,.07)">
+<span style="font:500 11px/1.2 'IBM Plex Mono',monospace;letter-spacing:.10em;text-transform:uppercase;color:#5F5876">2 public · 1 unlisted · 1 hidden</span>
+<span style="margin-left:auto;display:flex;gap:8px">
+<x-import component-from-global-scope="HampterDesignSystem_03c259.Button" hint-size="100px,34px">Cancel</x-import>
+<x-import component-from-global-scope="HampterDesignSystem_03c259.Button" variant="primary" icon="upload" hint-size="160px,34px">Upload 4 files</x-import>
+</span>
+</div>
+</div>
+</section>
+
+<section id="S5" data-screen-label="S5 Empty" style="display:flex;flex-direction:column;gap:12px">
+<div style="display:flex;align-items:baseline;gap:12px">
+<span style="font:500 11px/1.2 'IBM Plex Mono',monospace;letter-spacing:.10em;text-transform:uppercase;color:#B48EF7">S5</span>
+<h2 style="margin:0;font:700 22px/1.22 'Archivo',system-ui,sans-serif;letter-spacing:-0.02em;color:#F2EEF8">Filtered, no results</h2>
+<span style="font:500 11px/1.2 'IBM Plex Mono',monospace;letter-spacing:.10em;text-transform:uppercase;color:#5F5876">active filters shown as removable tags above the grid</span>
+</div>
+<div style="width:1280px;flex:none;border:1px solid rgba(242,238,248,.10);border-radius:8px;overflow:hidden;background:#0B0910;padding:24px 32px 40px">
+<div style="display:flex;align-items:center;gap:8px;padding-bottom:16px;border-bottom:1px solid rgba(242,238,248,.07)">
+<span style="font:500 11px/1.2 'IBM Plex Mono',monospace;letter-spacing:.10em;text-transform:uppercase;color:#5F5876">Filters</span>
+<x-import component-from-global-scope="HampterDesignSystem_03c259.Tag" selected="{{ true }}" interactive="{{ true }}" hint-size="90px,24px">perspective</x-import>
+<x-import component-from-global-scope="HampterDesignSystem_03c259.Tag" selected="{{ true }}" interactive="{{ true }}" hint-size="70px,24px">ink</x-import>
+<x-import component-from-global-scope="HampterDesignSystem_03c259.Tag" selected="{{ true }}" interactive="{{ true }}" hint-size="150px,24px">"loomis"</x-import>
+<span style="margin-left:auto">
+<x-import component-from-global-scope="HampterDesignSystem_03c259.Button" size="sm" variant="ghost" icon="x" hint-size="120px,28px">Clear filters</x-import>
+</span>
+</div>
+<div style="display:flex;flex-direction:column;align-items:center;gap:12px;padding:64px 0">
+<span style="font:500 13px/1.4 'IBM Plex Mono',monospace;color:#5F5876">&gt; no drawings match perspective + ink + "loomis"</span>
+<x-import component-from-global-scope="HampterDesignSystem_03c259.Button" icon="rotate-ccw" hint-size="140px,34px">Reset filters</x-import>
+</div>
+</div>
+</section>
+
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1440,&quot;height&quot;:1000}}">
+const ph = (w, h) =>
+  "data:image/svg+xml;utf8," +
+  encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}"></svg>`);
+
+class Component extends DCLogic {
+  renderVals() {
+    const publicPosts = [
+      { img: ph(4, 5), caption: "30 min gesture study — figure drawing warmup", date: "2026-07-21" },
+      { img: ph(4, 3), caption: "Colour pass on the hamster knight", date: "2026-07-12" },
+      { img: ph(1, 1), caption: "Perspective drill — one point interiors", date: "2026-07-04" },
+      { img: ph(3, 4), caption: "Value block-in, five values only", date: "2026-06-28" },
+      { img: ph(4, 3), caption: "Head construction from the Loomis ball", date: "2026-06-19" },
+      { img: ph(5, 6), caption: "Ink study, brush pen only", date: "2026-06-11" },
+    ];
+    return {
+      paletteKeys: ["Ctrl", "K"],
+      publicPosts,
+      adminPosts: [
+        { img: ph(4, 5), caption: "30 min gesture study — figure drawing warmup", date: "2026-07-21", vis: "public", tone: "success", op: 1, sel: true },
+        { img: ph(4, 3), caption: "Hands, again. Still not right.", date: "2026-07-18", vis: "hidden", tone: "neutral", op: 0.5, sel: false },
+        { img: ph(1, 1), caption: "Colour pass on the hamster knight", date: "2026-07-12", vis: "public", tone: "success", op: 1, sel: true },
+        { img: ph(3, 4), caption: "Perspective drill — one point interiors", date: "2026-07-04", vis: "unlisted", tone: "warning", op: 1, sel: false },
+        { img: ph(4, 3), caption: "Value block-in, five values only", date: "2026-06-28", vis: "public", tone: "success", op: 1, sel: false },
+        { img: ph(5, 6), caption: "Head construction from the Loomis ball", date: "2026-06-19", vis: "hidden", tone: "neutral", op: 0.5, sel: true },
+      ],
+      adminCollections: [
+        { name: "All drawings", count: "128" },
+        { name: "Figure studies", count: "41" },
+        { name: "Hamster knight", count: "17" },
+        { name: "Perspective drills", count: "12" },
+        { name: "Finished pieces", count: "9" },
+      ],
+      visOptions: ["Public", "Unlisted", "Hidden"],
+      uploadFiles: [
+        { name: "gesture-01.jpg", size: "4.2 MB", vis: "Public", pct: "100%", state: "done" },
+        { name: "gesture-02.jpg", size: "3.8 MB", vis: "Public", pct: "62%", state: "uploading" },
+        { name: "hands-study.png", size: "11.4 MB", vis: "Hidden", pct: "0%", state: "queued" },
+        { name: "knight-colour.webp", size: "2.1 MB", vis: "Unlisted", pct: "0%", state: "queued" },
+      ],
+      publicCollections: [
+        { name: "All drawings", count: "117" },
+        { name: "Figure studies", count: "38" },
+        { name: "Hamster knight", count: "17" },
+        { name: "Finished pieces", count: "9" },
+      ],
+      tags: ["figure", "portrait", "study", "ink", "colour", "perspective", "timed"],
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,112 @@
+{#
+  A page of month sections plus the Load more control. This is the HTMX swap
+  target's payload, and the same markup feed_page inlines for page 0 — the two
+  paths render one template so they cannot drift.
+
+  Each month is its own <section> with its OWN `columns` block. That is not a
+  stylistic choice: in a CSS multi-column flow content fills column 1 before
+  column 2, so an inline divider would span a single column and the chronology
+  would read vertically per column instead of across the page.
+
+  Grouping, counts, divider suppression and the Load more URL all arrive
+  pre-computed from the handler — this file contains no logic beyond the
+  conditionals below.
+#}
+{#- Out-of-band swap of the page head's label. A search replaces #feed only,
+    so without this the head would keep claiming the unfiltered total above a
+    filtered feed. Empty on the inlined first page (the shell renders the head)
+    and on Load more (which appends and changes no total). -#}
+{% if !head_label_oob.is_empty() %}
+<div class="hm-eyebrow art-head__label" id="art-head-label" hx-swap-oob="true">{{ head_label_oob }}</div>
+{% endif %}
+{#- The plan gap this task closes: a rail click swaps #feed only, so the
+    hidden #art-rail-state fields the search input hx-includes go stale. This
+    sibling OOB block re-renders them from the filter that just took effect —
+    same markup/field names as filter_rail.html's own #art-rail-state, so a
+    search made right after a rail click still carries every other active
+    part. Present only on an htmx page-0 response (see `rail_state_oob`);
+    absent on the inlined first page (filter_rail.html already rendered the
+    real one) and on Load more (which changes no filter). -#}
+{% if rail_state_oob %}
+<div id="art-rail-state" hx-swap-oob="true" hidden>
+  {% if !active_tags.is_empty() %}
+  <input type="hidden" name="tags" value="{{ active_tags|join(",") }}">
+  {% endif %}
+  {% if let Some(c) = active_collection %}
+  <input type="hidden" name="collection" value="{{ c }}">
+  {% endif %}
+  {% if let Some(vis) = active_vis %}
+  <input type="hidden" name="vis" value="{{ vis|join(",") }}">
+  {% endif %}
+  {% if preview %}
+  <input type="hidden" name="visitor" value="1">
+  {% endif %}
+</div>
+{% endif %}
+{#- Finding 1's fix: a rail click only swaps #feed, so the collections/tags/
+    vis sections (rail_filters.html — shared via `{% include %}` with
+    filter_rail.html, so the two paths cannot drift) go stale — is-active/
+    is-checked states, counts, and composed toggle URLs all freeze at the
+    last full-page render. Re-rendered out of band from the filter that just
+    took effect. Present only on an htmx page-0 response (see
+    `rail_filters_oob`); absent on the inlined first page (filter_rail.html
+    already rendered the real one) and on Load more (which changes no
+    filter). The search form is NOT part of this block — see
+    rail_filters.html's own comment. -#}
+{% if rail_filters_oob %}
+{% include "artportfolio/partials/rail_filters.html" %}
+{% endif %}
+{#- The active-filter row: one removable pill per active filter part plus a
+    Clear filters button, right after the two OOB blocks and before the
+    empty-state/groups branch — so it renders inside the grid payload for
+    both the inlined first page and an htmx page-0 swap, and never duplicates
+    on a Load more (page >= 1, where `is_first_page` is false). -#}
+{% if is_first_page && !pills.is_empty() %}
+<div class="art-filter-row">
+  {% for p in pills %}
+  <a class="art-filter-pill"
+     href="{{ p.remove_page_url }}"
+     hx-get="{{ p.remove_url }}" hx-target="#feed" hx-swap="innerHTML" hx-push-url="true">{{ p.label }} <span class="art-filter-pill__x" aria-hidden="true">&times;</span></a>
+  {% endfor %}
+  <a class="hm-btn hm-btn--ghost hm-btn--sm art-filter-clear"
+     href="{{ clear_page_url }}"
+     hx-get="{{ clear_url }}" hx-target="#feed" hx-swap="innerHTML" hx-push-url="true">Clear filters</a>
+</div>
+{% endif %}
+{% if groups.is_empty() && is_first_page %}
+{% include "artportfolio/partials/empty_state.html" %}
+{% else %}
+{% for group in groups %}
+{#- Bound before the inner loop on purpose: `loop` inside the post loop refers
+    to the post, shadowing this one. -#}
+{% let first_group = loop.index0 == 0 %}
+<section class="art-month">
+  {% if group.show_divider %}
+  <div class="art-month__divider">
+    <span class="art-month__label">{{ group.label }} · {{ group.count }} drawing{% if group.count != 1 %}s{% endif %}</span>
+    <span class="art-month__rule"></span>
+  </div>
+  {% endif %}
+  <div class="art-month__grid">
+    {% for post in group.posts %}
+    {% let is_first = is_first_page && first_group && loop.index0 == 0 %}
+    {% include "partials/post_card.html" %}
+    {% endfor %}
+  </div>
+</section>
+{% endfor %}
+{% if has_more %}
+{#- #load-more stays a sibling of the sections, never inside one. hx-swap
+    replaces it where it stands, so from inside a month's `columns` block the
+    next page's whole <section> would be appended into that block and get
+    column-broken. -#}
+<div class="load-more" id="load-more">
+  <button class="hm-btn hm-btn--secondary hm-btn--sm"
+          hx-get="{{ load_more_url }}"
+          hx-target="#load-more"
+          hx-swap="outerHTML">
+    Load more <span class="hm-icon hm-icon--chevron-down"></span>
+  </button>
+</div>
+{% endif %}
+{% endif %}

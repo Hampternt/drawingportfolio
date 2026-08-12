@@ -2,7 +2,53 @@
 
 {% block title %}Drawing Portfolio{% endblock %}
 
+{% block body_class %}art-page{% endblock %}
+
+{% block head %}
+{#- Preloaded here rather than in base.html: these two faces are above the fold
+    on this page only, and putting them in the shell would make every other
+    section pay for fonts it never uses. -#}
+<link rel="preload" href="/static/fonts/archivo-800.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/static/fonts/space-grotesk-400.woff2" as="font" type="font/woff2" crossorigin>
+{% endblock %}
+
 {% block content %}
+{#- .art-feed must stay the outermost element in this block. The theme script in
+    base.html/admin.html keys off `main .art-feed` to re-apply the art-page body
+    class after a boosted navigation, which drops body attributes. -#}
+<div class="art-feed">
+
+  <div class="art-head">
+    <div class="art-head__inner">
+      {#- The real total, from count_posts() — one COUNT per full page render,
+          never on HTMX pagination. Under an active search it names the query
+          instead of the sort order. -#}
+      <div class="hm-eyebrow art-head__label" id="art-head-label">{{ head_label }}</div>
+      <h1>Drawing Portfolio</h1>
+      <p class="art-head__intro">Mostly practice — studies, drills, and the odd finished piece.</p>
+      {#- These two are mutually exclusive by construction: under preview the
+          effective viewer is a visitor, so `is_admin` is false and only the exit
+          control renders. `is_previewing` comes from the RAW session bool, which
+          is the one thing it is still used for — a real visitor must never see
+          a way to "exit" a preview they are not in. -#}
+      {% if is_admin %}
+      <div class="art-head__actions">
+        <a class="art-head__action" id="art-visitor-toggle" href="/artportfolio?visitor=1">
+          Preview as visitor <kbd>V</kbd>
+        </a>
+      </div>
+      {% endif %}
+      {% if is_previewing %}
+      <div class="art-head__actions art-head__actions--preview">
+        <span class="art-preview-flag">Previewing as a visitor</span>
+        <a class="art-head__action" id="art-visitor-toggle" href="/artportfolio">
+          Exit preview <kbd>V</kbd>
+        </a>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
 {% if is_admin %}
 <div id="composer-wrap">
   <button id="new-post-btn" onclick="toggleComposer()" type="button" aria-expanded="false">+ New Post</button>
@@ -64,7 +110,17 @@ function onComposerResponse(evt) {
 </script>
 {% endif %}
 
-<div id="feed">
-  {{ initial_posts_html|safe }}
+  <div class="art-body">
+    {% include "artportfolio/partials/filter_rail.html" %}
+    <div class="art-main">
+      {#- The first page is inlined so posts arrive in the very first HTTP
+          response; without it the browser would paint, then fire a second
+          request for page 0 before anything was visible. -#}
+      <div id="feed">
+        {{ initial_posts_html|safe }}
+      </div>
+    </div>
+  </div>
+
 </div>
 {% endblock %}

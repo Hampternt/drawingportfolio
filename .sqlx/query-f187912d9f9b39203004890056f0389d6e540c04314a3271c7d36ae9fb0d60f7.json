@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM post_tags WHERE post_id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "f187912d9f9b39203004890056f0389d6e540c04314a3271c7d36ae9fb0d60f7"
+}

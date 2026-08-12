@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT t.name, COUNT(*) AS \"count!: i64\"\n               FROM tags t\n               INNER JOIN post_tags pt ON pt.tag_id = t.id\n               INNER JOIN posts p ON p.id = pt.post_id\n               GROUP BY t.id, t.name\n               ORDER BY t.name ASC",
+  "describe": {
+    "columns": [
+      {
+        "name": "name",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "count!: i64",
+        "ordinal": 1,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "779fe8ddb52798f070226c30442a76777e759de6fe1cd89e74d4f5c8ebaf501f"
+}

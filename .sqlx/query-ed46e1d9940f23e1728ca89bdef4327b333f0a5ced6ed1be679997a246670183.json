@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT collection_id FROM post_collections WHERE post_id = ? ORDER BY collection_id",
+  "describe": {
+    "columns": [
+      {
+        "name": "collection_id",
+        "ordinal": 0,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "ed46e1d9940f23e1728ca89bdef4327b333f0a5ced6ed1be679997a246670183"
+}
