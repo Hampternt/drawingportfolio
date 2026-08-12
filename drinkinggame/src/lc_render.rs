@@ -8,6 +8,7 @@ use crate::last_call::{
     pull_cost, Beat, Card, Deck, LcOutcome, Play, PublicSeat, PublicView, Status,
     DECK_LOW_THRESHOLD,
 };
+use crate::lc_events::event_def;
 use crate::lc_layout::{seat_positions, view_index, SeatPos};
 use crate::render::html_escape;
 
@@ -518,14 +519,48 @@ pub fn lc_banner(view: &PublicView) -> String {
     // the reason): no timer is emitted either way, since `beat_deadline_ms`
     // is `None` at the freeze regardless of which branch runs here.
     if view.outcome.is_some() {
+        // Plan H, decision H6: the game-over banner owns the moment — no
+        // event strip, no settlement announcement, regardless of what
+        // `view.event`/`view.settled` still carry.
         return format!(
             r#"<div class="lc-banner lc-beat-rose" id="lc-banner" data-beat="{slug}" data-round="{round}"><span class="lc-banner-beat">GAME OVER</span><span class="lc-banner-meta">ROUND {round} &middot; LAST CALL</span></div>"#,
             slug = beat.slug(),
             round = view.round,
         );
     }
+    // Plan H, Task 4: one strip, at most one occupant — first match wins.
+    // 1. the round's event (Deal onward, H6) outranks the settlement
+    //    announcement outright (H2's lifecycle means they never truly
+    //    coexist, but the renderer still has to pick one).
+    // 2. name-only settlement announcements, Draw beat only (H11) — never
+    //    the tab id/title, which stays off `PublicView` entirely (H8).
+    // An event id `event_def` does not recognise renders nothing — H3's
+    // fail-soft, applied here at the display layer too.
+    let event_strip = if let Some(id) = &view.event {
+        match event_def(id) {
+            Some(def) => format!(
+                r#"<div class="lc-event" data-event="{id}"><span class="lc-event-name">{title}</span><span class="lc-event-text">{text}</span></div>"#,
+                id = html_escape(id),
+                title = html_escape(def.title),
+                text = html_escape(def.text),
+            ),
+            None => String::new(),
+        }
+    } else if beat == Beat::Draw && !view.settled.is_empty() {
+        view.settled
+            .iter()
+            .map(|name| {
+                format!(
+                    r#"<div class="lc-event" data-settled><span class="lc-event-name">{name} SETTLED A TAB</span></div>"#,
+                    name = html_escape(&name.to_uppercase()),
+                )
+            })
+            .collect::<String>()
+    } else {
+        String::new()
+    };
     format!(
-        r#"<div class="lc-banner lc-beat-{hue}" id="lc-banner" data-beat="{slug}" data-round="{round}"><span class="lc-banner-beat">{label}</span><span class="lc-banner-meta">ROUND {round} &middot; BEAT {index} OF 6</span>{timer}</div>"#,
+        r#"<div class="lc-banner lc-beat-{hue}" id="lc-banner" data-beat="{slug}" data-round="{round}"><span class="lc-banner-beat">{label}</span><span class="lc-banner-meta">ROUND {round} &middot; BEAT {index} OF 6</span>{event_strip}{timer}</div>"#,
         hue = beat.hue(),
         slug = beat.slug(),
         round = view.round,
@@ -1645,6 +1680,61 @@ mod tests {
         let html = lc_banner(&st.public_view());
         assert!(html.contains("lc-beat-amber"));
         assert!(html.contains("BEAT 2 OF 6"));
+    }
+
+    #[test]
+    fn test_the_banner_strip_shows_the_event_or_the_settlements_never_both() {
+        // event Some, settled non-empty, beat Lock: the event outranks the
+        // settlement announcement outright — one occupant, first match wins.
+        let mut view = ring_fixture(2);
+        view.beat = Beat::Lock;
+        view.event = Some("happy-hour".to_string());
+        view.settled = vec!["alice".to_string()];
+        let html = lc_banner(&view);
+        assert!(html.contains(r#"data-event="happy-hour""#));
+        assert!(html.contains("HAPPY HOUR"));
+        assert!(html.contains("Every card costs half its pulls this round, rounded up."));
+        assert!(!html.contains("SETTLED A TAB"));
+        assert_eq!(html.matches(r#"class="lc-event""#).count(), 1);
+        no_hex(&html);
+
+        // event None, settled two names, beat Draw: one line per name.
+        let mut view = ring_fixture(2);
+        view.beat = Beat::Draw;
+        view.settled = vec!["alice".to_string(), "bob".to_string()];
+        let html = lc_banner(&view);
+        assert!(html.contains("ALICE SETTLED A TAB"));
+        assert!(html.contains("BOB SETTLED A TAB"));
+        assert!(!html.contains("data-event"));
+        assert_eq!(html.matches(r#"class="lc-event""#).count(), 2);
+        no_hex(&html);
+
+        // event None, settled non-empty, beat Lock: announcements are a
+        // Draw-beat thing (H11) — no strip at all outside Draw.
+        let mut view = ring_fixture(2);
+        view.beat = Beat::Lock;
+        view.settled = vec!["alice".to_string()];
+        let html = lc_banner(&view);
+        assert!(!html.contains(r#"class="lc-event""#));
+        no_hex(&html);
+
+        // event Some, outcome Some: game over owns the banner (H6/E13) — no
+        // strip at all, regardless of what event/settled still carry.
+        let mut view = ring_fixture(2);
+        view.event = Some("happy-hour".to_string());
+        view.outcome = Some(LcOutcome::Winner(0));
+        let html = lc_banner(&view);
+        assert!(!html.contains(r#"class="lc-event""#));
+        no_hex(&html);
+
+        // an id `event_def` does not recognise renders nothing (H3's
+        // fail-soft, applied at the display layer too).
+        let mut view = ring_fixture(2);
+        view.beat = Beat::Lock;
+        view.event = Some("closing-time".to_string());
+        let html = lc_banner(&view);
+        assert!(!html.contains(r#"class="lc-event""#));
+        no_hex(&html);
     }
 
     #[test]

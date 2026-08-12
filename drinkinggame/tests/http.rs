@@ -7110,3 +7110,111 @@ async fn test_the_break_is_the_only_public_pact_trace() {
     assert!(!frame.contains("lc-pact-standing"), "{frame}");
     assert!(!frame.contains("SINCE ROUND"), "{frame}");
 }
+
+// -------------------------------------------------------------
+// Plan H, Task 4: the banner strip — one occupant at a time, on every
+// surface the `lcpublic` frame reaches (H6/H11).
+// -------------------------------------------------------------
+
+/// The round's event rides the wire from the Deal reveal onward, but the
+/// tab dealt at that very same edge (H7's replacement deal) never does —
+/// H2's event is public, H8's tabs stay private regardless. `begin`'s own
+/// advance chain (Draw -> Deal -> Diplomacy, decision E4) runs the whole
+/// reveal server-side before the one publish at the end (`lc_advance_chain`
+/// only calls `persist_and_broadcast_lc` once), so there is exactly one
+/// `lcpublic` frame to inspect here, not several.
+#[tokio::test]
+async fn test_the_deal_reveals_exactly_one_event_on_the_wire() {
+    let (app, _pool) = test_app_with_pool().await;
+    let alice = login(&app, "alice", "1234").await;
+    let bob = login(&app, "bob", "5678").await;
+    let code = create_room(&app, &alice).await;
+    room_page_html(&app, &bob, &code).await;
+    post_form(&app, &alice, &format!("/room/{code}/lastcall/start"), "").await;
+    post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/lastcall/vessel"),
+        "deck=beer&container=can",
+    )
+    .await;
+    post_form(
+        &app,
+        &bob,
+        &format!("/room/{code}/lastcall/vessel"),
+        "deck=cider&container=bottle",
+    )
+    .await;
+
+    let res = get(&app, &format!("/room/{code}/sse")).await;
+    let mut body = res.into_body().into_data_stream();
+    read_sse_until(&mut body, "event: lcpublic").await; // drain the snapshot
+
+    let res = post_form(&app, &alice, &format!("/room/{code}/lastcall/begin"), "").await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+
+    // The lcpublic frame's banner template carries the strip (one root,
+    // Plan A2's `<template data-lc-banner>` — both the phone shell and the
+    // screen swap their own `#lc-banner` from this same rendered string, so
+    // it only needs to appear once on the wire).
+    let seen = read_sse_until(&mut body, "data-event=").await;
+    assert_eq!(seen.matches("data-event=").count(), 1, "{seen}");
+    assert!(!seen.contains("SETTLED A TAB"), "{seen}");
+    for banned in ["lie-low", "LIE LOW", "high-roller", "HIGH ROLLER"] {
+        assert!(!seen.contains(banned), "leaked {banned}: {seen}");
+    }
+
+    // The screen's own server-rendered initial banner carries the same
+    // single occurrence and the same absences.
+    let screen = body_string(get(&app, &format!("/room/{code}/screen")).await).await;
+    assert_eq!(screen.matches("data-event=").count(), 1, "{screen}");
+    assert!(!screen.contains("SETTLED A TAB"), "{screen}");
+    for banned in ["lie-low", "LIE LOW", "high-roller", "HIGH ROLLER"] {
+        assert!(!screen.contains(banned), "leaked {banned}: {screen}");
+    }
+}
+
+/// H11: the announcement is the settling player's name, never the tab id or
+/// title — H8's privacy line holds even after the tab is gone and done.
+/// Rigged directly at round 2 Beat::Draw so `public_view()`'s `settled`
+/// filter (`t.round + 1 == self.round`) picks up a round-1 settle by
+/// alice's real seat (0, per `LastCallState::new`'s seating order).
+#[tokio::test]
+async fn test_a_settlement_announces_the_name_not_the_tab() {
+    let (app, pool) = test_app_with_pool().await;
+    let alice = login(&app, "alice", "1234").await;
+    let bob = login(&app, "bob", "5678").await;
+    let code = create_room(&app, &alice).await;
+    room_page_html(&app, &bob, &code).await;
+    post_form(&app, &alice, &format!("/room/{code}/lastcall/start"), "").await;
+
+    let alice_id = drinkinggame::db::get_player_by_name(&pool, "alice")
+        .await
+        .unwrap()
+        .id;
+    let bob_id = drinkinggame::db::get_player_by_name(&pool, "bob")
+        .await
+        .unwrap()
+        .id;
+
+    let mut st = LastCallState::new(vec![(alice_id, "alice".into()), (bob_id, "bob".into())], 7);
+    st.round = 2;
+    st.beat = Beat::Draw;
+    st.tab_ledger.push(drinkinggame::last_call::TabSettle {
+        seat: 0, // alice's real seat
+        tab: "lie-low".to_string(),
+        round: 1,
+    });
+    let game_id = lc_game_id(&pool, &code).await;
+    drinkinggame::db::set_game_state(&pool, game_id, &st.to_json()).await;
+
+    let shell = body_string(get_shell(&app, &alice, &code).await).await;
+    assert!(shell.contains("ALICE SETTLED A TAB"), "{shell}");
+    assert!(!shell.contains("lie-low"), "{shell}");
+    assert!(!shell.contains("LIE LOW"), "{shell}");
+
+    let screen = body_string(get(&app, &format!("/room/{code}/screen")).await).await;
+    assert!(screen.contains("ALICE SETTLED A TAB"), "{screen}");
+    assert!(!screen.contains("lie-low"), "{screen}");
+    assert!(!screen.contains("LIE LOW"), "{screen}");
+}

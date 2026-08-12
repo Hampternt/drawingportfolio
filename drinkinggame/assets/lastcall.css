@@ -363,6 +363,15 @@ body.lc { margin: 0; min-height: 100vh; display: flex; flex-direction: column;
    `animation: lc-timer var(--lc-beat-ms, 60s) …` keyframe are authored in
    Plan A-vis's motion section below (.lc-timer rules), same as is-hit/is-drawing
    above. */
+/* Plan H: the banner's event strip — one occupant at a time (decision H6):
+   the round's event from Deal on, settlement announcements at Draw. */
+.lc-event { display: flex; align-items: baseline; gap: 8px; padding: 3px 0 1px;
+            border-top: 1px solid var(--lc-hair); min-width: 0; }
+.lc-event-name { font-family: var(--font-ui); font-weight: 800; font-size: 11px;
+                 letter-spacing: .12em; white-space: nowrap; color: var(--lc-text); }
+.lc-event-text { font-family: var(--font-ui); font-size: 11px; color: var(--lc-faint);
+                 overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 .lc-tabs { padding: 0 18px; display: flex; border-bottom: 1px solid var(--lc-hair); }
 .lc-tab { background: none; border: 0; padding: 9px 14px 8px; cursor: pointer;
           font-family: var(--font-display); font-weight: 800; font-size: 11px;
