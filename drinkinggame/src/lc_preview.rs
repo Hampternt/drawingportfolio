@@ -214,7 +214,11 @@ fn text_cases_group() -> PreviewGroup {
         })
         .collect();
     body.push_str(&row(
-        "Catalog — all 20 cards, deliberately adversarial (spec §9)",
+        &format!(
+            "Catalog — all {} distinct cards (x copies make the 40-card shoe), spec §9 \
+             coverage now on real content",
+            CATALOG.len()
+        ),
         &catalog_cells,
     ));
 
@@ -242,11 +246,11 @@ fn text_cases_group() -> PreviewGroup {
     PreviewGroup {
         id: "text".to_string(),
         title: "Text handling — the §7.5 ramp and clamp".to_string(),
-        note: "The catalog (spec §9's deliberately adversarial 20) proves the lg/md/sm \
-               ramp, the 3-line body clamp and the keyword +n fold against rendered \
-               content, not just test fixtures. boundary_cards() sits exactly on the \
-               thresholds the catalog can't: each pair shows the clamped card beside its \
-               expanded twin, so what the clamp lost is visible, not just asserted."
+        note: "The catalog (spec §9, real content, coverage test-pinned by Task 3) proves \
+               the lg/md/sm ramp, the 3-line body clamp and the keyword +n fold against \
+               rendered content, not just test fixtures. boundary_cards() sits exactly on \
+               the thresholds the catalog can't: each pair shows the clamped card beside \
+               its expanded twin, so what the clamp lost is visible, not just asserted."
             .to_string(),
         body,
     }
@@ -694,10 +698,12 @@ fn hand_group_group(st: &LastCallState) -> PreviewGroup {
     ));
 
     // Row 3 — ArmedColumn's own cardinalities: 0 (still ARMED 0 plus the
-    // slot, never an empty state), 1, many (4), and locked (3 — LOCKED 3,
-    // dimmed via [data-locked], no slot).
+    // slot, never an empty state), 1, many (Wine's full eight-card spread,
+    // labelled from its own .len() rather than a hard-coded count now that
+    // deck_cards returns eight per deck, not four), and locked (3 — LOCKED
+    // 3, dimmed via [data-locked], no slot).
     let one_armed: Vec<Card> = lc_cards::card_by_id("beer-01").into_iter().collect();
-    let four_armed = lc_cards::deck_cards(Deck::Wine);
+    let many_armed = lc_cards::deck_cards(Deck::Wine);
     let three_locked: Vec<Card> = lc_cards::deck_cards(Deck::Liquor)
         .into_iter()
         .take(3)
@@ -710,7 +716,10 @@ fn hand_group_group(st: &LastCallState) -> PreviewGroup {
                 &lc_render::armed_column(&[], false),
             ),
             swatch("1", &lc_render::armed_column(&one_armed, false)),
-            swatch("4 — many", &lc_render::armed_column(&four_armed, false)),
+            swatch(
+                &format!("{} — many", many_armed.len()),
+                &lc_render::armed_column(&many_armed, false),
+            ),
             swatch(
                 "locked, 3 — LOCKED 3, dimmed, no slot",
                 &lc_render::armed_column(&three_locked, true),
