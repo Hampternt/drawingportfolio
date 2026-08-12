@@ -15,9 +15,10 @@
 #                                   palette entry broke palette.js once,
 #                                   c72d614; nothing else catches it)
 #
-# clippy runs without `-D warnings` on purpose: the tree carries 19 pre-existing
-# warnings as of 2026-08-02. Promote it to `-D warnings` once that reaches zero —
-# a gate that is red on arrival teaches everyone to ignore it.
+# clippy runs without `-D warnings` on purpose: the tree carries pre-existing
+# warnings (21 distinct as of 2026-08-12 — CLAUDE.md keeps the measured count).
+# Promote it to `-D warnings` once that reaches zero — a gate that is red on
+# arrival teaches everyone to ignore it.
 #
 # Exit 0 = every check passed. Any failure prints the failing check's output and
 # the script exits 1 after running the rest, so one run shows every problem.

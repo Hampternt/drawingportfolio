@@ -348,14 +348,38 @@ git stash show -p 'stash@{0}' | less    # inspect before deciding
 
 ## 4 · Known debts
 
-- **`cargo test` runs 53 of 230 tests.** The root `Cargo.toml` is both a package
+- **`cargo test` runs 219 of 744 tests.** The root `Cargo.toml` is both a package
   and the workspace root, and in that layout cargo defaults to the *current
-  package* — so `drinkinggame`'s 177 tests are silently skipped. **
+  package* — so `drinkinggame`'s 525 tests are silently skipped. **
   `./scripts/verify.sh` is the gate precisely because it passes `--workspace`.**
   Never accept a bare `cargo test` as evidence.
-- **Test counts, measured on `master` at `0eb05b0`:** 49 + 4 + 100 + 77 =
-  **230**. PR #6 added one. On `feat/last-call` the numbers are **327 / 145 /
-  130**, so whoever merges Last Call owns that update.
+- ~~Test counts: two branches edit the same lines; whoever merges second
+  re-measures.~~ **Discharged 2026-08-12** — Last Call and artportfolio
+  slices 1–3 both merged (PR #9 merged second); counts re-measured on the
+  merged tree: 215 + 4 + 331 + 194 = **744**, clippy **21 distinct** (23 raw
+  lines minus two rollups). CLAUDE.md carries the authoritative line.
+- **Slice-3 follow-ups** (residual minors from its plan-end reviews, parked
+  with rulings — none block anything):
+  - An interleaved filter action resets an open, half-typed new-collection
+    input: the `#art-rail-filters` OOB swap re-renders the form `hidden`.
+    Fix if it grates: exclude the form from the OOB block or preserve its
+    state client-side.
+  - Keyboard users lose focus to `<body>` when a rail pill they activated is
+    destroyed by its own OOB swap. Fix: re-focus the matching link after
+    `htmx:afterSwap`.
+  - `POST/DELETE /api/admin/collections*` responses render `#rail-collections`
+    with `PostFilter::default()`, dropping active filters from those rows
+    until the next filter action (commented in `admin.rs`, accepted).
+  - `patch_post` ignores `set_post_tags`'s return and runs caption+tags as two
+    non-atomic statements — revisit when cards render tags (slice 4/5).
+  - `test_multi_tag_and_composition_survives_pagination` relies on SQLite tie
+    order under equal `created_at`; add `, id DESC` to the ORDER BY or seed
+    distinct timestamps to make it plan-independent.
+  - No unknown-id 404 test on the two GET fragment routes
+    (`…/{id}/edit`, `…/{id}/collections`).
+  - Rail list queries run on every debounced search keystroke (page-0
+    responses rebuild the rail) — negligible single-user, worth caching if
+    that ever changes.
 
   `feat/artportfolio-visual-layer` moves them too, and **already carries its
   own CLAUDE.md correction** (`e67cf49`). Two branches now edit the same
