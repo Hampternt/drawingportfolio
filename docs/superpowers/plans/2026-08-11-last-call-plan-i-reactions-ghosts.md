@@ -103,7 +103,7 @@ constant.
   | cider-08 | Not So Fast, Friend | 2 | any | Cancel | the trickster counterspell — 2 pulls to void up to 8 damage is the deck's whole tempo identity |
   | wine-08 | Send It Back | 2 | any, seat-targeted plays only | Reflect | control's signature: the table's scariest card now has a scariest answer |
   | liquor-08 | Spit It Out | 2 | self | Cancel | burst defends in bursts; self-only at the same cost as cider's any — the 4-pull vessel already prices scope |
-  | soft-08 | The Long Sober Look Across The Table | 1 | self | Reduce 4 | support's protection premium (F3: 2.5–3.0 per pull) |
+  | soft-04 | The Long Sober Look Across The Table | 1 | self | Reduce 4 | support's protection premium (F3: 2.5–3.0 per pull) |
 
   Cider-08 strictly outclasses liquor-08 on scope at equal cost — deliberate
   deck identity, noted for playtest.
@@ -214,7 +214,7 @@ pub struct CardDef { /* id, deck, kind, cost, targets, title, text,
 pub fn card_fx(id: &str) -> Option<FxDef>;  // None for reactions & unknown ids
 pub fn card_by_id(id: &str) -> Option<Card>;
 // The five reactions: beer-08 c1 self / cider-08 c2 one / wine-08 c2 one /
-// liquor-08 c2 self / soft-08 c1 self — fx: None, copies 2, kw ["reaction"].
+// liquor-08 c2 self / soft-04 c1 self — fx: None, copies 2, kw ["reaction"].
 
 // Plan E:
 pub(crate) fn map_lc(e: LcError) -> axum::response::Response;
@@ -308,7 +308,7 @@ text: "Reaction: cancel any revealed play, whoever it was aimed at. Keep it wher
 text: "Reaction: a revealed play aimed at one player resolves against its owner instead. Summon the sommelier.",
 // liquor-08 — rfx: Some(ReactionFx::Cancel),
 text: "Reaction: cancel a revealed play aimed at you. Undignified but effective.",
-// soft-08  — rfx: Some(ReactionFx::Reduce(4)),
+// soft-04  — rfx: Some(ReactionFx::Reduce(4)),
 text: "Reaction: a revealed play deals 4 less damage to you. You know what you did.",
 ```
 
@@ -341,7 +341,7 @@ fn test_reaction_fx_table() { // decision I6 — arming F5's inert cards
     assert_eq!(card_rfx("cider-08"), Some(ReactionFx::Cancel));
     assert_eq!(card_rfx("wine-08"), Some(ReactionFx::Reflect));
     assert_eq!(card_rfx("liquor-08"), Some(ReactionFx::Cancel));
-    assert_eq!(card_rfx("soft-08"), Some(ReactionFx::Reduce(4)));
+    assert_eq!(card_rfx("soft-04"), Some(ReactionFx::Reduce(4)));
     assert_eq!(card_rfx("beer-01"), None);
     assert_eq!(card_rfx("nope"), None);
     // The inert-era text is gone from every reaction:
@@ -352,7 +352,7 @@ fn test_reaction_fx_table() { // decision I6 — arming F5's inert cards
 }
 ```
 
-The §9 coverage floor is untouched: titles did not change (soft-08's 36-char
+The §9 coverage floor is untouched: titles did not change (soft-04's 36-char
 title still holds the >24 band), and `test_catalog_has_an_overflowing_body`
 only requires wine-01's membership, which stands whatever these texts weigh.
 
@@ -459,11 +459,11 @@ are never in an opener, so tests deal them in by hand):
 ```rust
 /// alice(1)/Beer locks beer-02 (Damage 4 → bob) and is revealed: one play,
 /// order_key 1, alice charged 2 (Beer 8→6). bob(2)/Cider holds cider-08
-/// (Cancel, any); cara(3)/Soft holds soft-08 (Reduce 4, self).
+/// (Cancel, any); cara(3)/Soft holds soft-04 (Reduce 4, self).
 fn at_reveal() -> LastCallState {
     let mut st = at_lock();
     st.players[1].hand.push(crate::lc_cards::card_by_id("cider-08").unwrap());
-    st.players[2].hand.push(crate::lc_cards::card_by_id("soft-08").unwrap());
+    st.players[2].hand.push(crate::lc_cards::card_by_id("soft-04").unwrap());
     st.arm(1, "beer-02").unwrap();
     st.set_target(1, "beer-02", Some(1)).unwrap();
     st.lock_in(1).unwrap();
@@ -540,7 +540,7 @@ fn test_reaction_guards() {
     // A non-reaction card in hand cannot ride the window:
     assert_eq!(st.play_reaction(2, "cider-01", 1), Err(LcError::NotPlayable));
     // Self-scope: the play targets bob, cara is not among its subjects:
-    assert_eq!(st.play_reaction(3, "soft-08", 1), Err(LcError::BadTarget));
+    assert_eq!(st.play_reaction(3, "soft-04", 1), Err(LcError::BadTarget));
     // CantAfford names the card (cara holds a cider-08 but no Cider vessel):
     st.players[2].hand.push(crate::lc_cards::card_by_id("cider-08").unwrap());
     assert_eq!(
@@ -567,14 +567,14 @@ fn test_cancel_voids_the_play_but_not_the_pulls() {
 
 #[test]
 fn test_reduce_blunts_for_the_reactor_and_floors_at_zero() {
-    // Full absorb: cider-05 (Damage 4) → cara, soft-08 Reduce 4 → 0.
+    // Full absorb: cider-05 (Damage 4) → cara, soft-04 Reduce 4 → 0.
     let mut st = at_lock();
-    st.players[2].hand.push(crate::lc_cards::card_by_id("soft-08").unwrap());
+    st.players[2].hand.push(crate::lc_cards::card_by_id("soft-04").unwrap());
     st.arm(2, "cider-05").unwrap();
     st.set_target(2, "cider-05", Some(2)).unwrap();
     st.lock_in(1).unwrap(); st.lock_in(2).unwrap(); st.lock_in(3).unwrap();
     st.advance_beat().unwrap();
-    st.play_reaction(3, "soft-08", 1).unwrap();          // Soft 6 − 1 = 5
+    st.play_reaction(3, "soft-04", 1).unwrap();          // Soft 6 − 1 = 5
     st.advance_beat().unwrap();
     st.resolve().unwrap();
     assert_eq!(st.players[2].hp, 15);
