@@ -744,6 +744,12 @@ pub(crate) fn map_lc(e: LcError) -> axum::response::Response {
             format!("{id} needs a target."),
         )
             .into_response(),
+        LcError::PactBlocked => {
+            (StatusCode::UNPROCESSABLE_ENTITY, "No pact to be had.").into_response()
+        }
+        LcError::NoOffer => {
+            (StatusCode::UNPROCESSABLE_ENTITY, "That offer is gone.").into_response()
+        }
         _ => StatusCode::UNPROCESSABLE_ENTITY.into_response(),
     }
 }
@@ -959,6 +965,112 @@ pub async fn lc_draw_handler(
     }
     persist_and_broadcast_lc(&state, &ctx).await;
     StatusCode::NO_CONTENT.into_response()
+}
+
+// -------------------------------------------------------------
+// Plan G (Task 4): the pact routes — offer/accept/decline. All three share
+// Plan E Task 1's exact skeleton (`lc_lock` -> `load_lc` -> mutate -> `map_lc`
+// on error -> persist -> `204`) and, like arm/disarm/target, publish
+// `LcTick` alone (tick-only — E5's rule applied a second time): nothing
+// `offer_pact`/`accept_pact`/`decline_pact` ever changes is legible on any
+// public surface — `pacts`/`pact_offers`/`pact_barred` are never projected
+// by `public_view()` (G13), so a full re-render/re-broadcast would carry no
+// public information at all, only free the market's private state to a
+// spectator who has no business seeing a market exists. But both parties'
+// own phones still need the private re-fetch signal to repaint their own
+// `#lc-pacts` section, and the spectator screen never notices: it consumes
+// only `LcPublic`, so it has no listener for `LcTick` to ignore in the
+// first place ("who is subscribed and what are they looking at").
+//
+// None of the three takes a player identifier for the *offering* viewer:
+// that comes from the session cookie alone via `PlayerSession`, the same
+// spec §6.1 constraint-not-check shape `lc_hand_handler`/`lc_table_handler`
+// establish for private fragments — "can player A act as player B?" is
+// unanswerable rather than merely guarded. `target`/`from` name the OTHER
+// seat only, which is exactly what the brief's `PactOfferForm`/
+// `PactFromForm` carry.
+// -------------------------------------------------------------
+
+/// `POST /room/{code}/lastcall/pact/offer` — private (`LcTick` only, see the
+/// section comment above).
+pub async fn lc_pact_offer_handler(
+    State(state): State<GameState>,
+    PlayerSession(player): PlayerSession,
+    Path(code): Path<String>,
+    Form(form): Form<PactOfferForm>,
+) -> axum::response::Response {
+    let lock = match lc_lock(&state, &code).await {
+        Ok(l) => l,
+        Err(r) => return r,
+    };
+    let _guard = lock.lock().await;
+    let mut ctx = match load_lc(&state, &code, &player).await {
+        Ok(c) => c,
+        Err(r) => return r,
+    };
+    if let Err(e) = ctx.st.offer_pact(player.id, form.target) {
+        return map_lc(e);
+    }
+    persist_and_tick_lc(&state, &ctx).await;
+    StatusCode::NO_CONTENT.into_response()
+}
+
+/// `POST /room/{code}/lastcall/pact/accept` — private (`LcTick` only, see the
+/// section comment above).
+pub async fn lc_pact_accept_handler(
+    State(state): State<GameState>,
+    PlayerSession(player): PlayerSession,
+    Path(code): Path<String>,
+    Form(form): Form<PactFromForm>,
+) -> axum::response::Response {
+    let lock = match lc_lock(&state, &code).await {
+        Ok(l) => l,
+        Err(r) => return r,
+    };
+    let _guard = lock.lock().await;
+    let mut ctx = match load_lc(&state, &code, &player).await {
+        Ok(c) => c,
+        Err(r) => return r,
+    };
+    if let Err(e) = ctx.st.accept_pact(player.id, form.from) {
+        return map_lc(e);
+    }
+    persist_and_tick_lc(&state, &ctx).await;
+    StatusCode::NO_CONTENT.into_response()
+}
+
+/// `POST /room/{code}/lastcall/pact/decline` — private (`LcTick` only, see
+/// the section comment above).
+pub async fn lc_pact_decline_handler(
+    State(state): State<GameState>,
+    PlayerSession(player): PlayerSession,
+    Path(code): Path<String>,
+    Form(form): Form<PactFromForm>,
+) -> axum::response::Response {
+    let lock = match lc_lock(&state, &code).await {
+        Ok(l) => l,
+        Err(r) => return r,
+    };
+    let _guard = lock.lock().await;
+    let mut ctx = match load_lc(&state, &code, &player).await {
+        Ok(c) => c,
+        Err(r) => return r,
+    };
+    if let Err(e) = ctx.st.decline_pact(player.id, form.from) {
+        return map_lc(e);
+    }
+    persist_and_tick_lc(&state, &ctx).await;
+    StatusCode::NO_CONTENT.into_response()
+}
+
+#[derive(Deserialize)]
+pub struct PactOfferForm {
+    pub target: usize,
+}
+
+#[derive(Deserialize)]
+pub struct PactFromForm {
+    pub from: usize,
 }
 
 // -------------------------------------------------------------

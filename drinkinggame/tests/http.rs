@@ -6640,3 +6640,465 @@ async fn test_the_reveal_frame_carries_the_plays_and_the_end_still_hands_off() {
          live: {game_frame}"
     );
 }
+
+// -------------------------------------------------------------
+// Plan G (Task 4): the pact routes — offer/accept/decline — and the
+// mandatory secrecy proof: a pact between two seats never reaches the wire
+// (`lcpublic`), a third seat's own private fragment, or the spectator
+// screen (which subscribes only to `lcpublic` — see
+// `test_lcpublic_never_carries_hand_cards` for that channel's own proof).
+// -------------------------------------------------------------
+
+/// THE MANDATORY TEST (brief; spec §3.4.1's shape): a pact between A and B
+/// is absent from `public_view()`'s output on the wire, and C's private
+/// fragment is unchanged by its existence.
+#[tokio::test]
+async fn test_a_pact_between_a_and_b_is_invisible_to_c_and_the_wire() {
+    let (app, pool) = test_app_with_pool().await;
+    let alice = login(&app, "alice", "1234").await;
+    let bob = login(&app, "bob", "5678").await;
+    let cara = login(&app, "cara", "1111").await;
+    let dave = login(&app, "dave", "2222").await;
+    let code = create_room(&app, &alice).await;
+    room_page_html(&app, &bob, &code).await;
+    room_page_html(&app, &cara, &code).await;
+    room_page_html(&app, &dave, &code).await;
+    post_form(&app, &alice, &format!("/room/{code}/lastcall/start"), "").await;
+
+    let alice_id = drinkinggame::db::get_player_by_name(&pool, "alice")
+        .await
+        .unwrap()
+        .id;
+    let bob_id = drinkinggame::db::get_player_by_name(&pool, "bob")
+        .await
+        .unwrap()
+        .id;
+    let cara_id = drinkinggame::db::get_player_by_name(&pool, "cara")
+        .await
+        .unwrap()
+        .id;
+    let dave_id = drinkinggame::db::get_player_by_name(&pool, "dave")
+        .await
+        .unwrap()
+        .id;
+    let game_id = lc_game_id(&pool, &code).await;
+
+    // alice(0)/bob(1)/cara(2)/dave(3), vessels registered, at Diplomacy —
+    // the same real-id rig `test_the_hand_fragment_shows_only_the_viewers_own_pact`
+    // (Task 3) uses, so `offer_pact`/`accept_pact` behind the real routes
+    // resolve seats correctly.
+    let mut st = LastCallState::new(
+        vec![
+            (alice_id, "alice".into()),
+            (bob_id, "bob".into()),
+            (cara_id, "cara".into()),
+            (dave_id, "dave".into()),
+        ],
+        1,
+    );
+    st.set_vessel(alice_id, Deck::Beer, "can").unwrap();
+    st.set_vessel(bob_id, Deck::Cider, "bottle").unwrap();
+    st.set_vessel(cara_id, Deck::Soft, "glass").unwrap();
+    st.set_vessel(dave_id, Deck::Liquor, "shot").unwrap();
+    st.beat = Beat::Diplomacy;
+    drinkinggame::db::set_game_state(&pool, game_id, &st.to_json()).await;
+
+    let cara_before = body_string(get_hand(&app, &cara, &code).await).await;
+
+    let res = get(&app, &format!("/room/{code}/sse")).await;
+    let mut body = res.into_body().into_data_stream();
+    read_sse_until(&mut body, "event: lcpublic").await; // drain the snapshot
+
+    let res = post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/lastcall/pact/offer"),
+        "target=1", // bob's seat
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+    let seen = read_sse_until(&mut body, "event: lctick").await;
+    assert!(
+        !seen.contains("event: lcpublic")
+            && !seen.contains("event: game")
+            && !seen.contains("event: room"),
+        "{seen}"
+    );
+
+    let res = post_form(
+        &app,
+        &bob,
+        &format!("/room/{code}/lastcall/pact/accept"),
+        "from=0", // alice's seat
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+    let seen = read_sse_until(&mut body, "event: lctick").await;
+    assert!(
+        !seen.contains("event: lcpublic")
+            && !seen.contains("event: game")
+            && !seen.contains("event: room"),
+        "{seen}"
+    );
+
+    let alice_hand = body_string(get_hand(&app, &alice, &code).await).await;
+    assert!(
+        alice_hand.contains("PACT WITH BOB — SINCE ROUND 1"),
+        "{alice_hand}"
+    );
+    let bob_hand = body_string(get_hand(&app, &bob, &code).await).await;
+    assert!(bob_hand.contains("PACT WITH ALICE"), "{bob_hand}");
+
+    let cara_after = body_string(get_hand(&app, &cara, &code).await).await;
+    assert_eq!(
+        without_seq(&cara_before),
+        without_seq(&cara_after),
+        "cara's world must be byte-identical whether or not alice and bob pacted"
+    );
+
+    // Force the beat to Draw via a direct state write (the pact itself is
+    // beat-independent — only `formed_round` is stamped, not the beat it
+    // formed in) so `/lastcall/handicap` — a full-publish route with
+    // nothing to do with pacts — can run without `WrongBeat`, and use it to
+    // prove the broadcast surface never carries pact state even while a
+    // pact still exists.
+    let mut st2 = lc_state(&pool, &code).await;
+    st2.beat = Beat::Draw;
+    drinkinggame::db::set_game_state(&pool, game_id, &st2.to_json()).await;
+
+    let res = post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/lastcall/handicap"),
+        &format!("target={alice_id}&handicap_pct=100"),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+
+    let seen = read_sse_until(&mut body, "event: lcpublic").await;
+    let frame = &seen[seen.find("event: lcpublic").unwrap()..];
+    assert!(!frame.contains("PACT WITH"), "{frame}");
+    assert!(!frame.contains("lc-pact-standing"), "{frame}");
+    assert!(!frame.contains("lc-pacts"), "{frame}");
+}
+
+/// The guard chain (member -> active game -> kind -> beat, all from
+/// `load_lc`/the engine) and the error-mapping table (`PactBlocked` ->
+/// "No pact to be had.", `NoOffer` -> "That offer is gone.") for all three
+/// pact routes, plus the G11 no-pact-detector property: an offer TO a
+/// pacted seat is a silent 204 no-op, never an error that would leak "that
+/// seat is unavailable" to the offeror.
+#[tokio::test]
+async fn test_pact_routes_are_guarded_and_answer_in_words() {
+    let (app, pool) = test_app_with_pool().await;
+    let alice = login(&app, "alice", "1234").await;
+    let bob = login(&app, "bob", "5678").await;
+    let cara = login(&app, "cara", "1111").await;
+    let dave = login(&app, "dave", "2222").await;
+    let carol = login(&app, "carol", "3333").await; // never opens the room: not a member
+    let code = create_room(&app, &alice).await;
+    room_page_html(&app, &bob, &code).await;
+    room_page_html(&app, &cara, &code).await;
+    room_page_html(&app, &dave, &code).await;
+    post_form(&app, &alice, &format!("/room/{code}/lastcall/start"), "").await;
+
+    // carol never opened the room: not a member -> 403 (`load_lc`).
+    let res = post_form(
+        &app,
+        &carol,
+        &format!("/room/{code}/lastcall/pact/offer"),
+        "target=1",
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::FORBIDDEN);
+
+    post_form(&app, &alice, &format!("/room/{code}/lastcall/end"), "").await;
+
+    // A 3 Man game active in the same room: WrongGameKind -> 409.
+    post_form(&app, &alice, &format!("/room/{code}/tm/start"), "").await;
+    let res = post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/lastcall/pact/offer"),
+        "target=1",
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::CONFLICT);
+    post_form(&app, &alice, &format!("/room/{code}/tm/end"), "").await;
+
+    // Restart Last Call with all four seated, force the state to real ids
+    // at Beat::Lock: WrongBeat -> 409 (OutOfTurn — `map_lc`'s WrongBeat arm).
+    post_form(&app, &alice, &format!("/room/{code}/lastcall/start"), "").await;
+    let alice_id = drinkinggame::db::get_player_by_name(&pool, "alice")
+        .await
+        .unwrap()
+        .id;
+    let bob_id = drinkinggame::db::get_player_by_name(&pool, "bob")
+        .await
+        .unwrap()
+        .id;
+    let cara_id = drinkinggame::db::get_player_by_name(&pool, "cara")
+        .await
+        .unwrap()
+        .id;
+    let dave_id = drinkinggame::db::get_player_by_name(&pool, "dave")
+        .await
+        .unwrap()
+        .id;
+    let game_id = lc_game_id(&pool, &code).await;
+
+    let mut st = LastCallState::new(
+        vec![
+            (alice_id, "alice".into()),
+            (bob_id, "bob".into()),
+            (cara_id, "cara".into()),
+            (dave_id, "dave".into()),
+        ],
+        1,
+    );
+    st.set_vessel(alice_id, Deck::Beer, "can").unwrap();
+    st.set_vessel(bob_id, Deck::Cider, "bottle").unwrap();
+    st.set_vessel(cara_id, Deck::Soft, "glass").unwrap();
+    st.set_vessel(dave_id, Deck::Liquor, "shot").unwrap();
+    st.beat = Beat::Lock;
+    drinkinggame::db::set_game_state(&pool, game_id, &st.to_json()).await;
+
+    let res = post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/lastcall/pact/offer"),
+        "target=1",
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::CONFLICT); // WrongBeat -> OutOfTurn
+
+    // At Diplomacy: accept a nonexistent offer -> 422, body exactly "That
+    // offer is gone.".
+    st.beat = Beat::Diplomacy;
+    drinkinggame::db::set_game_state(&pool, game_id, &st.to_json()).await;
+
+    let res = post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/lastcall/pact/accept"),
+        "from=3", // dave never offered
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(body_string(res).await, "That offer is gone.");
+
+    // alice+bob pact, formed through the real routes.
+    let res = post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/lastcall/pact/offer"),
+        "target=1",
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+    let res = post_form(
+        &app,
+        &bob,
+        &format!("/room/{code}/lastcall/pact/accept"),
+        "from=0",
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+
+    // G11: cara offering to the now-pacted alice is a silent no-op, not an
+    // error — the market list must never double as a pact detector.
+    let res = post_form(
+        &app,
+        &cara,
+        &format!("/room/{code}/lastcall/pact/offer"),
+        "target=0",
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+
+    // alice (the pacted OFFEROR) trying to open a second pact -> 422, body
+    // exactly "No pact to be had.".
+    let res = post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/lastcall/pact/offer"),
+        "target=2", // cara's seat
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(body_string(res).await, "No pact to be had.");
+}
+
+/// A decline clears the offer for both phones: the target's row disappears
+/// and the offeror's own WAITING line reverts to a propose button — no
+/// error, tick-only broadcast (the same E5 policy assertion arm/disarm's
+/// test makes for its own routes).
+#[tokio::test]
+async fn test_decline_clears_the_offer_for_both_phones() {
+    let (app, pool) = test_app_with_pool().await;
+    let alice = login(&app, "alice", "1234").await;
+    let bob = login(&app, "bob", "5678").await;
+    let cara = login(&app, "cara", "1111").await;
+    let dave = login(&app, "dave", "2222").await;
+    let code = create_room(&app, &alice).await;
+    room_page_html(&app, &bob, &code).await;
+    room_page_html(&app, &cara, &code).await;
+    room_page_html(&app, &dave, &code).await;
+    post_form(&app, &alice, &format!("/room/{code}/lastcall/start"), "").await;
+
+    let alice_id = drinkinggame::db::get_player_by_name(&pool, "alice")
+        .await
+        .unwrap()
+        .id;
+    let bob_id = drinkinggame::db::get_player_by_name(&pool, "bob")
+        .await
+        .unwrap()
+        .id;
+    let cara_id = drinkinggame::db::get_player_by_name(&pool, "cara")
+        .await
+        .unwrap()
+        .id;
+    let dave_id = drinkinggame::db::get_player_by_name(&pool, "dave")
+        .await
+        .unwrap()
+        .id;
+    let game_id = lc_game_id(&pool, &code).await;
+
+    let mut st = LastCallState::new(
+        vec![
+            (alice_id, "alice".into()),
+            (bob_id, "bob".into()),
+            (cara_id, "cara".into()),
+            (dave_id, "dave".into()),
+        ],
+        1,
+    );
+    st.set_vessel(alice_id, Deck::Beer, "can").unwrap();
+    st.set_vessel(bob_id, Deck::Cider, "bottle").unwrap();
+    st.set_vessel(cara_id, Deck::Soft, "glass").unwrap();
+    st.set_vessel(dave_id, Deck::Liquor, "shot").unwrap();
+    st.beat = Beat::Diplomacy;
+    drinkinggame::db::set_game_state(&pool, game_id, &st.to_json()).await;
+
+    let res = get(&app, &format!("/room/{code}/sse")).await;
+    let mut body = res.into_body().into_data_stream();
+    read_sse_until(&mut body, "event: lcpublic").await; // drain the snapshot
+
+    let res = post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/lastcall/pact/offer"),
+        "target=1", // bob's seat
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+    read_sse_until(&mut body, "event: lctick").await;
+
+    let bob_hand = body_string(get_hand(&app, &bob, &code).await).await;
+    assert!(bob_hand.contains("ALICE OFFERS A PACT"), "{bob_hand}");
+    assert!(bob_hand.contains(r#"data-lc-body="from=0""#), "{bob_hand}");
+
+    let res = post_form(
+        &app,
+        &bob,
+        &format!("/room/{code}/lastcall/pact/decline"),
+        "from=0",
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+    let seen = read_sse_until(&mut body, "event: lctick").await;
+    assert!(
+        !seen.contains("event: lcpublic")
+            && !seen.contains("event: game")
+            && !seen.contains("event: room"),
+        "{seen}"
+    );
+
+    let bob_hand = body_string(get_hand(&app, &bob, &code).await).await;
+    assert!(!bob_hand.contains("ALICE OFFERS A PACT"), "{bob_hand}");
+    assert!(!bob_hand.contains("ACCEPT"), "{bob_hand}");
+
+    let alice_hand = body_string(get_hand(&app, &alice, &code).await).await;
+    assert!(!alice_hand.contains("WAITING"), "{alice_hand}");
+    assert!(alice_hand.contains("PROPOSE TO BOB"), "{alice_hand}");
+}
+
+/// G5/G10 together, at the wire: a betrayal (`pact_breaks`) is the only
+/// pact-shaped thing `lcpublic` ever carries — an intact pact in the very
+/// same state stays completely absent, even from a route (`/lastcall/
+/// handicap`) that has nothing to do with pacts and publishes unconditionally.
+#[tokio::test]
+async fn test_the_break_is_the_only_public_pact_trace() {
+    let (app, pool) = test_app_with_pool().await;
+    let alice = login(&app, "alice", "1234").await;
+    let bob = login(&app, "bob", "5678").await;
+    let cara = login(&app, "cara", "1111").await;
+    let dave = login(&app, "dave", "2222").await;
+    let code = create_room(&app, &alice).await;
+    room_page_html(&app, &bob, &code).await;
+    room_page_html(&app, &cara, &code).await;
+    room_page_html(&app, &dave, &code).await;
+    post_form(&app, &alice, &format!("/room/{code}/lastcall/start"), "").await;
+
+    let alice_id = drinkinggame::db::get_player_by_name(&pool, "alice")
+        .await
+        .unwrap()
+        .id;
+    let bob_id = drinkinggame::db::get_player_by_name(&pool, "bob")
+        .await
+        .unwrap()
+        .id;
+    let cara_id = drinkinggame::db::get_player_by_name(&pool, "cara")
+        .await
+        .unwrap()
+        .id;
+    let dave_id = drinkinggame::db::get_player_by_name(&pool, "dave")
+        .await
+        .unwrap()
+        .id;
+    let game_id = lc_game_id(&pool, &code).await;
+
+    // Round 1 (default beat: Draw, so `/lastcall/handicap` is legal): one
+    // betrayal on record for round 1 (seats 0 -> 1) AND an intact pact
+    // between seats 2 and 3, in the same state.
+    let mut st = LastCallState::new(
+        vec![
+            (alice_id, "alice".into()),
+            (bob_id, "bob".into()),
+            (cara_id, "cara".into()),
+            (dave_id, "dave".into()),
+        ],
+        1,
+    );
+    st.pact_breaks.push(drinkinggame::last_call::PactBreak {
+        betrayer: 0,
+        betrayed: 1,
+        round: 1,
+    });
+    st.pacts.push(drinkinggame::last_call::Pact {
+        a: 2,
+        b: 3,
+        formed_round: 1,
+    });
+    drinkinggame::db::set_game_state(&pool, game_id, &st.to_json()).await;
+
+    let res = get(&app, &format!("/room/{code}/sse")).await;
+    let mut body = res.into_body().into_data_stream();
+    read_sse_until(&mut body, "event: lcpublic").await; // drain the snapshot
+
+    let res = post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/lastcall/handicap"),
+        &format!("target={alice_id}&handicap_pct=100"),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+
+    let seen = read_sse_until(&mut body, "event: lcpublic").await;
+    let frame = &seen[seen.find("event: lcpublic").unwrap()..];
+    assert!(frame.contains("lc-pact-break"), "{frame}");
+    assert!(frame.contains("BROKE THEIR PACT WITH"), "{frame}");
+    assert!(!frame.contains("lc-pact-standing"), "{frame}");
+    assert!(!frame.contains("SINCE ROUND"), "{frame}");
+}
