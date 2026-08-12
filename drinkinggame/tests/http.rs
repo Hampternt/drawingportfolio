@@ -7238,7 +7238,7 @@ async fn test_a_settlement_announces_the_name_not_the_tab() {
 /// frozen tableau, on both the phone shell and the screen.
 #[tokio::test]
 async fn test_a_final_round_settle_reaches_the_frozen_game_over_banner() {
-    let (app, pool, code, alice, _bob, _alice_id, _bob_id) = lc_action_rig().await;
+    let (app, pool, code, alice, bob, _alice_id, _bob_id) = lc_action_rig().await;
 
     let mut st = lc_state(&pool, &code).await;
     st.beat = Beat::Resolve;
@@ -7257,8 +7257,23 @@ async fn test_a_final_round_settle_reaches_the_frozen_game_over_banner() {
         round: st.round, // settled in the game-ending round itself
     });
     assert!(st.outcome().is_some());
+    // Premise for the ghost-viewer assertion below: this rig sets
+    // `Status::Eliminated` by direct field write, bypassing the engine's own
+    // elimination path (`tabs.clear()`, `last_call.rs`) — so bob still HAS a
+    // tabs entry. That makes the absence of his tab card unexplainable by
+    // `lc_tab_panel(None)`'s placeholder branch; only `hand_pane_html`'s
+    // `Status::Alive` gate (`lc_routes.rs`) can suppress it (review fix I1 —
+    // `test_a_settled_tab_shows_the_placeholder_card` used an Alive viewer
+    // with empty tabs, which exercises the builder's `None` branch, not this
+    // gate).
+    assert!(!st.players[1].tabs.is_empty());
     let game_id = lc_game_id(&pool, &code).await;
     drinkinggame::db::set_game_state(&pool, game_id, &st.to_json()).await;
+
+    // Review fix I1: bob (seat 1) is Eliminated — no panel at all, not even
+    // the settled placeholder, even though he still holds a live tab id.
+    let bob_hand = body_string(get_hand(&app, &bob, &code).await).await;
+    assert!(!bob_hand.contains("lc-tabcard"), "{bob_hand}");
 
     let shell = body_string(get_shell(&app, &alice, &code).await).await;
     assert!(shell.contains("GAME OVER"), "{shell}");
