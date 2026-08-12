@@ -33,7 +33,7 @@ invented.
 Slice 1 is four plans: **A → A-vis → A2 → B**. Everything after slice 1 was
 planned in one pass on 2026-08-11 — see "The rest of the game" below.
 
-## The rest of the game — eight plans, written 2026-08-11; only J remains
+## The rest of the game — ALL EIGHT PLANS EXECUTED 2026-08-12; the game is code-complete
 
 All eight are in `docs/superpowers/plans/2026-08-11-last-call-plan-*.md`. Each
 was written by its own subagent against the spec, DDv2 and the earlier plans'
@@ -160,6 +160,21 @@ approved") and the plans committed at `b5aa789`.
   TabCheck predicates (balance); `NoPlays` ignores reactions; haunt
   vengeance intent (brief-literal today: any Damage play in flight);
   the H15-through-Cancel ruling itself.
+
+- **Plan J — the finish. EXECUTED 2026-08-12.** `93b2322..dd2f27c`,
+  10 commits, verify green, **578 tests**, `drinkinggame` clippy-clean.
+  The capped public game log (80 entries, incl. the four social events —
+  a reviewer-prescribed erratum; settles carry seat only, never the tab)
+  fills the LOG tab; the designed end-of-game screen with standings
+  (J5 counters + elimination order) and REMATCH (game-over-gated; the
+  seq-carry fix — a review-caught CRITICAL where a fresh game's seq=0
+  was stale-dropped by every connected client); J13 canonical redirects;
+  lobby waiting-on indicators; the 196px plaque, the compact deck list
+  row, and every carried cosmetic closed (J14/J15 finals stand).
+  **Recorded-not-fixed, for the user's list:** event-hook damage/heals
+  don't log; pact-break round attribution differs log-vs-strip; founders
+  get no Joined lines; belt-and-braces hardening for re-resolve-after-
+  freeze is suggested but all live paths are verified gated.
 
 | Plan | File suffix | What it ships | Tasks |
 | --- | --- | --- | --- |
@@ -572,15 +587,26 @@ Then, in this order:
    All eight remaining plans (C through J, covering every slice to completion)
    are written; see "The rest of the game" above.
 4. ~~User design review.~~ **Approved 2026-08-11**, all 106 decisions.
-5. **Execute** in the binding order: ~~C~~ → ~~D~~ → ~~F~~ → ~~E~~ → ~~G~~
-   → ~~H~~ → ~~I~~ → **J last**. C through I executed and review-clean
-   2026-08-12 (see "The rest of the game"). Browser checkpoints owed to a
-   human, one combined pass: Plan B checkpoint 2, C's hand group, F's
-   40-card preview, E's loop items (step 2 amended — no TABLE-tab
-   flights), G's pact flow, H's banner strip + private tab card (incl.
-   the tab card's position below the 480px hand group), I's response
-   window + ghost bar + centre chips. Each plan names its ledger at
-   `.superpowers/sdd/<plan-basename>/progress.md`.
+5. ~~Execute.~~ **ALL EIGHT PLANS EXECUTED AND REVIEW-CLEAN 2026-08-12**
+   (see "The rest of the game"). Final state: verify green, **578 tests**
+   (371 at slice-1 close), 17 distinct clippy warnings all in
+   `drawingportfolio`, `drinkinggame` clean. What remains before ship:
+   1. **The combined human browser pass** (~30-45 min, two phones + the
+      big screen): Plan B checkpoint 2, C's hand group, F's 40-card
+      preview, E's loop items (step 2 amended — no TABLE-tab flights),
+      G's pact flow, H's banner strip + private tab card, I's response
+      window + ghost bar + centre chips, J's LOG tab + end screen +
+      REMATCH.
+   2. **The user's accumulated design-review list** — every
+      controller-ruled or parked decision is indexed in each plan's
+      STATUS entry above (D19, H15 + through-Cancel, the LcTick timing
+      channel, the F.2 88px constrain ruling, reaction spend in tab
+      predicates, haunt vengeance intent, G's three pact items, J's
+      recorded-not-fixed log gaps).
+   3. Merge to master (see `superpowers:finishing-a-development-branch`),
+      then the deploy notes in CLAUDE.md (nginx already carries the
+      /drinks locations; sounds and X-Forwarded-Proto may still need the
+      manual server steps recorded in memory).
 
 Spec §3.4.1 (nothing enters `plays` before it is revealable) is owned by Plan
 D, which holds locked plays in a hidden `locked_plays` field and carries the
