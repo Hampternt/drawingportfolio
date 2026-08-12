@@ -3640,6 +3640,51 @@ async fn test_lastcall_vessel_rejects_unknown_deck() {
     assert_eq!(lc_state_json(&pool, &code).await, before);
 }
 
+/// Fix round 1 (Plan E Task 1 review): `lc_vessel_handler` used to blanket-422
+/// every `set_vessel` error, so D15's `WrongBeat`/`NotAlive` came back 422
+/// while the same variants from `lc_handicap_handler` mapped through `map_lc`
+/// to 409/403. Both handlers must now agree — pins the statuses directly
+/// against what `map_lc` gives those variants everywhere else.
+#[tokio::test]
+async fn test_lastcall_vessel_maps_wrong_beat_and_not_alive_like_map_lc() {
+    let (app, pool) = test_app_with_pool().await;
+    let alice = login(&app, "alice", "1234").await;
+    let bob = login(&app, "bob", "5678").await;
+    let code = create_room(&app, &alice).await;
+    room_page_html(&app, &bob, &code).await;
+    post_form(&app, &alice, &format!("/room/{code}/lastcall/start"), "").await;
+    let game_id = lc_game_id(&pool, &code).await;
+
+    // WrongBeat: D15 gates set_vessel to Beat::Draw.
+    let mut st = lc_state(&pool, &code).await;
+    st.beat = Beat::Lock;
+    drinkinggame::db::set_game_state(&pool, game_id, &st.to_json()).await;
+
+    let res = post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/lastcall/vessel"),
+        "deck=liquor&container=glass",
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::CONFLICT); // map_lc's WrongBeat -> 409
+
+    // NotAlive: eliminate alice, beat back to Draw so only NotAlive fires.
+    let mut st = lc_state(&pool, &code).await;
+    st.beat = Beat::Draw;
+    st.players[0].status = drinkinggame::last_call::Status::Eliminated;
+    drinkinggame::db::set_game_state(&pool, game_id, &st.to_json()).await;
+
+    let res = post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/lastcall/vessel"),
+        "deck=liquor&container=glass",
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::FORBIDDEN); // map_lc's NotAlive -> 403
+}
+
 /// Spec §2, item 2: handicaps are set by the table, not the player they
 /// belong to. bob setting alice's handicap (not his own) must succeed — a
 /// future "only you may set yours" regression would fail this test.

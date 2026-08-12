@@ -215,6 +215,12 @@ pub struct VesselForm {
 /// BEFORE the form's own field validation, so a non-member or a wrong-kind
 /// game gets its 403/409 rather than a 422 that would leak "this form field
 /// is invalid" to a request with no business hitting this room at all.
+///
+/// `set_vessel`'s own errors (D15: `NotSeated`/`NotAlive`/`WrongBeat` — the
+/// Draw-beat gate) go through `map_lc`, the same mapping every Plan E action
+/// route uses (fix round 1, Plan E Task 1 review) — a blanket 422 here
+/// previously disagreed with `lc_handicap_handler` a few lines down, which
+/// already mapped its own `WrongBeat`/`NotSeated` through `map_lc`'s 409/403.
 pub async fn lc_vessel_handler(
     State(state): State<GameState>,
     PlayerSession(player): PlayerSession,
@@ -242,10 +248,7 @@ pub async fn lc_vessel_handler(
     }
 
     if let Err(e) = ctx.st.set_vessel(player.id, deck, container) {
-        return match e {
-            LcError::NotSeated => GameError::NotYourCall.into_response(),
-            _ => StatusCode::UNPROCESSABLE_ENTITY.into_response(),
-        };
+        return map_lc(e);
     }
     persist_and_broadcast_lc(&state, &ctx).await;
     Redirect::to(&format!("{}/room/{}/lastcall", state.base_path, code)).into_response()
