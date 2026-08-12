@@ -3508,6 +3508,25 @@ async fn lc_state(pool: &sqlx::SqlitePool, code: &str) -> LastCallState {
     LastCallState::from_json(&lc_state_json(pool, code).await)
 }
 
+/// Plan G, Task 3: strips the one `data-seq="N"` value a `/lastcall/hand`
+/// fragment carries (on `#lc-hand` — see `lc_hand_pane`) so two fragments
+/// that differ only in `st.seq` (bumped by pact formation, which has
+/// nothing to do with what an uninvolved third party's own section shows)
+/// compare equal. No regex dependency: `data-seq="` occurs exactly once in
+/// the fragment, so a single find-and-splice is exact, not a heuristic.
+fn without_seq(html: &str) -> String {
+    let marker = r#"data-seq=""#;
+    let Some(start) = html.find(marker) else {
+        return html.to_string();
+    };
+    let value_start = start + marker.len();
+    let Some(end_offset) = html[value_start..].find('"') else {
+        return html.to_string();
+    };
+    let end = value_start + end_offset;
+    format!("{}{}", &html[..value_start], &html[end..])
+}
+
 /// The Step 1 regression: without the `last_call` arms in `game.rs`'s three
 /// panel builders, `current_panel`/`current_screen_panel`/
 /// `current_room_panel` fall through to the Ring of Fire branch, and
@@ -4136,6 +4155,98 @@ async fn test_lastcall_hand_route_takes_no_player_input() {
     )
     .await;
     assert_eq!(baseline, with_target);
+}
+
+/// Plan G, Task 3: the fragment half of the mandatory privacy property for
+/// pacts — `pacts_section_html` reads `pacts`/`pact_offers`/`pact_barred`,
+/// none of which `PublicView` ever projects (G13), so the ONLY place any of
+/// it may render is the viewer's own `/lastcall/hand` fragment. Mirrors
+/// `test_hand_fragment_carries_only_the_viewers_armed_cards`'s shape (Task
+/// 4's fixture rig), but for pacts: state is hand-rolled with real player
+/// ids so `offer_pact`/`accept_pact` — which validate against `seat_of` —
+/// can be called directly on it before persisting.
+#[tokio::test]
+async fn test_the_hand_fragment_shows_only_the_viewers_own_pact() {
+    let (app, pool) = test_app_with_pool().await;
+    let alice = login(&app, "alice", "1234").await;
+    let bob = login(&app, "bob", "5678").await;
+    let cara = login(&app, "cara", "1234").await;
+    let dave = login(&app, "dave", "5678").await;
+    let code = create_room(&app, &alice).await;
+    room_page_html(&app, &bob, &code).await;
+    room_page_html(&app, &cara, &code).await;
+    room_page_html(&app, &dave, &code).await;
+    post_form(&app, &alice, &format!("/room/{code}/lastcall/start"), "").await;
+
+    let alice_id = drinkinggame::db::get_player_by_name(&pool, "alice")
+        .await
+        .unwrap()
+        .id;
+    let bob_id = drinkinggame::db::get_player_by_name(&pool, "bob")
+        .await
+        .unwrap()
+        .id;
+    let cara_id = drinkinggame::db::get_player_by_name(&pool, "cara")
+        .await
+        .unwrap()
+        .id;
+    let dave_id = drinkinggame::db::get_player_by_name(&pool, "dave")
+        .await
+        .unwrap()
+        .id;
+    let room = drinkinggame::db::get_open_room(&pool, &code).await.unwrap();
+    let game_id = drinkinggame::db::get_active_game(&pool, room.id)
+        .await
+        .unwrap()
+        .id;
+
+    // alice(0)/bob(1)/cara(2)/dave(3), vessels registered, at Diplomacy —
+    // the same shape `LastCallState::new` + `set_vessel` builds elsewhere,
+    // with real ids so `offer_pact`/`accept_pact` (which resolve seats via
+    // `seat_of`) work against it.
+    let fresh_rig = || {
+        let mut st = LastCallState::new(
+            vec![
+                (alice_id, "alice".into()),
+                (bob_id, "bob".into()),
+                (cara_id, "cara".into()),
+                (dave_id, "dave".into()),
+            ],
+            1,
+        );
+        st.set_vessel(alice_id, Deck::Beer, "can").unwrap();
+        st.set_vessel(bob_id, Deck::Cider, "bottle").unwrap();
+        st.set_vessel(cara_id, Deck::Soft, "glass").unwrap();
+        st.set_vessel(dave_id, Deck::Liquor, "shot").unwrap();
+        st.beat = Beat::Diplomacy;
+        st
+    };
+
+    // The comparison rig (Task 4's `without_seq` property): same seats and
+    // vessels, but no pact ever offered or formed.
+    let baseline = fresh_rig();
+    drinkinggame::db::set_game_state(&pool, game_id, &baseline.to_json()).await;
+    let cara_baseline = body_string(get_hand(&app, &cara, &code).await).await;
+
+    let mut st = fresh_rig();
+    st.offer_pact(alice_id, 1).unwrap(); // alice (seat 0) -> bob (seat 1)
+    st.accept_pact(bob_id, 0).unwrap(); // bob accepts alice's offer
+    drinkinggame::db::set_game_state(&pool, game_id, &st.to_json()).await;
+
+    let alice_hand = body_string(get_hand(&app, &alice, &code).await).await;
+    assert!(alice_hand.contains("PACT WITH BOB"));
+
+    let bob_hand = body_string(get_hand(&app, &bob, &code).await).await;
+    assert!(bob_hand.contains("PACT WITH ALICE"));
+
+    let cara_hand = body_string(get_hand(&app, &cara, &code).await).await;
+    assert!(!cara_hand.contains("PACT WITH"));
+    assert!(!cara_hand.contains("lc-pact-standing"));
+    assert_eq!(
+        without_seq(&cara_hand),
+        without_seq(&cara_baseline),
+        "cara's fragment must be identical whether or not alice and bob pacted"
+    );
 }
 
 #[tokio::test]

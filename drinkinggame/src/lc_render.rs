@@ -770,8 +770,27 @@ pub fn lc_screen_panel(view: &PublicView) -> String {
     } else {
         String::new()
     };
+    // Plan G, Task 3 (G5): the break strip — the one public trace a pact
+    // leaves before the shared win, and only for the round the betrayal
+    // happened in. `view.pact_breaks` outlives its round (Plan J's recap
+    // reads the full history), so this filters to `round == view.round`
+    // rather than rendering every record ever accumulated; the betrayed
+    // player additionally gets the private, round-scoped Step-1 notice in
+    // `lc_routes::pacts_section_html`, and the mini table stays untouched.
+    let pact_breaks: String = view
+        .pact_breaks
+        .iter()
+        .filter(|b| b.round == view.round)
+        .map(|b| {
+            format!(
+                r#"<div class="lc-pact-break">{betrayer} BROKE THEIR PACT WITH {betrayed}</div>"#,
+                betrayer = seat_name_upper(view, b.betrayer),
+                betrayed = seat_name_upper(view, b.betrayed),
+            )
+        })
+        .collect();
     let stage = format!(
-        r#"<div class="lc-stage"><div id="lc-felt" data-flight-anchor="felt"></div>{centre}<div class="lc-ring">{seats_html}</div></div>"#
+        r#"<div class="lc-stage"><div id="lc-felt" data-flight-anchor="felt"></div>{centre}{pact_breaks}<div class="lc-ring">{seats_html}</div></div>"#
     );
 
     let deck_stacks: String = view
@@ -1843,6 +1862,34 @@ mod tests {
                 assert!(html.contains(&format!(r#"data-flight-anchor="seat-{seat}""#)));
             }
         }
+    }
+
+    /// G5, Plan G Task 3: the big screen's betrayal line renders only for
+    /// the round it happened in — history stays in `pact_breaks` for Plan
+    /// J's recap, but doesn't repaint on the felt once the round moves on.
+    #[test]
+    fn test_the_break_strip_names_the_knife_for_one_round() {
+        let mut view = ring_fixture(4);
+        view.round = 2;
+        view.pact_breaks = vec![crate::last_call::PactBreak {
+            betrayer: 0,
+            betrayed: 1,
+            round: 2,
+        }];
+
+        let html = lc_screen_panel(&view);
+        assert_eq!(html.matches("lc-pact-break").count(), 1);
+        assert!(html.contains("PLAYER1 BROKE THEIR PACT WITH PLAYER2"));
+        no_hex(&html);
+
+        view.round = 3;
+        let html = lc_screen_panel(&view);
+        assert_eq!(html.matches("lc-pact-break").count(), 0);
+
+        view.round = 2;
+        view.pact_breaks = vec![];
+        let html = lc_screen_panel(&view);
+        assert_eq!(html.matches("lc-pact-break").count(), 0);
     }
 
     #[test]

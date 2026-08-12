@@ -401,6 +401,27 @@ body.lc { margin: 0; min-height: 100vh; display: flex; flex-direction: column;
 .lc-target-row { display: flex; align-items: center; justify-content: space-between;
                  gap: 10px; padding: 6px 0; font-size: 13px; }
 
+/* Plan G — pacts. The section renders only in the private hand fragment;
+   the break strip is the one public trace a pact leaves before its win
+   (decision G10). Pact buttons are never lc-btn-drink — a pact costs no
+   drink (G3, E7). */
+.lc-pacts { padding: 0 14px 10px; }
+.lc-pact-offer-row { display: flex; align-items: center; gap: 8px;
+                     padding: 6px 0; font-size: 13px; }
+.lc-pact-offer-row span { flex: 1; }
+.lc-pact-standing, .lc-pact-pending, .lc-pact-barred, .lc-pact-broken {
+  font-family: var(--font-ui); font-weight: 700; font-size: 11px;
+  letter-spacing: .12em; padding: 6px 0; }
+.lc-pact-standing { color: var(--lc-mint); }
+.lc-pact-pending, .lc-pact-barred { color: var(--lc-faint); }
+.lc-pact-broken { color: var(--lc-rose); }
+.lc-btn.lc-pact-propose { display: block; width: 100%; margin: 4px 0; }
+/* the big screen's betrayal line — F.2's floor is 18px */
+.lc-pact-break { position: absolute; top: 24px; left: 0; right: 0;
+                 text-align: center; font-family: var(--font-ui);
+                 font-weight: 700; font-size: 18px; letter-spacing: .14em;
+                 color: var(--lc-rose); pointer-events: none; }
+
 /* slice 2 — the hand group (Module Spec C.1–C.3): ArmedColumn | HandWheel |
    CostRail. "One widget in three parts and always ship together." This
    replaces Plan A2's throwaway plain-list container; the CardFace inside the

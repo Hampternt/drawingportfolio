@@ -151,9 +151,14 @@
     var el = e.target.closest ? e.target.closest("[data-lc-post]") : null;
     if (!el || el.disabled) return;
     var action = el.dataset.lcPost;
-    var body = el.dataset.vessel !== undefined
-      ? "vessel=" + encodeURIComponent(el.dataset.vessel)
-      : "";
+    var body = "";
+    if (el.dataset.vessel !== undefined) {
+      body = "vessel=" + encodeURIComponent(el.dataset.vessel);
+    } else if (el.dataset.lcBody !== undefined) {
+      // Plan G, Task 3: pact buttons carry a pre-encoded `key=int` body —
+      // server-rendered seat numbers, nothing here needs encoding.
+      body = el.dataset.lcBody;
+    }
     post(action, body);
   }
 
