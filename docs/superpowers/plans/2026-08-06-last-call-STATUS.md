@@ -33,7 +33,7 @@ invented.
 Slice 1 is four plans: **A → A-vis → A2 → B**. Everything after slice 1 was
 planned in one pass on 2026-08-11 — see "The rest of the game" below.
 
-## The rest of the game — eight plans, written 2026-08-11; C, D, F and E executed
+## The rest of the game — eight plans, written 2026-08-11; C, D, F, E and G executed
 
 All eight are in `docs/superpowers/plans/2026-08-11-last-call-plan-*.md`. Each
 was written by its own subagent against the spec, DDv2 and the earlier plans'
@@ -110,6 +110,23 @@ approved") and the plans committed at `b5aa789`.
   accordingly; (4) the phone banner swap is not seq-guarded (pre-existing —
   a lag backlog can briefly rewind the banner); (5) the big screen ignores
   `lctick` BY DESIGN (private actions must not repaint it).
+
+- **Plan G — pacts. EXECUTED 2026-08-12.** `b5314f6..1ec3d7a`, 10 commits,
+  verify green, **495 tests**, `drinkinggame` clippy-clean. Secret pact
+  negotiation during Diplomacy, betrayal loud-by-name for exactly one
+  visible round, dissolution incl. elimination pruning, the
+  `LcOutcome::Pact` shared win; tick-only routes with a structural secrecy
+  proof (Task 4's Class C review: the guarantee is the `PublicView` type
+  boundary, verified). **One plan erratum:** the original break-strip
+  filter made non-terminal betrayals invisible (stamp/rollover
+  interleaving) — found by Task 3's implementer, fixed with a re-stamp at
+  rollover, erratum in the plan file. **For the user's G-decision review:**
+  (1) the withdrawn-offer channel — when a pair pacts, a third party
+  courted by both sees a double-vanish identifying the pair; accepted as
+  bounded (every alternative leaks worse); (2) mutual same-resolve
+  betrayal is order-asymmetric (only the faster knife is barred);
+  (3) double-tap ACCEPT surfaces the blander of the two mandated copy
+  bodies. All three recorded in the ledger too.
 
 | Plan | File suffix | What it ships | Tasks |
 | --- | --- | --- | --- |
@@ -522,12 +539,12 @@ Then, in this order:
    All eight remaining plans (C through J, covering every slice to completion)
    are written; see "The rest of the game" above.
 4. ~~User design review.~~ **Approved 2026-08-11**, all 106 decisions.
-5. **Execute** in the binding order: ~~C~~ → ~~D~~ → ~~F~~ → ~~E~~ →
-   **G/H/I next** → J. C, D, F and E executed and review-clean 2026-08-12
+5. **Execute** in the binding order: ~~C~~ → ~~D~~ → ~~F~~ → ~~E~~ → ~~G~~
+   → **H/I next** → J. C through G executed and review-clean 2026-08-12
    (see "The rest of the game"). Browser checkpoints owed to a human, one
    combined pass: Plan B checkpoint 2, C's hand group, F's 40-card
-   preview, E's loop items (with step 2 amended — no TABLE-tab flights).
-   Each plan names its ledger at
+   preview, E's loop items (with step 2 amended — no TABLE-tab flights),
+   G's pact flow. Each plan names its ledger at
    `.superpowers/sdd/<plan-basename>/progress.md`.
 
 Spec §3.4.1 (nothing enters `plays` before it is revealable) is owned by Plan
