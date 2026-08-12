@@ -7491,6 +7491,12 @@ async fn lc_reveal_rig(
     );
     st.set_vessel(alice_id, Deck::Beer, "can").unwrap();
     st.set_vessel(bob_id, Deck::Cider, "bottle").unwrap();
+    // A real eliminated seat had registered a vessel before dying —
+    // `apply_damage`'s elimination branch clears `hand`/`armed`/`tabs`, but
+    // never touches `vessels` — so cara gets one too before the status flip
+    // below, to keep the fixture the shape the engine actually produces
+    // rather than a state only a hand-built blob could reach.
+    st.set_vessel(cara_id, Deck::Soft, "glass").unwrap();
     st.players[2].status = drinkinggame::last_call::Status::Eliminated; // cara: ghost
     st.players[2].hand.clear();
     st.players[1]
@@ -7527,7 +7533,7 @@ async fn test_lc_react_is_private_until_played_then_public() {
     // `test_a_response_extends_the_window`'s 3s rig. Still comfortably
     // longer than this test's own request round-trips, so the 1 Hz ticker
     // has no real chance to win a race against it.
-    let (app, pool, code, alice, bob, _cara, _alice_id, bob_id, _cara_id) =
+    let (app, pool, code, alice, bob, _cara, _alice_id, _bob_id, _cara_id) =
         lc_reveal_rig(unix_ms_now() + 4_000).await;
 
     // Bob's unplayed reaction never reaches alice's hand fragment.
@@ -7574,7 +7580,6 @@ async fn test_lc_react_is_private_until_played_then_public() {
     assert_eq!(after.reactions[0].source_seat, 1); // bob
     assert_eq!(after.reactions[0].answers, 1);
     assert_eq!(after.public_view().reactions.len(), 1);
-    let _ = bob_id;
 }
 
 /// The race this task's Class C exists for, from the outside: subscribe SSE
@@ -7648,7 +7653,7 @@ async fn test_a_response_extends_the_window() {
 /// chip's HTML text.
 #[tokio::test]
 async fn test_lc_haunt_is_for_ghosts_only_and_lands_public() {
-    let (app, pool, code, alice, _bob, cara, _alice_id, _bob_id, cara_id) =
+    let (app, pool, code, alice, _bob, cara, _alice_id, _bob_id, _cara_id) =
         lc_reveal_rig(unix_ms_now() + 20_000).await;
     let carol = login(&app, "carol", "2222").await; // never joins the room
 
@@ -7704,5 +7709,4 @@ async fn test_lc_haunt_is_for_ghosts_only_and_lands_public() {
     )
     .await;
     assert_eq!(res.status(), StatusCode::CONFLICT);
-    let _ = cara_id;
 }
