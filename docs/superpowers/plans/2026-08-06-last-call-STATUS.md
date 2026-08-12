@@ -33,7 +33,7 @@ invented.
 Slice 1 is four plans: **A → A-vis → A2 → B**. Everything after slice 1 was
 planned in one pass on 2026-08-11 — see "The rest of the game" below.
 
-## The rest of the game — eight plans, written 2026-08-11; C, D, F, E, G and H executed
+## The rest of the game — eight plans, written 2026-08-11; only J remains
 
 All eight are in `docs/superpowers/plans/2026-08-11-last-call-plan-*.md`. Each
 was written by its own subagent against the spec, DDv2 and the earlier plans'
@@ -144,6 +144,22 @@ approved") and the plans committed at `b5aa789`.
   test-pinned both directions; and the F.2 ruling that the 88px screen
   header never grows — banner children constrain (one-row settle strip
   with a "+n" chip).
+
+- **Plan I — reactions and ghosts. EXECUTED 2026-08-12.** `7729dc6..1503731`,
+  10 commits, verify green, **562 tests**, `drinkinggame` clippy-clean. The
+  Reveal beat is the response window (opens unconditionally so holding a
+  reaction leaks nothing); `ReactionFx {Cancel, Reduce, Reflect}` arms F's
+  five reaction cards with real text; LIFO fizzle, TBD-7 structural;
+  `REACT_GRACE_SECS` (10) window extension with a structurally
+  deterministic ticker-race harness; ghosts get §9.2 verbatim (one +1
+  haunt per round); response surfaces inside existing panes. **Rulings
+  applied in the fix wave:** cancelled knives still betray (H15
+  intent-based, applied through Cancel); reactions now prompt the DRINK
+  chip (I7 already charged them — the UI just never surfaced it).
+  **Parked for the user's design review:** reaction spend in
+  TabCheck predicates (balance); `NoPlays` ignores reactions; haunt
+  vengeance intent (brief-literal today: any Damage play in flight);
+  the H15-through-Cancel ruling itself.
 
 | Plan | File suffix | What it ships | Tasks |
 | --- | --- | --- | --- |
@@ -557,13 +573,14 @@ Then, in this order:
    are written; see "The rest of the game" above.
 4. ~~User design review.~~ **Approved 2026-08-11**, all 106 decisions.
 5. **Execute** in the binding order: ~~C~~ → ~~D~~ → ~~F~~ → ~~E~~ → ~~G~~
-   → ~~H~~ → **I next** → J. C through H executed and review-clean
+   → ~~H~~ → ~~I~~ → **J last**. C through I executed and review-clean
    2026-08-12 (see "The rest of the game"). Browser checkpoints owed to a
    human, one combined pass: Plan B checkpoint 2, C's hand group, F's
    40-card preview, E's loop items (step 2 amended — no TABLE-tab
    flights), G's pact flow, H's banner strip + private tab card (incl.
-   the tab card's position below the 480px hand group). Each plan names
-   its ledger at `.superpowers/sdd/<plan-basename>/progress.md`.
+   the tab card's position below the 480px hand group), I's response
+   window + ghost bar + centre chips. Each plan names its ledger at
+   `.superpowers/sdd/<plan-basename>/progress.md`.
 
 Spec §3.4.1 (nothing enters `plays` before it is revealable) is owned by Plan
 D, which holds locked plays in a hidden `locked_plays` field and carries the
