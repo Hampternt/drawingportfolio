@@ -895,6 +895,26 @@ pub fn router() -> Router<GameState> {
             "/room/{code}/lastcall/end",
             post(crate::lc_routes::lc_end_handler),
         )
+        .route(
+            "/room/{code}/lastcall/arm",
+            post(crate::lc_routes::lc_arm_handler),
+        )
+        .route(
+            "/room/{code}/lastcall/disarm",
+            post(crate::lc_routes::lc_disarm_handler),
+        )
+        .route(
+            "/room/{code}/lastcall/target",
+            post(crate::lc_routes::lc_target_handler),
+        )
+        .route(
+            "/room/{code}/lastcall/lock",
+            post(crate::lc_routes::lc_lock_handler),
+        )
+        .route(
+            "/room/{code}/lastcall/draw",
+            post(crate::lc_routes::lc_draw_handler),
+        )
         .route("/room/{code}/sse", get(sse_stream))
         .route("/room/{code}/screen", get(screen_page))
         .route("/assets/game.css", get(game_css))

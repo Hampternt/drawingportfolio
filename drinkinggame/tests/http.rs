@@ -5485,3 +5485,314 @@ async fn test_ending_the_room_never_races_the_game_idle_redirect() {
          {seen}"
     );
 }
+
+// -------------------------------------------------------------
+// Last Call (Plan E Task 1): the beat-loop action routes — arm, disarm,
+// target, lock, draw. All five sit behind `lc_lock` -> `load_lc`'s
+// member/active-game/kind gate (Task 1's own guard chain, unchanged);
+// what's new here is the per-route broadcast policy (decision E5: tick-only
+// for arm/disarm/target, full publish for lock/draw) and the RNG-in-the-
+// route draw path.
+// -------------------------------------------------------------
+
+use drinkinggame::last_call::{Beat, Deck};
+
+async fn lc_game_id(pool: &sqlx::SqlitePool, code: &str) -> i64 {
+    let room = drinkinggame::db::get_open_room(pool, code).await.unwrap();
+    drinkinggame::db::get_active_game(pool, room.id)
+        .await
+        .unwrap()
+        .id
+}
+
+/// Pulls the `data-seq` off the `#lc-hand` root — the private twin of
+/// `table_seq` above, used where a test cares that an action bumped `seq`
+/// but has no other observable effect yet (Task 4 renders the rest).
+fn hand_seq(html: &str) -> u64 {
+    let marker = "id=\"lc-hand\" data-seq=\"";
+    let start = html.find(marker).unwrap() + marker.len();
+    let rest = &html[start..];
+    rest[..rest.find('"').unwrap()].parse().unwrap()
+}
+
+/// Two real sessions, a real started game, then the state hand-rebuilt with
+/// the real player ids at `Beat::Lock` — `set_vessel`'s F6 opener gives each
+/// seat a real hand to arm from without dealing with the Draw beat's own
+/// gating in every test. Returns `(app, pool, code, alice, bob, alice_id,
+/// bob_id)`; alice is seat 0 (Beer), bob is seat 1 (Cider).
+async fn lc_action_rig() -> (Router, sqlx::SqlitePool, String, String, String, i64, i64) {
+    let (app, pool) = test_app_with_pool().await;
+    let alice = login(&app, "alice", "1234").await;
+    let bob = login(&app, "bob", "5678").await;
+    let code = create_room(&app, &alice).await;
+    room_page_html(&app, &bob, &code).await;
+    post_form(&app, &alice, &format!("/room/{code}/lastcall/start"), "").await;
+
+    let alice_id = drinkinggame::db::get_player_by_name(&pool, "alice")
+        .await
+        .unwrap()
+        .id;
+    let bob_id = drinkinggame::db::get_player_by_name(&pool, "bob")
+        .await
+        .unwrap()
+        .id;
+
+    let mut st = LastCallState::new(vec![(alice_id, "alice".into()), (bob_id, "bob".into())], 7);
+    st.set_vessel(alice_id, Deck::Beer, "can").unwrap();
+    st.set_vessel(bob_id, Deck::Cider, "bottle").unwrap();
+    st.beat = Beat::Lock;
+    let game_id = lc_game_id(&pool, &code).await;
+    drinkinggame::db::set_game_state(&pool, game_id, &st.to_json()).await;
+
+    (app, pool, code, alice, bob, alice_id, bob_id)
+}
+
+/// Decision E5: arm changes nothing legible on any public surface (the
+/// public projection never reads `armed` — only `locked`), so it publishes
+/// `LcTick` alone. The frame between the POST and the tick must carry no
+/// `lcpublic`/`game`/`room` — a full publish would be free-riding
+/// information a spectator has no business seeing yet.
+#[tokio::test]
+async fn test_lc_arm_is_a_tick_only_broadcast() {
+    let (app, _pool, code, alice, bob, _alice_id, _bob_id) = lc_action_rig().await;
+
+    let res = get(&app, &format!("/room/{code}/sse")).await;
+    let mut body = res.into_body().into_data_stream();
+    read_sse_until(&mut body, "event: lcpublic").await; // drain the snapshot
+
+    let res = post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/lastcall/arm"),
+        "card_id=beer-01",
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+
+    let seen = read_sse_until(&mut body, "event: lctick").await;
+    assert!(
+        !seen.contains("event: lcpublic")
+            && !seen.contains("event: game")
+            && !seen.contains("event: room"),
+        "{seen}"
+    );
+
+    let alice_hand = body_string(get_hand(&app, &alice, &code).await).await;
+    assert!(alice_hand.contains("ARMED 1"), "{alice_hand}");
+    assert!(alice_hand.contains("beer-01"), "{alice_hand}");
+
+    let bob_hand = body_string(get_hand(&app, &bob, &code).await).await;
+    assert!(bob_hand.contains("ARMED 0"), "{bob_hand}");
+    assert!(!bob_hand.contains("beer-01"), "{bob_hand}");
+}
+
+/// `lock` is public — the seat's lock tick is legible on the mini table and
+/// the big screen — but §3.4.1 still holds: the frame carries the marker,
+/// never the card that got locked.
+#[tokio::test]
+async fn test_lc_lock_publishes_the_tick_not_the_cards() {
+    let (app, _pool, code, alice, _bob, _alice_id, _bob_id) = lc_action_rig().await;
+
+    post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/lastcall/arm"),
+        "card_id=beer-01",
+    )
+    .await;
+    let res = post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/lastcall/target"),
+        "card_id=beer-01&target=1", // bob's seat
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+
+    let res = get(&app, &format!("/room/{code}/sse")).await;
+    let mut body = res.into_body().into_data_stream();
+    read_sse_until(&mut body, "event: lcpublic").await; // drain the snapshot
+
+    let res = post_form(&app, &alice, &format!("/room/{code}/lastcall/lock"), "").await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+
+    let seen = read_sse_until(&mut body, "event: lcpublic").await;
+    // The screen plaque's public lock marker (`lc_render::player_plaque`) is
+    // an `is-locked` class plus a `lc-lock-tick` glyph, not a `data-locked`
+    // attribute — that attribute belongs to the mini table
+    // (`lc_render::lc_mini_table`) and the private armed column
+    // (`lc_render::armed_column`), neither of which this frame carries.
+    assert!(seen.contains("is-locked"), "{seen}");
+    assert!(seen.contains("lc-lock-tick"), "{seen}");
+    assert!(!seen.contains("beer-01"), "{seen}");
+    assert!(!seen.contains("Nudge"), "{seen}"); // beer-01's title
+}
+
+/// The guard chain shared by every action route: non-member -> 403, the
+/// other game kind -> 409 (`WrongGameKind`), no active game at all -> 404
+/// (`NoActiveGame`) — all three from `load_lc`, none of them route-specific.
+#[tokio::test]
+async fn test_lc_action_routes_are_guarded() {
+    let app = test_app().await;
+    let alice = login(&app, "alice", "1234").await;
+    let bob = login(&app, "bob", "5678").await;
+    let carol = login(&app, "carol", "1111").await;
+    let code = create_room(&app, &alice).await;
+    room_page_html(&app, &bob, &code).await;
+    post_form(&app, &alice, &format!("/room/{code}/lastcall/start"), "").await;
+
+    // carol never opened the room: not a member.
+    let res = post_form(
+        &app,
+        &carol,
+        &format!("/room/{code}/lastcall/arm"),
+        "card_id=beer-01",
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::FORBIDDEN);
+
+    post_form(&app, &alice, &format!("/room/{code}/lastcall/end"), "").await;
+
+    // A 3 Man game active in the same room: WrongGameKind.
+    post_form(&app, &alice, &format!("/room/{code}/tm/start"), "").await;
+    let res = post_form(&app, &alice, &format!("/room/{code}/lastcall/lock"), "").await;
+    assert_eq!(res.status(), StatusCode::CONFLICT);
+    post_form(&app, &alice, &format!("/room/{code}/tm/end"), "").await;
+
+    // No active game at all.
+    let res = post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/lastcall/draw"),
+        "vessel=0",
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::NOT_FOUND);
+}
+
+/// The one route with RNG. `finish_and_draw`'s `expected` count is
+/// `min(DRAW_PER_VESSEL, shoe count)` (D7), so a shoe holding at least 5
+/// always deals exactly 5. Samples from the deck's real copy-weighted shoe
+/// (Plan F), never the other deck's — a transport-level check that identity
+/// selection is scoped to the vessel drawn from.
+#[tokio::test]
+async fn test_lc_draw_deals_five_from_the_vessels_deck() {
+    let (app, pool) = test_app_with_pool().await;
+    let alice = login(&app, "alice", "1234").await;
+    let bob = login(&app, "bob", "5678").await;
+    let code = create_room(&app, &alice).await;
+    room_page_html(&app, &bob, &code).await;
+    post_form(&app, &alice, &format!("/room/{code}/lastcall/start"), "").await;
+
+    let alice_id = drinkinggame::db::get_player_by_name(&pool, "alice")
+        .await
+        .unwrap()
+        .id;
+    let bob_id = drinkinggame::db::get_player_by_name(&pool, "bob")
+        .await
+        .unwrap()
+        .id;
+
+    let mut st = LastCallState::new(vec![(alice_id, "alice".into()), (bob_id, "bob".into())], 7);
+    st.set_vessel(alice_id, Deck::Beer, "can").unwrap();
+    st.set_vessel(bob_id, Deck::Cider, "bottle").unwrap();
+    st.round = 2;
+    st.players[0].hand.truncate(4); // 4 cards in hand before the draw
+    for entry in st.deck_counts.iter_mut() {
+        if entry.0 == Deck::Beer {
+            entry.1 = 36;
+        }
+    }
+    let game_id = lc_game_id(&pool, &code).await;
+    drinkinggame::db::set_game_state(&pool, game_id, &st.to_json()).await;
+
+    let res = get(&app, &format!("/room/{code}/sse")).await;
+    let mut body = res.into_body().into_data_stream();
+    read_sse_until(&mut body, "event: lcpublic").await; // drain the snapshot
+
+    let res = post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/lastcall/draw"),
+        "vessel=0",
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+
+    // Deck counts moved (public), so the FULL publish ran, not a bare tick.
+    let seen = read_sse_until(&mut body, "event: lcpublic").await;
+    assert!(seen.contains("data-lc-public"), "{seen}");
+
+    let hand_html = body_string(get_hand(&app, &alice, &code).await).await;
+    assert!(hand_html.contains(r#"data-count="9""#), "{hand_html}");
+    assert!(!hand_html.contains("cider-"), "{hand_html}"); // Beer only
+
+    // Second draw the same round: TBD-5, one per player per round.
+    let res = post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/lastcall/draw"),
+        "vessel=0",
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::UNPROCESSABLE_ENTITY);
+}
+
+/// `target=""` clears/omits a target (self/all/table cards, or unsetting a
+/// one-target card); any other value must parse as a seat index or the
+/// route bails before the engine ever sees it. The successful `target=1`
+/// case is asserted by its `seq` bump — Task 4 renders the selected option.
+#[tokio::test]
+async fn test_lc_target_accepts_empty_as_none() {
+    let (app, _pool, code, alice, _bob, _alice_id, _bob_id) = lc_action_rig().await;
+
+    // beer-03 targets "self".
+    post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/lastcall/arm"),
+        "card_id=beer-03",
+    )
+    .await;
+    let res = post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/lastcall/target"),
+        "card_id=beer-03&target=",
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+
+    let res = post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/lastcall/target"),
+        "card_id=beer-03&target=abc",
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::UNPROCESSABLE_ENTITY);
+
+    let before_seq = hand_seq(&body_string(get_hand(&app, &alice, &code).await).await);
+
+    post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/lastcall/arm"),
+        "card_id=beer-01",
+    )
+    .await;
+    let res = post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/lastcall/target"),
+        "card_id=beer-01&target=1", // bob's seat
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+
+    let after_seq = hand_seq(&body_string(get_hand(&app, &alice, &code).await).await);
+    assert!(
+        after_seq > before_seq,
+        "before={before_seq} after={after_seq}"
+    );
+}

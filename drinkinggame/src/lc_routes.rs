@@ -13,7 +13,7 @@ use serde::Deserialize;
 use crate::auth::PlayerSession;
 use crate::db;
 use crate::error::GameError;
-use crate::last_call::{Deck, LastCallState, LcError, PublicView};
+use crate::last_call::{Card, Deck, LastCallState, LcError, PublicView, DRAW_PER_VESSEL};
 use crate::lc_render::{self, HandGroupView, SetupRow};
 use crate::models::{Game, Player, Room};
 use crate::GameState;
@@ -268,6 +268,13 @@ pub struct HandicapForm {
 /// (out-of-range) and `LcError::NotSeated` (the *target* isn't in this game)
 /// map to the same 422: from the caller's point of view both are "that's not
 /// a settable handicap for anyone in this room right now."
+///
+/// `LcError::WrongBeat` is its own branch, added alongside D19 (which
+/// Draw-beat-gates `set_handicap`, closing the review's I1 pre-D19-decision
+/// finding): a handicap raised after Lock is "not now", the same 409
+/// `map_lc` gives every other WrongBeat case — folding it into the 422
+/// bucket would tell a caller retrying mid-round that 150 was an invalid
+/// percentage rather than that the window had closed.
 pub async fn lc_handicap_handler(
     State(state): State<GameState>,
     PlayerSession(player): PlayerSession,
@@ -284,8 +291,11 @@ pub async fn lc_handicap_handler(
         Err(r) => return r,
     };
 
-    if ctx.st.set_handicap(form.target, form.handicap_pct).is_err() {
-        return StatusCode::UNPROCESSABLE_ENTITY.into_response();
+    if let Err(e) = ctx.st.set_handicap(form.target, form.handicap_pct) {
+        return match e {
+            LcError::WrongBeat => GameError::OutOfTurn.into_response(),
+            _ => StatusCode::UNPROCESSABLE_ENTITY.into_response(),
+        };
     }
     persist_and_broadcast_lc(&state, &ctx).await;
     Redirect::to(&format!("{}/room/{}/lastcall", state.base_path, code)).into_response()
@@ -448,4 +458,246 @@ pub async fn lc_hand_handler(
         Err(r) => return r,
     };
     Html(hand_pane_html(&state.base_path, &code, &ctx.st, player.id)).into_response()
+}
+
+// -------------------------------------------------------------
+// Plan E (Task 1): the beat-loop action routes — arm, disarm, target, lock,
+// draw. All five share `lc_lock` -> `load_lc` for the member/active-game/kind
+// gate, mutate `ctx.st` in place, then persist. arm/disarm/set_target
+// publish only `LcTick` (decision E5: nothing they change is legible on any
+// public surface, so a full re-render/re-broadcast would carry no public
+// information — but every phone still needs to know to re-fetch its own
+// private fragment). lock and draw publish the full set via
+// `persist_and_broadcast_lc`, because both move something public: the lock
+// tick (`PublicSeat::locked`) and, for draw, the deck counts.
+// -------------------------------------------------------------
+
+/// Engine error -> HTTP. NotSeated/NotAlive are "you have no say here" (403,
+/// like tm's NotYourCall); WrongBeat/AlreadyLocked/MustResolve are "not now"
+/// (409, like tm's OutOfTurn); the two named-card refusals carry their
+/// message as a plain-text 422 body the action bar shows verbatim (DDv2 6.3
+/// "naming the card"); everything else (UnknownCard, NotPlayable, BadTarget,
+/// BadDraw) is a bare 422. `lock_in` replay after a beat tick has already
+/// moved past `Beat::Lock` returns `WrongBeat`, not the idempotent `Ok(())`
+/// lock_in gives a same-beat replay — that's still "not now" from the
+/// caller's side, so it takes the same 409 as every other WrongBeat case
+/// rather than a special-cased mapping.
+pub(crate) fn map_lc(e: LcError) -> axum::response::Response {
+    match e {
+        LcError::NotSeated | LcError::NotAlive => GameError::NotYourCall.into_response(),
+        LcError::WrongBeat | LcError::AlreadyLocked | LcError::MustResolve => {
+            GameError::OutOfTurn.into_response()
+        }
+        LcError::CantAfford(id) => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            format!("Can't afford {id}."),
+        )
+            .into_response(),
+        LcError::NeedsTarget(id) => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            format!("{id} needs a target."),
+        )
+            .into_response(),
+        _ => StatusCode::UNPROCESSABLE_ENTITY.into_response(),
+    }
+}
+
+/// The private-action twin of `persist_and_broadcast_lc`: persist, then
+/// publish ONLY `LcTick`. arm/disarm/set_target change nothing any public
+/// surface renders (decision E6 keeps even the public hand size still), so
+/// the game/room/lcpublic frames would carry no information — but every
+/// phone still needs the tick to re-fetch its own private fragment, and the
+/// actor's own repaint arrives that way. "Who is subscribed and what are
+/// they looking at": phones re-fetch, the spectator screen ignores lctick by
+/// having no listener for it. Publishes while the caller's guard is held,
+/// after set_game_state, with no await between render and publish — the
+/// same discipline as broadcast_lc.
+pub(crate) async fn persist_and_tick_lc(state: &GameState, ctx: &LcCtx) {
+    db::set_game_state(&state.pool, ctx.game.id, &ctx.st.to_json()).await;
+    db::touch_room(&state.pool, ctx.room.id).await;
+    state
+        .hub
+        .publish(ctx.room.id, crate::hub::RoomMessage::LcTick(ctx.st.seq));
+}
+
+#[derive(Deserialize)]
+pub struct CardForm {
+    pub card_id: String,
+}
+
+/// `POST /room/{code}/lastcall/arm` — private (`LcTick` only, decision E5).
+pub async fn lc_arm_handler(
+    State(state): State<GameState>,
+    PlayerSession(player): PlayerSession,
+    Path(code): Path<String>,
+    Form(form): Form<CardForm>,
+) -> axum::response::Response {
+    let lock = match lc_lock(&state, &code).await {
+        Ok(l) => l,
+        Err(r) => return r,
+    };
+    let _guard = lock.lock().await;
+    let mut ctx = match load_lc(&state, &code, &player).await {
+        Ok(c) => c,
+        Err(r) => return r,
+    };
+    if let Err(e) = ctx.st.arm(player.id, &form.card_id) {
+        return map_lc(e);
+    }
+    persist_and_tick_lc(&state, &ctx).await;
+    StatusCode::NO_CONTENT.into_response()
+}
+
+/// `POST /room/{code}/lastcall/disarm` — private (`LcTick` only, decision
+/// E5).
+pub async fn lc_disarm_handler(
+    State(state): State<GameState>,
+    PlayerSession(player): PlayerSession,
+    Path(code): Path<String>,
+    Form(form): Form<CardForm>,
+) -> axum::response::Response {
+    let lock = match lc_lock(&state, &code).await {
+        Ok(l) => l,
+        Err(r) => return r,
+    };
+    let _guard = lock.lock().await;
+    let mut ctx = match load_lc(&state, &code, &player).await {
+        Ok(c) => c,
+        Err(r) => return r,
+    };
+    if let Err(e) = ctx.st.disarm(player.id, &form.card_id) {
+        return map_lc(e);
+    }
+    persist_and_tick_lc(&state, &ctx).await;
+    StatusCode::NO_CONTENT.into_response()
+}
+
+#[derive(Deserialize)]
+pub struct LcTargetForm {
+    pub card_id: String,
+    #[serde(default)]
+    pub target: String,
+}
+
+/// `POST /room/{code}/lastcall/target` — private (`LcTick` only, decision
+/// E5). `target=""` means "no target" (self/all/table cards, and clearing a
+/// one-target card back to unset); any other value must parse as a seat
+/// index or the request is a bare 422 before the engine ever sees it.
+pub async fn lc_target_handler(
+    State(state): State<GameState>,
+    PlayerSession(player): PlayerSession,
+    Path(code): Path<String>,
+    Form(form): Form<LcTargetForm>,
+) -> axum::response::Response {
+    let lock = match lc_lock(&state, &code).await {
+        Ok(l) => l,
+        Err(r) => return r,
+    };
+    let _guard = lock.lock().await;
+    let mut ctx = match load_lc(&state, &code, &player).await {
+        Ok(c) => c,
+        Err(r) => return r,
+    };
+    let target = if form.target.is_empty() {
+        None
+    } else {
+        match form.target.parse::<usize>() {
+            Ok(n) => Some(n),
+            Err(_) => return StatusCode::UNPROCESSABLE_ENTITY.into_response(),
+        }
+    };
+    if let Err(e) = ctx.st.set_target(player.id, &form.card_id, target) {
+        return map_lc(e);
+    }
+    persist_and_tick_lc(&state, &ctx).await;
+    StatusCode::NO_CONTENT.into_response()
+}
+
+/// `POST /room/{code}/lastcall/lock` — public: the lock tick
+/// (`PublicSeat::locked`) is legible on the mini table and the big screen,
+/// so this rides `persist_and_broadcast_lc` rather than the tick-only path.
+/// Task 2 adds the all-locked early advance into this handler.
+pub async fn lc_lock_handler(
+    State(state): State<GameState>,
+    PlayerSession(player): PlayerSession,
+    Path(code): Path<String>,
+) -> axum::response::Response {
+    let lock = match lc_lock(&state, &code).await {
+        Ok(l) => l,
+        Err(r) => return r,
+    };
+    let _guard = lock.lock().await;
+    let mut ctx = match load_lc(&state, &code, &player).await {
+        Ok(c) => c,
+        Err(r) => return r,
+    };
+    if let Err(e) = ctx.st.lock_in(player.id) {
+        return map_lc(e);
+    }
+    persist_and_broadcast_lc(&state, &ctx).await;
+    StatusCode::NO_CONTENT.into_response()
+}
+
+#[derive(Deserialize)]
+pub struct DrawForm {
+    pub vessel: usize,
+}
+
+/// `POST /room/{code}/lastcall/draw` — public: the shoe's deck count and the
+/// drawing pulse are both legible on the mini table / big screen. The one
+/// route with RNG: card identity is decided HERE (D6), never in the engine
+/// — `finish_and_draw` only validates that what the caller sampled matches
+/// the vessel's deck and the expected count. Pre-reads under the guard
+/// before touching the RNG: `seat_of` (else `NotYourCall`, this route's own
+/// gate since `finish_and_draw`'s `NotSeated` case is unreachable once
+/// `seat_of` has already succeeded), then the vessel at `form.vessel` (else
+/// a bare 422 — an out-of-range vessel index is a malformed request, not a
+/// "not now"), then that vessel's deck's shoe count. Samples from
+/// `lc_cards::shoe(deck)` — the real copy-weighted 40-card shoe (Plan F),
+/// not `deck_cards` — so higher-copy cards are proportionally more likely,
+/// matching the composition `deck_counts` is tracking down. Duplicates
+/// within one draw are expected (F11: shoe sampling is with replacement;
+/// nothing here removes a card once drawn).
+pub async fn lc_draw_handler(
+    State(state): State<GameState>,
+    PlayerSession(player): PlayerSession,
+    Path(code): Path<String>,
+    Form(form): Form<DrawForm>,
+) -> axum::response::Response {
+    let lock = match lc_lock(&state, &code).await {
+        Ok(l) => l,
+        Err(r) => return r,
+    };
+    let _guard = lock.lock().await;
+    let mut ctx = match load_lc(&state, &code, &player).await {
+        Ok(c) => c,
+        Err(r) => return r,
+    };
+    let Some(seat) = ctx.st.seat_of(player.id) else {
+        return GameError::NotYourCall.into_response();
+    };
+    let Some(vessel) = ctx.st.players[seat].vessels.get(form.vessel) else {
+        return StatusCode::UNPROCESSABLE_ENTITY.into_response();
+    };
+    let deck = vessel.deck;
+    let shoe_count = ctx
+        .st
+        .deck_counts
+        .iter()
+        .find(|(d, _)| *d == deck)
+        .map(|&(_, c)| c)
+        .unwrap_or(0);
+    let need = DRAW_PER_VESSEL.min(shoe_count as usize);
+    let pool_cards = crate::lc_cards::shoe(deck);
+    let drawn: Vec<Card> = {
+        let mut rng = rand::thread_rng();
+        (0..need)
+            .map(|_| pool_cards[rng.gen_range(0..pool_cards.len())].clone())
+            .collect()
+    };
+    if let Err(e) = ctx.st.finish_and_draw(player.id, form.vessel, drawn) {
+        return map_lc(e);
+    }
+    persist_and_broadcast_lc(&state, &ctx).await;
+    StatusCode::NO_CONTENT.into_response()
 }

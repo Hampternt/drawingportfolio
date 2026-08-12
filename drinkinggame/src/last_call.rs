@@ -754,7 +754,20 @@ impl LastCallState {
                             pulls_max: v.pulls_max,
                         })
                         .collect(),
-                    hand_len: p.hand.len(),
+                    // DDv2 6.3: before the reveal, only the lock tick is
+                    // public. hand_len must therefore not move while a
+                    // player stages cards — armed and staged-locked cards
+                    // still count as "in hand" to the room. After the
+                    // Lock->Reveal flip both extra terms are structurally
+                    // zero (armed cleared, locked_plays drained into plays),
+                    // so the count drops exactly when the plays go public.
+                    hand_len: p.hand.len()
+                        + p.armed.len()
+                        + self
+                            .locked_plays
+                            .iter()
+                            .filter(|pl| pl.source_seat == p.seat)
+                            .count(),
                     locked: p.locked,
                     drawing: p.drawing,
                     draws: p.draws_this_round,
@@ -2064,6 +2077,24 @@ mod tests {
                 "the lock tick IS public, beat={beat:?}"
             );
         }
+    }
+
+    /// Plan E, decision E6: the public hand-size projection must not move
+    /// while a player stages cards, or an observer could infer an arm/lock
+    /// from the plaque alone (the same secrecy boundary
+    /// `test_a_locked_play_is_absent_from_public_view_before_reveal` pins
+    /// for card identity). alice's Beer opener (F6) is 5 cards.
+    #[test]
+    fn test_public_hand_size_holds_still_while_staging() {
+        let mut st = at_lock(); // alice holds a 5-card Beer opener
+        assert_eq!(st.public_view().seats[0].hand_len, 5);
+        st.arm(1, "beer-01").unwrap();
+        assert_eq!(st.public_view().seats[0].hand_len, 5); // armed still counts
+        st.set_target(1, "beer-01", Some(1)).unwrap();
+        st.lock_in(1).unwrap();
+        assert_eq!(st.public_view().seats[0].hand_len, 5); // staged still counts
+        st.advance_beat().unwrap(); // the reveal
+        assert_eq!(st.public_view().seats[0].hand_len, 4); // now it is public
     }
 
     #[test]
