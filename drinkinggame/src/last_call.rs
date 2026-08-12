@@ -415,7 +415,7 @@ pub const LOCK_SECS: u16 = 45; // DDv2 §5 beat 4
 pub const REVEAL_SECS: u16 = 20; // DDv2 §5 beat 5
 pub const DRAW_PER_VESSEL: usize = 5; // DDv2 §4.3, TBD-4
 pub const HAND_SOFT_CAP: usize = 12; // DDv2 §8.2, TBD-2
-pub const LC_DECK_SIZE: u16 = 40; // placeholder shoe size (D6) — Plan F resets
+pub const LC_DECK_SIZE: u16 = 40; // 40-card shoe size, test-pinned per Plan F
 
 /// Handicap is a percentage (100 = no handicap). Rounds UP, per DDv2 §11.
 /// Integer maths on purpose: a float handicap would let a form field carry
@@ -1440,7 +1440,7 @@ pub fn preview_state() -> LastCallState {
     st.players[3].hp = 4; // dev: low HP
 
     // 12 cards: the first 4 Cider ids repeated three times. Deliberate — it
-    // bypasses set_vessel's dedupe so the n > 10 hand-strip split has a hand
+    // bypasses set_vessel's dedupe so the n > 8 hand-strip split has a hand
     // to split, and the strip only ever reads a COUNT. The wheel now indexes
     // by DOM position, not card id (decision 10) — but three visually
     // identical card triples would still make the preview's oversized wheel

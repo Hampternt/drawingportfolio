@@ -90,6 +90,8 @@ Stated so the numbers can be argued with:
   | Liquor | 4 | **2.5–2.67** (5@2, 7@3, rare 8@3) | dot at par | burst premium pays for the 4-pull tank and whole-measure refills (§3.3) |
   | Soft | 6 | 2.0 but cost-1 chip only | shields **2.5–3.0/pull** | support premium pays for waste risk (shields expire); drains are its sabotage |
 
+> **ERRATUM (2026-08-12, whole-plan review).** The Liquor row states immediate dmg/pull as **2.5–2.67 (5@2, 7@3, rare 8@3)**, but 7@3 = 2.33 dmg/pull, outside the stated band. The code matches F12 exactly; only the prose derivation here was wrong. For the record: 5@2 = 2.5, 8@3 = 2.67, 7@3 = 2.33 (not in band).
+
 - **Handicap never touches these numbers** — §11 is cost-only, rounded up. A
   150% player pays 3 pulls for a 4-damage card and self-throttles to 1.33
   dmg/pull; magnitudes are never scaled.
