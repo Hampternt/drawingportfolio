@@ -7420,18 +7420,16 @@ async fn test_a_settled_tab_shows_the_placeholder_card() {
 // Last Call (Plan I Task 4): the react and haunt routes — the Reveal beat's
 // response window, and decision I3's grace extension.
 //
-// Rendering note: Plan I Task 5 (the reaction/haunt chips on the public
-// screen and mini table) has not landed as of this task — `lc_render.rs`
-// has no reader for `PublicView::reactions`/`haunts` yet (grep confirms
-// it), the same gap `hand_seq`'s own doc comment above already flags
-// ("used where a test cares that an action bumped `seq` but has no other
-// observable effect yet (Task 4 renders the rest)"). So where the brief's
-// test comments assert on literal chip text (e.g. "the frame contains
-// 'Not So Fast'"), these tests instead assert on the PROJECTED state
+// Rendering note (Task 4, now stale — Task 5 has landed): this section's
+// tests originally asserted on the PROJECTED state
 // (`PublicView`/`LastCallState` fields `public_view()` already exposes
 // verbatim per I9/I10) plus the frame's publish kind (`lcpublic` vs
-// `lctick`) — the same public data Task 5's chip will render from, just
-// without the HTML text to grep for yet.
+// `lctick`) rather than literal chip text, because `lc_render.rs` had no
+// reader for `PublicView::reactions`/`haunts` yet. Task 5 added that
+// reader (`lc_screen_panel`'s centre chips) — `test_lc_react_is_private_
+// until_played_then_public` below now also asserts the rendered chip text
+// on the wire, and `test_the_response_section_is_per_viewer` (Task 5)
+// covers the hand-pane response window and the ghost note/haunt button.
 // -------------------------------------------------------------
 
 /// Shared rig: alice(seat0)/Beer, bob(seat1)/Cider register at Draw; cara
@@ -7555,15 +7553,21 @@ async fn test_lc_react_is_private_until_played_then_public() {
     assert_eq!(res.status(), StatusCode::NO_CONTENT);
 
     // Full publish, not a bare tick (I2/I3: a played reaction is public,
-    // same broadcast policy as lock/draw).
+    // same broadcast policy as lock/draw). Plan I Task 5 landed the chip
+    // reader (`lc_screen_panel`'s centre chips, folded into `LcPublic` via
+    // `lc_public_panel`), so this frame now carries the played reaction's
+    // rendered chip text on the wire, not just the projected state below —
+    // the restoration Task 4's own report flagged as owed once Task 5 shipped.
     let seen = read_sse_until(&mut body, "event: lcpublic").await;
     assert!(seen.contains("event: lcpublic"), "{seen}");
+    assert!(seen.contains("lc-chip-react"), "{seen}");
+    assert!(seen.contains("BOB: Not So Fast, Friend"), "{seen}");
 
     // Bob's card left his hand...
     let bob_hand = body_string(get_hand(&app, &bob, &code).await).await;
     assert!(!bob_hand.contains("cider-08"), "{bob_hand}");
     // ...and the play is now part of the state `public_view()` projects
-    // verbatim (I9) — the same data Task 5's chip will render from.
+    // verbatim (I9) — the same data Task 5's chip renders from.
     let after = lc_state(&pool, &code).await;
     assert_eq!(after.reactions.len(), 1);
     assert_eq!(after.reactions[0].card.id, "cider-08");
@@ -7734,4 +7738,40 @@ async fn test_lc_haunt_is_for_ghosts_only_and_lands_public() {
     )
     .await;
     assert_eq!(res.status(), StatusCode::CONFLICT);
+}
+
+/// Plan I Task 5: the hand-pane response window and the ghost note are
+/// per-viewer private state, the same discipline the pact/tab-card
+/// precedent already established — a viewer with nothing playable sees no
+/// trace the section ever exists (I2: the window's own presence must not
+/// leak who's holding a reaction).
+#[tokio::test]
+async fn test_the_response_section_is_per_viewer() {
+    // Task 4's rig: bob holds cider-08, alice's beer-02 (order_key 1,
+    // ALICE -> BOB) is in flight at Reveal; cara is the eliminated ghost.
+    let (app, _pool, code, alice, bob, cara, _alice_id, _bob_id, _cara_id) =
+        lc_reveal_rig(unix_ms_now() + 20_000).await;
+
+    let bob_hand = body_string(get_hand(&app, &bob, &code).await).await;
+    assert!(bob_hand.contains("Response window"), "{bob_hand}");
+    assert!(bob_hand.contains("CANCEL ALICE → BOB"), "{bob_hand}");
+    assert!(bob_hand.contains(r#"data-lc-post="react""#), "{bob_hand}");
+
+    // alice holds no reaction card: no trace of the section at all.
+    let alice_hand = body_string(get_hand(&app, &alice, &code).await).await;
+    assert!(!alice_hand.contains("lc-react"), "{alice_hand}");
+
+    // cara: eliminated — the ghost note, not an empty response section, and
+    // her actions template carries the HAUNT button for play 1.
+    let cara_hand = body_string(get_hand(&app, &cara, &code).await).await;
+    assert!(
+        cara_hand.contains("GHOST — YOU HOLD NOTHING. THE TABLE STILL HEARS YOU."),
+        "{cara_hand}"
+    );
+    assert!(!cara_hand.contains("lc-react\""), "{cara_hand}");
+    assert!(
+        cara_hand.contains(r#"data-lc-post="haunt" data-play="1""#),
+        "{cara_hand}"
+    );
+    assert!(cara_hand.contains("HAUNT ALICE → BOB +1"), "{cara_hand}");
 }

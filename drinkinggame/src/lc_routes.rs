@@ -14,7 +14,8 @@ use crate::auth::PlayerSession;
 use crate::db;
 use crate::error::GameError;
 use crate::last_call::{
-    Beat, Card, Deck, LastCallState, LcError, PublicView, Status, DRAW_PER_VESSEL, PACT_MIN_ALIVE,
+    Beat, Card, CardKind, Deck, EffectOp, LastCallState, LcError, Play, PublicView, Status,
+    DRAW_PER_VESSEL, PACT_MIN_ALIVE,
 };
 use crate::lc_render::{self, ActionBarView, HandGroupView, SetupRow};
 use crate::models::{Game, Player, Room};
@@ -376,6 +377,20 @@ fn hand_pane_html(base_path: &str, code: &str, st: &LastCallState, player_id: i6
     let targets = seat
         .map(|s| targets_section_html(st, s))
         .unwrap_or_default();
+    // Plan I Task 5: the response window (Alive) or the ghost note
+    // (Eliminated) — an unseated spectator gets neither, same gating as the
+    // tab panel below. A ghost's tabs were already voided at elimination
+    // (H10); this is the reaction-window equivalent — they hold nothing to
+    // answer with, but the table still hears their haunt (the action bar's
+    // HAUNT row, not this section).
+    let response = match seat {
+        Some(s) if st.players[s].status == Status::Eliminated => {
+            r#"<p class="lc-ghost-note">GHOST — YOU HOLD NOTHING. THE TABLE STILL HEARS YOU.</p>"#
+                .to_string()
+        }
+        Some(s) => response_section_html(st, s),
+        None => String::new(),
+    };
     // Plan H Task 5 / H13: the private tab card, gated the same way the
     // action bar's per-viewer state is — seated and Alive only. An
     // Eliminated viewer's tabs were already voided at elimination (H10), and
@@ -393,7 +408,9 @@ fn hand_pane_html(base_path: &str, code: &str, st: &LastCallState, player_id: i6
     };
     let pacts = pacts_section_html(st, player_id);
     let bar = lc_render::lc_action_bar(&action_bar_view(st, player_id));
-    format!(r#"{pane}{targets}{pacts}{tab_panel}<template data-lc-actions>{bar}</template>"#)
+    format!(
+        r#"{pane}{targets}{response}{pacts}{tab_panel}<template data-lc-actions>{bar}</template>"#
+    )
 }
 
 /// Plan E Task 4: assembles the viewer's own `ActionBarView` from
@@ -429,6 +446,8 @@ fn action_bar_view(st: &LastCallState, player_id: i64) -> ActionBarView {
                 charged,
                 vessels_registered,
                 outcome,
+                haunt_plays: haunt_plays(st),
+                haunted: st.haunts.iter().any(|h| h.seat == seat),
             }
         }
         None => ActionBarView {
@@ -442,8 +461,46 @@ fn action_bar_view(st: &LastCallState, player_id: i64) -> ActionBarView {
             charged: 0,
             vessels_registered,
             outcome,
+            haunt_plays: Vec::new(),
+            haunted: false,
         },
     }
+}
+
+/// Plan I Task 5: every play currently in flight whose `card_fx` op is
+/// `Damage` — DDv2 §9.2's "the only legal target is a Damage play" — as
+/// `(order_key, "SRC → TGT")` captions (`play_caption` below). Read for
+/// every seated viewer regardless of `alive`/`beat` — `lc_action_bar` only
+/// reaches for this when the viewer is both a ghost and mid-Reveal, so an
+/// unused value the rest of the time costs nothing worth special-casing
+/// away.
+fn haunt_plays(st: &LastCallState) -> Vec<(u32, String)> {
+    st.plays
+        .iter()
+        .filter(|p| {
+            matches!(
+                crate::lc_cards::card_fx(&p.card.id).map(|f| f.op),
+                Some(EffectOp::Damage)
+            )
+        })
+        .map(|p| (p.order_key, play_caption(st, p)))
+        .collect()
+}
+
+/// One play's "SRC → TGT" caption — the route-side twin of `lc_render`'s
+/// private `centre_play`/E15 convention (that builder reads `&PublicView`
+/// only, per §3.4, so it cannot be reused here where the caller still holds
+/// `&LastCallState`): the source seat's name, then either the target
+/// seat's name or the card's own `targets` field uppercased ("ALL") when
+/// the play has none. Shared by `response_section_html`'s button captions
+/// and `haunt_plays`' above.
+fn play_caption(st: &LastCallState, play: &Play) -> String {
+    let src = seat_name(st, play.source_seat);
+    let tgt = match play.target {
+        Some(t) => seat_name(st, t),
+        None => crate::render::html_escape(&play.card.targets.to_uppercase()),
+    };
+    format!("{src} → {tgt}")
 }
 
 /// Plan E Task 4 / decision E8: the per-card seat `<select>` target picker,
@@ -492,6 +549,101 @@ fn targets_section_html(st: &LastCallState, seat: usize) -> String {
         })
         .collect();
     format!(r#"<section class="lc-targets"><h2>Targets</h2>{rows}</section>"#)
+}
+
+/// The route-side twin of `last_call::play_subjects` (private to that
+/// module, and not in this task's file list to touch): the answered play's
+/// subject seats, by its own `card.targets` — `"one"` is the play's single
+/// `target` if it has one, `"self"` is just the caster, `"all"` is every
+/// seat, anything else names nobody. Used only by `scope_legal` below, to
+/// decide whether a `targets == "self"` reaction may answer this play (I5).
+fn play_subjects(play: &Play, num_seats: usize) -> Vec<usize> {
+    match play.card.targets.as_str() {
+        "one" => play.target.into_iter().collect(),
+        "self" => vec![play.source_seat],
+        "all" => (0..num_seats).collect(),
+        _ => Vec::new(),
+    }
+}
+
+/// I5's scope filter, read for display the same way `play_reaction` reads
+/// it for real: a `targets == "self"` reaction card may only answer a play
+/// whose subject set includes the reactor's own seat; regardless of scope,
+/// `Reflect` needs a single seat to send the play home to, so it refuses an
+/// untargeted (`None`) play. Cost/afford is deliberately not checked here —
+/// the brief's "scope-legal" is a legality question, not an affordability
+/// one, and `play_reaction` itself is still the sole authority either way
+/// (this is display-only; a 409 still guards the real submit).
+fn scope_legal(
+    seat: usize,
+    num_seats: usize,
+    card: &Card,
+    rfx: Option<crate::lc_cards::ReactionFx>,
+    play: &Play,
+) -> bool {
+    if card.targets == "self" && !play_subjects(play, num_seats).contains(&seat) {
+        return false;
+    }
+    if play.target.is_none() && matches!(rfx, Some(crate::lc_cards::ReactionFx::Reflect)) {
+        return false;
+    }
+    true
+}
+
+/// Plan I Task 5 / decision I12: the hand-pane response window, `hand_pane_
+/// html`'s private per-viewer analogue of `targets_section_html` above.
+/// Empty string unless `beat == Beat::Reveal`, the viewer is `Alive`, and
+/// scope-legality (`scope_legal`) admits at least one play for at least one
+/// reaction card in hand — otherwise the window's very presence would leak
+/// who is holding what (I2 closes this the same way for the route: the
+/// window opens unconditionally, every round, full duration). One
+/// `.lc-react-card` block per reaction card the viewer holds, each with one
+/// button per scope-legal play, in `order_key` order.
+fn response_section_html(st: &LastCallState, seat: usize) -> String {
+    if st.beat != Beat::Reveal || st.players[seat].status != Status::Alive {
+        return String::new();
+    }
+    let num_seats = st.players.len();
+    let mut plays: Vec<&Play> = st.plays.iter().collect();
+    plays.sort_by_key(|p| p.order_key);
+
+    let mut any_legal = false;
+    let blocks: String = st.players[seat]
+        .hand
+        .iter()
+        .filter(|c| c.kind == CardKind::Reaction)
+        .map(|card| {
+            let rfx = crate::lc_cards::card_rfx(&card.id);
+            let verb = match rfx {
+                Some(crate::lc_cards::ReactionFx::Cancel) => "CANCEL",
+                Some(crate::lc_cards::ReactionFx::Reduce(_)) => "BLUNT",
+                Some(crate::lc_cards::ReactionFx::Reflect) => "SEND BACK",
+                None => "", // rfx is Some ⇔ kind == Reaction (F5) — defensive only
+            };
+            let buttons: String = plays
+                .iter()
+                .filter(|p| scope_legal(seat, num_seats, card, rfx, p))
+                .map(|p| {
+                    any_legal = true;
+                    format!(
+                        r#"<button class="lc-btn lc-react-btn" data-lc-post="react" data-card-id="{id}" data-play="{k}">{verb} {caption}</button>"#,
+                        id = crate::render::html_escape(&card.id),
+                        k = p.order_key,
+                        caption = play_caption(st, p),
+                    )
+                })
+                .collect();
+            format!(
+                r#"<div class="lc-react-card" data-card-id="{id}"><span class="lc-react-title">{title}</span>{buttons}</div>"#,
+                id = crate::render::html_escape(&card.id),
+                title = crate::render::html_escape(&card.title),
+            )
+        })
+        .collect();
+    if !any_legal {
+        return String::new();
+    }
+    format!(r#"<section class="lc-react"><h2>Response window</h2>{blocks}</section>"#)
 }
 
 /// A seat's name, uppercased and escaped — the `pacts_section_html` analogue

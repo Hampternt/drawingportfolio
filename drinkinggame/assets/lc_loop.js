@@ -151,13 +151,20 @@
     var el = e.target.closest ? e.target.closest("[data-lc-post]") : null;
     if (!el || el.disabled) return;
     var action = el.dataset.lcPost;
-    var body = "";
-    if (el.dataset.vessel !== undefined) {
-      body = "vessel=" + encodeURIComponent(el.dataset.vessel);
-    } else if (el.dataset.lcBody !== undefined) {
+    var body;
+    if (el.dataset.lcBody !== undefined) {
       // Plan G, Task 3: pact buttons carry a pre-encoded `key=int` body —
       // server-rendered seat numbers, nothing here needs encoding.
       body = el.dataset.lcBody;
+    } else {
+      // Plan I, Task 5: the generic collector — draw's `data-vessel`,
+      // react's `data-card-id`/`data-play`, haunt's `data-play` alone. Any
+      // button lacking a given attribute just contributes nothing for it.
+      var parts = [];
+      if (el.dataset.vessel) parts.push("vessel=" + el.dataset.vessel);
+      if (el.dataset.cardId) parts.push("card_id=" + encodeURIComponent(el.dataset.cardId));
+      if (el.dataset.play) parts.push("play=" + el.dataset.play);
+      body = parts.join("&");
     }
     post(action, body);
   }

@@ -747,10 +747,49 @@ fn centre_play(view: &PublicView, play: &Play) -> String {
         None => html_escape(&play.card.targets.to_uppercase()),
     };
     format!(
-        r#"<div class="lc-centre-play" data-seat="{seat}"><span class="lc-centre-cap">{src} &rarr; {tgt}</span>{mini}</div>"#,
+        r#"<div class="lc-centre-play" data-seat="{seat}"><span class="lc-centre-cap">{src} &rarr; {tgt}</span>{mini}{chips}</div>"#,
         seat = play.source_seat,
         mini = card_mini(&play.card),
+        chips = centre_chips(view, play),
     )
+}
+
+/// Plan I Task 5: the reactions/haunts riding one revealed play, rendered
+/// straight off `PublicView` — both `reactions` and `haunts` are public
+/// from the moment they're cast (I9/I10), so there is nothing here to hide.
+/// Order is played/cast order, i.e. the projected `Vec`'s own order — never
+/// re-sorted. Empty string when nothing rides this play, so a play with no
+/// riders adds no `.lc-centre-chips` wrapper at all.
+fn centre_chips(view: &PublicView, play: &Play) -> String {
+    let react_chips: String = view
+        .reactions
+        .iter()
+        .filter(|r| r.answers == play.order_key)
+        .map(|r| {
+            format!(
+                r#"<span class="lc-chip lc-chip-react" data-deck="{deck}">{reactor}: {title}</span>"#,
+                deck = r.card.deck.slug(),
+                reactor = seat_name_upper(view, r.source_seat),
+                title = html_escape(&r.card.title),
+            )
+        })
+        .collect();
+    let haunt_chips: String = view
+        .haunts
+        .iter()
+        .filter(|h| h.play == play.order_key)
+        .map(|h| {
+            format!(
+                r#"<span class="lc-chip lc-chip-haunt">{ghost} +1</span>"#,
+                ghost = seat_name_upper(view, h.seat),
+            )
+        })
+        .collect();
+    if react_chips.is_empty() && haunt_chips.is_empty() {
+        String::new()
+    } else {
+        format!(r#"<div class="lc-centre-chips">{react_chips}{haunt_chips}</div>"#)
+    }
 }
 
 /// Plan E, decision E13: the frozen Resolve tableau's one line, in place of
@@ -972,6 +1011,12 @@ pub struct ActionBarView {
     pub charged: u8,                 // viewer's pulls at the reveal (E9)
     pub vessels_registered: usize,   // players with >= 1 vessel (E1 gate)
     pub outcome: Option<LcOutcome>,
+    // Plan I Task 5: filled route-side from `&LastCallState` (never
+    // broadcast — this whole struct is the private, per-viewer projection
+    // `lc_action_bar` renders from, same as `charged`/`vessels_registered`
+    // above).
+    pub haunt_plays: Vec<(u32, String)>, // (order_key, "SRC → TGT"), damage plays only
+    pub haunted: bool,                   // this ghost already voted this round
 }
 
 /// F.1 — the thumb zone's one decision. Precedence: `outcome` (any player,
@@ -992,7 +1037,27 @@ pub fn lc_action_bar(ab: &ActionBarView) -> String {
         return r#"<p class="lc-actions-hint">SPECTATING</p>"#.to_string();
     }
     if !ab.alive {
-        return r#"<p class="lc-actions-hint">YOU'RE OUT — HAUNT THE TABLE</p>"#.to_string();
+        // Plan I Task 5 / DDv2 §9.2: a ghost's one decision, gated the same
+        // way `!alive` always was (this branch only ever ran mid-Reveal or
+        // otherwise — a ghost never had a Draw/Lock decision either), now
+        // three rows instead of one. `haunted` wins over `haunt_plays` —
+        // once a ghost has cast this round's vote there is nothing left to
+        // pick, regardless of what's still in flight.
+        return match ab.beat {
+            Beat::Reveal if ab.haunted => {
+                r#"<p class="lc-actions-hint">YOUR CURSE IS CAST</p>"#.to_string()
+            }
+            Beat::Reveal if !ab.haunt_plays.is_empty() => ab
+                .haunt_plays
+                .iter()
+                .map(|(order_key, caption)| {
+                    format!(
+                        r#"<button class="lc-btn lc-haunt-btn" data-lc-post="haunt" data-play="{order_key}">HAUNT {caption} +1</button>"#
+                    )
+                })
+                .collect(),
+            _ => r#"<p class="lc-actions-hint">YOU'RE OUT — HAUNT THE TABLE</p>"#.to_string(),
+        };
     }
     match ab.beat {
         Beat::Draw => {
@@ -1251,6 +1316,18 @@ mod tests {
         outcome_view.beat_deadline_ms = None;
         outcome_view.outcome = Some(LcOutcome::Winner(0));
 
+        // Plan I Task 5 (H's lesson again): a content-bearing chips fixture
+        // — `revealed_view` alone never populates `reactions`/`haunts`, so
+        // the sweep below would only ever scan `centre_play` output that
+        // never took the chips branch.
+        let mut chips_view = revealed_view.clone();
+        chips_view.reactions = vec![crate::last_call::ReactionPlay {
+            card: card.clone(),
+            source_seat: 1,
+            answers: 1,
+        }];
+        chips_view.haunts = vec![crate::last_call::Haunt { seat: 2, play: 1 }];
+
         // Review fix (Important 2): `preview_state()`/`outcome_view` never
         // set `event`/`settled`, so the sweep below never scanned the new
         // strip markup at all — three more `lc_banner` variants that
@@ -1288,6 +1365,7 @@ mod tests {
             lc_screen_panel(&view),
             lc_mini_table(&view, Some(0)),
             lc_screen_panel(&revealed_view),
+            lc_screen_panel(&chips_view),
             lc_banner(&outcome_view),
             lc_screen_panel(&outcome_view),
             lc_banner(&event_view),
@@ -1319,6 +1397,25 @@ mod tests {
                 charged: 0,
                 vessels_registered: 2,
                 outcome: None,
+                haunt_plays: Vec::new(),
+                haunted: false,
+            }),
+            // Plan I Task 5: a ghost mid-Reveal with a live haunt target —
+            // the new content-bearing branch (H's lesson: an empty-state
+            // fixture proves nothing about the button markup it renders).
+            lc_action_bar(&ActionBarView {
+                beat: Beat::Reveal,
+                round: 2,
+                seated: true,
+                alive: false,
+                locked: false,
+                drawing: false,
+                vessels: Vec::new(),
+                charged: 0,
+                vessels_registered: 2,
+                outcome: None,
+                haunt_plays: vec![(1, "PLAYER1 → PLAYER2".to_string())],
+                haunted: false,
             }),
             // Plan H Task 5: both of `lc_tab_panel`'s content-bearing states
             // — a live tab and the settled placeholder — so the sweep
@@ -2306,6 +2403,48 @@ mod tests {
         assert!(!lc_screen_panel(&ring_fixture(4)).contains("lc-centre-plays"));
     }
 
+    /// Plan I Task 5: reaction/haunt chips ride the play they answer, not
+    /// the felt in general — a second, unridden play in the same reveal
+    /// renders no chips block of its own.
+    #[test]
+    fn test_centre_chips_ride_their_play() {
+        let mut view = ring_fixture(3);
+        let atk = centre_card("wine-atk", Deck::Wine, "one", "Table Play");
+        view.revealed = vec![
+            Play {
+                card: atk.clone(),
+                source_seat: 0,
+                target: Some(1),
+                paid_from: Deck::Wine,
+                order_key: 1,
+            },
+            Play {
+                card: atk.clone(),
+                source_seat: 1,
+                target: Some(2),
+                paid_from: Deck::Wine,
+                order_key: 2,
+            },
+        ];
+        let reaction_card = centre_card("cider-08", Deck::Cider, "one", "Not So Fast, Friend");
+        view.reactions = vec![crate::last_call::ReactionPlay {
+            card: reaction_card,
+            source_seat: 2,
+            answers: 1,
+        }];
+        view.haunts = vec![crate::last_call::Haunt { seat: 2, play: 1 }];
+
+        let html = lc_screen_panel(&view);
+        // ring_fixture names seats "player{n+1}" — seat 2 -> PLAYER3.
+        assert!(html.contains("lc-chip-react"), "{html}");
+        assert!(html.contains("PLAYER3: Not So Fast, Friend"), "{html}");
+        assert!(html.contains("lc-chip-haunt"), "{html}");
+        assert!(html.contains("PLAYER3 +1"), "{html}");
+        // exactly one chips block: play 1 has riders, play 2 has none.
+        assert_eq!(html.matches("lc-centre-chips").count(), 1, "{html}");
+        no_hex(&html);
+    }
+
     #[test]
     fn test_game_over_takes_over_banner_and_centre() {
         let mut view = ring_fixture(4);
@@ -2530,6 +2669,8 @@ mod tests {
                 charged: 0,
                 vessels_registered: 0,
                 outcome: None,
+                haunt_plays: Vec::new(),
+                haunted: false,
             }
         }
 
@@ -2651,6 +2792,84 @@ mod tests {
         ab.charged = 1;
         let html = lc_action_bar(&ab);
         assert!(html.contains("DRINK 1"));
+        no_hex(&html);
+    }
+
+    /// Plan I Task 5 / DDv2 §9.2: the ghost's three-row action bar. Plan
+    /// E's original `!alive` row (`YOU'RE OUT — HAUNT THE TABLE`) stays
+    /// true outside the window (any beat but Reveal), and an *alive*
+    /// viewer never sees a haunt button no matter what `haunt_plays` says —
+    /// `ActionBarView` is trusted input here (the route never fills
+    /// `haunt_plays` for a living player), but the renderer's own branch
+    /// order is what this test pins.
+    #[test]
+    fn test_ghost_bar_haunts_only_in_the_window() {
+        fn ab(
+            alive: bool,
+            beat: Beat,
+            haunt_plays: Vec<(u32, String)>,
+            haunted: bool,
+        ) -> ActionBarView {
+            ActionBarView {
+                beat,
+                round: 1,
+                seated: true,
+                alive,
+                locked: false,
+                drawing: false,
+                vessels: Vec::new(),
+                charged: 0,
+                vessels_registered: 2,
+                outcome: None,
+                haunt_plays,
+                haunted,
+            }
+        }
+
+        // ghost, mid-Reveal, not yet voted, a Damage play in flight: HAUNT.
+        let html = lc_action_bar(&ab(
+            false,
+            Beat::Reveal,
+            vec![(1, "ALICE → BOB".to_string())],
+            false,
+        ));
+        assert!(
+            html.contains(r#"data-lc-post="haunt" data-play="1""#),
+            "{html}"
+        );
+        assert!(html.contains("HAUNT ALICE → BOB +1"), "{html}");
+        no_hex(&html);
+
+        // ghost, mid-Reveal, already voted: the curse-cast hint, no button.
+        let html = lc_action_bar(&ab(
+            false,
+            Beat::Reveal,
+            vec![(1, "ALICE → BOB".to_string())],
+            true,
+        ));
+        assert!(html.contains("YOUR CURSE IS CAST"), "{html}");
+        assert!(!html.contains(r#"data-lc-post="haunt""#), "{html}");
+        no_hex(&html);
+
+        // ghost, outside the window (Lock): Plan E's original row, unchanged.
+        let html = lc_action_bar(&ab(
+            false,
+            Beat::Lock,
+            vec![(1, "ALICE → BOB".to_string())],
+            false,
+        ));
+        assert!(html.contains("YOU'RE OUT — HAUNT THE TABLE"), "{html}");
+        assert!(!html.contains(r#"data-lc-post="haunt""#), "{html}");
+        no_hex(&html);
+
+        // alive, mid-Reveal: no haunt button ever, regardless of haunt_plays.
+        let html = lc_action_bar(&ab(
+            true,
+            Beat::Reveal,
+            vec![(1, "ALICE → BOB".to_string())],
+            false,
+        ));
+        assert!(!html.contains(r#"data-lc-post="haunt""#), "{html}");
         no_hex(&html);
     }
 

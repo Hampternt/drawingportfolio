@@ -451,6 +451,15 @@ body.lc { margin: 0; min-height: 100vh; display: flex; flex-direction: column;
 .lc-tabcard-pay { font-family: var(--font-mono); font-size: 11px;
                   letter-spacing: .1em; color: var(--lc-text); }
 
+/* Plan I — the response window (decision I12). */
+.lc-react { padding: 0 14px 10px; }
+.lc-react-card { display: flex; flex-direction: column; gap: 6px; padding: 6px 0; }
+.lc-react-title { font-family: var(--font-ui); font-weight: 700; font-size: 11px;
+                  letter-spacing: .12em; text-transform: uppercase;
+                  color: var(--lc-faint); }
+.lc-ghost-note { padding: 10px 14px; font-family: var(--font-mono);
+                 font-size: 11px; color: var(--lc-faint); }
+
 /* slice 2 — the hand group (Module Spec C.1–C.3): ArmedColumn | HandWheel |
    CostRail. "One widget in three parts and always ship together." This
    replaces Plan A2's throwaway plain-list container; the CardFace inside the
@@ -916,6 +925,13 @@ body.lc-screen .lc-timer { height: 3px; }
                   gap: 6px; }
 .lc-centre-cap { font-family: var(--font-ui); font-weight: 700; font-size: 11px;
                  letter-spacing: .14em; color: var(--lc-faint); }
+/* Plan I — reaction/haunt chips riding a revealed play (decision I12). */
+.lc-centre-chips { display: flex; flex-direction: column; gap: 4px;
+                   align-items: center; }
+.lc-chip { font-family: var(--font-ui); font-weight: 700; font-size: 11px;
+           letter-spacing: .1em; text-transform: uppercase;
+           color: var(--lc-text); }
+.lc-chip-haunt { color: var(--lc-rose); }
 .lc-centre-victory { position: absolute; inset: 0; display: flex;
                      align-items: center; justify-content: center;
                      font-family: var(--font-display); font-weight: 900;
