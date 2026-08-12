@@ -1079,9 +1079,14 @@ impl LastCallState {
     /// refuse, per G11).
     ///
     /// Mutual offer (G8): if `pact_offers` already contains the reverse
-    /// offer, the pact forms immediately — both directions of the offer
-    /// between the two seats are removed (third-party offers stay pending,
-    /// per G11), `seq` bumps once. An identical pending offer already
+    /// offer, the pact forms immediately — every remaining OUTGOING offer
+    /// from either newly-pacted seat is removed (not just the pairwise
+    /// offer between them: a seat that closes a pact must exit the market
+    /// entirely, per "one pact per player", or a stale outgoing offer to a
+    /// third party could mutual-close into a second pact for the same
+    /// seat). Third-party offers still INCOMING to either seat stay pending
+    /// (per G11 — they are the no-ops that expire at Diplomacy's end, not a
+    /// pact detector). `seq` bumps once. An identical pending offer already
     /// present is an idempotent no-op (`Ok(())`, no bump — the `add_player`
     /// precedent). Otherwise any other outgoing offer from this seat is
     /// replaced (retarget, G8) and the new one recorded, `seq` bumps. Offers
@@ -1131,10 +1136,8 @@ impl LastCallState {
                 b,
                 formed_round: self.round,
             });
-            self.pact_offers.retain(|o| {
-                !((o.from == seat && o.to == target_seat)
-                    || (o.from == target_seat && o.to == seat))
-            });
+            self.pact_offers
+                .retain(|o| o.from != seat && o.from != target_seat);
             self.seq += 1;
             return Ok(());
         }
@@ -1160,8 +1163,10 @@ impl LastCallState {
     /// (the accepter is pacted or barred — such players are never *shown*
     /// offers, so this is route-level defence) -> `NoOffer` (no pending
     /// `PactOffer { from: from_seat, to: my_seat }`). Success: forms the
-    /// pact, removes the offers between the two seats (both directions
-    /// only, as in `offer_pact`'s mutual-offer case), `seq` bumps.
+    /// pact, removes every remaining OUTGOING offer from either
+    /// newly-pacted seat (the same "one pact per player" reasoning as
+    /// `offer_pact`'s mutual-offer branch — see its doc comment), `seq`
+    /// bumps.
     pub fn accept_pact(&mut self, player_id: i64, from_seat: usize) -> Result<(), LcError> {
         let Some(seat) = self.seat_of(player_id) else {
             return Err(LcError::NotSeated);
@@ -1192,9 +1197,8 @@ impl LastCallState {
             b,
             formed_round: self.round,
         });
-        self.pact_offers.retain(|o| {
-            !((o.from == seat && o.to == from_seat) || (o.from == from_seat && o.to == seat))
-        });
+        self.pact_offers
+            .retain(|o| o.from != seat && o.from != from_seat);
         self.seq += 1;
         Ok(())
     }
@@ -1916,6 +1920,34 @@ mod tests {
         assert_eq!(st.pact_partner(1), Some(0));
         assert_eq!(st.pact_partner(2), None);
         assert_eq!(st.seq, before + 2);
+    }
+
+    /// "One pact per player" (the plan's global constraint) must survive a
+    /// mutual close even when one of the closing seats had an unrelated
+    /// outgoing offer in flight: if formation only removed the offer
+    /// *between* the two seats, alice's stale offer to cara would outlive
+    /// her new pact with bob, and cara accepting it would land alice in two
+    /// pacts at once. Formation must strip every outgoing offer from both
+    /// newly-pacted seats, not just the pairwise one.
+    #[test]
+    fn test_forming_a_pact_clears_the_new_partners_other_outgoing_offers() {
+        let mut st = at_diplomacy();
+        st.offer_pact(1, 2).unwrap(); // alice(0) -> cara(2)
+        st.offer_pact(2, 0).unwrap(); // bob(1)   -> alice(0)
+        st.offer_pact(1, 1).unwrap(); // mutual: pact(0,1) forms
+        assert!(st.pact_offers.is_empty()); // alice's stale offer to cara is gone too
+        assert_eq!(st.accept_pact(3, 0), Err(LcError::NoOffer)); // nothing left to accept
+        assert_eq!(st.pacts.len(), 1);
+        assert_eq!(st.pact_partner(0), Some(1));
+
+        // Same guarantee via the accept_pact formation path.
+        let mut st2 = at_diplomacy();
+        st2.offer_pact(1, 2).unwrap(); // alice(0) -> cara(2)
+        st2.offer_pact(2, 0).unwrap(); // bob(1)   -> alice(0)
+        st2.accept_pact(1, 1).unwrap(); // alice accepts bob's offer directly
+        assert!(st2.pact_offers.is_empty());
+        assert_eq!(st2.accept_pact(3, 0), Err(LcError::NoOffer));
+        assert_eq!(st2.pacts.len(), 1);
     }
 
     #[test]
