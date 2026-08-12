@@ -40,6 +40,14 @@ function artfeedIsTyping(el) {
   return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable;
 }
 
+function artfeedPaletteOpen() {
+  // palette.js's own overlay — its keydown listener does not stopPropagation
+  // on Escape, so without this guard one Esc press would close the palette
+  // AND a card popover at once instead of one layer per press.
+  const overlay = document.getElementById('palette-overlay');
+  return !!overlay && !overlay.hidden;
+}
+
 function artfeedInit() {
   // Already bound (normal page load or a previous boost navigation)
   if (window.artfeedBound) return;
@@ -53,11 +61,18 @@ function artfeedInit() {
       const card = trigger.closest('.hm-post');
       const pop = card && card.querySelector('.art-pop');
       if (!pop) return;
-      const wasOpen = pop === openPop && !pop.hidden;
+      const kind = trigger.getAttribute('data-art-pop');
+      // A different trigger on the SAME card's already-open popover is a
+      // switch, not a close: the hx-get already refills the shared
+      // container with the new fragment, so toggling `hidden` here would
+      // just hide it again and cost the click a second press to reopen.
+      const switching = pop === openPop && !pop.hidden && pop.dataset.current !== kind;
+      const wasOpen = pop === openPop && !pop.hidden && !switching;
       // Only one popover open at a time: close whichever other one is open
       // before (possibly) opening this card's own.
       if (openPop && openPop !== pop) openPop.hidden = true;
-      pop.hidden = wasOpen; // toggle: was open -> hide, was closed -> show
+      pop.hidden = wasOpen; // toggle: was open (same trigger) -> hide, switching or closed -> show
+      pop.dataset.current = kind;
       return;
     }
 
@@ -78,9 +93,11 @@ function artfeedInit() {
     // Popover Esc is handled before the search-field Esc branch: one popover
     // open at a time, so one Esc closes it and the next leaves the search
     // field. This runs before artfeedIsTyping too, so Esc works while focus
-    // is inside the popover's own textarea.
+    // is inside the popover's own textarea. Guarded on the palette NOT being
+    // open, or a single Esc press would close the palette and a popover at
+    // once — see artfeedPaletteOpen.
     const openPop = document.querySelector('.art-pop:not([hidden])');
-    if (e.key === 'Escape' && openPop) {
+    if (e.key === 'Escape' && openPop && !artfeedPaletteOpen()) {
       openPop.hidden = true;
       return;
     }
