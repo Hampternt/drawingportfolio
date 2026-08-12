@@ -39,11 +39,13 @@ unused so far. Next work starts a fresh `feat/<stream>` branch + worktree.
   responses render the rail with `PostFilter::default()`; `patch_post` runs
   caption+tags non-atomically; one tie-order-dependent test; no unknown-id
   404 test on the two GET fragment routes.
-- **Two orphaned stashes need a human decision.** `stash@{1}` (2026-03-25,
-  7-line `Cargo.lock` fragment) — drop it. `stash@{0}` (2026-08-01, 11 files
-  +1109 −374 across nutrition/tasks routes, base branch deleted) is probably
-  a superseded first pass at the fitness redesign, but inspect before
-  dropping: `git stash show -p 'stash@{0}' | less`.
+- ~~Two orphaned stashes need a human decision.~~ **Resolved 2026-08-12** —
+  both inspected and dropped. `stash@{1}` was a 7-line pre-dependency
+  `Cargo.lock`. `stash@{0}`'s 1109 insertions were an uncommitted `cargo fmt`
+  pass (verified by reproducing it: base commit + `cargo fmt` matched 10 of
+  11 files exactly) plus one rejected experiment — making the nutrition
+  routes public via `OptionalAuth`, the opposite of the 2026-08-01
+  session-gating decision that shipped.
 - **`.superpowers/sdd/` destroys its own ledgers**: its `.gitignore` is `*`,
   so SDD progress files are worktree-local and die with worktree cleanup —
   no ledger survives for any completed plan. Commit ledgers or store them
