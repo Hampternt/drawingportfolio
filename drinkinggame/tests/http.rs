@@ -7200,6 +7200,12 @@ async fn test_a_settlement_announces_the_name_not_the_tab() {
     let mut st = LastCallState::new(vec![(alice_id, "alice".into()), (bob_id, "bob".into())], 7);
     st.round = 2;
     st.beat = Beat::Draw;
+    // Plan H Task 5: seed 7 deals alice (seat 0) the "lie-low" tab by
+    // construction (`tab_for(7, 0, 0)` == `TABS[0]`) — clear her *current*
+    // tab so the private hand card (now rendering it, correctly, since it's
+    // her own) can't collide with this test's actual subject: the ledger
+    // entry's id must never leak into the public announcement below.
+    st.players[0].tabs = vec![];
     st.tab_ledger.push(drinkinggame::last_call::TabSettle {
         seat: 0, // alice's real seat
         tab: "lie-low".to_string(),
@@ -7239,6 +7245,12 @@ async fn test_a_final_round_settle_reaches_the_frozen_game_over_banner() {
     st.beat_deadline_ms = None;
     st.players[1].status = drinkinggame::last_call::Status::Eliminated; // bob out -> alice (seat 0) wins
     st.event = Some("happy-hour".to_string()); // must not reach either surface
+                                               // Plan H Task 5: `lc_action_rig`'s seed 7 deals alice (seat 0) the
+                                               // "lie-low" tab by construction — clear her *current* tab so the
+                                               // private hand card (now rendering it, correctly, on her own shell)
+                                               // can't collide with this test's actual subject: the ledger entry's id
+                                               // must never leak into the public game-over announcement below.
+    st.players[0].tabs = vec![];
     st.tab_ledger.push(drinkinggame::last_call::TabSettle {
         seat: 0, // alice's real seat
         tab: "lie-low".to_string(),
@@ -7263,4 +7275,82 @@ async fn test_a_final_round_settle_reaches_the_frozen_game_over_banner() {
     assert!(!screen.contains(r#"data-event"#), "{screen}");
     assert!(!screen.contains("lie-low"), "{screen}");
     assert!(!screen.contains("LIE LOW"), "{screen}");
+}
+
+// -------------------------------------------------------------
+// Plan H, Task 5: the private tab card — the hand fragment is the ONLY
+// surface tab identity may render on, and only the viewer's own (H13).
+// -------------------------------------------------------------
+
+/// The plan's secrecy gate for tabs, mirroring the pact secrecy tests'
+/// shape (`test_a_pact_between_a_and_b_is_invisible_to_c_and_the_wire`):
+/// alice's own hand fragment carries alice's tab and none of bob's, bob's
+/// carries the reverse, the public wire never carries either tab (same
+/// transport the pact proof used — a full-publish route with nothing to do
+/// with tabs), and the TABLE fragment stays tab-free.
+#[tokio::test]
+async fn test_a_tab_is_visible_to_its_holder_alone() {
+    let (app, pool, code, alice, bob, alice_id, _bob_id) = lc_action_rig().await;
+
+    // `set_handicap` (the full-publish route used below to prove the wire)
+    // requires Beat::Draw — `lc_action_rig` leaves the rig at Lock, so pin
+    // tabs deterministically at Draw instead of the room's rolled seed.
+    let mut st = lc_state(&pool, &code).await;
+    st.beat = Beat::Draw;
+    st.players[0].tabs = vec!["lie-low".to_string()]; // alice, seat 0
+    st.players[1].tabs = vec!["showboat".to_string()]; // bob, seat 1
+    let game_id = lc_game_id(&pool, &code).await;
+    drinkinggame::db::set_game_state(&pool, game_id, &st.to_json()).await;
+
+    let alice_hand = body_string(get_hand(&app, &alice, &code).await).await;
+    assert!(alice_hand.contains(r#"data-tab="lie-low""#), "{alice_hand}");
+    assert!(alice_hand.contains("LIE LOW"), "{alice_hand}");
+    assert!(!alice_hand.contains("showboat"), "{alice_hand}");
+    assert!(!alice_hand.contains("SHOWBOAT"), "{alice_hand}");
+
+    let bob_hand = body_string(get_hand(&app, &bob, &code).await).await;
+    assert!(bob_hand.contains("SHOWBOAT"), "{bob_hand}");
+    assert!(!bob_hand.contains("lie-low"), "{bob_hand}");
+    assert!(!bob_hand.contains("LIE LOW"), "{bob_hand}");
+
+    let res = get(&app, &format!("/room/{code}/sse")).await;
+    let mut body = res.into_body().into_data_stream();
+    read_sse_until(&mut body, "event: lcpublic").await; // drain the snapshot
+
+    let res = post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/lastcall/handicap"),
+        &format!("target={alice_id}&handicap_pct=100"),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+    let seen = read_sse_until(&mut body, "event: lcpublic").await;
+    let frame = &seen[seen.find("event: lcpublic").unwrap()..];
+    for banned in ["lie-low", "LIE LOW", "showboat", "SHOWBOAT", "lc-tabcard"] {
+        assert!(!frame.contains(banned), "leaked {banned}: {frame}");
+    }
+
+    let table = body_string(get_table(&app, &alice, &code).await).await;
+    assert!(!table.contains("lc-tabcard"), "{table}");
+    assert!(!table.contains("lie-low"), "{table}");
+    assert!(!table.contains("LIE LOW"), "{table}");
+}
+
+/// A settled (or pre-Deal) tab list renders the placeholder card, never the
+/// bare hand pane with nothing in its place.
+#[tokio::test]
+async fn test_a_settled_tab_shows_the_placeholder_card() {
+    let (app, pool, code, alice, _bob, _alice_id, _bob_id) = lc_action_rig().await;
+
+    let mut st = lc_state(&pool, &code).await;
+    st.beat = Beat::Draw;
+    st.players[0].tabs = vec![]; // alice, seat 0 — settled, pre-Deal
+    let game_id = lc_game_id(&pool, &code).await;
+    drinkinggame::db::set_game_state(&pool, game_id, &st.to_json()).await;
+
+    let alice_hand = body_string(get_hand(&app, &alice, &code).await).await;
+    assert!(alice_hand.contains("data-tab-settled"), "{alice_hand}");
+    assert!(alice_hand.contains("TAB SETTLED"), "{alice_hand}");
+    assert!(!alice_hand.contains("data-tab=\""), "{alice_hand}");
 }

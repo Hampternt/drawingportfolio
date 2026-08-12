@@ -439,6 +439,18 @@ body.lc { margin: 0; min-height: 100vh; display: flex; flex-direction: column;
                  font-weight: 700; font-size: 18px; letter-spacing: .14em;
                  color: var(--lc-rose); pointer-events: none; }
 
+/* Plan H: the private tab card (decision H13) — hand pane only. Token names
+   corrected against this tree's actual custom properties (`--lc-hair`, not
+   the brief's `--lc-hairline`), same caveat as Task 4's strip. */
+.lc-tabcard { margin: 10px 14px; padding: 10px 12px; border-radius: 10px;
+              background: var(--lc-raised); border: 1px solid var(--lc-hair); }
+.lc-tabcard h2 { font-size: 10px; letter-spacing: .16em; color: var(--lc-faint); }
+.lc-tabcard-name { font-family: var(--font-display); font-weight: 900;
+                   font-size: 18px; letter-spacing: -.01em; color: var(--lc-text); }
+.lc-tabcard-text { font-size: 13px; color: var(--lc-faint); margin: 4px 0 6px; }
+.lc-tabcard-pay { font-family: var(--font-mono); font-size: 11px;
+                  letter-spacing: .1em; color: var(--lc-text); }
+
 /* slice 2 — the hand group (Module Spec C.1–C.3): ArmedColumn | HandWheel |
    CostRail. "One widget in three parts and always ship together." This
    replaces Plan A2's throwaway plain-list container; the CardFace inside the

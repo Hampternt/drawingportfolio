@@ -10,6 +10,7 @@ use crate::last_call::{
 };
 use crate::lc_events::event_def;
 use crate::lc_layout::{seat_positions, view_index, SeatPos};
+use crate::lc_tabs::{TabDef, TabReward};
 use crate::render::html_escape;
 
 /// The four `CardBack` sizes and their `data-size` slugs (§7.8): 16x24 for
@@ -1033,6 +1034,35 @@ pub fn lc_action_bar(ab: &ActionBarView) -> String {
     }
 }
 
+/// Plan H Task 5 / decision H13: the private tab card — a secret, per-seat
+/// side quest rendered ONLY into the viewer's own hand fragment (the
+/// `ActionBarView` precedent: a private-side builder that never touches
+/// `PublicView`). `hand_pane_html` is the sole caller, mirroring
+/// `pacts_section_html`'s contract — the seat is resolved by the caller from
+/// `PlayerSession`, never taken here as an id, so this function has no way
+/// to answer for anyone but the viewer it was called for.
+///
+/// Static catalog strings need no escaping today, but title/text still cross
+/// `html_escape` — the builder must not rely on the catalog staying tame
+/// (the same argument `lc_hand_pane` makes for card titles).
+pub fn lc_tab_panel(tab: Option<&TabDef>) -> String {
+    match tab {
+        Some(def) => {
+            let (amount, unit) = match def.reward {
+                TabReward::Hp(n) => (n, "HP"),
+                TabReward::Pulls(n) => (n as i32, "PULLS"),
+            };
+            format!(
+                r#"<section class="lc-tabcard" data-tab="{id}"><h2>YOUR TAB</h2><span class="lc-tabcard-name">{title}</span><p class="lc-tabcard-text">{text}</p><span class="lc-tabcard-pay">PAYS +{amount} {unit}</span></section>"#,
+                id = html_escape(def.id),
+                title = html_escape(def.title),
+                text = html_escape(def.text),
+            )
+        }
+        None => r#"<section class="lc-tabcard" data-tab-settled><h2>YOUR TAB</h2><p class="lc-tabcard-text">TAB SETTLED — a new one comes at the deal.</p></section>"#.to_string(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1280,6 +1310,12 @@ mod tests {
                 vessels_registered: 2,
                 outcome: None,
             }),
+            // Plan H Task 5: both of `lc_tab_panel`'s content-bearing states
+            // — a live tab and the settled placeholder — so the sweep
+            // actually exercises the new builder's markup (Task 4's fix
+            // round showed a strip-free fixture covers nothing).
+            lc_tab_panel(Some(crate::lc_tabs::tab_def("lie-low").unwrap())),
+            lc_tab_panel(None),
         ];
         for out in &outputs {
             // `action="` (not bare `action`) — a placeholder card body
@@ -2576,6 +2612,33 @@ mod tests {
         ab.charged = 1;
         let html = lc_action_bar(&ab);
         assert!(html.contains("DRINK 1"));
+        no_hex(&html);
+    }
+
+    #[test]
+    fn test_the_tab_card_states_its_deal() {
+        // Plan H Task 5: the three shapes `lc_tab_panel` can take — a live
+        // HP-reward tab, a live pulls-reward tab (both reward units, per the
+        // brief), and the settled placeholder.
+        let lie_low = crate::lc_tabs::tab_def("lie-low").unwrap();
+        let html = lc_tab_panel(Some(lie_low));
+        assert!(html.contains(r#"data-tab="lie-low""#));
+        assert!(html.contains("YOUR TAB"));
+        assert!(html.contains("LIE LOW"));
+        assert!(html.contains(lie_low.text));
+        assert!(html.contains("PAYS +2 HP"));
+        no_hex(&html);
+
+        let showboat = crate::lc_tabs::tab_def("showboat").unwrap();
+        let html = lc_tab_panel(Some(showboat));
+        assert!(html.contains(r#"data-tab="showboat""#));
+        assert!(html.contains("PAYS +2 PULLS"));
+        no_hex(&html);
+
+        let html = lc_tab_panel(None);
+        assert!(html.contains("data-tab-settled"));
+        assert!(html.contains("TAB SETTLED"));
+        assert!(!html.contains("data-tab="));
         no_hex(&html);
     }
 }

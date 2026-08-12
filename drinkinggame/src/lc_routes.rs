@@ -340,6 +340,12 @@ fn setup_rows(st: &LastCallState) -> Vec<SetupRow> {
 /// `.lc-actions`) and, when applicable, the Lock-beat target picker — both
 /// OUTSIDE `#lc-hand` itself, so `lcApply`'s `querySelector("#lc-hand")` seq
 /// gate is untouched and the extras ride the same stale-drop.
+///
+/// Plan H Task 5 (H13): also appends the private `.lc-tabcard` panel — the
+/// one surface tab identity may render on, gated on the viewer's own seat
+/// being `Status::Alive` (an unseated spectator never held a tab; an
+/// Eliminated one had theirs voided at elimination, H10). Rides the same
+/// private fetch, seq gate and stale-drop as the target picker above it.
 fn hand_pane_html(base_path: &str, code: &str, st: &LastCallState, player_id: i64) -> String {
     let rows = setup_rows(st);
     let seat = st.seat_of(player_id);
@@ -365,9 +371,24 @@ fn hand_pane_html(base_path: &str, code: &str, st: &LastCallState, player_id: i6
     let targets = seat
         .map(|s| targets_section_html(st, s))
         .unwrap_or_default();
+    // Plan H Task 5 / H13: the private tab card, gated the same way the
+    // action bar's per-viewer state is — seated and Alive only. An
+    // Eliminated viewer's tabs were already voided at elimination (H10), and
+    // the E7 "you're out" hint already tells them so; an unseated spectator
+    // never held one to begin with.
+    let tab_panel = match seat {
+        Some(s) if st.players[s].status == Status::Alive => {
+            let tab = st.players[s]
+                .tabs
+                .last()
+                .and_then(|id| crate::lc_tabs::tab_def(id));
+            lc_render::lc_tab_panel(tab)
+        }
+        _ => String::new(),
+    };
     let pacts = pacts_section_html(st, player_id);
     let bar = lc_render::lc_action_bar(&action_bar_view(st, player_id));
-    format!(r#"{pane}{targets}{pacts}<template data-lc-actions>{bar}</template>"#)
+    format!(r#"{pane}{targets}{pacts}{tab_panel}<template data-lc-actions>{bar}</template>"#)
 }
 
 /// Plan E Task 4: assembles the viewer's own `ActionBarView` from
