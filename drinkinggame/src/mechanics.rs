@@ -21,6 +21,10 @@ pub fn spawn_ticker(state: GameState) {
     });
 }
 
-async fn tick(_state: &GameState, _room_id: i64) {
-    // v1: nothing. Point-like mechanics land here without schema changes.
+/// Plan E's extension point: the Last Call beat clock. Ring of Fire and 3
+/// Man carry no per-second mechanic (rounds turn on explicit actions), so
+/// `lc_tick_room` — which returns immediately for any room not running an
+/// active Last Call game — is the entire body.
+async fn tick(state: &GameState, room_id: i64) {
+    crate::lc_routes::lc_tick_room(state, room_id).await;
 }

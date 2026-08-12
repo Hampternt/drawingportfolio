@@ -11,9 +11,9 @@
 #   2. cargo clippy               — lints (NOT -D warnings; see below)
 #   3. cargo test (SQLX_OFFLINE)  — the workspace suite, including the
 #                                   static-asset guards in tests/static_assets.rs
-#   4. node --check static/*.js   — JS syntax (a nested palette entry broke
-#                                   palette.js once, c72d614; nothing else
-#                                   catches it)
+#   4. node --check static/*.js drinkinggame/assets/*.js — JS syntax (a nested
+#                                   palette entry broke palette.js once,
+#                                   c72d614; nothing else catches it)
 #
 # clippy runs without `-D warnings` on purpose: the tree carries 19 pre-existing
 # warnings as of 2026-08-02. Promote it to `-D warnings` once that reaches zero —
@@ -46,7 +46,7 @@ SQLX_OFFLINE=true run "cargo test" cargo test --workspace
 printf '\n=== node --check (static JS)\n'
 if command -v node >/dev/null 2>&1; then
   js_bad=0
-  for f in static/*.js; do
+  for f in static/*.js drinkinggame/assets/*.js; do
     [[ -e "$f" ]] || continue
     if node --check "$f"; then
       printf 'ok   %s\n' "$f"

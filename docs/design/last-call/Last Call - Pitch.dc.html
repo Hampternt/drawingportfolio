@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+@font-face { font-family: 'Archivo'; font-weight: 600; src: url("drinkinggame/assets/fonts/archivo-600.woff2") format("woff2"); font-display: swap; }
+@font-face { font-family: 'Archivo'; font-weight: 800; src: url("drinkinggame/assets/fonts/archivo-800.woff2") format("woff2"); font-display: swap; }
+@font-face { font-family: 'Archivo'; font-weight: 900; src: url("drinkinggame/assets/fonts/archivo-900.woff2") format("woff2"); font-display: swap; }
+@font-face { font-family: 'Space Grotesk'; font-weight: 400; src: url("drinkinggame/assets/fonts/space-grotesk-400.woff2") format("woff2"); font-display: swap; }
+@font-face { font-family: 'Space Grotesk'; font-weight: 500; src: url("drinkinggame/assets/fonts/space-grotesk-500.woff2") format("woff2"); font-display: swap; }
+@font-face { font-family: 'Space Grotesk'; font-weight: 700; src: url("drinkinggame/assets/fonts/space-grotesk-700.woff2") format("woff2"); font-display: swap; }
+doc-page:not(:defined) { visibility: hidden; }
+body { margin: 0; background: #0f0d16; }
+doc-page { background: #0f0d16; }
+a { color: #b48ef7; text-decoration: underline; text-underline-offset: 2px; }
+a:hover { color: #ffb570; }
+</style>
+<script src="./doc-page.js"></script>
+</helmet>
+<doc-page size="letter">
+
+<section class="page" data-screen-label="01" style="background: #14111c; color: #ece8f5; padding: 42px 50px 34px; display: flex; flex-direction: column; gap: 18px;">
+
+  <header style="display: flex; justify-content: space-between; align-items: flex-end; gap: 24px; border-bottom: 2px solid rgba(242,238,248,.3); padding-bottom: 11px;">
+    <div style="min-width: 0;">
+      <div style="font: 700 9.5px 'Space Grotesk', sans-serif; letter-spacing: .18em; color: #8d87a0; text-transform: uppercase; margin-bottom: 7px;">A new game mode for Drinks &middot; tell me if you'd play it</div>
+      <h1 style="font: 900 60px/.86 'Archivo', sans-serif; letter-spacing: -.045em; margin: 0; text-transform: uppercase; color: #ece8f5; white-space: nowrap;">Last Call</h1>
+    </div>
+    <div style="flex: none; text-align: right; font: 700 10px/1.5 'Space Grotesk', sans-serif; letter-spacing: .12em; color: #8d87a0; text-transform: uppercase;">2&ndash;8 players<br>20&ndash;30 minutes<br>Phones, TV optional</div>
+  </header>
+
+  <p style="font: 500 22px/1.35 'Space Grotesk', sans-serif; color: #ece8f5; margin: 0; max-width: 26em; text-wrap: pretty;">It's a card game where <strong style="color:#ffb570;">the drink in front of you is your hand of cards</strong>. Three rules do the whole thing:</p>
+
+  <div style="background: #1d1929; border-radius: 13px; padding: 20px 22px;">
+    <div style="display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px;">
+      <span style="font: 900 20px/1 'Archivo', sans-serif; color: #ffb570;">1</span>
+      <span style="font: 900 19px/1 'Archivo', sans-serif; color: #ece8f5; text-transform: uppercase; letter-spacing: -.01em;">One drink = 8 mouthfuls = 8 cards</span>
+    </div>
+    <div style="display: flex; align-items: center; gap: 20px;">
+      <div style="display: flex; flex-direction: column; align-items: center; gap: 6px; flex: none;">
+        <div style="width: 24px; height: 6px; border-radius: 3px 3px 0 0; background: #6c6478;"></div>
+        <div style="width: 76px; height: 162px; border: 2px solid rgba(242,238,248,.35); border-radius: 8px; padding: 4px; display: flex; flex-direction: column; gap: 3px; box-sizing: border-box;">
+          <div style="flex: 1; border-radius: 2px; background: #ffb570;"></div>
+          <div style="flex: 1; border-radius: 2px; background: #ffb570;"></div>
+          <div style="flex: 1; border-radius: 2px; background: #ffb570;"></div>
+          <div style="flex: 1; border-radius: 2px; background: #ffb570;"></div>
+          <div style="flex: 1; border-radius: 2px; background: #ffb570;"></div>
+          <div style="flex: 1; border-radius: 2px; background: #ffb570;"></div>
+          <div style="flex: 1; border-radius: 2px; background: #ffb570;"></div>
+          <div style="flex: 1; border-radius: 2px; background: #ffb570;"></div>
+        </div>
+        <div style="font: 700 10px 'Space Grotesk', sans-serif; letter-spacing: .1em; color: #8d87a0; text-transform: uppercase;">Your can</div>
+      </div>
+
+      <div style="font: 900 34px 'Archivo', sans-serif; color: #6c6478; flex: none;">=</div>
+
+      <div style="flex: 1;">
+        <div style="display: flex; gap: 5px;">
+          <div style="flex: 1; height: 118px; border-radius: 5px; background: rgba(242,238,248,.09); border: 1px solid rgba(242,238,248,.22); display: flex; align-items: flex-end; justify-content: center; padding-bottom: 6px; font: 800 13px 'Archivo', sans-serif; color: #ffb570;">1</div>
+          <div style="flex: 1; height: 118px; border-radius: 5px; background: rgba(242,238,248,.09); border: 1px solid rgba(242,238,248,.22); display: flex; align-items: flex-end; justify-content: center; padding-bottom: 6px; font: 800 13px 'Archivo', sans-serif; color: #ffb570;">1</div>
+          <div style="flex: 1; height: 118px; border-radius: 5px; background: rgba(242,238,248,.09); border: 1px solid rgba(242,238,248,.22); display: flex; align-items: flex-end; justify-content: center; padding-bottom: 6px; font: 800 13px 'Archivo', sans-serif; color: #ffb570;">1</div>
+          <div style="flex: 1; height: 118px; border-radius: 5px; background: rgba(242,238,248,.09); border: 1px solid rgba(242,238,248,.22); display: flex; align-items: flex-end; justify-content: center; padding-bottom: 6px; font: 800 13px 'Archivo', sans-serif; color: #ffb570;">1</div>
+          <div style="flex: 1; height: 118px; border-radius: 5px; background: rgba(242,238,248,.09); border: 1px solid rgba(242,238,248,.22); display: flex; align-items: flex-end; justify-content: center; padding-bottom: 6px; font: 800 13px 'Archivo', sans-serif; color: #ffb570;">1</div>
+          <div style="flex: 1; height: 118px; border-radius: 5px; background: rgba(242,238,248,.09); border: 1px solid rgba(242,238,248,.22); display: flex; align-items: flex-end; justify-content: center; padding-bottom: 6px; font: 800 13px 'Archivo', sans-serif; color: #ffb570;">1</div>
+          <div style="flex: 1; height: 118px; border-radius: 5px; background: rgba(242,238,248,.09); border: 1px solid rgba(242,238,248,.22); display: flex; align-items: flex-end; justify-content: center; padding-bottom: 6px; font: 800 13px 'Archivo', sans-serif; color: #ffb570;">1</div>
+          <div style="flex: 1; height: 118px; border-radius: 5px; background: rgba(242,238,248,.09); border: 1px solid rgba(242,238,248,.22); display: flex; align-items: flex-end; justify-content: center; padding-bottom: 6px; font: 800 13px 'Archivo', sans-serif; color: #ffb570;">1</div>
+        </div>
+        <div style="font: 400 12.5px/1.4 'Space Grotesk', sans-serif; color: #a79fbb; margin-top: 8px;">Eight mouthfuls left in the can means you may hold eight cards. Half a can, four cards. Empty can, no cards. <strong style="color:#ece8f5;">That's the whole game.</strong></div>
+      </div>
+    </div>
+  </div>
+
+  <div style="background: #1d1929; border-radius: 13px; padding: 20px 22px;">
+    <div style="display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px;">
+      <span style="font: 900 20px/1 'Archivo', sans-serif; color: #ffb570;">2</span>
+      <span style="font: 900 19px/1 'Archivo', sans-serif; color: #ece8f5; text-transform: uppercase; letter-spacing: -.01em;">To play a card, you drink it</span>
+    </div>
+    <div style="display: flex; align-items: center; gap: 16px;">
+
+      <div style="flex: 1;">
+        <div style="font: 700 9.5px 'Space Grotesk', sans-serif; letter-spacing: .1em; color: #8d87a0; margin-bottom: 7px;">YOU PLAY A 3-CARD</div>
+        <div style="display: flex; gap: 5px; align-items: flex-end;">
+          <div style="flex: 3; height: 78px; border-radius: 5px; background: #c4382c; display: flex; align-items: center; justify-content: center; font: 900 20px 'Archivo', sans-serif; color: #f7f3ea;">3</div>
+          <div style="flex: 2; height: 60px; border-radius: 5px; background: rgba(242,238,248,.09); border: 1px solid rgba(242,238,248,.22); display: flex; align-items: center; justify-content: center; font: 800 13px 'Archivo', sans-serif; color: #8d87a0;">2</div>
+          <div style="flex: 1; height: 60px; border-radius: 5px; background: rgba(242,238,248,.09); border: 1px solid rgba(242,238,248,.22); display: flex; align-items: center; justify-content: center; font: 800 13px 'Archivo', sans-serif; color: #8d87a0;">1</div>
+          <div style="flex: 1; height: 60px; border-radius: 5px; background: rgba(242,238,248,.09); border: 1px solid rgba(242,238,248,.22); display: flex; align-items: center; justify-content: center; font: 800 13px 'Archivo', sans-serif; color: #8d87a0;">1</div>
+        </div>
+      </div>
+
+      <div style="font: 900 24px 'Archivo', sans-serif; color: #6c6478; flex: none;">&rarr;</div>
+
+      <div style="flex: 1;">
+        <div style="font: 700 9.5px 'Space Grotesk', sans-serif; letter-spacing: .1em; color: #d99a48; margin-bottom: 7px;">YOU TAKE 3 MOUTHFULS</div>
+        <div style="display: flex; gap: 3px; height: 46px; align-items: stretch;">
+          <span style="flex:1;border-radius:3px;background:#d99a48;display:flex;align-items:center;justify-content:center;font:800 11px 'Archivo',sans-serif;color:#191624;">1</span>
+          <span style="flex:1;border-radius:3px;background:#d99a48;display:flex;align-items:center;justify-content:center;font:800 11px 'Archivo',sans-serif;color:#191624;">2</span>
+          <span style="flex:1;border-radius:3px;background:#d99a48;display:flex;align-items:center;justify-content:center;font:800 11px 'Archivo',sans-serif;color:#191624;">3</span>
+          <span style="flex:1;border-radius:3px;background:rgba(242,238,248,.10);"></span>
+          <span style="flex:1;border-radius:3px;background:rgba(242,238,248,.10);"></span>
+          <span style="flex:1;border-radius:3px;background:rgba(242,238,248,.10);"></span>
+          <span style="flex:1;border-radius:3px;background:rgba(242,238,248,.10);"></span>
+          <span style="flex:1;border-radius:3px;background:rgba(242,238,248,.10);"></span>
+        </div>
+        <div style="font: 400 11.5px/1.35 'Space Grotesk', sans-serif; color: #a79fbb; margin-top: 6px;">Three gone from the can. Five left.</div>
+      </div>
+
+      <div style="font: 900 24px 'Archivo', sans-serif; color: #6c6478; flex: none;">&rarr;</div>
+
+      <div style="flex: 1;">
+        <div style="font: 700 9.5px 'Space Grotesk', sans-serif; letter-spacing: .1em; color: #ff6b5e; margin-bottom: 7px;">SO YOUR HAND SHRINKS TO 5</div>
+        <div style="display: flex; gap: 4px; align-items: flex-end;">
+          <div style="flex: 2; height: 60px; border-radius: 5px; background: rgba(242,238,248,.09); border: 1px solid rgba(242,238,248,.22); display: flex; align-items: center; justify-content: center; font: 800 13px 'Archivo', sans-serif; color: #ffb570;">2</div>
+          <div style="flex: 1; height: 60px; border-radius: 5px; background: rgba(242,238,248,.09); border: 1px solid rgba(242,238,248,.22); display: flex; align-items: center; justify-content: center; font: 800 13px 'Archivo', sans-serif; color: #ffb570;">1</div>
+          <div style="flex: 1; height: 60px; border-radius: 5px; background: rgba(242,238,248,.09); border: 1px solid rgba(242,238,248,.22); display: flex; align-items: center; justify-content: center; font: 800 13px 'Archivo', sans-serif; color: #ffb570;">1</div>
+          <div style="flex: 1; height: 60px; border-radius: 5px; background: rgba(242,238,248,.09); border: 1px solid rgba(242,238,248,.22); display: flex; align-items: center; justify-content: center; font: 800 13px 'Archivo', sans-serif; color: #ffb570;">1</div>
+        </div>
+        <div style="font: 400 11.5px/1.35 'Space Grotesk', sans-serif; color: #a79fbb; margin-top: 6px;">Attack hard and you go quiet next round.</div>
+      </div>
+    </div>
+  </div>
+
+  <div style="background: #1d1929; border-radius: 13px; padding: 20px 22px;">
+    <div style="display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px;">
+      <span style="font: 900 20px/1 'Archivo', sans-serif; color: #ffb570;">3</span>
+      <span style="font: 900 19px/1 'Archivo', sans-serif; color: #ece8f5; text-transform: uppercase; letter-spacing: -.01em;">Out of cards? Finish the can, open a new one</span>
+    </div>
+    <div style="display: flex; align-items: center; gap: 16px;">
+      <div style="flex: 1;">
+        <div style="font: 700 9.5px 'Space Grotesk', sans-serif; letter-spacing: .1em; color: #8d87a0; margin-bottom: 7px;">NEARLY EMPTY &mdash; 2 CARDS</div>
+        <div style="display: flex; gap: 3px; height: 26px; margin-bottom: 9px;"><span style="flex:1;border-radius:3px;background:#ffb570;"></span><span style="flex:1;border-radius:3px;background:#ffb570;"></span><span style="flex:1;border-radius:3px;background:rgba(242,238,248,.10);"></span><span style="flex:1;border-radius:3px;background:rgba(242,238,248,.10);"></span><span style="flex:1;border-radius:3px;background:rgba(242,238,248,.10);"></span><span style="flex:1;border-radius:3px;background:rgba(242,238,248,.10);"></span><span style="flex:1;border-radius:3px;background:rgba(242,238,248,.10);"></span><span style="flex:1;border-radius:3px;background:rgba(242,238,248,.10);"></span></div>
+        <div style="display: flex; gap: 4px;"><span style="flex:1;height:48px;border-radius:4px;background:rgba(242,238,248,.09);border:1px solid rgba(242,238,248,.22);"></span><span style="flex:1;height:48px;border-radius:4px;background:rgba(242,238,248,.09);border:1px solid rgba(242,238,248,.22);"></span><span style="flex:6;"></span></div>
+      </div>
+      <div style="flex: none; text-align: center;">
+        <div style="font: 900 15px 'Archivo', sans-serif; color: #d99a48; text-transform: uppercase;">Finish</div>
+        <div style="font: 900 24px 'Archivo', sans-serif; color: #6c6478;">&rarr;</div>
+      </div>
+      <div style="flex: 1;">
+        <div style="font: 700 9.5px 'Space Grotesk', sans-serif; letter-spacing: .1em; color: #d99a48; margin-bottom: 7px;">FRESH CAN &mdash; BACK TO 8</div>
+        <div style="display: flex; gap: 3px; height: 26px; margin-bottom: 9px;"><span style="flex:1;border-radius:3px;background:#ffb570;"></span><span style="flex:1;border-radius:3px;background:#ffb570;"></span><span style="flex:1;border-radius:3px;background:#ffb570;"></span><span style="flex:1;border-radius:3px;background:#ffb570;"></span><span style="flex:1;border-radius:3px;background:#ffb570;"></span><span style="flex:1;border-radius:3px;background:#ffb570;"></span><span style="flex:1;border-radius:3px;background:#ffb570;"></span><span style="flex:1;border-radius:3px;background:#ffb570;"></span></div>
+        <div style="display: flex; gap: 4px;"><span style="flex:3;height:48px;border-radius:4px;background:#c4382c;"></span><span style="flex:2;height:48px;border-radius:4px;background:#d99a48;"></span><span style="flex:2;height:48px;border-radius:4px;background:#d99a48;"></span><span style="flex:1;height:48px;border-radius:4px;background:rgba(242,238,248,.09);border:1px solid rgba(242,238,248,.22);"></span></div>
+      </div>
+      <div style="flex: 1.1; border-left: 1px solid rgba(242,238,248,.17); padding-left: 16px;">
+        <p style="font: 400 12.5px/1.45 'Space Grotesk', sans-serif; color: #a79fbb; margin: 0;">Losing badly is always fixable &mdash; you just have to drink for it. Finishing the can is the comeback button, and the whole table watches you press it.</p>
+      </div>
+    </div>
+  </div>
+
+  <div style="margin-top: auto; display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; border-top: 1px solid rgba(242,238,248,.17); padding-top: 13px;">
+    <div>
+      <div style="font: 800 14px 'Archivo', sans-serif; color: #ffb570; margin-bottom: 3px;">You drink because you chose to</div>
+      <p style="font: 400 12px/1.4 'Space Grotesk', sans-serif; color: #a79fbb; margin: 0;">Never as a punishment for losing. Drinking is what buys you the fun stuff.</p>
+    </div>
+    <div>
+      <div style="font: 800 14px 'Archivo', sans-serif; color: #b48ef7; margin-bottom: 3px;">Nobody waits their turn</div>
+      <p style="font: 400 12px/1.4 'Space Grotesk', sans-serif; color: #a79fbb; margin: 0;">Up to eight people all play at the same time, then it resolves together.</p>
+    </div>
+    <div>
+      <div style="font: 800 14px 'Archivo', sans-serif; color: #6fb6ff; margin-bottom: 3px;">It balances itself</div>
+      <p style="font: 400 12px/1.4 'Space Grotesk', sans-serif; color: #a79fbb; margin: 0;">The most aggressive player is the drunkest one. Nobody has to police anything.</p>
+    </div>
+  </div>
+</section>
+
+<section class="page" data-screen-label="02" style="background: #14111c; color: #ece8f5; padding: 42px 50px 34px; display: flex; flex-direction: column; gap: 15px;">
+
+  <div style="display: flex; justify-content: space-between; align-items: baseline; border-bottom: 2px solid rgba(242,238,248,.3); padding-bottom: 10px;">
+    <div style="font: 900 22px 'Archivo', sans-serif; letter-spacing: -.02em; text-transform: uppercase; color: #ece8f5;">How a round actually goes</div>
+    <div style="font: 700 9.5px 'Space Grotesk', sans-serif; letter-spacing: .16em; color: #8d87a0; text-transform: uppercase;">Three to five minutes &middot; everyone plays at once</div>
+  </div>
+
+  <div>
+    <div style="display: flex; gap: 4px; height: 12px; margin-bottom: 10px;">
+      <div style="flex: 20; border-radius: 3px; background: rgba(242,238,248,.32);"></div>
+      <div style="flex: 10; border-radius: 3px; background: #ffb570;"></div>
+      <div style="flex: 55; border-radius: 3px; background: #b48ef7;"></div>
+      <div style="flex: 30; border-radius: 3px; background: #8f6fd6;"></div>
+      <div style="flex: 20; border-radius: 3px; background: #d99a48;"></div>
+      <div style="flex: 15; border-radius: 3px; background: #ff6b5e;"></div>
+    </div>
+    <div style="display: flex; gap: 4px;">
+      <div style="flex: 20;">
+        <div style="font: 900 15px/1 'Archivo', sans-serif; text-transform: uppercase; margin-bottom: 4px;">Draw <span style="font: 700 10px 'Space Grotesk', sans-serif; color: #8d87a0;">20s</span></div>
+        <p style="font: 400 11.5px/1.35 'Space Grotesk', sans-serif; color: #a79fbb; margin: 0;">Bin what you don't want. Finish the can for a fresh hand, or keep what you have.</p>
+      </div>
+      <div style="flex: 10;">
+        <div style="font: 900 15px/1 'Archivo', sans-serif; text-transform: uppercase; margin-bottom: 4px;">Deal</div>
+        <p style="font: 400 11.5px/1.35 'Space Grotesk', sans-serif; color: #a79fbb; margin: 0;">Tonight's rule change flips face up for everyone.</p>
+      </div>
+      <div style="flex: 55;">
+        <div style="font: 900 15px/1 'Archivo', sans-serif; text-transform: uppercase; margin-bottom: 4px;">Diplomacy <span style="font: 700 10px 'Space Grotesk', sans-serif; color: #8d87a0;">3 min cap</span></div>
+        <p style="font: 400 11.5px/1.35 'Space Grotesk', sans-serif; color: #a79fbb; margin: 0;">Talk. Deal, threaten, lie, show a card. Nothing said here is binding, which is the point.</p>
+      </div>
+      <div style="flex: 30;">
+        <div style="font: 900 15px/1 'Archivo', sans-serif; text-transform: uppercase; margin-bottom: 4px;">Lock <span style="font: 700 10px 'Space Grotesk', sans-serif; color: #8d87a0;">60s</span></div>
+        <p style="font: 400 11.5px/1.35 'Space Grotesk', sans-serif; color: #a79fbb; margin: 0;">Cards and targets, in secret. Everything flips at once when the last player locks.</p>
+      </div>
+      <div style="flex: 20;">
+        <div style="font: 900 15px/1 'Archivo', sans-serif; text-transform: uppercase; margin-bottom: 4px;">Respond <span style="font: 700 10px 'Space Grotesk', sans-serif; color: #8d87a0;">20s</span></div>
+        <p style="font: 400 11.5px/1.35 'Space Grotesk', sans-serif; color: #a79fbb; margin: 0;">You can see what's aimed at you. Twenty seconds to block, redirect, or scream.</p>
+      </div>
+      <div style="flex: 15;">
+        <div style="font: 900 15px/1 'Archivo', sans-serif; text-transform: uppercase; margin-bottom: 4px;">Resolve</div>
+        <p style="font: 400 11.5px/1.35 'Space Grotesk', sans-serif; color: #a79fbb; margin: 0;">Damage lands, everyone drinks what they spent.</p>
+      </div>
+    </div>
+  </div>
+
+  <div style="background: #1d1929; border-radius: 13px; padding: 16px 19px;">
+    <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 12px;">
+      <div style="font: 700 9.5px 'Space Grotesk', sans-serif; letter-spacing: .16em; color: #8d87a0; text-transform: uppercase;">What the table looks like at reveal</div>
+      <div style="font: 700 9.5px 'Space Grotesk', sans-serif; letter-spacing: .12em; color: #8d87a0; text-transform: uppercase;">Everyone starts on 20 health &middot; 0 = out &middot; last one standing wins</div>
+    </div>
+    <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; align-items: end;">
+      <div style="text-align: center;">
+        <div style="font: 400 10.5px 'Space Grotesk', sans-serif; color: #a79fbb; margin-bottom: 5px; height: 13px;"></div>
+        <div style="height: 70px; display: flex; align-items: flex-end;"><div style="width: 100%; height: 70%; border-radius: 5px 5px 0 0; background: #ffb570;"></div></div>
+        <div style="font: 800 13px 'Archivo', sans-serif; margin-top: 5px;">Sara <span style="color:#8d87a0;">14</span></div>
+      </div>
+      <div style="text-align: center;">
+        <div style="font: 400 10.5px 'Space Grotesk', sans-serif; color: #ff6b5e; margin-bottom: 5px; height: 13px;">&darr; hit for 4</div>
+        <div style="height: 70px; display: flex; align-items: flex-end;"><div style="width: 100%; height: 30%; border-radius: 5px 5px 0 0; background: #ff6b5e;"></div></div>
+        <div style="font: 800 13px 'Archivo', sans-serif; margin-top: 5px;">Ben <span style="color:#8d87a0;">6</span></div>
+      </div>
+      <div style="text-align: center;">
+        <div style="font: 400 10.5px 'Space Grotesk', sans-serif; color: #6fb6ff; margin-bottom: 5px; height: 13px;">blocked it</div>
+        <div style="height: 70px; display: flex; align-items: flex-end;"><div style="width: 100%; height: 90%; border-radius: 5px 5px 0 0; background: #6fb6ff;"></div></div>
+        <div style="font: 800 13px 'Archivo', sans-serif; margin-top: 5px;">Ana <span style="color:#8d87a0;">18</span></div>
+      </div>
+      <div style="text-align: center;">
+        <div style="font: 400 10.5px 'Space Grotesk', sans-serif; color: #a79fbb; margin-bottom: 5px; height: 13px;"></div>
+        <div style="height: 70px; display: flex; align-items: flex-end;"><div style="width: 100%; height: 55%; border-radius: 5px 5px 0 0; background: #b48ef7;"></div></div>
+        <div style="font: 800 13px 'Archivo', sans-serif; margin-top: 5px;">Tom <span style="color:#8d87a0;">11</span></div>
+      </div>
+      <div style="text-align: center;">
+        <div style="font: 400 10.5px 'Space Grotesk', sans-serif; color: #8d87a0; margin-bottom: 5px; height: 13px;">ghost</div>
+        <div style="height: 70px; display: flex; align-items: flex-end;"><div style="width: 100%; height: 4px; border-radius: 3px; background: rgba(242,238,248,.2);"></div></div>
+        <div style="font: 800 13px 'Archivo', sans-serif; margin-top: 5px; color: #8d87a0;">Joe <span>0</span></div>
+      </div>
+    </div>
+    <p style="font: 400 12px/1.45 'Space Grotesk', sans-serif; color: #a79fbb; margin: 11px 0 0;">Your phone is your hand, and only you see it. The TV &mdash; if there is one &mdash; shows the bars, the clock, and who hasn't locked in. Knocked out? You become a <strong style="color:#ece8f5;">ghost</strong>: one vote a round to add damage to someone else's attack, so you're still in it.</p>
+  </div>
+
+  <div>
+    <div style="font: 700 9.5px 'Space Grotesk', sans-serif; letter-spacing: .16em; color: #8d87a0; text-transform: uppercase; margin-bottom: 10px;">Pick the deck that matches what you're actually drinking &mdash; the glass decides your hand size</div>
+    <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px;">
+
+      <div style="border: 1px solid rgba(242,238,248,.18); border-radius: 11px; padding: 11px; display: flex; flex-direction: column; align-items: center; gap: 7px;">
+        <div style="width: 28px; height: 50px; border: 2px solid rgba(242,238,248,.35); border-radius: 5px; padding: 2px; display: flex; flex-direction: column; gap: 1.5px; box-sizing: border-box;"><span style="flex:1;background:#ffb570;border-radius:1px;"></span><span style="flex:1;background:#ffb570;border-radius:1px;"></span><span style="flex:1;background:#ffb570;border-radius:1px;"></span><span style="flex:1;background:#ffb570;border-radius:1px;"></span><span style="flex:1;background:#ffb570;border-radius:1px;"></span><span style="flex:1;background:#ffb570;border-radius:1px;"></span><span style="flex:1;background:#ffb570;border-radius:1px;"></span><span style="flex:1;background:#ffb570;border-radius:1px;"></span></div>
+        <div style="font: 800 14px 'Archivo', sans-serif; color: #ece8f5;">Beer <span style="color:#ffb570;">8</span></div>
+        <p style="font: 400 11.5px/1.35 'Space Grotesk', sans-serif; color: #a79fbb; margin: 0; text-align: center;">Lots of small hits. Never runs out.</p>
+      </div>
+
+      <div style="border: 1px solid rgba(242,238,248,.18); border-radius: 11px; padding: 11px; display: flex; flex-direction: column; align-items: center; gap: 7px;">
+        <div style="width: 24px; height: 56px; border: 2px solid rgba(242,238,248,.35); border-radius: 4px 4px 6px 6px; padding: 2px; display: flex; flex-direction: column; gap: 1.5px; box-sizing: border-box;"><span style="flex:1;background:#b48ef7;border-radius:1px;"></span><span style="flex:1;background:#b48ef7;border-radius:1px;"></span><span style="flex:1;background:#b48ef7;border-radius:1px;"></span><span style="flex:1;background:#b48ef7;border-radius:1px;"></span><span style="flex:1;background:#b48ef7;border-radius:1px;"></span><span style="flex:1;background:#b48ef7;border-radius:1px;"></span><span style="flex:1;background:#b48ef7;border-radius:1px;"></span><span style="flex:1;background:#b48ef7;border-radius:1px;"></span><span style="flex:1;background:#b48ef7;border-radius:1px;"></span><span style="flex:1;background:#b48ef7;border-radius:1px;"></span></div>
+        <div style="font: 800 14px 'Archivo', sans-serif; color: #ece8f5;">Cider <span style="color:#b48ef7;">10</span></div>
+        <p style="font: 400 11.5px/1.35 'Space Grotesk', sans-serif; color: #a79fbb; margin: 0; text-align: center;">Sneaky. Points attacks at someone else.</p>
+      </div>
+
+      <div style="border: 1px solid rgba(242,238,248,.18); border-radius: 11px; padding: 11px; display: flex; flex-direction: column; align-items: center; gap: 7px;">
+        <div style="width: 32px; height: 26px; border: 2px solid rgba(242,238,248,.35); border-radius: 3px 3px 5px 5px; padding: 2px; display: flex; flex-direction: column; gap: 1.5px; box-sizing: border-box; margin-bottom: 24px;"><span style="flex:1;background:#ff6b5e;border-radius:1px;"></span><span style="flex:1;background:#ff6b5e;border-radius:1px;"></span><span style="flex:1;background:#ff6b5e;border-radius:1px;"></span><span style="flex:1;background:#ff6b5e;border-radius:1px;"></span></div>
+        <div style="font: 800 14px 'Archivo', sans-serif; color: #ece8f5;">Liquor <span style="color:#ff6b5e;">4</span></div>
+        <p style="font: 400 11.5px/1.35 'Space Grotesk', sans-serif; color: #a79fbb; margin: 0; text-align: center;">Few cards, all of them nasty.</p>
+      </div>
+
+      <div style="border: 1px solid rgba(242,238,248,.18); border-radius: 11px; padding: 11px; display: flex; flex-direction: column; align-items: center; gap: 7px;">
+        <div style="width: 30px; height: 36px; border: 2px solid rgba(242,238,248,.35); border-radius: 3px 3px 14px 14px; padding: 2px; display: flex; flex-direction: column; gap: 1.5px; box-sizing: border-box; margin-bottom: 14px;"><span style="flex:1;background:#c25478;border-radius:1px;"></span><span style="flex:1;background:#c25478;border-radius:1px;"></span><span style="flex:1;background:#c25478;border-radius:1px;"></span><span style="flex:1;background:#c25478;border-radius:1px;"></span><span style="flex:1;background:#c25478;border-radius:1px;"></span><span style="flex:1;background:#c25478;border-radius:1px;"></span></div>
+        <div style="font: 800 14px 'Archivo', sans-serif; color: #ece8f5;">Wine <span style="color:#c25478;">6</span></div>
+        <p style="font: 400 11.5px/1.35 'Space Grotesk', sans-serif; color: #a79fbb; margin: 0; text-align: center;">Slow curses that go off later.</p>
+      </div>
+
+      <div style="border: 1px solid rgba(180,142,247,.35); background: rgba(180,142,247,.10); border-radius: 11px; padding: 11px; display: flex; flex-direction: column; align-items: center; gap: 7px;">
+        <div style="width: 30px; height: 36px; border: 2px solid rgba(242,238,248,.35); border-radius: 3px 3px 5px 5px; padding: 2px; display: flex; flex-direction: column; gap: 1.5px; box-sizing: border-box; margin-bottom: 14px;"><span style="flex:1;background:#6fb6ff;border-radius:1px;"></span><span style="flex:1;background:#6fb6ff;border-radius:1px;"></span><span style="flex:1;background:#6fb6ff;border-radius:1px;"></span><span style="flex:1;background:#6fb6ff;border-radius:1px;"></span><span style="flex:1;background:#6fb6ff;border-radius:1px;"></span><span style="flex:1;background:#6fb6ff;border-radius:1px;"></span></div>
+        <div style="font: 800 14px 'Archivo', sans-serif; color: #ece8f5;">Soft <span style="color:#6fb6ff;">6</span></div>
+        <p style="font: 400 11.5px/1.35 'Space Grotesk', sans-serif; color: #a79fbb; margin: 0; text-align: center;">No alcohol. Shields and sabotage &mdash; still a real deck.</p>
+      </div>
+    </div>
+  </div>
+
+  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px;">
+    <div style="background: #1d1929; border-radius: 12px; padding: 14px 16px;">
+      <div style="font: 700 9.5px 'Space Grotesk', sans-serif; letter-spacing: .14em; color: #8d87a0; text-transform: uppercase; margin-bottom: 5px;">Loud &middot; every third round &middot; everyone</div>
+      <div style="font: 900 20px/1 'Archivo', sans-serif; color: #ffb570; margin-bottom: 6px;">THE BELL</div>
+      <p style="font: 400 12px/1.45 'Space Grotesk', sans-serif; color: #a79fbb; margin: 0 0 8px;">The app changes one rule for the whole table, announced before you take your cards:</p>
+      <div style="display: flex; flex-wrap: wrap; gap: 5px;">
+        <span style="font: 700 10.5px 'Space Grotesk', sans-serif; color: #ece8f5; background: rgba(242,238,248,.08); border-radius: 20px; padding: 4px 9px;">Happy Hour &mdash; cards cost half</span>
+        <span style="font: 700 10.5px 'Space Grotesk', sans-serif; color: #ece8f5; background: rgba(242,238,248,.08); border-radius: 20px; padding: 4px 9px;">Lights Up &mdash; hands face up</span>
+        <span style="font: 700 10.5px 'Space Grotesk', sans-serif; color: #ece8f5; background: rgba(242,238,248,.08); border-radius: 20px; padding: 4px 9px;">Lock-In &mdash; no blocking</span>
+        <span style="font: 700 10.5px 'Space Grotesk', sans-serif; color: #ece8f5; background: rgba(242,238,248,.08); border-radius: 20px; padding: 4px 9px;">Bar Tab &mdash; bounty on one player</span>
+      </div>
+    </div>
+    <div style="background: #1d1929; border-radius: 12px; padding: 14px 16px;">
+      <div style="font: 700 9.5px 'Space Grotesk', sans-serif; letter-spacing: .14em; color: #8d87a0; text-transform: uppercase; margin-bottom: 5px;">Quiet &middot; all game &middot; only you see it</div>
+      <div style="font: 900 20px/1 'Archivo', sans-serif; color: #b48ef7; margin-bottom: 6px;">YOUR TAB</div>
+      <p style="font: 400 12px/1.45 'Space Grotesk', sans-serif; color: #a79fbb; margin: 0 0 8px;">A secret job only you can see. Sometimes a grudge, sometimes a partner &mdash; and it won't tell you who they are.</p>
+      <div style="border-left: 3px solid #b48ef7; padding-left: 10px; font: 400 12px/1.4 'Space Grotesk', sans-serif; color: #ece8f5;"><em>&ldquo;Land the killing hit on Ben. +4 health.&rdquo;</em><br><em>&ldquo;If you and your partner are the last two standing, you both win.&rdquo;</em></div>
+    </div>
+  </div>
+
+  <div style="margin-top: auto; background: rgba(180,142,247,.10); border: 1px solid rgba(180,142,247,.35); border-radius: 12px; padding: 13px 16px; display: flex; gap: 20px; align-items: center;">
+    <div style="font: 900 17px/1.1 'Archivo', sans-serif; color: #b48ef7; text-transform: uppercase; white-space: nowrap;">What I want<br>from you</div>
+    <ul style="margin: 0; padding-left: 16px; font: 400 12.5px/1.5 'Space Grotesk', sans-serif; color: #ece8f5; columns: 2; column-gap: 20px;">
+      <li>Would you play this on a normal night, or is it too much thinking?</li>
+      <li>Is finishing-the-can-to-refill a great idea or a terrible one?</li>
+      <li>Does a three-to-five minute round feel right, or too long?</li>
+      <li>Who's in for a paper playtest &mdash; index cards, five people, one evening?</li>
+    </ul>
+  </div>
+</section>
+
+</doc-page>
+</x-dc>
+</body>
+</html>

@@ -1,0 +1,1109 @@
+/* Last Call — its own sheet, not an extension of game.css: the shell is its
+   own page with its own <link>, game.css is already 832 lines, and one
+   nested comment-open marker once silently dropped .card-big. Smaller
+   sheets, not one larger one. */
+
+/* tokens */
+:root {
+  color-scheme: dark;
+  --lc-page: #0B0910;
+  --lc-device: #0E0C14;
+  --lc-panel: #16121F;
+  --lc-panel-alt: #17141F;
+  --lc-raised: #251F35;
+  --lc-focused: #2E2742;
+  --lc-back: #1B1628;
+  --lc-rail: #2A2340;
+  --lc-text: #F2EEF8;
+  --lc-body: #CDC6DD;
+  --lc-secondary: #A79FBB;
+  --lc-label: #8D87A0;
+  --lc-faint: #6A6480;
+  --lc-mint: #4FD6A8;
+  --lc-amber: #FFB570;
+  --lc-rose: #F7768E;
+  --lc-azure: #6FB6FF;
+  --lc-violet: #B48EF7;
+  --lc-hair: rgba(242, 238, 248, .10);
+  --lc-hair-strong: rgba(242, 238, 248, .22);
+  --lc-hair-max: rgba(242, 238, 248, .28);
+  --lc-hair-slot: rgba(242, 238, 248, .16);   /* the armed column's dashed slot (README) */
+  --lc-lift-sm: 0 3px 0 rgba(5, 3, 10, .5), 0 8px 16px rgba(5, 3, 10, .42);
+  --lc-lift-lg: 0 6px 0 rgba(5, 3, 10, .6), 0 22px 40px rgba(5, 3, 10, .55);
+  --lc-ease: cubic-bezier(.2, .8, .3, 1);
+  --font-display: 'Archivo', system-ui, sans-serif;
+  --font-ui: 'Space Grotesk', system-ui, sans-serif;
+  --font-mono: ui-monospace, 'IBM Plex Mono', SFMono-Regular, Menlo, monospace;
+}
+
+/* deck ramps — the only taxonomy. fill for solid areas, ink on the dark
+   ground; they differ for Wine only, which is too dark to read as text on
+   near-black. Renderers emit these class names and never a hex value.
+   The four --lc-ink-NN entries are §7.6's deck-tinted border alphas: 59
+   subtle, 66 plaque, 80/99 card back. Written out per deck rather than
+   composed with color-mix() so they resolve everywhere, and so a reader can
+   see which hue each alpha applies to — Wine's is the INK (#D4657F), not the
+   fill, which is the one place a copy-paste goes wrong. Soft's --lc-on-fill
+   is #0D1620, not #14101D, for the same reason. */
+.lc-deck-beer {
+  --lc-fill: #FFB570; --lc-ink: #FFB570; --lc-on-fill: #14101D; --lc-grid: #FFB5701a;
+  --lc-ink-59: #FFB57059; --lc-ink-66: #FFB57066; --lc-ink-80: #FFB57080; --lc-ink-99: #FFB57099;
+}
+.lc-deck-cider {
+  --lc-fill: #B48EF7; --lc-ink: #B48EF7; --lc-on-fill: #14101D; --lc-grid: #B48EF71a;
+  --lc-ink-59: #B48EF759; --lc-ink-66: #B48EF766; --lc-ink-80: #B48EF780; --lc-ink-99: #B48EF799;
+}
+.lc-deck-wine {
+  --lc-fill: #8B2F4A; --lc-ink: #D4657F; --lc-on-fill: #F2EEF8; --lc-grid: #8B2F4A1a;
+  --lc-ink-59: #D4657F59; --lc-ink-66: #D4657F66; --lc-ink-80: #D4657F80; --lc-ink-99: #D4657F99;
+}
+.lc-deck-liquor {
+  --lc-fill: #F7768E; --lc-ink: #F7768E; --lc-on-fill: #14101D; --lc-grid: #F7768E1a;
+  --lc-ink-59: #F7768E59; --lc-ink-66: #F7768E66; --lc-ink-80: #F7768E80; --lc-ink-99: #F7768E99;
+}
+.lc-deck-soft {
+  --lc-fill: #6FB6FF; --lc-ink: #6FB6FF; --lc-on-fill: #0D1620; --lc-grid: #6FB6FF1a;
+  --lc-ink-59: #6FB6FF59; --lc-ink-66: #6FB6FF66; --lc-ink-80: #6FB6FF80; --lc-ink-99: #6FB6FF99;
+}
+
+/* beat hues — Deal has no hue in the bundle and inherits Draw's amber */
+.lc-beat-amber  { --lc-beat: #FFB570; }
+.lc-beat-mint   { --lc-beat: #4FD6A8; }
+.lc-beat-violet { --lc-beat: #B48EF7; }
+.lc-beat-azure  { --lc-beat: #6FB6FF; }
+.lc-beat-rose   { --lc-beat: #F7768E; }
+
+/* fonts — a Last Call page links only this sheet, so it needs its own
+   declarations (copied verbatim from game.css:38-46); the relative
+   url("fonts/…") paths resolve because /assets/lastcall.css is served from
+   the same URL directory as /assets/fonts/{name}. */
+@font-face { font-family: 'Archivo'; font-weight: 500; font-style: normal; font-display: swap; src: url("fonts/archivo-500.woff2") format("woff2"); }
+@font-face { font-family: 'Archivo'; font-weight: 600; font-style: normal; font-display: swap; src: url("fonts/archivo-600.woff2") format("woff2"); }
+@font-face { font-family: 'Archivo'; font-weight: 700; font-style: normal; font-display: swap; src: url("fonts/archivo-700.woff2") format("woff2"); }
+@font-face { font-family: 'Archivo'; font-weight: 800; font-style: normal; font-display: swap; src: url("fonts/archivo-800.woff2") format("woff2"); }
+@font-face { font-family: 'Archivo'; font-weight: 900; font-style: normal; font-display: swap; src: url("fonts/archivo-900.woff2") format("woff2"); }
+@font-face { font-family: 'Space Grotesk'; font-weight: 400; font-style: normal; font-display: swap; src: url("fonts/space-grotesk-400.woff2") format("woff2"); }
+@font-face { font-family: 'Space Grotesk'; font-weight: 500; font-style: normal; font-display: swap; src: url("fonts/space-grotesk-500.woff2") format("woff2"); }
+@font-face { font-family: 'Space Grotesk'; font-weight: 600; font-style: normal; font-display: swap; src: url("fonts/space-grotesk-600.woff2") format("woff2"); }
+@font-face { font-family: 'Space Grotesk'; font-weight: 700; font-style: normal; font-display: swap; src: url("fonts/space-grotesk-700.woff2") format("woff2"); }
+
+/* base — lastcall.css is standalone: a Last Call page links only this file,
+   so it inherits nothing from game.css. Without box-sizing: border-box every
+   authored size in §7.1 is wrong (.lc-cardface would render 208px tall
+   instead of 176px); without the appearance reset, color-scheme: dark makes
+   the OS paint native controls over .lc-setup select/input/button. */
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+p, h1, h2, h3 { margin: 0; }
+ul, ol { margin: 0; padding: 0; list-style: none; }
+/* Reset native widget painting so author background/color always win —
+   without this, OS/browser dark-mode theming (color-scheme: dark) paints
+   buttons and inputs with a native dark control instead of our palette. */
+button, input, select, textarea { font-family: inherit; color: inherit;
+                                  -webkit-appearance: none; appearance: none; }
+button { cursor: pointer; }
+button:active { transform: scale(.97); }
+
+/* scene primitives — grounds, panels, hairlines */
+.lc-ground     { background: var(--lc-page); }
+.lc-device     { background: var(--lc-device); }
+.lc-panel      { background: var(--lc-panel); border-radius: 8px; }
+.lc-panel-alt  { background: var(--lc-panel-alt); border-radius: 6px; }
+.lc-raised     { background: var(--lc-raised); }
+.lc-focused    { background: var(--lc-focused); }
+.lc-hairline   { border: 1px solid var(--lc-hair); }
+.lc-hairline-strong { border: 1px solid var(--lc-hair-strong); }
+/* deck-tinted borders — §7.6's alpha ladder, bound in the ramp blocks above.
+   Four rungs (59/66/80/99) per the plan's Global Constraints and Task 3
+   Step 1 — .lc-edge-strong was the missing fourth, added by Plan A-vis's
+   fix wave to close the gap Task 3 correctly reported rather than inventing. */
+.lc-edge-subtle { border: 1px solid var(--lc-ink-59); }
+.lc-edge-plaque { border: 1px solid var(--lc-ink-66); }
+.lc-edge-back   { border: 1px solid var(--lc-ink-80); }
+.lc-edge-strong { border: 1px solid var(--lc-ink-99); }
+
+/* the felt — a background primitive. Seat positioning is Plan B. */
+#lc-felt {
+  position: relative;
+  border-radius: 280px;
+  border: 11px solid var(--lc-rail);
+  background: radial-gradient(ellipse at 50% 44%, #272038 0%, #191430 52%, #100C1B 100%);
+  box-shadow:
+    inset 0 0 0 2px rgba(242, 238, 248, .14),
+    inset 0 50px 110px rgba(5, 3, 10, .5),
+    0 26px 80px rgba(5, 3, 10, .75);
+}
+/* the second hairline ellipse, inset a further 56px */
+#lc-felt::after {
+  content: ""; position: absolute; inset: 56px;
+  border-radius: 280px;
+  border: 1px solid var(--lc-hair);
+  pointer-events: none;
+}
+/* the flight layer sits above the felt and eats no pointer events */
+#lc-flights { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+
+/* card primitives (spec §7.1, module spec B) — note the §7.8 roots:
+   .lc-cardface, not .lc-card-face; CardBack selects its size from
+   [data-size], not a modifier class, because the contract makes data-size
+   a required attribute. */
+.lc-cardface {
+  position: relative; height: 176px; padding: 16px 18px; border-radius: 14px;
+  background: var(--lc-raised); border: 1px solid var(--lc-hair-strong);
+  box-shadow: var(--lc-lift-sm); display: flex; flex-direction: column; gap: 8px;
+  transition: background 190ms var(--lc-ease), border-color 190ms var(--lc-ease);
+}
+.lc-cardface .lc-face-top { display: flex; align-items: center; justify-content: space-between; }
+.lc-cardface .lc-face-deck {
+  font-family: var(--font-ui); font-weight: 700; font-size: 10px;
+  letter-spacing: .13em; text-transform: uppercase; color: var(--lc-ink);
+}
+.lc-cardface .lc-face-title {
+  font-family: var(--font-display); font-weight: 900; letter-spacing: -.03em;
+  color: var(--lc-text); line-height: 1.02;
+}
+.lc-cardface .lc-face-body {
+  font-family: var(--font-ui); font-weight: 400; font-size: 15px;
+  line-height: 1.35; color: var(--lc-body);
+}
+.lc-cardface .lc-face-kws { display: flex; flex-wrap: wrap; gap: 6px; }
+.lc-kw {
+  display: inline-block; padding: 2px 8px; border-radius: 999px;
+  font-family: var(--font-ui); font-weight: 700; font-size: 9.5px;
+  letter-spacing: .12em; text-transform: uppercase;
+  color: var(--lc-ink); border: 1px solid var(--lc-hair);
+}
+
+.lc-pip {
+  display: inline-block; padding: 2px 11px; border-radius: 5px;
+  background: var(--lc-fill); color: var(--lc-on-fill);
+  font-family: var(--font-display); font-weight: 900; font-size: 17px;
+}
+
+.lc-mini {
+  width: 62px; padding: 7px 5px; border-radius: 6px;
+  background: var(--lc-panel-alt); border: 1.5px solid var(--lc-ink);
+  box-shadow: var(--lc-lift-sm); text-align: left;
+}
+.lc-mini .lc-mini-cost {
+  font-family: var(--font-display); font-weight: 800; font-size: 9px; color: var(--lc-ink);
+}
+.lc-mini .lc-mini-title {
+  font-family: var(--font-display); font-weight: 800; font-size: 10px; line-height: 1.1;
+  color: var(--lc-text); display: -webkit-box; -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical; overflow: hidden;
+}
+
+/* The grid IS the card back — keep it at every size. Both custom properties
+   carry a fallback because DiscardSlot's back (lc_render.rs discard_slot())
+   is deliberately deckless — no ancestor supplies --lc-ink-80/--lc-grid, and
+   an unresolved var() in the border shorthand invalidates the whole
+   declaration at computed-value time (a bare border: 1px solid var(--x)
+   with no fallback becomes border: medium none currentColor when --x is
+   unset), which is how the discard hairline once rendered as a 3px dashed
+   near-white border instead of a 1px hairline. */
+.lc-back {
+  background-color: var(--lc-back);
+  border: 1px solid var(--lc-ink-80, var(--lc-hair-strong));
+  border-radius: 3px;
+  background-image:
+    linear-gradient(var(--lc-grid, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, var(--lc-grid, transparent) 1px, transparent 1px);
+  background-size: 10px 10px;
+  background-origin: content-box; padding: 5px;
+}
+.lc-back[data-size="strip"]  { width: 16px; height: 24px; background-size: 9px 9px; padding: 4px; }
+.lc-back[data-size="flight"] { width: 44px; height: 62px; background-size: 9px 9px; padding: 4px; }
+.lc-back[data-size="pile"]   { width: 46px; height: 62px; }
+.lc-back[data-size="stack"]  { width: 68px; height: 92px; }
+
+.lc-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--lc-fill); box-shadow: 0 0 8px var(--lc-fill);
+}
+
+/* text handling (spec §7.5) — CardFace is fluid x 176px FIXED, so text
+   cannot grow. The bundle has no line-clamp and no text-overflow anywhere
+   (every prototype card has short text); these ramp rules are designed,
+   not transcribed — Task 3 picks the ramp class server-side. */
+.lc-title-lg { font-size: 30px; }   /* title <= 14 chars — the authored size */
+.lc-title-md { font-size: 24px; }   /* 15-24 chars */
+.lc-title-sm { font-size: 20px; }   /* > 24 chars */
+
+.lc-cardface .lc-face-title {
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.lc-cardface .lc-face-body {
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.lc-kw-more { border-style: dashed; }
+
+/* the expanded variant — a detail view. This slice ships the variant and the
+   data-expandable marking; which gesture opens it is the hand-group slice. */
+.lc-cardface-expanded { height: auto; min-height: 176px; }
+.lc-cardface-expanded .lc-face-title,
+.lc-cardface-expanded .lc-face-body {
+  display: block; -webkit-line-clamp: none; overflow: visible;
+}
+
+/* table components — plaque, hand strip, deck stack, discard (spec §7.6).
+   §7.6's component/positioning split puts all four here; their placement on
+   the felt ellipse is Plan B, their anatomy is not. */
+
+/* PlayerPlaque (D.1) — 196px per the v2 big-screen mockup (Game UI outranks
+   Module Spec on pixels; Plan J J10), three stacked rows. Plan B positions
+   it; the seat ring itself (lc_layout.rs) is percentage-based and does not
+   move when this box's own width changes. padding-top: 0 plus
+   overflow: hidden lets .lc-rule (the first flex child) sit flush at the
+   very top, full width, clipped by the r10 radius, per the README/brief —
+   overflow: hidden clips the rule's corners to the plaque's own radius but
+   does not clip box-shadow: var(--lc-lift-sm), which is painted outside the
+   border box. */
+.lc-plaque {
+  width: 196px; padding: 0 14px 12px; border-radius: 10px; overflow: hidden;
+  background: var(--lc-panel); border: 1px solid var(--lc-ink-66);
+  box-shadow: var(--lc-lift-sm);
+  display: flex; flex-direction: column; gap: 9px;
+}
+/* .lc-rule is a standalone builder (deck_rule() also renders outside a
+   plaque, e.g. Plan A-vis's preview page) — the negative side margins that
+   pull it flush to the plaque's edges live here, scoped to the plaque
+   context, not on .lc-rule itself. */
+.lc-plaque > .lc-rule { margin: 0 -14px; }
+.lc-plaque .lc-identity { display: flex; align-items: baseline; justify-content: space-between; }
+.lc-plaque .lc-name { font-family: var(--font-display); font-weight: 900; font-size: 22px;
+                      letter-spacing: -.025em; color: var(--lc-text); }
+.lc-plaque .lc-hp   { font-family: var(--font-display); font-weight: 900; font-size: 28px;
+                      letter-spacing: -.03em; color: var(--lc-text); }
+.lc-plaque .lc-drinks { display: flex; align-items: center; gap: 3px; }
+.lc-plaque .lc-decknames { font-family: var(--font-mono); font-size: 11px; color: var(--lc-label); }
+/* deck-tinted via --lc-ink-59, not the README's <fill>22: fill-22 is
+   invisible on Wine (#8B2F4A at 13% over #16121F composites to ~#1D1522,
+   indistinguishable from the panel), which is why the README needed a
+   Wine-only solid-fill exception. Ink at the ladder's 59-subtle rung reads
+   on all five decks — Wine's ink is the light rose #D4657F for exactly this
+   reason — with one rule and no exception. Do not "restore" the README
+   value; it reintroduces an invisible badge on Wine. */
+.lc-plaque .lc-draws { margin-left: auto; border-radius: 4px; padding: 1px 6px;
+                       background: var(--lc-ink-59);
+                       font-family: var(--font-display); font-weight: 900; font-size: 13px;
+                       color: var(--lc-text); }
+.lc-plaque .lc-handstrip { border-top: 1px solid var(--lc-hair); padding-top: 9px; }
+
+/* the 3px top rule — one deck fills it, two split it 50/50 */
+.lc-rule { height: 3px; border-radius: 3px 3px 0 0; overflow: hidden; display: flex; }
+.lc-rule-1 { background: var(--lc-fill, var(--lc-hair)); }
+.lc-rule-2 i { flex: 1; background: var(--lc-fill); }
+
+/* HandStrip (D.3) — overlapping backs, exact count right-aligned */
+.lc-handstrip { display: flex; align-items: center; gap: 0; }
+.lc-handstrip .lc-back + .lc-back { margin-left: -4px; }
+.lc-handstrip-more  { font-family: var(--font-display); font-weight: 900; font-size: 13px;
+                      color: var(--lc-body); margin-left: 5px; }
+.lc-handstrip-count { margin-left: auto; font-family: var(--font-mono); font-size: 10px;
+                      color: var(--lc-label); }
+
+/* DeckStack + DiscardSlot (D.4) */
+.lc-deckstack, .lc-discard {
+  position: relative; display: inline-flex; flex-direction: column;
+  align-items: center; gap: 6px;
+}
+/* the offset shadow card behind the stack, at +3px. .lc-back is
+   position: static by default, so without this the ::before's
+   position: absolute; inset: 0 resolves against .lc-deckstack (the nearest
+   positioned ancestor) instead of the 68x92 back, painting a full-column
+   slab behind the count and name text too. */
+.lc-deckstack .lc-back { position: relative; }
+.lc-deckstack .lc-back::before {
+  content: ""; position: absolute; inset: 0; transform: translate(3px, 3px);
+  border-radius: 3px; background: var(--lc-back); z-index: -1;
+}
+.lc-deckstack-count { font-family: var(--font-display); font-weight: 900; font-size: 22px;
+                      color: var(--lc-ink); }
+.lc-deckstack-name  { font-family: var(--font-ui); font-weight: 700; font-size: 9px;
+                      letter-spacing: .13em; text-transform: uppercase; color: var(--lc-label); }
+/* a destination, not a deck: dashed, no grid, neutral count */
+.lc-discard .lc-back { background-image: none; border-style: dashed; }
+.lc-discard .lc-deckstack-count { color: var(--lc-body); }
+
+/* deck-stack states, driven by the contract's exposed attributes */
+.lc-deckstack[data-low]   .lc-deckstack-count { color: var(--lc-amber); }
+.lc-deckstack[data-empty] .lc-deckstack-count { font-size: 11px; letter-spacing: .1em;
+                                                color: var(--lc-amber); }
+
+/* DeckListRow (J11) — the v2 mockup's right-rail row: dot, name, disc n,
+   big count. Replaces the deck stacks on the big screen only. */
+.lc-deckrow { display: flex; align-items: center; gap: 10px;
+              background: var(--lc-panel-alt);
+              border: 1px solid var(--lc-hair); border-radius: 9px;
+              padding: 9px 12px; }
+.lc-deckrow-dot { width: 9px; height: 9px; border-radius: 50%;
+                  background: var(--lc-fill); }
+.lc-deckrow-name { font-family: var(--font-ui); font-weight: 700;
+                   font-size: 14px; letter-spacing: .06em;
+                   color: var(--lc-text); }
+.lc-deckrow-disc { font-family: var(--font-ui); font-size: 11px;
+                   letter-spacing: .1em; color: var(--lc-faint);
+                   margin-left: auto; }
+.lc-deckrow-count { font-family: var(--font-display); font-weight: 900;
+                    font-size: 22px; color: var(--lc-text); }
+.lc-deckrow[data-low] .lc-deckrow-count { color: var(--lc-amber); }
+.lc-deckrow[data-empty] { opacity: .55; }
+
+/* plaque states — idle is the base. locked/drawing/hit/eliminated layer on.
+   The animations for is-hit and is-drawing are authored in Plan A-vis's
+   motion section below (.lc-plaque.is-hit / .is-drawing rules). */
+.lc-lock-tick { color: var(--lc-violet); font-size: 13px; margin-left: 6px; }
+.lc-plaque:not(.is-locked) .lc-lock-tick { display: none; }
+.lc-plaque.is-eliminated { opacity: .4; }
+.lc-plaque.is-eliminated .lc-hp { font-size: 15px; letter-spacing: .1em; color: var(--lc-label); }
+
+/* F.1 phone shell (spec §7.3) — fixed vertical order, no screen may reorder
+   it: status row -> phase banner -> tab row -> view -> action bar. The view
+   flexes to fill; the action bar is the thumb zone. */
+body.lc { margin: 0; min-height: 100vh; display: flex; flex-direction: column;
+          position: relative; background: var(--lc-device); color: var(--lc-text);
+          font-family: var(--font-ui); }
+.lc-status { height: 40px; padding: 0 20px; display: flex; align-items: center;
+             justify-content: space-between; font-family: var(--font-mono);
+             font-size: 12px; color: var(--lc-label); }
+#lc-banner { padding: 0 18px 12px; display: flex; flex-wrap: wrap; align-items: baseline;
+             justify-content: space-between; gap: 12px; position: relative; }
+/* Plan E: the beat timer is a child of the banner (decision E10) so the
+   lcpublic banner swap replaces both atomically. */
+#lc-banner .lc-timer { position: absolute; left: 0; right: 0; bottom: 0; }
+.lc-banner-beat { font-family: var(--font-display); font-weight: 900; font-size: 26px;
+                  letter-spacing: -.02em; text-transform: uppercase;
+                  color: var(--lc-beat, var(--lc-text)); }
+.lc-banner-meta { font-family: var(--font-ui); font-weight: 700; font-size: 10px;
+                  letter-spacing: .13em; text-transform: uppercase; color: var(--lc-label); }
+/* #lc-beat-timer / .lc-timer: this slice's beat_timer() emits the id, class,
+   data-duration-ms/data-elapsed-ms and the --lc-beat-ms custom property.
+   height, transform-origin, background and the
+   `animation: lc-timer var(--lc-beat-ms, 60s) …` keyframe are authored in
+   Plan A-vis's motion section below (.lc-timer rules), same as is-hit/is-drawing
+   above. */
+/* Plan H: the banner's event strip — one occupant at a time (decision H6):
+   the round's event from Deal on, settlement announcements at Draw. Forced
+   onto its own row under the beat name / meta pair: `#lc-banner` gained
+   `flex-wrap: wrap` above and this rule claims the full row via
+   `flex-basis: 100%` (`min-width: 0` alone left it squeezed into whatever
+   space the other two flex items didn't claim on the same line — the meta
+   span has no `white-space: nowrap` of its own, so it broke across three
+   lines while the event text ellipsis-truncated to a couple of characters;
+   caught by looking at a real render, not by any test). */
+.lc-event { display: flex; align-items: baseline; gap: 8px; padding: 3px 0 1px;
+            border-top: 1px solid var(--lc-hair); min-width: 0; flex-basis: 100%; }
+.lc-event-name { font-family: var(--font-ui); font-weight: 800; font-size: 11px;
+                 letter-spacing: .12em; white-space: nowrap; color: var(--lc-text); }
+.lc-event-text { font-family: var(--font-ui); font-size: 11px; color: var(--lc-faint);
+                 overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.lc-tabs { padding: 0 18px; display: flex; border-bottom: 1px solid var(--lc-hair); }
+.lc-tab { background: none; border: 0; padding: 9px 14px 8px; cursor: pointer;
+          font-family: var(--font-display); font-weight: 800; font-size: 11px;
+          letter-spacing: .1em; color: var(--lc-label);
+          border-bottom: 2px solid transparent; }
+.lc-tab[aria-selected="true"] { color: var(--lc-text); }
+.lc-tab[data-lc-tab="hand"][aria-selected="true"]  { border-bottom-color: #B48EF7; }
+.lc-tab[data-lc-tab="table"][aria-selected="true"] { border-bottom-color: #6FB6FF; }
+.lc-tab[data-lc-tab="log"][aria-selected="true"]   { border-bottom-color: #8D87A0; }
+.lc-view { flex: 1; overflow-y: auto; padding: 14px 12px 0; }
+.lc-pane[hidden] { display: none; }
+.lc-empty { padding: 40px 8px; text-align: center; font-size: 13px; line-height: 1.5;
+            color: var(--lc-faint); }
+.lc-actions { padding: 12px 14px 18px; display: flex; gap: 10px; }
+.lc-btn { flex: 1; height: 64px; border: 0; border-radius: 8px; cursor: pointer;
+          background: var(--lc-fill, var(--lc-amber)); color: #14101D;
+          font-family: var(--font-display); font-weight: 900; font-size: 20px;
+          letter-spacing: .02em; transition: transform 130ms var(--lc-ease); }
+.lc-btn:active { transform: scale(.97); }
+.lc-btn-secondary { flex: 0 0 92px; background: transparent; color: var(--lc-body);
+                    border: 1px solid var(--lc-hair-strong); }
+/* the option that involves drinking is always the amber one */
+.lc-btn-drink { background: var(--lc-amber); }
+
+/* Plan E — the action bar's states (decision E7). */
+.lc-actions-hint { flex: 1; align-self: center; text-align: center;
+                   font-family: var(--font-ui); font-weight: 700; font-size: 11px;
+                   letter-spacing: .12em; text-transform: uppercase;
+                   color: var(--lc-faint); }
+#lc-actions-note { padding: 4px 14px; text-align: center;
+                   font-family: var(--font-mono); font-size: 11px;
+                   color: var(--lc-rose); }
+.lc-drink-now { display: flex; align-items: center; justify-content: center;
+                cursor: default; }
+.lc-targets { padding: 0 14px 10px; }
+.lc-target-row { display: flex; align-items: center; justify-content: space-between;
+                 gap: 10px; padding: 6px 0; font-size: 13px; }
+
+/* Plan G — pacts. The section renders only in the private hand fragment;
+   the break strip is the one public trace a pact leaves before its win
+   (decision G10). Pact buttons are never lc-btn-drink — a pact costs no
+   drink (G3, E7). */
+.lc-pacts { padding: 0 14px 10px; }
+.lc-pact-offer-row { display: flex; align-items: center; gap: 8px;
+                     padding: 6px 0; font-size: 13px; }
+.lc-pact-offer-row span { flex: 1; }
+.lc-pact-standing, .lc-pact-pending, .lc-pact-barred, .lc-pact-broken {
+  font-family: var(--font-ui); font-weight: 700; font-size: 11px;
+  letter-spacing: .12em; padding: 6px 0; }
+.lc-pact-standing { color: var(--lc-mint); }
+.lc-pact-pending, .lc-pact-barred { color: var(--lc-faint); }
+.lc-pact-broken { color: var(--lc-rose); }
+.lc-btn.lc-pact-propose { display: block; width: 100%; margin: 4px 0; }
+/* the big screen's betrayal line — F.2's floor is 18px */
+.lc-pact-strip { position: absolute; top: 24px; left: 0; right: 0;
+                 display: flex; flex-direction: column; gap: 4px; }
+.lc-pact-break { text-align: center; font-family: var(--font-ui);
+                 font-weight: 700; font-size: 18px; letter-spacing: .14em;
+                 color: var(--lc-rose); pointer-events: none; }
+
+/* Plan H: the private tab card (decision H13) — hand pane only. Token names
+   corrected against this tree's actual custom properties (`--lc-hair`, not
+   the brief's `--lc-hairline`), same caveat as Task 4's strip. */
+.lc-tabcard { margin: 10px 14px; padding: 10px 12px; border-radius: 10px;
+              background: var(--lc-raised); border: 1px solid var(--lc-hair); }
+.lc-tabcard h2 { font-size: 10px; letter-spacing: .16em; color: var(--lc-faint); }
+.lc-tabcard-name { font-family: var(--font-display); font-weight: 900;
+                   font-size: 18px; letter-spacing: -.01em; color: var(--lc-text); }
+.lc-tabcard-text { font-size: 13px; color: var(--lc-faint); margin: 4px 0 6px; }
+.lc-tabcard-pay { font-family: var(--font-mono); font-size: 11px;
+                  letter-spacing: .1em; color: var(--lc-text); }
+
+/* Plan I — the response window (decision I12). */
+.lc-react { padding: 0 14px 10px; }
+.lc-react-card { display: flex; flex-direction: column; gap: 6px; padding: 6px 0; }
+.lc-react-title { font-family: var(--font-ui); font-weight: 700; font-size: 11px;
+                  letter-spacing: .12em; text-transform: uppercase;
+                  color: var(--lc-faint); }
+.lc-ghost-note { padding: 10px 14px; font-family: var(--font-mono);
+                 font-size: 11px; color: var(--lc-faint); }
+
+/* slice 2 — the hand group (Module Spec C.1–C.3): ArmedColumn | HandWheel |
+   CostRail. "One widget in three parts and always ship together." This
+   replaces Plan A2's throwaway plain-list container; the CardFace inside the
+   wheel is Plan A's, untouched. Fixed 480px row inside the scrolling pane
+   (decision 9): the setup section still sits above it until the loop slims
+   that away. */
+#lc-hand { display: flex; flex-direction: column; gap: 12px; padding-bottom: 14px; }
+.lc-handgroup { display: flex; gap: 10px; height: 480px; min-height: 0; }
+
+/* C.2 ArmedColumn — 62px fixed. data-locked: 60% opacity, slot removed by
+   the renderer (not display:none — the markup is the state). */
+.lc-armed { flex: 0 0 62px; display: flex; flex-direction: column; gap: 6px; }
+.lc-armed[data-locked] { opacity: .6; }
+.lc-armed-head { font-family: var(--font-ui); font-weight: 700; font-size: 8.5px;
+                 letter-spacing: .1em; text-transform: uppercase;
+                 text-align: center; color: var(--lc-violet); }
+.lc-armed-slot { height: 46px; border: 1px dashed var(--lc-hair-slot);
+                 border-radius: 6px; display: flex; align-items: center;
+                 justify-content: center; font-family: var(--font-mono);
+                 font-size: 9px; color: var(--lc-faint); }
+/* armed minis sit on the focused ground, per the Game UI armed stack
+   (decision 11) — context styling of Plan A's component, not a fork */
+.lc-armed .lc-mini { background: var(--lc-focused); }
+
+/* C.1 HandWheel — a 3D cylinder of CardFaces on the X axis. The track is
+   pushed back by the radius so the focused card keeps its authored size;
+   lc_wheel.js writes each card's rotateX/translateZ, opacity, visibility and
+   z-index inline from the constants it owns (STEP 21, RADIUS 470, sens .28). */
+.lc-wheel { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.lc-wheel-stage { flex: 1; position: relative; perspective: 1400px;
+                  perspective-origin: 50% 50%; overflow: hidden;
+                  touch-action: none; cursor: grab; }
+.lc-wheel-stage:active { cursor: grabbing; }
+.lc-wheel-track { position: absolute; inset: 0; transform-style: preserve-3d;
+                  transform: translateZ(-470px); }
+.lc-wheel-card { position: absolute; left: 0; right: 0; top: 50%;
+                 height: 176px; margin-top: -88px; will-change: transform;
+                 transition: transform 280ms var(--lc-ease),
+                             opacity 280ms var(--lc-ease); }
+/* off while dragging and for wrap-around cards — a card jumping from one end
+   of the cylinder to the other must never animate across the screen */
+.lc-wheel-card.is-dragging, .lc-wheel-card.is-far { transition: none; }
+.lc-wheel-card .lc-cardface { height: 100%;
+                              transition: background 190ms var(--lc-ease),
+                                          border-color 190ms var(--lc-ease); }
+/* focus styling only at |d| < 0.5 — everything else keeps .lc-cardface's own
+   1px hairline on the raised ground */
+.lc-wheel-card.is-focused .lc-cardface { background: var(--lc-focused);
+    border: 2px solid var(--lc-ink, var(--lc-hair-strong));
+    box-shadow: var(--lc-lift-lg); }
+.lc-wheel-hint { position: absolute; left: 0; right: 0; bottom: 6px;
+                 text-align: center; font-family: var(--font-ui);
+                 font-weight: 700; font-size: 9px; letter-spacing: .14em;
+                 text-transform: uppercase; color: var(--lc-faint);
+                 pointer-events: none; }
+
+/* C.3 CostRail — 26px column, a cost histogram you can scrub. Bars are
+   right-aligned inside a 14px inner rail; the whole column is one pointer
+   surface (decision 2) — lc_wheel.js maps a tap's y to the nearest group. */
+.lc-costrail { flex: 0 0 26px; display: flex; flex-direction: column;
+           align-items: center; gap: 6px; padding: 14px 0;
+           touch-action: none; }
+.lc-costrail-above, .lc-costrail-below { font-family: var(--font-mono); font-size: 9px;
+                                 color: var(--lc-faint); }
+.lc-costrail-bars { flex: 1; width: 14px; display: flex; flex-direction: column;
+                justify-content: center; align-items: flex-end; }
+.lc-costrail-group { display: flex; flex-direction: column; align-items: flex-end;
+                 gap: 2px; }
+.lc-costrail-group + .lc-costrail-group { margin-top: 7px; }
+.lc-costrail-bar { display: block; height: 3px; width: 9px; border-radius: 2px;
+               background: var(--lc-ink, var(--lc-label)); opacity: .4;
+               transition: width 190ms var(--lc-ease),
+                           opacity 190ms var(--lc-ease); }
+.lc-costrail-group.is-active .lc-costrail-bar { width: 14px; opacity: 1; }
+
+/* setup — plain and undesigned on purpose (spec §2, item 2). Plan A2 fills it. */
+.lc-setup { background: var(--lc-panel); border-radius: 8px; padding: 14px;
+            margin-bottom: 14px; display: flex; flex-direction: column; gap: 10px; }
+.lc-setup h2 { font-family: var(--font-display); font-weight: 900; font-size: 15px;
+               letter-spacing: .04em; text-transform: uppercase; color: var(--lc-text); }
+.lc-setup form { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.lc-setup select, .lc-setup input { background: var(--lc-panel-alt); color: var(--lc-text);
+            border: 1px solid var(--lc-hair); border-radius: 6px; padding: 8px 10px;
+            font-size: 14px; }
+.lc-setup button { background: var(--lc-panel-alt); color: var(--lc-text);
+            border: 1px solid var(--lc-hair-strong); border-radius: 6px;
+            padding: 8px 14px; font-size: 13px; cursor: pointer; }
+.lc-setup-row { display: flex; align-items: center; gap: 8px; font-size: 13px;
+                color: var(--lc-body); }
+/* J12 (Plan A2 carried minor): a two-deck player's dots need a visible gap —
+   the class was already emitted in setup rows but had no rule of its own. */
+.lc-setup-decks { display: inline-flex; gap: 4px; }
+
+/* Plan J Task 4 — the lobby's phone half: who's still unregistered, or the
+   all-set line once every seat has a vessel. Lives beside .lc-setup-row,
+   the section it sits above. */
+.lc-lobby-wait { font-family: var(--font-ui); font-weight: 700; font-size: 12px;
+                 letter-spacing: .06em; color: var(--lc-faint); margin: 0; }
+.lc-lobby-wait[data-waiting="0"] { color: var(--lc-mint); }
+
+/* Plan J — the LOG tab (J1-J4): a public shared round log, newest first. */
+.lc-log { list-style: none; margin: 0; padding: 4px 2px; display: flex;
+          flex-direction: column; gap: 7px; }
+.lc-log-row { font-family: var(--font-ui); font-size: 13px; letter-spacing: .04em;
+              color: var(--lc-secondary); }
+.lc-log-row[data-t="round"] { color: var(--lc-faint); font-size: 11px;
+                              letter-spacing: .14em; margin-top: 6px; }
+.lc-log-row[data-t="hit"], .lc-log-row[data-t="eliminated"],
+.lc-log-row[data-t="game_over"] { color: var(--lc-text); }
+
+/* motion — flights. lc-fly and lc-dot are verbatim from the design bundle. */
+@keyframes lc-fly {                     /* big screen, 6s cycle */
+  0%   { opacity: 0; transform: translate(0,0) scale(.5); }
+  3%   { opacity: 1; transform: translate(0,0) scale(.85); }
+  22%  { opacity: 1; transform: translate(var(--dx), var(--dy)) scale(1); }
+  27%  { opacity: 0; transform: translate(var(--dx), var(--dy)) scale(.92); }
+  100% { opacity: 0; transform: translate(var(--dx), var(--dy)) scale(.92); }
+}
+@keyframes lc-dot {                     /* phone mini-table, 4.4s cycle */
+  0%   { opacity: 0; transform: translate(0,0) scale(.6); }
+  8%   { opacity: 1; transform: translate(0,0) scale(1); }
+  46%  { opacity: 1; transform: translate(var(--dx), var(--dy)) scale(1); }
+  54%  { opacity: 0; transform: translate(var(--dx), var(--dy)) scale(.6); }
+  100% { opacity: 0; transform: translate(var(--dx), var(--dy)) scale(.6); }
+}
+
+.lc-flight {
+  position: absolute; top: 0; left: 0; pointer-events: none;
+  background: var(--lc-fill, var(--lc-body));
+  animation-duration: 6s; animation-timing-function: linear;
+  animation-fill-mode: forwards; animation-iteration-count: 1;
+}
+.lc-flight[data-scale="card"] { width: 44px; height: 62px; border-radius: 3px;
+                                animation-name: lc-fly; }
+.lc-flight[data-scale="dot"]  { width: 8px;  height: 8px;  border-radius: 50%;
+                                animation-duration: 4.4s; animation-name: lc-dot; }
+
+/* motion — state changes. Named in the bundle as prose only; authored here. */
+@keyframes lc-shake {                   /* plaque hit — 4px horizontal, 190ms */
+  0%, 100% { transform: translateX(0); }
+  20%  { transform: translateX(-4px); }
+  45%  { transform: translateX(4px); }
+  70%  { transform: translateX(-2px); }
+  90%  { transform: translateX(2px); }
+}
+@keyframes lc-hp-flash {                /* HP to rose and back */
+  0%   { color: var(--lc-text); }
+  15%  { color: var(--lc-rose); }
+  60%  { color: var(--lc-rose); }
+  100% { color: var(--lc-text); }
+}
+@keyframes lc-pulse {                   /* deck rule, while that player draws */
+  0%, 100% { opacity: 1; }
+  50%      { opacity: .45; }
+}
+@keyframes lc-banner {                  /* beat-name cross-fade, 280ms */
+  0%   { opacity: 0; transform: translateY(4px); }
+  100% { opacity: 1; transform: none; }
+}
+@keyframes lc-timer {                   /* beat rail filling down */
+  from { transform: scaleX(1); }
+  to   { transform: scaleX(0); }
+}
+
+.lc-plaque.is-hit            { animation: lc-shake 190ms var(--lc-ease) 1; }
+.lc-plaque.is-hit .lc-hp     { animation: lc-hp-flash 560ms var(--lc-ease) 1; }
+.lc-plaque.is-drawing .lc-rule { animation: lc-pulse 900ms var(--lc-ease) infinite; }
+.lc-banner-beat              { animation: lc-banner 280ms var(--lc-ease) 1; }
+.lc-timer {
+  height: 2px; transform-origin: left center;
+  background: var(--lc-beat, var(--lc-amber));
+  animation: lc-timer var(--lc-beat-ms, 60s) linear 1 forwards;
+}
+.lc-timer.is-urgent { background: var(--lc-rose); }
+
+@media (prefers-reduced-motion: reduce) {
+  /* Stop the flights and hold them at rest opacity — an attribute selector on
+     the animation name, as the bundle does. */
+  .lc-flight { animation: none !important; opacity: 0; }
+  .lc-plaque.is-hit, .lc-plaque.is-hit .lc-hp,
+  .lc-plaque.is-drawing .lc-rule,
+  .lc-banner-beat, .lc-timer { animation: none !important; }
+  .lc-timer { transform: scaleX(0); }
+  .lc-cardface, .lc-btn { transition: none; }
+  .lc-wheel-card, .lc-costrail-bar { transition: none; }
+}
+
+/* preview page (Plan A-vis Task 2) — a permanent style guide, not a shell
+   screen. body.lc supplies the ground/colour/font scaffolding shared with
+   every other Last Call page; everything here is page layout only, built
+   entirely from the tokens above — no new colours. */
+.lc-preview-head { max-width: 1100px; margin: 0 auto; padding: 32px 20px 8px; }
+.lc-preview-head h1 { font-family: var(--font-display); font-weight: 900; font-size: 28px;
+                       letter-spacing: -.02em; color: var(--lc-text); }
+.lc-preview-head p { margin-top: 10px; font-size: 14px; line-height: 1.5;
+                      color: var(--lc-secondary); max-width: 640px; }
+
+.lc-preview-nav { max-width: 1100px; margin: 0 auto; padding: 4px 20px 24px;
+                   display: flex; flex-wrap: wrap; gap: 10px 16px;
+                   border-bottom: 1px solid var(--lc-hair); }
+.lc-preview-nav a { font-family: var(--font-ui); font-weight: 700; font-size: 12px;
+                     letter-spacing: .04em; text-transform: uppercase;
+                     color: var(--lc-label); text-decoration: none; }
+.lc-preview-nav a:hover { color: var(--lc-text); }
+
+.lc-preview-group { max-width: 1100px; margin: 0 auto; padding: 32px 20px;
+                     border-bottom: 1px solid var(--lc-hair); }
+.lc-preview-group h2 { font-family: var(--font-display); font-weight: 900; font-size: 20px;
+                        color: var(--lc-text); }
+.lc-preview-note { margin-top: 6px; font-size: 13px; line-height: 1.5;
+                    color: var(--lc-faint); max-width: 720px; }
+.lc-preview-body { margin-top: 20px; display: flex; flex-direction: column; gap: 24px; }
+
+.lc-preview-row { display: flex; flex-direction: column; gap: 12px; }
+.lc-preview-subhead { font-family: var(--font-ui); font-weight: 700; font-size: 11px;
+                       letter-spacing: .1em; text-transform: uppercase; color: var(--lc-label); }
+/* Plan A-vis Task 3: 200px (not Task 2's 220px) so the card-primitive matrix
+   reads as five clean columns at the group's 1060px content width (1100px
+   max-width minus 20px side padding) — floor((1060+14)/(200+14)) = 5,
+   whereas 220 gave 4-and-a-wrapped-one. Page layout only: .lc-cardface
+   itself is untouched, still fluid-width x 176px fixed height per Plan A. */
+.lc-preview-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+                    gap: 14px; }
+
+/* min-width: 0 / width: 100% (I4): flex items default to min-width: auto, a
+   content-based floor — without overriding it at every flex/grid level
+   between the oversized sample and .lc-preview-scroll's own overflow-x:
+   auto, .lc-preview-swatch (a .lc-preview-grid item) and .lc-preview-sample
+   (its flex child) both refuse to shrink below the 640px felt / 390px
+   frame's content width, so the scroller never gets anything narrower than
+   its content to actually scroll. .lc-preview-sample also needs an explicit
+   width: 100% — as a flex_start-aligned flex item it is otherwise sized by
+   shrink-to-fit from its own content (still ~640px) rather than clamped to
+   its resolved track width. Verified live at a 390px viewport: without
+   these three rules the group's samples measure 660px wide against a
+   390px body; with them, only the felt/shell scroll internally and the
+   page itself does not. Harmless for ordinary swatches — none of them
+   approach their track's width in the first place. */
+.lc-preview-swatch { display: flex; flex-direction: column; gap: 8px; align-items: flex-start;
+                      min-width: 0; }
+.lc-preview-sample { display: flex; align-items: center; min-width: 0; width: 100%; }
+.lc-preview-caption { font-family: var(--font-mono); font-size: 11px; color: var(--lc-label); }
+
+/* Step 4's clamped/expanded pairing — the clamped card_face beside its
+   card_face_expanded twin, so what the clamp lost is visible, not asserted.
+   minmax(0, 1fr), not bare 1fr (I4): a plain `1fr` track's implicit minimum
+   is `auto` — content-based — so at a narrow viewport an unclamped
+   card_face_expanded (no line-clamp, long boundary-case body text) refuses
+   to shrink below its own min-content width and the pair pushes past the
+   page's edge exactly like the felt and shell did. minmax(0, 1fr) removes
+   that floor the same way min-width: 0 does on a flex item. */
+.lc-preview-pair { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; align-items: start; }
+
+/* preview page (Plan A-vis Task 3) — page layout only, same rule as the
+   section above: everything here is composed from the tokens/classes
+   already shipped (grounds, panels, edges, decks), no new colours. */
+
+/* Plan A's #lc-flights is `position: absolute; inset: 0; overflow: hidden`
+   (motion section above), and lc_motion.js's ensureLayer appends it to
+   body.lc-preview (this page's [data-lc-scene]). Without a positioned
+   ancestor, #lc-flights has no containing block of its own and resolves
+   inset:0 against the viewport-sized initial containing block instead of
+   the full document: every REPLAY flight is created and animated correctly
+   and then clipped away by overflow: hidden the moment it scrolls past the
+   first screenful. Plan A2 (Task 3) gave body.lc its own `position:
+   relative` for the same reason on the F.1 shell (#lc-flights isn't fired
+   there yet, but nothing here should rely on that staying true) — this
+   body.lc-preview rule is kept as the preview page's own, explicit
+   containing block rather than leaning on that cascade. Do not remove this
+   as "unused" — nothing here visibly depends on it; #lc-flights depends on
+   it for its containing block, and that is the whole bug (see
+   test_lastcall_css_preview_body_is_positioned). */
+body.lc-preview { position: relative; }
+
+/* a plain sized box for primitives that carry no width/height of their own
+   (.lc-ground/.lc-device/.lc-panel/… only set colour) */
+.lc-preview-swatchbox { width: 96px; height: 64px; }
+
+/* the felt has no size of its own in the scene-primitives section above —
+   sizing it is this consuming page's call; Plan B will size it again for
+   its own seat-ring layout. Scoped to body.lc-preview (this page's own
+   class, set in lc_preview.html) so it cannot land on Plan B's real felt
+   through the bare #lc-felt id. */
+body.lc-preview #lc-felt { width: 640px; height: 360px; margin: 0 auto; }
+
+/* Group 5's 390x844 static F.1 frame — mirrors body.lc's scaffolding
+   (background/colour/font/flex column) for a page section rather than the
+   real <body>. */
+.lc-preview-shell {
+  width: 390px; height: 844px; margin: 0 auto; overflow: hidden;
+  border-radius: 34px; border: 1px solid var(--lc-hair-strong);
+  background: var(--lc-device); color: var(--lc-text); font-family: var(--font-ui);
+  display: flex; flex-direction: column;
+}
+
+/* Checkpoint-2-item-8 fix: the felt (640x360) and the F.1 frame (390x844)
+   are reference dimensions the plan specifies — resizing them defeats the
+   point of those samples — so instead of shrinking the boxes, this wraps
+   each in its own horizontally-scrollable container. `overflow-x: auto`
+   here (rather than on an ancestor) also resets this element's own
+   automatic flex/grid minimum size to 0 per the flexbox/grid sizing spec
+   ("if the item's overflow is not visible, its content-based automatic
+   minimum size does not apply"), which is what lets .lc-preview-sample and
+   .lc-preview-swatch shrink to the viewport instead of forcing the whole
+   page to grow to 640/390px and scroll sideways. An individual sample may
+   still scroll internally at narrow widths — the page itself must not. */
+.lc-preview-scroll { overflow-x: auto; max-width: 100%; min-width: 0; }
+
+/* Group 6's at-rest flight-node swatch — .lc-flight is position: absolute
+   with no ancestor of its own, so it needs a positioned, sized box to sit
+   inside rather than escaping to the nearest positioned ancestor up the
+   page. */
+.lc-preview-flight-box { position: relative; width: 44px; height: 62px; }
+.lc-preview-flight-box-dot { width: 8px; height: 8px; }
+
+/* Group 6's anchor board */
+.lc-preview-anchors { display: flex; flex-direction: column; gap: 6px;
+                       font-family: var(--font-mono); font-size: 12px; color: var(--lc-body); }
+.lc-preview-anchors li { display: flex; justify-content: space-between; gap: 16px;
+                          max-width: 280px; }
+
+/* Group 7's deck ramp reference chips — .lc-preview-ramp-ink is combined
+   with .lc-panel in markup for its background; the other two set their own. */
+.lc-preview-ramp-fill, .lc-preview-ramp-ink, .lc-preview-ramp-onfill {
+  width: 96px; height: 64px; border-radius: 6px; display: flex;
+  align-items: center; justify-content: center;
+  font-family: var(--font-mono); font-size: 11px;
+}
+.lc-preview-ramp-fill   { background: var(--lc-fill); }
+.lc-preview-ramp-ink    { color: var(--lc-ink); }
+.lc-preview-ramp-onfill { background: var(--lc-fill); color: var(--lc-on-fill); }
+
+/* Plan C group 8 — a sized stage for live preview wheels: the hand group is
+   height: 480px by its own rule, but needs a bounded width to read as a
+   phone column rather than a full-bleed strip. */
+.lc-preview-handframe { width: 366px; height: 480px; }
+
+/* Plan B — felt surfaces: F.2 big screen, D.2 seat ring, F.3 mini table */
+
+/* F.2 BigScreenShell — 1920x1080, a display and never an input. Fixed
+   88px header, then the felt filling everything below (Module Spec F.2).
+   No hover states, no focus rings, no controls: every affordance belongs
+   to a phone. */
+body.lc-screen {
+  position: relative;          /* third scene root — #lc-flights needs it */
+  margin: 0;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--lc-page);
+  color: var(--lc-text);
+  font-family: 'Space Grotesk', sans-serif;
+  cursor: none;                /* it is a display */
+}
+.lc-screen-head {
+  height: 88px;
+  display: flex;
+  align-items: center;
+  padding: 0 40px;
+  gap: 36px;
+  border-bottom: 1px solid var(--lc-hair);
+  flex: 0 0 88px;
+}
+.lc-screen-mark {
+  font: 900 28px 'Archivo', sans-serif;
+  letter-spacing: -.035em;
+  color: var(--lc-text);
+  text-transform: lowercase;
+}
+.lc-screen-mark span { color: #B48EF7; }
+.lc-screen-meta { display: flex; align-items: baseline; gap: 10px; }
+.lc-screen-meta .lc-kicker {
+  font: 600 11px 'Space Grotesk', sans-serif;
+  letter-spacing: .16em;
+  color: var(--lc-label);
+  text-transform: uppercase;
+}
+.lc-screen-code {
+  font: 500 22px 'IBM Plex Mono', ui-monospace, monospace;
+  color: var(--lc-text);
+  letter-spacing: .06em;
+}
+.lc-screen-round { font: 900 26px 'Archivo', sans-serif; color: var(--lc-text); }
+
+/* The banner is Plan A's component, scaled up for a 3-4 metre read.
+   Scoping a shipped component is assembling; forking it would be
+   authoring, which this plan may not do. */
+body.lc-screen .lc-banner { flex: 1; text-align: center; }
+body.lc-screen .lc-banner-beat { font-size: 46px; line-height: 1; }
+body.lc-screen .lc-banner-meta { font-size: 12px; letter-spacing: .2em; }
+body.lc-screen .lc-timer { height: 3px; }
+
+/* Task 4's repaint hook: lc_screen.html's SSE listener needs a stable
+   element id to replace on every `lcpublic` frame. `display: contents`
+   drops the wrapper from the box tree entirely, so `.lc-screen-grid` (the
+   sole root `lc_screen_panel` builds — Plan E Task 3 moved `#lc-flights`
+   out to a static sibling of this id in the shell template) still lands
+   directly against body.lc-screen, which the flex container `flex: 1`
+   below depends on; an id wrapper with a real box would break that. */
+#lc-screen-panel { display: contents; }
+
+/* 300px | felt | 300px, per the bundle's big-screen v2. The felt keeps the
+   authored proportions the seat ring was measured against only if the
+   centre column keeps roughly this width. */
+.lc-screen-grid {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 300px 1fr 300px;
+  overflow: hidden;
+}
+.lc-rail { padding: 24px; display: flex; flex-direction: column; gap: 20px; }
+.lc-rail-left  { border-right: 1px solid var(--lc-hair); }
+.lc-rail-right { border-left: 1px solid var(--lc-hair); }
+.lc-rail-kicker {
+  font: 600 12px 'Space Grotesk', sans-serif;
+  letter-spacing: .18em;
+  color: var(--lc-label);
+  text-transform: uppercase;
+  margin-bottom: 11px;
+}
+.lc-seatorder { display: flex; flex-direction: column; gap: 6px; }
+.lc-seatorder-row { display: flex; align-items: center; gap: 9px; }
+.lc-seatorder-n {
+  font: 500 12px 'IBM Plex Mono', ui-monospace, monospace;
+  color: var(--lc-label);
+  width: 16px;
+}
+.lc-seatorder-name {
+  font: 800 18px 'Archivo', sans-serif;   /* F.2 floor: nothing under 18px */
+  color: var(--lc-body);
+  white-space: nowrap;
+}
+.lc-seatorder-row[data-first] .lc-seatorder-name { color: #4FD6A8; }
+.lc-seatorder-row[data-out] { opacity: .4; }
+
+/* Plan J (J11): the five DeckListRows plus the discard slot, one per line —
+   a single-column flex list, not the old two-across grid (that shape
+   belonged to the square DeckStack this rail no longer renders). This class
+   has exactly one caller (`lc_screen_panel`'s right rail, grepped) — the
+   preview page never references `.lc-rail-decks` — so changing its layout
+   here can't affect anything else. Flex's default `align-self: stretch` in
+   the column direction is exactly what's wanted here — every row (and the
+   discard slot) fills the rail's width — so no `align-items` override is
+   needed. */
+.lc-rail-decks {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* The stage is the felt's positioning context and the ring box the
+   percentages in lc_layout are relative to. Felt inset 40 x 36 from the
+   stage, per D.2. */
+.lc-stage { position: relative; overflow: hidden; }
+.lc-stage > #lc-felt {
+  position: absolute;
+  left: 40px; top: 36px; right: 40px; bottom: 36px;
+}
+/* The ring box IS the stage box — keep `inset: 0`.
+   Task 1's seat table is stage-relative, not ring-box-relative: its extremes
+   ARE the felt's inner hairline ellipse already measured against the whole
+   1320x992 centre column. 50% +- 568/1320 = 7.0 / 93.0 horizontally and
+   50% +- 408/992 = 8.9 / 91.1 vertically, which is exactly why the n=4 row
+   reads (7.0, 50.0) / (93.0, 50.0) and n=2 reads (50.0, 8.9) / (50.0, 91.1).
+   Insetting this box by those same percentages applies the ellipse twice and
+   shrinks the ring to 86% x 82% of design — the bottom seat 61px high, the
+   leftmost seat ~75px inboard at 1920x1080. Every test still passes when it
+   is wrong, because the tests check the formula and the formula is right;
+   only the box it resolves against is wrong. Caught by the Plan B whole-plan
+   review, not by the suite. */
+.lc-ring { position: absolute; inset: 0; }
+/* A seat is centred on its own midpoint, so a plaque of any width lands
+   with its centre on the ellipse (D.2). */
+.lc-seat {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+/* Plan E — the reveal on the felt (decision E15). Two absolute layers over
+   the felt, siblings of #lc-felt inside .lc-stage (already position:
+   relative, above) — never both present at once (lc_render.rs picks one). */
+.lc-centre-plays { position: absolute; inset: 0; display: flex; gap: 14px;
+                   align-items: center; justify-content: center;
+                   pointer-events: none; }
+.lc-centre-play { display: flex; flex-direction: column; align-items: center;
+                  gap: 6px; }
+.lc-centre-cap { font-family: var(--font-ui); font-weight: 700; font-size: 11px;
+                 letter-spacing: .14em; color: var(--lc-faint); }
+/* Plan I — reaction/haunt chips riding a revealed play (decision I12). */
+.lc-centre-chips { display: flex; flex-direction: column; gap: 4px;
+                   align-items: center; }
+.lc-chip { font-family: var(--font-ui); font-weight: 700; font-size: 11px;
+           letter-spacing: .1em; text-transform: uppercase;
+           color: var(--lc-text); }
+.lc-chip-haunt { color: var(--lc-rose); }
+.lc-centre-victory { position: absolute; inset: 0; display: flex;
+                     flex-direction: column; align-items: center;
+                     justify-content: center; gap: 16px; padding: 0 24px;
+                     text-align: center;
+                     font-family: var(--font-display); font-weight: 900;
+                     font-size: 40px; letter-spacing: -.02em;
+                     color: var(--lc-text); }
+
+/* Plan J Task 4 — the felt centre's lobby state (E1: round-1 Draw, no
+   outcome), shaped like .lc-centre-victory above — same absolute overlay,
+   same centred column — but a quieter kicker/count pair rather than a
+   headline, since nothing has happened yet. */
+.lc-centre-lobby { position: absolute; inset: 0; display: flex;
+                   flex-direction: column; align-items: center;
+                   justify-content: center; gap: 10px; text-align: center; }
+.lc-lobby-kicker { font-family: var(--font-ui); font-weight: 800; font-size: 12px;
+                   letter-spacing: .22em; color: var(--lc-faint); }
+.lc-lobby-count { font-family: var(--font-display); font-weight: 900;
+                  font-size: 34px; letter-spacing: -.02em; color: var(--lc-text); }
+.lc-lobby-names { font-family: var(--font-ui); font-weight: 700; font-size: 13px;
+                  letter-spacing: .08em; color: var(--lc-faint); }
+
+/* Plan J Task 3 — the end-of-game screen (§7.8's GameOver component). The
+   standings/stats board renders on two surfaces off the same builder shape
+   (`standing_row_html`, lc_render.rs): the felt centre gets it capped to 4
+   rows plus a "+N MORE" tail beneath the victory line above
+   (.lc-centre-victory, now a column rather than one centred line), and the
+   phone's #lc-hand pane gets it uncapped inside .lc-endcard once
+   `lc_action_bar`'s outcome row (REMATCH / END NIGHT) is the only thing
+   left in the thumb zone. */
+.lc-endcard { display: flex; flex-direction: column; gap: 14px;
+              padding: 24px 16px 8px; text-align: center; }
+.lc-endcard-kicker { font-family: var(--font-ui); font-weight: 800;
+                     font-size: 12px; letter-spacing: .22em;
+                     color: var(--lc-faint); }
+.lc-endcard-victory { font-family: var(--font-display); font-weight: 900;
+                      font-size: 28px; letter-spacing: -.02em; margin: 0;
+                      color: var(--lc-text); }
+.lc-standings { list-style: none; margin: 0; padding: 0; display: flex;
+                flex-direction: column; gap: 8px; text-align: left; }
+.lc-standing { display: flex; flex-wrap: wrap; align-items: baseline;
+               gap: 6px 10px; padding: 10px 12px; border-radius: 8px;
+               background: var(--lc-panel); border: 1px solid var(--lc-hair);
+               font-family: var(--font-ui); }
+.lc-standing[data-winner] { border-color: var(--lc-amber); }
+.lc-standing[data-me] { border-color: var(--lc-hair-strong); }
+.lc-standing-place { flex: 0 0 20px; font-family: var(--font-display);
+                     font-weight: 900; font-size: 15px;
+                     color: var(--lc-label); }
+.lc-standing[data-winner] .lc-standing-place { color: var(--lc-amber); }
+.lc-standing-name { flex: 1; font-weight: 800; font-size: 13px;
+                    letter-spacing: .02em; color: var(--lc-text);
+                    min-width: 0; overflow: hidden; text-overflow: ellipsis;
+                    white-space: nowrap; }
+.lc-standing-fate { font-weight: 700; font-size: 12px;
+                    color: var(--lc-body); }
+.lc-standing-stats { flex-basis: 100%; font-family: var(--font-mono);
+                     font-size: 11px; letter-spacing: .02em;
+                     color: var(--lc-faint); }
+/* Broadcast rows (felt centre) run at a fixed, narrower width and a
+   smaller face than the phone's full-bleed card — the felt has a lot less
+   room to give a row than a scrolling pane does. */
+.lc-centre-victory .lc-standings { width: min(560px, 90vw); }
+.lc-centre-victory .lc-standing { font-size: 13px; }
+.lc-standings-more { font-family: var(--font-ui); font-weight: 700;
+                     font-size: 11px; letter-spacing: .14em;
+                     color: var(--lc-faint); }
+
+/* F.3 MiniTable — the same felt at 466px tall for a room with no TV.
+   Same state, same events, one order of magnitude less detail: seats
+   become name/HP chips and flights become CardDots. It is its own scene
+   root (it hosts CardDot flights), so it carries position: relative too.
+   Named .lc-minitable*, not the brief's .lc-mini* — .lc-mini is already a
+   shipped Plan A card component (card_mini(), above, with .lc-mini-cost /
+   .lc-mini-title) and reusing the name would make this table inherit that
+   card's 62px width and padding. */
+.lc-minitable {
+  position: relative;
+  height: 466px;
+  margin: 0 0 14px;
+}
+.lc-minitable > #lc-felt { position: absolute; inset: 0; }
+/* Same rule as .lc-ring, and the same reason: the seat table is
+   stage-relative, so this box must span the whole mini table or the two
+   surfaces stop placing seats at the same proportional distance from the
+   felt edge. Any inset here shrinks the ring twice over — and on a table
+   only 466px tall the error is proportionally identical but visually
+   tighter. Keep `inset: 0`. */
+.lc-minitable-ring { position: absolute; inset: 0; }
+.lc-minitable-chip {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 5px 9px;
+  border-radius: 7px;
+  background: var(--lc-panel);
+  border: 1px solid var(--lc-hair);
+  white-space: nowrap;
+}
+.lc-minitable-name { font: 800 12px 'Archivo', sans-serif; color: var(--lc-body); }
+.lc-minitable-hp   { font: 900 15px 'Archivo', sans-serif; color: var(--lc-text); }
+.lc-minitable-chip[data-locked] { border-color: #B48EF7; }
+.lc-minitable-chip[data-out] { opacity: .4; }
+.lc-minitable-chip[data-me] { border-color: var(--lc-hair-strong); }
+/* Centre column: a 46x62 draw pile, and nothing else in this slice.
+   Module Spec F.3 also draws event / quest / discard rows beneath it, but
+   those are content-systems work — the systems they report on (events,
+   quests) do not exist yet, so nothing renders them. The five
+   `.lc-minitable-row*` rules that styled them were deleted after the Plan B
+   whole-plan review flagged them as dead: rules whose comment described a
+   feature no code emits. Re-add them next to the renderer that needs them. */
+.lc-minitable-centre {
+  position: absolute;
+  left: 50%; top: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 9px;
+}
+
+/* Do not add a second reduced-motion @media block — one already exists
+   above. Nothing in this section animates; if that changes, extend the
+   existing block instead. */

@@ -18,6 +18,14 @@ pub enum RoomMessage {
     Room(String),
     /// Rendered emote glyph.
     Emote(String),
+    /// Rendered PUBLIC Last Call fragment (phase banner now; felt, plaques,
+    /// hand sizes and deck counts in Plan B). Broadcast to everyone including
+    /// the unauthenticated spectator screen — rendered from `PublicView`, so it
+    /// cannot contain unrevealed card identity by construction (spec §3.4).
+    LcPublic(String),
+    /// The game's current `seq`. Carries no state — it only tells each phone to
+    /// re-fetch its own private fragment.
+    LcTick(u64),
     /// The room was ended; clients should leave.
     Ended,
 }
@@ -98,6 +106,20 @@ mod tests {
         match rx.recv().await.unwrap() {
             RoomMessage::Emote(glyph) => assert_eq!(glyph, "🎉"),
             other => panic!("unexpected Emote message: {other:?}"),
+        }
+
+        // Test LcPublic variant
+        hub.publish(2, RoomMessage::LcPublic("<div>lc</div>".into()));
+        match rx.recv().await.unwrap() {
+            RoomMessage::LcPublic(html) => assert_eq!(html, "<div>lc</div>"),
+            other => panic!("unexpected LcPublic message: {other:?}"),
+        }
+
+        // Test LcTick variant
+        hub.publish(2, RoomMessage::LcTick(7));
+        match rx.recv().await.unwrap() {
+            RoomMessage::LcTick(seq) => assert_eq!(seq, 7),
+            other => panic!("unexpected LcTick message: {other:?}"),
         }
     }
 

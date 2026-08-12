@@ -36,6 +36,9 @@ pub async fn current_panel(
             };
             render::tm_phone_panel(&view)
         }
+        Some(game) if game.kind == "last_call" => {
+            render::lc_placeholder_panel(&state.base_path, code)
+        }
         Some(game) => active_panel(state, &game, code, announcement).await,
         None => idle_panel(state, code).await,
     }
@@ -184,6 +187,7 @@ pub async fn current_screen_panel(state: &GameState, room_id: i64, code: &str) -
             };
             render::tm_screen_panel(&view)
         }
+        Some(game) if game.kind == "last_call" => render::lc_screen_placeholder(code),
         Some(game) => active_screen_panel(state, &game, code).await,
         None => render::screen_panel_idle(code),
     }
@@ -215,6 +219,7 @@ pub async fn current_room_panel(state: &GameState, room_id: i64, code: &str) -> 
                 Some(render::tm_seating_html(&view)),
             )
         }
+        Some(game) if game.kind == "last_call" => (Vec::new(), 0, game.kind, None),
         Some(game) => (
             db::house_rules(&state.pool, game.id).await,
             db::king_count(&state.pool, game.id).await,
