@@ -69,8 +69,8 @@ A design-system-driven redesign of `/artportfolio`.
 | Worktree | `~/projects/drawingportfolio.worktrees/artportfolio-visual-layer` |
 | Branch | `feat/artportfolio-visual-layer` (tracks `origin/feat/artportfolio-visual-layer`) |
 | Touches | `docs/`, `src/`, `static/`, `templates/`, `.sqlx/` |
-| Status | **Slices 1 and 2 complete** — slice 1 on 2026-08-10 (`4c786a2`), slice 2 on 2026-08-11 (`cadabbc`). `./scripts/verify.sh` is green at 312 tests. Pushed; **not merged to `master`**. |
-| Next | **Slice 3** — collections, tags and the full filter rail. `superpowers:brainstorming`, then a spec. Slice 2's plan (`docs/superpowers/plans/2026-08-11-artportfolio-visibility.md`, 8 tasks) is executed and green. Any work here needs `export DATABASE_URL=sqlite:portfolio.db` — **there is no `.env` in this worktree**, and the sqlx macros need a live DB whenever the queries change. |
+| Status | **Slices 1–2 complete; slice 3 plan A (backend) complete** — filter contract + admin routes live, no UI yet. Slice 1 on 2026-08-10 (`4c786a2`), slice 2 on 2026-08-11 (`cadabbc`), slice 3 plan A on 2026-08-12 (`3afd6a5`). `./scripts/verify.sh` is green at 375 tests. Slices 1–2 pushed; slice 3 plan A committed locally, not yet pushed — **not merged to `master`**. |
+| Next | **Slice 3 plan B** — the UI: `filter_rail.html`, tag pills, the collections/visibility admin controls, active-filter row, empty-state echo. Spec `docs/superpowers/specs/2026-08-12-artportfolio-collections-tags-design.md`, plan `docs/superpowers/plans/2026-08-12-artportfolio-collections-tags-plan-b.md`. Any work here needs `export DATABASE_URL=sqlite:portfolio.db` — **there is no `.env` in this worktree**, and the sqlx macros need a live DB whenever the queries change. |
 
 No ahead/behind counts live in this card on purpose — they are stale the moment
 anything moves. Run `git rev-list --left-right --count master...HEAD` if you
@@ -160,6 +160,45 @@ does not change `innerWidth`, so the 900px always-visible fallback is CSSOM-only
 Independent of Last Call — different crates, no overlap. Slices 3–5 (collections
 + tags, multi-upload tray, select mode + batch actions) remain scoped in slice
 1's spec.
+
+#### Slice 3 plan A — the filter backend, complete 2026-08-12
+
+Spec `docs/superpowers/specs/2026-08-12-artportfolio-collections-tags-design.md`,
+plan A `docs/superpowers/plans/2026-08-12-artportfolio-collections-tags-plan-a.md`
+(6 tasks). Migration 014 (`collections`, `tags`, `post_collections`,
+`post_tags`), the `PostFilter`/`Collection`/`CollectionWithCount`/`TagWithCount`
+data layer, one query answering every `tags`/`collection`/`vis` combination, the
+URL contract on all three read routes, and seven admin mutation/fragment routes.
+Plan B (the UI) is scoped separately and has not started.
+
+Three resolved ambiguities, recorded so plan B and slice 4 do not re-litigate
+them:
+
+- **The `foreign_keys` pragma stays off**, matching every other table in this
+  schema. `ON DELETE CASCADE` in migration 014's `REFERENCES` clauses is
+  documentation only — it never fires. Every delete path (`delete_post`,
+  `delete_collection`) cleans its own `post_tags`/`post_collections` join rows
+  in Rust before the parent row goes, following the existing
+  `delete_task_image` pattern. Orphaned tag rows themselves are left in place
+  on purpose (a tag with zero members is not an error); only join rows are
+  cleaned.
+- **Two of the seven admin routes are GET, not mutations, and the spec's route
+  table doesn't name them** — it lists five mutation rows only (`POST`/`DELETE
+  /api/admin/collections…`, `PATCH /api/admin/posts/{id}`, `POST`/`DELETE
+  /api/admin/posts/{id}/collections/{cid}`). Plan A's implementation added
+  `GET /api/admin/posts/{id}/collections` (the membership checklist fragment)
+  and `GET /api/admin/posts/{id}/edit` (the caption+tags edit-form fragment)
+  beyond that table, to fetch current state on demand rather than embed every
+  post's tags/caption-editing state into every card's initial render. Both are
+  behind `AuthSession` like the other five — a visitor hitting either gets the
+  same login redirect as a mutation, not a 200 with hidden posts' captions and
+  tags.
+- **Rail counts go stale after a card edit, accepted.** Editing a post's tags
+  or collection memberships (`PATCH /api/admin/posts/{id}`, the membership
+  toggle routes) does not OOB-update the filter rail's per-collection/per-tag
+  counts — they self-correct on the next filter action or page load. Recorded
+  in the spec as a single-user trade-off; the additive fix, if it ever grates,
+  is an OOB rail fragment riding the same response.
 
 ### C · Portfolio drawing tasks — **closed 2026-08-09**
 
