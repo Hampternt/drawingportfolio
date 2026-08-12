@@ -13,7 +13,9 @@ use serde::Deserialize;
 use crate::auth::PlayerSession;
 use crate::db;
 use crate::error::GameError;
-use crate::last_call::{Card, Deck, LastCallState, LcError, PublicView, DRAW_PER_VESSEL};
+use crate::last_call::{
+    Beat, Card, Deck, LastCallState, LcError, PublicView, Status, DRAW_PER_VESSEL,
+};
 use crate::lc_render::{self, HandGroupView, SetupRow};
 use crate::models::{Game, Player, Room};
 use crate::GameState;
@@ -637,6 +639,19 @@ pub async fn lc_lock_handler(
     if let Err(e) = ctx.st.lock_in(player.id) {
         return map_lc(e);
     }
+    // Decision E3: the one engine-visible early beat exit. Every alive seat
+    // locking before the 45s Lock deadline expires should not force the
+    // table to sit out the rest of the timer with nothing left to decide.
+    if ctx.st.beat == Beat::Lock
+        && ctx
+            .st
+            .players
+            .iter()
+            .filter(|p| p.status == Status::Alive)
+            .all(|p| p.locked)
+    {
+        lc_advance_chain(&mut ctx.st, now_ms()); // Lock -> Reveal, 20s armed
+    }
     persist_and_broadcast_lc(&state, &ctx).await;
     StatusCode::NO_CONTENT.into_response()
 }
@@ -703,4 +718,240 @@ pub async fn lc_draw_handler(
     }
     persist_and_broadcast_lc(&state, &ctx).await;
     StatusCode::NO_CONTENT.into_response()
+}
+
+// -------------------------------------------------------------
+// Plan E (Task 2): the beat clock — a persisted deadline field, the
+// auto-beat advance chain, the 1 Hz ticker, and the begin route. Timer state
+// is DATA: `beat_deadline_ms` is written and read only here (and in
+// `mechanics::tick`, which just calls through to `lc_tick_room`) — the
+// engine (`last_call.rs`) never calls a clock function.
+// -------------------------------------------------------------
+
+/// Unix ms, used both to arm deadlines and to check them. The single clock
+/// read every route/ticker call goes through.
+pub(crate) fn now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("system clock before 1970")
+        .as_millis() as i64
+}
+
+/// Decision E1/E2: round 1's Draw is the untimed registration lobby (a timer
+/// there would advance past set_vessel's Draw gate before anyone
+/// registered); every other beat takes its DDv2 §5 duration or stays
+/// untimed (auto beats).
+pub(crate) fn arm_beat_clock(st: &mut LastCallState, now: i64) {
+    st.beat_deadline_ms = if st.round == 1 && st.beat == Beat::Draw {
+        None
+    } else {
+        st.beat.duration_secs().map(|s| now + i64::from(s) * 1000)
+    };
+}
+
+/// One user-visible advance plus every auto beat behind it (decision E4):
+/// advance (or resolve, at Resolve), then chain through Deal and Resolve
+/// until a timed beat or a game-over freeze, then re-arm the clock. The
+/// expects are structural: advance_beat only fails at Resolve, which both
+/// branches route to resolve(); resolve only fails off Resolve.
+pub(crate) fn lc_advance_chain(st: &mut LastCallState, now: i64) {
+    if st.beat == Beat::Resolve {
+        st.resolve()
+            .expect("resolve() at Beat::Resolve cannot fail");
+    } else {
+        st.advance_beat()
+            .expect("advance_beat() off Resolve cannot fail");
+    }
+    loop {
+        if st.outcome().is_some() {
+            st.beat_deadline_ms = None; // frozen final tableau (D16)
+            return;
+        }
+        match st.beat {
+            Beat::Deal => st
+                .advance_beat()
+                .expect("advance_beat() at Deal cannot fail"),
+            Beat::Resolve => st
+                .resolve()
+                .expect("resolve() at Beat::Resolve cannot fail"),
+            _ => break,
+        }
+    }
+    arm_beat_clock(st, now);
+}
+
+/// The Last Call beat clock, ridden on mechanics.rs's global 1 Hz ticker
+/// (decision E16). Advisory pre-check WITHOUT the lock first — one indexed
+/// SELECT per hub-active room per second, almost always returning early —
+/// then, only when a deadline has expired: take the room guard, RE-LOAD and
+/// RE-CHECK under it (an action route may have advanced the beat between the
+/// advisory read and the lock), run the chain, and persist_and_broadcast_lc
+/// while the guard is still held. The re-check is what makes the ticker and
+/// the lock route's early advance commute instead of double-advancing: both
+/// compare the freshly-reloaded `beat_deadline_ms` against "now", not the
+/// stale value seen before the lock, so whichever side gets the guard first
+/// clears or re-arms the deadline and the loser's re-check sees the new
+/// value and no-ops. `outcome().is_some()` mirrors `lc_advance_chain`'s own
+/// freeze so a finished game's `None` deadline is never treated as
+/// "expired" by the `is_none_or` below.
+pub(crate) async fn lc_tick_room(state: &GameState, room_id: i64) {
+    let Some(game) = db::get_active_game(&state.pool, room_id).await else {
+        return;
+    };
+    if game.kind != "last_call" {
+        return;
+    }
+    let pre = LastCallState::from_json(game.state_json.as_deref().unwrap_or_default());
+    if pre.beat_deadline_ms.is_none_or(|d| now_ms() < d) || pre.outcome().is_some() {
+        return;
+    }
+
+    let Some(room) = db::get_room_by_id(&state.pool, room_id).await else {
+        return;
+    };
+    let lock = state.locks.for_room(room.id);
+    let _guard = lock.lock().await;
+    let Some(game) = db::get_active_game(&state.pool, room_id).await else {
+        return;
+    };
+    if game.kind != "last_call" {
+        return;
+    }
+    let mut st = LastCallState::from_json(game.state_json.as_deref().unwrap_or_default());
+    if st.beat_deadline_ms.is_none_or(|d| now_ms() < d) || st.outcome().is_some() {
+        return;
+    }
+    lc_advance_chain(&mut st, now_ms());
+    let ctx = LcCtx { room, game, st };
+    persist_and_broadcast_lc(state, &ctx).await;
+}
+
+/// `POST /room/{code}/lastcall/begin` — starts round 1's timed loop. Any
+/// member may press it, the same `tm_roll_handler` any-member precedent (no
+/// notion of "whose turn to begin" exists at the registration lobby). Refuses
+/// off round 1's Draw (already begun, or — defensively — a state this route
+/// should never see off the lobby) and refuses under two registered players
+/// (`vessels.is_empty()` is "hasn't set a drink yet", the same test
+/// `lc_start_handler`'s member-count gate uses one level up, but here it's
+/// "registered", not merely "seated" — a member can join the room and sit
+/// without ever calling `/vessel`). On success: Draw -> Deal (auto) ->
+/// Diplomacy, 60s armed.
+pub async fn lc_begin_handler(
+    State(state): State<GameState>,
+    PlayerSession(player): PlayerSession,
+    Path(code): Path<String>,
+) -> axum::response::Response {
+    let lock = match lc_lock(&state, &code).await {
+        Ok(l) => l,
+        Err(r) => return r,
+    };
+    let _guard = lock.lock().await;
+    let mut ctx = match load_lc(&state, &code, &player).await {
+        Ok(c) => c,
+        Err(r) => return r,
+    };
+    if ctx.st.round != 1 || ctx.st.beat != Beat::Draw {
+        return GameError::OutOfTurn.into_response();
+    }
+    if ctx
+        .st
+        .players
+        .iter()
+        .filter(|p| !p.vessels.is_empty())
+        .count()
+        < 2
+    {
+        return GameError::TooFewPlayers.into_response();
+    }
+    lc_advance_chain(&mut ctx.st, now_ms());
+    persist_and_broadcast_lc(&state, &ctx).await;
+    StatusCode::NO_CONTENT.into_response()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 3 players with vessels, round bumped to 2 so Draw is timed (E1 only
+    /// exempts round 1). Walks the whole timed-beat chain, asserting the
+    /// exact deadline at each stop plus that Deal never surfaces as a
+    /// separate stop (E4: `lc_advance_chain` collapses it in the same pass
+    /// as the user-visible advance).
+    #[test]
+    fn test_advance_chain_walks_timed_beats_and_skips_auto_ones() {
+        let mut st = LastCallState::new(vec![(1, "a".into()), (2, "b".into()), (3, "c".into())], 1);
+        st.set_vessel(1, Deck::Beer, "can").unwrap();
+        st.set_vessel(2, Deck::Cider, "bottle").unwrap();
+        st.set_vessel(3, Deck::Wine, "glass").unwrap();
+        st.round = 2;
+
+        let now = 1_000_000;
+        lc_advance_chain(&mut st, now);
+        assert_eq!(st.beat, Beat::Diplomacy, "Deal must be skipped");
+        assert_eq!(st.beat_deadline_ms, Some(now + 60_000));
+
+        let now = 2_000_000;
+        lc_advance_chain(&mut st, now);
+        assert_eq!(st.beat, Beat::Lock);
+        assert_eq!(st.beat_deadline_ms, Some(now + 45_000));
+
+        let now = 3_000_000;
+        lc_advance_chain(&mut st, now);
+        assert_eq!(st.beat, Beat::Reveal);
+        assert_eq!(st.beat_deadline_ms, Some(now + 20_000));
+
+        // From Reveal: advance_beat (-> Resolve), then the loop's own
+        // resolve() branch rolls the round over.
+        let now = 4_000_000;
+        lc_advance_chain(&mut st, now);
+        assert_eq!(st.round, 3);
+        assert_eq!(st.beat, Beat::Draw);
+        assert_eq!(
+            st.beat_deadline_ms,
+            Some(now + 30_000),
+            "round >= 2 Draw is timed"
+        );
+    }
+
+    /// From Reveal, a chain that ends the game (resolve() sets an outcome)
+    /// must freeze the clock (`None`) rather than arm a deadline nobody will
+    /// ever see counted down, and must leave `beat` at `Resolve` — the
+    /// engine's own frozen-tableau shape (D16), untouched by the chain's
+    /// loop exit. 2 players, bob's hp lowered to 1 so alice's locked
+    /// beer-01 (2 damage, per `test_resolve_applies_damage_and_rolls_over`)
+    /// finishes him off during `resolve()` — the same `arm`/`set_target`/
+    /// `lock_in` staging `locked_table()` uses, not a hand-rolled effect.
+    #[test]
+    fn test_advance_chain_freezes_on_game_over() {
+        let mut st = LastCallState::new(vec![(1, "alice".into()), (2, "bob".into())], 1);
+        st.set_vessel(1, Deck::Beer, "can").unwrap();
+        st.set_vessel(2, Deck::Cider, "bottle").unwrap();
+        st.beat = Beat::Lock;
+        st.arm(1, "beer-01").unwrap();
+        st.set_target(1, "beer-01", Some(1)).unwrap();
+        st.lock_in(1).unwrap();
+        st.lock_in(2).unwrap(); // bob locks nothing armed — legal
+        st.players[1].hp = 1; // one hit from dead
+
+        lc_advance_chain(&mut st, 1_000_000); // Lock -> Reveal
+        assert_eq!(st.beat, Beat::Reveal);
+        lc_advance_chain(&mut st, 2_000_000); // Reveal -> advance(Resolve) -> resolve()
+
+        assert_eq!(st.outcome(), Some(crate::last_call::LcOutcome::Winner(0)));
+        assert_eq!(st.beat, Beat::Resolve);
+        assert_eq!(st.beat_deadline_ms, None);
+    }
+
+    /// E1: a fresh state's round-1 Draw stays untimed; the same state moved
+    /// to round 2 arms the DRAW_SECS deadline.
+    #[test]
+    fn test_round_one_draw_is_untimed() {
+        let mut st = LastCallState::new(vec![(1, "a".into()), (2, "b".into())], 1);
+        arm_beat_clock(&mut st, 1_000_000);
+        assert_eq!(st.beat_deadline_ms, None);
+
+        st.round = 2;
+        arm_beat_clock(&mut st, 1_000_000);
+        assert_eq!(st.beat_deadline_ms, Some(1_000_000 + 30_000));
+    }
 }

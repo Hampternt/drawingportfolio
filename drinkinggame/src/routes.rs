@@ -875,6 +875,10 @@ pub fn router() -> Router<GameState> {
             post(crate::lc_routes::lc_start_handler),
         )
         .route(
+            "/room/{code}/lastcall/begin",
+            post(crate::lc_routes::lc_begin_handler),
+        )
+        .route(
             "/room/{code}/lastcall/vessel",
             post(crate::lc_routes::lc_vessel_handler),
         )

@@ -320,6 +320,13 @@ pub struct LastCallState {
     pub discards: Vec<Card>,
     pub deck_counts: Vec<(Deck, u16)>,
     pub seq: u64,
+    /// Unix ms when the current timed beat expires. `None` = untimed — the
+    /// round-1 Draw registration lobby (E1), an auto beat (Deal/Resolve,
+    /// which collapse in the same `lc_advance_chain` pass), or the frozen
+    /// final tableau after game-over (D16). DATA ONLY: written and read by
+    /// `lc_routes` (the ticker and the action routes) — the engine itself
+    /// never calls a clock function or reads this field.
+    pub beat_deadline_ms: Option<i64>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -364,6 +371,9 @@ pub struct PublicView {
     pub revealed: Vec<Play>,
     pub seq: u64,
     pub outcome: Option<LcOutcome>,
+    /// Projected verbatim from `LastCallState::beat_deadline_ms` — see that
+    /// field's doc comment.
+    pub beat_deadline_ms: Option<i64>,
 }
 
 /// DDv2 9.3 — the two ways a game ends.
@@ -472,6 +482,7 @@ impl LastCallState {
             discards: Vec::new(),
             deck_counts: Deck::ALL.iter().map(|&d| (d, 0)).collect(),
             seq: 0,
+            beat_deadline_ms: None, // E1: round 1's Draw is the untimed lobby
         }
     }
 
@@ -784,6 +795,7 @@ impl LastCallState {
             },
             seq: self.seq,
             outcome: self.outcome(),
+            beat_deadline_ms: self.beat_deadline_ms,
         }
     }
 

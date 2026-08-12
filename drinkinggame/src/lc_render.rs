@@ -494,8 +494,20 @@ pub fn discard_slot(count: usize) -> String {
 /// round/beat-index meta.
 pub fn lc_banner(view: &PublicView) -> String {
     let beat = view.beat;
+    // Plan E, decision E10: the live timer rides inside #lc-banner as its
+    // last child so the lcpublic banner swap (outerHTML on #lc-banner)
+    // replaces banner and timer atomically — no orphaned timer element, no
+    // inline-script bookkeeping to keep them in sync. Only rendered when the
+    // beat both has a deadline (untimed beats — round 1's Draw lobby, the
+    // auto beats, the frozen game-over tableau — carry `None`) and a
+    // duration (defensive: the two should never disagree, but the timer has
+    // nothing to size itself against without a duration either way).
+    let timer = match (view.beat_deadline_ms, beat.duration_secs()) {
+        (Some(deadline), Some(secs)) => beat_timer_live(u32::from(secs) * 1000, deadline),
+        _ => String::new(),
+    };
     format!(
-        r#"<div class="lc-banner lc-beat-{hue}" id="lc-banner" data-beat="{slug}" data-round="{round}"><span class="lc-banner-beat">{label}</span><span class="lc-banner-meta">ROUND {round} &middot; BEAT {index} OF 6</span></div>"#,
+        r#"<div class="lc-banner lc-beat-{hue}" id="lc-banner" data-beat="{slug}" data-round="{round}"><span class="lc-banner-beat">{label}</span><span class="lc-banner-meta">ROUND {round} &middot; BEAT {index} OF 6</span>{timer}</div>"#,
         hue = beat.hue(),
         slug = beat.slug(),
         round = view.round,
@@ -510,6 +522,17 @@ pub fn beat_timer(duration_ms: u32, elapsed_ms: u32) -> String {
     let remaining = duration_ms.saturating_sub(elapsed_ms);
     format!(
         r#"<div id="lc-beat-timer" class="lc-timer" data-duration-ms="{duration_ms}" data-elapsed-ms="{elapsed_ms}" style="--lc-beat-ms:{remaining}ms"></div>"#
+    )
+}
+
+/// Live twin of `beat_timer` (which the preview keeps): same root id/class,
+/// but deadline-driven — lc_loop.js (Task 4) computes remaining client-side
+/// from `data-deadline-ms` and sets `--lc-beat-ms`, rather than this being
+/// computed server-side once at render time. No inline style, so the
+/// no-hex/no-style sweeps still hold.
+pub fn beat_timer_live(duration_ms: u32, deadline_ms: i64) -> String {
+    format!(
+        r#"<div id="lc-beat-timer" class="lc-timer" data-duration-ms="{duration_ms}" data-deadline-ms="{deadline_ms}"></div>"#
     )
 }
 
@@ -1604,6 +1627,7 @@ mod tests {
             revealed: Vec::new(),
             seq: 0,
             outcome: None,
+            beat_deadline_ms: None,
         }
     }
 

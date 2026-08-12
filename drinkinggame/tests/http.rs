@@ -5938,3 +5938,125 @@ async fn test_lc_target_accepts_empty_as_none() {
         "before={before_seq} after={after_seq}"
     );
 }
+
+// -------------------------------------------------------------
+// Last Call (Plan E Task 2): the beat clock — the persisted deadline field,
+// the auto-beat advance chain, the 1 Hz ticker riding mechanics::spawn_ticker
+// (already spawned by router_with_pool, so it runs inside every test app —
+// subscribing the SSE stream is what puts a room in active_rooms()), the
+// begin route, and lock's all-locked early advance.
+// -------------------------------------------------------------
+
+fn unix_ms_now() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as i64
+}
+
+/// The ticker's advisory-read-then-relock-then-recheck path only fires
+/// something when it finds an EXPIRED deadline on a hub-active room: rig at
+/// `Beat::Lock` (via `lc_action_rig`), stamp an already-past
+/// `beat_deadline_ms` directly onto the persisted blob (no route call —
+/// nothing else has set this deadline yet, Task 1's rig doesn't arm the
+/// clock), then subscribe SSE and wait for the ticker's own 1 Hz sweep to
+/// pick it up. The advanced frame must be the FULL publish
+/// (`persist_and_broadcast_lc`, carrying `data-lc-public`), not a bare tick
+/// — the ticker runs the same chain and the same broadcast the lock route
+/// would have run had a human clicked LOCK on time.
+#[tokio::test]
+async fn test_the_ticker_advances_an_expired_beat() {
+    let (app, pool, code, _alice, _bob, _alice_id, _bob_id) = lc_action_rig().await;
+
+    let mut st = lc_state(&pool, &code).await;
+    assert_eq!(st.beat, Beat::Lock);
+    st.beat_deadline_ms = Some(unix_ms_now() - 2_000);
+    let game_id = lc_game_id(&pool, &code).await;
+    drinkinggame::db::set_game_state(&pool, game_id, &st.to_json()).await;
+
+    let res = get(&app, &format!("/room/{code}/sse")).await;
+    let mut body = res.into_body().into_data_stream();
+    let seen = read_sse_until(&mut body, r#"data-beat="reveal""#).await;
+    assert!(seen.contains("data-lc-public"), "{seen}");
+}
+
+/// Round 1's Draw is the untimed registration lobby (E1) — `begin` is what
+/// arms the clock for the first time. Rigged with no `beat` override: just
+/// `start` plus both members registering a vessel through the real routes,
+/// the same lobby state a table actually sits in before anyone presses the
+/// button.
+#[tokio::test]
+async fn test_begin_starts_the_round_and_arms_diplomacy() {
+    let (app, _pool) = test_app_with_pool().await;
+    let alice = login(&app, "alice", "1234").await;
+    let bob = login(&app, "bob", "5678").await;
+    let code = create_room(&app, &alice).await;
+    room_page_html(&app, &bob, &code).await;
+    post_form(&app, &alice, &format!("/room/{code}/lastcall/start"), "").await;
+    post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/lastcall/vessel"),
+        "deck=beer&container=can",
+    )
+    .await;
+    post_form(
+        &app,
+        &bob,
+        &format!("/room/{code}/lastcall/vessel"),
+        "deck=cider&container=bottle",
+    )
+    .await;
+
+    let res = get(&app, &format!("/room/{code}/sse")).await;
+    let mut body = res.into_body().into_data_stream();
+    read_sse_until(&mut body, "event: lcpublic").await; // drain the snapshot
+
+    // Any member, not just the room owner — the tm_roll_handler precedent.
+    let res = post_form(&app, &bob, &format!("/room/{code}/lastcall/begin"), "").await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+
+    let seen = read_sse_until(&mut body, r#"data-beat="diplomacy""#).await;
+    assert!(seen.contains("data-deadline-ms"), "{seen}"); // the timer is live
+
+    // Not round-1 Draw any more: a second press is "not now".
+    let res = post_form(&app, &alice, &format!("/room/{code}/lastcall/begin"), "").await;
+    assert_eq!(res.status(), StatusCode::CONFLICT);
+}
+
+/// Decision E3: the all-locked table advances without waiting for the Lock
+/// beat's timer. Rigged at `Beat::Lock` (no deadline needed — the advance
+/// this test pins is the lock route's own early exit, not the ticker's).
+#[tokio::test]
+async fn test_locking_the_whole_table_advances_early() {
+    let (app, _pool, code, alice, bob, _alice_id, _bob_id) = lc_action_rig().await;
+
+    post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/lastcall/arm"),
+        "card_id=beer-01",
+    )
+    .await;
+    post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/lastcall/target"),
+        "card_id=beer-01&target=1", // bob's seat
+    )
+    .await;
+
+    let res = get(&app, &format!("/room/{code}/sse")).await;
+    let mut body = res.into_body().into_data_stream();
+    read_sse_until(&mut body, "event: lcpublic").await; // drain the snapshot
+
+    post_form(&app, &alice, &format!("/room/{code}/lastcall/lock"), "").await;
+    // bob locks nothing armed — legal (`lock_in`'s own doc comment).
+    let res = post_form(&app, &bob, &format!("/room/{code}/lastcall/lock"), "").await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+
+    // Frame filtered by content, never by position — the second lock's own
+    // publish may or may not be the very next SSE chunk.
+    let seen = read_sse_until(&mut body, r#"data-beat="reveal""#).await;
+    assert!(seen.contains("data-lc-public"), "{seen}");
+}
