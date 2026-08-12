@@ -3706,6 +3706,37 @@ async fn test_lastcall_handicap_rejects_out_of_range() {
     assert_eq!(lc_state_json(&pool, &code).await, before);
 }
 
+/// D19 gap-close (Plan E Task 1): `set_handicap` is Draw-beat-gated, so a
+/// handicap POST after Lock must map to `LcError::WrongBeat`'s "not now"
+/// (409), not fold into the same 422 bucket as an actual out-of-range
+/// percentage — see `lc_handicap_handler`'s doc comment.
+#[tokio::test]
+async fn test_lastcall_handicap_after_lock_is_conflict() {
+    let (app, pool) = test_app_with_pool().await;
+    let alice = login(&app, "alice", "1234").await;
+    let bob = login(&app, "bob", "5678").await;
+    let code = create_room(&app, &alice).await;
+    room_page_html(&app, &bob, &code).await;
+    post_form(&app, &alice, &format!("/room/{code}/lastcall/start"), "").await;
+    let alice_player = drinkinggame::db::get_player_by_name(&pool, "alice")
+        .await
+        .unwrap();
+
+    let mut st = lc_state(&pool, &code).await;
+    st.beat = Beat::Lock;
+    let game_id = lc_game_id(&pool, &code).await;
+    drinkinggame::db::set_game_state(&pool, game_id, &st.to_json()).await;
+
+    let res = post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/lastcall/handicap"),
+        &format!("target={}&handicap_pct=150", alice_player.id),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::CONFLICT);
+}
+
 #[tokio::test]
 async fn test_room_page_redirects_to_lastcall_shell() {
     let app = test_app().await;
@@ -5584,6 +5615,30 @@ async fn test_lc_arm_is_a_tick_only_broadcast() {
     let bob_hand = body_string(get_hand(&app, &bob, &code).await).await;
     assert!(bob_hand.contains("ARMED 0"), "{bob_hand}");
     assert!(!bob_hand.contains("beer-01"), "{bob_hand}");
+
+    // disarm is arm's mirror: same tick-only policy, same guard chain
+    // (route-registration typos — wiring `/disarm` to `lc_arm_handler` —
+    // are exactly what a dedicated assertion here catches).
+    let res = post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/lastcall/disarm"),
+        "card_id=beer-01",
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+
+    let seen = read_sse_until(&mut body, "event: lctick").await;
+    assert!(
+        !seen.contains("event: lcpublic")
+            && !seen.contains("event: game")
+            && !seen.contains("event: room"),
+        "{seen}"
+    );
+
+    let alice_hand = body_string(get_hand(&app, &alice, &code).await).await;
+    assert!(alice_hand.contains("ARMED 0"), "{alice_hand}");
+    assert!(alice_hand.contains("beer-01"), "{alice_hand}"); // back in the wheel
 }
 
 /// `lock` is public — the seat's lock tick is legible on the mini table and
@@ -5626,6 +5681,29 @@ async fn test_lc_lock_publishes_the_tick_not_the_cards() {
     assert!(seen.contains("lc-lock-tick"), "{seen}");
     assert!(!seen.contains("beer-01"), "{seen}");
     assert!(!seen.contains("Nudge"), "{seen}"); // beer-01's title
+}
+
+/// DDv2 6.3: the two named-card refusals carry the card id in a plain-text
+/// 422 body the action bar shows verbatim, rather than collapsing into
+/// `map_lc`'s bare-422 wildcard. beer-01 targets "one" — locking it unarmed
+/// of a target trips `LcError::NeedsTarget` in `lock_in`.
+#[tokio::test]
+async fn test_lc_lock_needs_target_names_the_card() {
+    let (app, _pool, code, alice, _bob, _alice_id, _bob_id) = lc_action_rig().await;
+
+    post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/lastcall/arm"),
+        "card_id=beer-01",
+    )
+    .await;
+
+    let res = post_form(&app, &alice, &format!("/room/{code}/lastcall/lock"), "").await;
+    assert_eq!(res.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    let body = body_string(res).await;
+    assert!(body.contains("beer-01"), "{body}");
+    assert!(body.contains("needs a target"), "{body}");
 }
 
 /// The guard chain shared by every action route: non-member -> 403, the
@@ -5672,9 +5750,11 @@ async fn test_lc_action_routes_are_guarded() {
 
 /// The one route with RNG. `finish_and_draw`'s `expected` count is
 /// `min(DRAW_PER_VESSEL, shoe count)` (D7), so a shoe holding at least 5
-/// always deals exactly 5. Samples from the deck's real copy-weighted shoe
-/// (Plan F), never the other deck's — a transport-level check that identity
-/// selection is scoped to the vessel drawn from.
+/// always deals exactly 5. Asserted at the state level (not just the
+/// fragment's `data-count`): the five newly-dealt cards are all `Deck::Beer`
+/// — proof identity selection stayed scoped to the vessel drawn from — and
+/// the Beer shoe count actually debited by 5 (36 -> 31), proof the draw
+/// isn't just publishing a frame with a stale count.
 #[tokio::test]
 async fn test_lc_draw_deals_five_from_the_vessels_deck() {
     let (app, pool) = test_app_with_pool().await;
@@ -5725,7 +5805,24 @@ async fn test_lc_draw_deals_five_from_the_vessels_deck() {
 
     let hand_html = body_string(get_hand(&app, &alice, &code).await).await;
     assert!(hand_html.contains(r#"data-count="9""#), "{hand_html}");
-    assert!(!hand_html.contains("cider-"), "{hand_html}"); // Beer only
+
+    let after = lc_state(&pool, &code).await;
+    let alice_seat = after.seat_of(alice_id).unwrap();
+    assert_eq!(after.players[alice_seat].hand.len(), 9);
+    assert!(
+        after.players[alice_seat].hand[4..]
+            .iter()
+            .all(|c| c.deck == Deck::Beer),
+        "the 5 newly-drawn cards must all come from the Beer shoe: {:?}",
+        after.players[alice_seat].hand
+    );
+    let beer_left = after
+        .deck_counts
+        .iter()
+        .find(|(d, _)| *d == Deck::Beer)
+        .unwrap()
+        .1;
+    assert_eq!(beer_left, 31, "the Beer shoe must be debited by exactly 5");
 
     // Second draw the same round: TBD-5, one per player per round.
     let res = post_form(
