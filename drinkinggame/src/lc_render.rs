@@ -5,8 +5,8 @@
 //! a breaking change for Plan A2 and Plan B.
 
 use crate::last_call::{
-    effective_pull_cost_raw, Beat, Card, Deck, LcOutcome, LogEntry, Play, PublicSeat, PublicView,
-    Status, DECK_LOW_THRESHOLD,
+    effective_pull_cost_raw, Beat, Card, CardKind, Deck, LcOutcome, LogEntry, Play, PublicSeat,
+    PublicView, Status, DECK_LOW_THRESHOLD,
 };
 use crate::lc_events::event_def;
 use crate::lc_layout::{seat_positions, view_index, SeatPos};
@@ -341,6 +341,162 @@ pub fn cost_rail(hand: &[Card], handicap_pct: u16, halved: bool) -> String {
         .collect();
     format!(
         r#"<div class="lc-costrail" data-count="{n}"><span class="lc-costrail-above">{above}</span><div class="lc-costrail-bars">{groups}</div><span class="lc-costrail-below">{n}</span></div>"#
+    )
+}
+
+// ---------------------------------------------------------------------
+// Pack 1 (lc-mobile-play-flow) — the TABLE tab's play surface: fanned
+// tray, targeting overlay, armed stack. All three are PRIVATE-side
+// builders (the `armed_column`/`cost_rail` precedent): they take the
+// viewer's own cards and render only into the per-viewer `#lc-table`
+// fetch, never a broadcast. Behaviour lives in `lc_loop.js`'s delegated
+// listeners — these emit `data-*` only.
+// ---------------------------------------------------------------------
+
+/// The tray's fanned mini — deliberately NOT `card_mini` (`.lc-mini` is the
+/// armed column's 62px component; the tray mini is a 64px pointer surface
+/// with its own overlap geometry and `data-targets`/`data-kind` contract).
+fn tray_mini(card: &Card) -> String {
+    let slug = card.deck.slug();
+    let kind = if card.kind == CardKind::Reaction {
+        r#" data-kind="reaction""#
+    } else {
+        ""
+    };
+    format!(
+        r#"<button type="button" class="lc-tray-mini lc-deck-{slug}" data-card-id="{id}" data-deck="{slug}" data-cost="{cost}" data-targets="{targets}"{kind}><span class="lc-tray-cost">{cost}</span><span class="lc-tray-title">{title}</span></button>"#,
+        id = html_escape(&card.id),
+        cost = card.cost,
+        targets = html_escape(&card.targets),
+        title = html_escape(&card.title),
+    )
+}
+
+/// The TABLE tab's fanned-mini tray plus its hidden per-card preview stash
+/// (one full `card_face` per hand card — the targeting overlay's JS clones
+/// the staged card's preview from here rather than rebuilding card anatomy
+/// client-side). Renders even for an empty hand (`YOUR HAND · 0`, no
+/// minis) — stable layout, no special casing downstream.
+pub fn lc_tray(hand: &[Card]) -> String {
+    let n = hand.len();
+    let minis: String = hand.iter().map(tray_mini).collect();
+    let previews: String = hand
+        .iter()
+        .map(|card| {
+            format!(
+                r#"<div data-preview-for="{id}">{face}</div>"#,
+                id = html_escape(&card.id),
+                face = card_face(card),
+            )
+        })
+        .collect();
+    format!(
+        r#"<div class="lc-tray" data-count="{n}"><div class="lc-tray-head"><span>YOUR HAND &middot; {n}</span><span>DRAG A CARD ONTO A PLAYER</span></div><div class="lc-tray-cards">{minis}</div><div class="lc-tray-previews" hidden>{previews}</div></div>"#
+    )
+}
+
+/// The full-pane targeting overlay — a hidden skeleton with one drop-zone
+/// row per ALIVE seat plus one EVERYONE row. The JS shows the subset
+/// matching the staged card's `targets` class (`one` → every seat row,
+/// `self` → the viewer's own row, `all` → the EVERYONE row) and fills
+/// `.lc-tgt-preview` from the tray's preview stash. Names/HP come from
+/// `&PublicView` — public data; the overlay itself still only renders into
+/// the private fetch because which rows LIGHT UP depends on the viewer's
+/// own staged card.
+pub fn lc_target_overlay(view: &PublicView, me: usize) -> String {
+    let alive: Vec<&PublicSeat> = view
+        .seats
+        .iter()
+        .filter(|s| s.status == Status::Alive)
+        .collect();
+    let everyone = format!(
+        r#"<button type="button" class="lc-tgt-row" data-target="all"><span class="lc-tgt-dot"></span><span class="lc-tgt-name">EVERYONE AT THE TABLE</span><span class="lc-tgt-hp">&times;{}</span></button>"#,
+        alive.len()
+    );
+    let rows: String = alive
+        .iter()
+        .map(|seat| {
+            let slug = seat
+                .decks()
+                .first()
+                .map(|d| d.slug())
+                .unwrap_or("beer")
+                .to_string();
+            let me_attr = if seat.seat == me { " data-me" } else { "" };
+            let you = if seat.seat == me {
+                r#"<span class="lc-tgt-you">YOU</span>"#
+            } else {
+                ""
+            };
+            format!(
+                r#"<button type="button" class="lc-tgt-row lc-deck-{slug}" data-target="{s}"{me_attr}><span class="lc-tgt-dot"></span><span class="lc-tgt-name">{name}</span>{you}<span class="lc-tgt-hp">{hp}</span></button>"#,
+                s = seat.seat,
+                name = html_escape(&seat.name.to_uppercase()),
+                hp = seat.hp,
+            )
+        })
+        .collect();
+    format!(
+        r#"<div class="lc-tgt" data-lc-overlay hidden><div class="lc-tgt-label">CHOOSE A TARGET &mdash; TAP OR DROP</div><div class="lc-tgt-rows">{everyone}{rows}</div><div class="lc-tgt-preview" data-lc-preview></div></div>"#
+    )
+}
+
+/// The felt's ARMED stack — the viewer's own staged plays, one 58×46 mini
+/// per play with a "cost → TARGET" line and a take-back tap (`data-locked`
+/// suppresses it and the footer, and swaps the header to `LOCKED n`).
+/// `data-arrow` carries the target seat for the persistent dotted arrow
+/// (`lc_motion.js::lcTableArrows`); AOE plays carry `data-aoe` and get the
+/// wave instead. Empty string when nothing is staged — the stack is a
+/// queue, not a placeholder.
+pub fn lc_table_stack(
+    armed: &[(&Card, Option<usize>)],
+    locked: bool,
+    view: &PublicView,
+    me: usize,
+) -> String {
+    if armed.is_empty() {
+        return String::new();
+    }
+    let n = armed.len();
+    let locked_attr = if locked { " data-locked" } else { "" };
+    let head = if locked {
+        format!("LOCKED {n}")
+    } else {
+        format!("ARMED {n}")
+    };
+    let minis: String = armed
+        .iter()
+        .map(|(card, target)| {
+            let slug = card.deck.slug();
+            let (arrow_attrs, tgt_label) = match card.targets.as_str() {
+                "self" => (format!(r#" data-arrow="{me}""#), "YOU".to_string()),
+                "one" => match target {
+                    Some(t) => (
+                        format!(r#" data-arrow="{t}""#),
+                        seat_name_upper(view, *t),
+                    ),
+                    // Interim (Pack 2 retires the wheel's instant-arm): a
+                    // card armed without a target yet — no arrow, and the
+                    // line says so. Take-back + tray re-play is the edit.
+                    None => (String::new(), "PICK".to_string()),
+                },
+                _ => (r#" data-aoe"#.to_string(), "ALL".to_string()),
+            };
+            format!(
+                r#"<button type="button" class="lc-stack-mini lc-deck-{slug}" data-card-id="{id}" data-deck="{slug}"{arrow_attrs}><span class="lc-stack-line">{cost} &rarr; {tgt_label}</span><span class="lc-stack-title">{title}</span></button>"#,
+                id = html_escape(&card.id),
+                cost = card.cost,
+                title = html_escape(&card.title),
+            )
+        })
+        .collect();
+    let foot = if locked {
+        String::new()
+    } else {
+        r#"<span class="lc-stack-foot">TAP TO EDIT</span>"#.to_string()
+    };
+    format!(
+        r#"<div class="lc-stack" data-count="{n}"{locked_attr} data-flight-anchor="stack"><span class="lc-stack-head">{head}</span>{minis}{foot}</div>"#
     )
 }
 
@@ -1347,6 +1503,9 @@ pub struct ActionBarView {
     // above).
     pub haunt_plays: Vec<(u32, String)>, // (order_key, "SRC → TGT"), damage plays only
     pub haunted: bool,                   // this ghost already voted this round
+    /// Pack 1 (lc-mobile-play-flow): the viewer's own armed-queue size —
+    /// Diplomacy's LOCK IN reads "LOCK IN · n QUEUED" when n > 0.
+    pub armed_count: usize,
 }
 
 /// F.1 — the thumb zone's one decision. Precedence: `outcome` (any player,
@@ -1446,8 +1605,17 @@ pub fn lc_action_bar(ab: &ActionBarView) -> String {
             if ab.locked {
                 r#"<p class="lc-actions-hint">LOCKED — WAITING FOR THE TABLE</p>"#.to_string()
             } else {
-                r#"<p class="lc-actions-hint">TALK IT OUT — DEALS AREN'T BINDING</p><button class="lc-btn lc-btn-drink" data-lc-post="lock">LOCK IN</button>"#
-                    .to_string()
+                // Pack 1 (lc-mobile-play-flow): the label carries the armed
+                // queue's size, so the commit button always says what it
+                // commits.
+                let label = if ab.armed_count > 0 {
+                    format!("LOCK IN &middot; {} QUEUED", ab.armed_count)
+                } else {
+                    "LOCK IN".to_string()
+                };
+                format!(
+                    r#"<p class="lc-actions-hint">TALK IT OUT — DEALS AREN'T BINDING</p><button class="lc-btn lc-btn-drink" data-lc-post="lock">{label}</button>"#
+                )
             }
         }
         Beat::Reveal | Beat::Resolve => {
@@ -1835,6 +2003,7 @@ mod tests {
                 outcome: None,
                 haunt_plays: Vec::new(),
                 haunted: false,
+                armed_count: 0,
             }),
             // Plan I Task 5: a ghost mid-Reveal with a live haunt target —
             // the new content-bearing branch (H's lesson: an empty-state
@@ -1854,6 +2023,7 @@ mod tests {
                 outcome: None,
                 haunt_plays: vec![(1, "PLAYER1 → PLAYER2".to_string())],
                 haunted: false,
+                armed_count: 0,
             }),
             // Plan H Task 5: both of `lc_tab_panel`'s content-bearing states
             // — a live tab and the settled placeholder — so the sweep
@@ -1880,10 +2050,40 @@ mod tests {
                 outcome: Some(LcOutcome::Winner(0)),
                 haunt_plays: Vec::new(),
                 haunted: false,
+                armed_count: 0,
             }),
             // Plan J Task 3: the end card itself, me = the eliminated seat
             // (data-me AND the "OUT #n" fate branch in the same output).
             lc_end_card(&end_card_view, Some(1)),
+            // Pack 1 (lc-mobile-play-flow): the TABLE play surface — the
+            // tray (with its preview stash), the targeting overlay, the
+            // armed stack live and locked, and the QUEUED commit label.
+            lc_tray(&cards),
+            lc_target_overlay(&ring_fixture(3), 0),
+            lc_table_stack(
+                &[(&cards[0], Some(1)), (&cards[1], None)],
+                false,
+                &ring_fixture(3),
+                0,
+            ),
+            lc_table_stack(&[(&cards[0], Some(1))], true, &ring_fixture(3), 0),
+            lc_action_bar(&ActionBarView {
+                beat: Beat::Diplomacy,
+                round: 2,
+                seated: true,
+                alive: true,
+                locked: false,
+                ready: false,
+                mulliganed: false,
+                drawing: false,
+                vessels: Vec::new(),
+                charged: 0,
+                vessels_registered: 2,
+                outcome: None,
+                haunt_plays: Vec::new(),
+                haunted: false,
+                armed_count: 2,
+            }),
         ];
         for out in &outputs {
             // `action="` (not bare `action`) — a placeholder card body
@@ -3577,6 +3777,108 @@ mod tests {
         assert!(html.contains(r#"data-flight-anchor="armed""#));
     }
 
+    // ---- Pack 1 (lc-mobile-play-flow) ---------------------------------
+
+    /// The tray: contract attributes on every mini, `data-kind="reaction"`
+    /// on reactions only, and a hidden preview stash carrying one full
+    /// `card_face` per hand card for the overlay to clone.
+    #[test]
+    fn test_tray_marks_reactions_and_stashes_previews() {
+        let one = lc_cards::card_by_id("beer-01").unwrap(); // Atk, targets one
+        let react = CATALOG
+            .iter()
+            .find(|d| {
+                lc_cards::card_by_id(d.id).unwrap().kind == crate::last_call::CardKind::Reaction
+            })
+            .map(|d| lc_cards::card_by_id(d.id).unwrap())
+            .expect("catalog has a reaction card");
+        let html = lc_tray(&[one.clone(), react.clone()]);
+        assert!(html.contains(r#"class="lc-tray" data-count="2""#), "{html}");
+        assert!(html.contains("YOUR HAND &middot; 2"), "{html}");
+        assert!(html.contains(r#"data-targets="one""#), "{html}");
+        assert_eq!(html.matches(r#"data-kind="reaction""#).count(), 1, "{html}");
+        assert!(
+            html.contains(&format!(r#"data-preview-for="{}""#, one.id)),
+            "{html}"
+        );
+        // the stash holds real card faces, hidden until cloned
+        assert!(
+            html.contains(r#"class="lc-tray-previews" hidden"#),
+            "{html}"
+        );
+        assert!(html.contains("lc-cardface"), "{html}");
+        no_hex(&html);
+
+        // empty hand: stable root, no minis
+        let empty = lc_tray(&[]);
+        assert!(empty.contains(r#"data-count="0""#), "{empty}");
+        assert!(!empty.contains("lc-tray-mini"), "{empty}");
+    }
+
+    /// The overlay skeleton: an EVERYONE row counting the alive seats,
+    /// one row per ALIVE seat (an eliminated seat never renders), and the
+    /// viewer's own row marked `data-me` — self-targeting is legal, so the
+    /// row exists and the JS shows it for `targets == "self"`.
+    #[test]
+    fn test_target_overlay_renders_alive_rows_only() {
+        let mut view = ring_fixture(3);
+        view.seats[2].status = Status::Eliminated;
+        let html = lc_target_overlay(&view, 1);
+        assert!(
+            html.contains(r#"class="lc-tgt" data-lc-overlay hidden"#),
+            "{html}"
+        );
+        assert!(html.contains(r#"data-target="all""#), "{html}");
+        assert!(html.contains("&times;2"), "{html}");
+        assert!(html.contains(r#"data-target="0""#), "{html}");
+        assert!(html.contains(r#"data-target="1" data-me"#), "{html}");
+        assert!(!html.contains(r#"data-target="2""#), "{html}");
+        assert!(html.contains("PLAYER1"), "{html}");
+        assert!(!html.contains("PLAYER3"), "{html}");
+        no_hex(&html);
+    }
+
+    /// The armed stack's four mini states (targeted / awaiting a pick /
+    /// self / AOE), the locked variant, and the empty-queue empty string.
+    #[test]
+    fn test_table_stack_states() {
+        let view = ring_fixture(3);
+        let one = lc_cards::card_by_id("beer-01").unwrap(); // targets one
+        let selfc = lc_cards::card_by_id("beer-03").unwrap(); // targets self
+        let aoe = lc_cards::card_by_id("beer-05").unwrap(); // targets all
+
+        let html = lc_table_stack(
+            &[(&one, Some(1)), (&one, None), (&selfc, None), (&aoe, None)],
+            false,
+            &view,
+            0,
+        );
+        assert!(html.contains(r#"data-count="4""#), "{html}");
+        assert!(html.contains("ARMED 4"), "{html}");
+        assert!(html.contains("TAP TO EDIT"), "{html}");
+        assert!(html.contains(r#"data-flight-anchor="stack""#), "{html}");
+        // targeted: arrow to the seat, named line
+        assert!(html.contains(r#"data-arrow="1""#), "{html}");
+        assert!(html.contains("&rarr; PLAYER2"), "{html}");
+        // awaiting a pick: no arrow, the line says so
+        assert!(html.contains("&rarr; PICK"), "{html}");
+        // self: arrow home
+        assert!(html.contains(r#"data-arrow="0""#), "{html}");
+        assert!(html.contains("&rarr; YOU"), "{html}");
+        // AOE: the wave marker, no seat arrow
+        assert!(html.contains(" data-aoe"), "{html}");
+        assert!(html.contains("&rarr; ALL"), "{html}");
+        no_hex(&html);
+
+        let locked = lc_table_stack(&[(&one, Some(1))], true, &view, 0);
+        assert!(locked.contains(" data-locked"), "{locked}");
+        assert!(locked.contains("LOCKED 1"), "{locked}");
+        assert!(!locked.contains("TAP TO EDIT"), "{locked}");
+
+        assert_eq!(lc_table_stack(&[], false, &view, 0), "");
+        assert_eq!(lc_table_stack(&[], true, &view, 0), "");
+    }
+
     /// Plan E Task 4 / F.1 — one assertion pair per row of the state table,
     /// the exact copy string present and the states it must NOT show absent.
     #[test]
@@ -3597,6 +3899,7 @@ mod tests {
                 outcome: None,
                 haunt_plays: Vec::new(),
                 haunted: false,
+                armed_count: 0,
             }
         }
 
@@ -3693,7 +3996,16 @@ mod tests {
         let html = lc_action_bar(&ab);
         assert!(html.contains("TALK IT OUT — DEALS AREN'T BINDING"));
         assert!(html.contains("LOCK IN"));
+        assert!(!html.contains("QUEUED"));
         assert!(!html.contains(r#"data-lc-post="ready""#));
+        no_hex(&html);
+
+        // diplomacy with an armed queue (Pack 1): the commit names its size.
+        let mut ab = base();
+        ab.beat = Beat::Diplomacy;
+        ab.armed_count = 2;
+        let html = lc_action_bar(&ab);
+        assert!(html.contains("LOCK IN &middot; 2 QUEUED"));
         no_hex(&html);
 
         // diplomacy, locked: waiting on the table.
@@ -3784,6 +4096,7 @@ mod tests {
                 outcome: None,
                 haunt_plays,
                 haunted,
+                armed_count: 0,
             }
         }
 

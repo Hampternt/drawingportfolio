@@ -440,9 +440,9 @@ body.lc { margin: 0; min-height: 100vh; display: flex; flex-direction: column;
                    color: var(--lc-rose); }
 .lc-drink-now { display: flex; align-items: center; justify-content: center;
                 cursor: default; }
-.lc-targets { padding: 0 14px 10px; }
-.lc-target-row { display: flex; align-items: center; justify-content: space-between;
-                 gap: 10px; padding: 6px 0; font-size: 13px; }
+/* Pack 1 (lc-mobile-play-flow) retired .lc-targets/.lc-target-row — the E8
+   select picker's rows. Targeting lives in the TABLE tab's .lc-tgt overlay
+   below. */
 
 /* Plan G — pacts. The private pact section was retired by the 2026-08-13
    screen-declutter pack (routes + engine stay dormant); the break strip is
@@ -651,6 +651,15 @@ body.lc { margin: 0; min-height: 100vh; display: flex; flex-direction: column;
   .lc-timer { transform: scaleX(0); }
   .lc-cardface, .lc-btn { transition: none; }
   .lc-wheel-card, .lc-costrail-bar { transition: none; }
+  /* Pack 1 (lc-mobile-play-flow): arrows still (dashes stay, no crawl),
+     waves and pop-ins off, the decorative arm-flash suppressed outright —
+     lc_motion.js's lcArmFlash also guards on reduced() and never builds
+     the node, so this display rule is the CSS-side belt to that brace. */
+  .lc-arrowlay path, .lc-arrowlay ellipse,
+  .lc-stack-mini, .lc-tgt { animation: none !important; }
+  .lc-arrowlay ellipse { opacity: .25; }
+  .lc-armflash { display: none; }
+  .lc-tray-mini, .lc-tgt-row { transition: none; }
 }
 
 /* preview page (Plan A-vis Task 2) — a permanent style guide, not a shell
@@ -1088,9 +1097,184 @@ body.lc-screen .lc-timer { height: 3px; }
   gap: 9px;
 }
 
+/* Pack 1 (lc-mobile-play-flow) — the TABLE tab as the play surface: the
+   scene wrapper, the fanned tray, the targeting overlay, the felt-edge
+   ARMED stack, the arrow layer and the arm-flash. Everything composes from
+   the tokens above — no new colours. All animation additions extend the
+   ONE reduced-motion block above, per the rule below. */
+
+/* The scene: the mini table plus its private overlays (stack, arrows) in
+   one positioned box — the stack and the SVG resolve their absolute
+   positions against this, not the pane. Owns the 14px gap the mini table
+   used to carry, so the arrow layer's inset: 0 spans exactly the felt. */
+.lc-tablescene { position: relative; margin: 0 0 14px; }
+.lc-tablescene > .lc-minitable { margin: 0; }
+/* The pane is the targeting overlay's containing block (inset: 0 covers
+   the whole TABLE pane, tray and END GAME form included, per the design). */
+.lc-pane { position: relative; }
+
+/* the persistent arrow layer — JS (lc_motion.js lcTableArrows) writes the
+   viewBox and the deck-classed paths/ellipses; CSS owns every colour and
+   all motion. Sits above the felt, below the seat chips (z 6). */
+.lc-arrowlay { position: absolute; inset: 0; width: 100%; height: 100%;
+               pointer-events: none; z-index: 4; overflow: visible; }
+.lc-arrowlay path { fill: none; stroke: var(--lc-ink, var(--lc-violet));
+                    stroke-width: 2; stroke-dasharray: 1 9;
+                    stroke-linecap: round; opacity: .35;
+                    animation: lc-dashflow 2400ms linear infinite; }
+.lc-arrowlay ellipse { fill: none; stroke: var(--lc-ink, var(--lc-violet));
+                       stroke-width: 1.5; opacity: .5;
+                       transform-box: fill-box; transform-origin: center;
+                       animation: lc-wave 2s ease-out infinite; }
+
+/* the fanned tray — 64px minis overlapping -14px (the scroller's 16px
+   left padding compensates the first). No visible scrollbar ever: the
+   one legitimate stylesheet scrollbar rule (design handoff). */
+.lc-tray { padding: 10px 16px 4px; }
+.lc-tray-head { display: flex; align-items: baseline;
+                justify-content: space-between; margin-bottom: 6px;
+                font-family: var(--font-ui); font-weight: 700; font-size: 9px;
+                letter-spacing: .14em; color: var(--lc-faint);
+                white-space: nowrap; }
+.lc-tray-cards { display: flex; overflow-x: auto;
+                 padding: 10px 2px 10px 16px;
+                 scrollbar-width: none; -ms-overflow-style: none; }
+.lc-tray-cards::-webkit-scrollbar { display: none; }
+.lc-tray-mini { flex: none; width: 64px; margin-left: -14px; padding: 7px 6px;
+                border-radius: 6px; background: var(--lc-panel-alt);
+                border: 1.5px solid var(--lc-ink);
+                box-shadow: -3px 3px 6px rgba(5, 3, 10, .55);
+                text-align: left; cursor: grab; touch-action: none;
+                display: flex; flex-direction: column; gap: 2px;
+                transition: transform 140ms var(--lc-ease); }
+.lc-tray-mini.is-staged { background: var(--lc-focused); border-width: 2px;
+                          transform: translateY(-6px); }
+.lc-tray-cost { font-family: var(--font-display); font-weight: 800;
+                font-size: 9px; color: var(--lc-ink); }
+.lc-tray-title { font-family: var(--font-display); font-weight: 800;
+                 font-size: 10px; line-height: 1.15; color: var(--lc-text);
+                 display: -webkit-box; -webkit-line-clamp: 2;
+                 -webkit-box-orient: vertical; overflow: hidden;
+                 pointer-events: none; }
+
+/* the pointer-drag ghost — created by lc_loop.js in the #lc-flights layer,
+   reusing .lc-tray-cost/.lc-tray-title for its two lines */
+.lc-tray-ghost { position: absolute; z-index: 60; pointer-events: none;
+                 width: 64px; padding: 7px 6px; border-radius: 6px;
+                 background: var(--lc-focused);
+                 border: 2px solid var(--lc-ink, var(--lc-hair-strong));
+                 box-shadow: var(--lc-lift-lg);
+                 display: flex; flex-direction: column; gap: 2px;
+                 transform: translate(-50%, -70%) rotate(-4deg) scale(1.15); }
+
+/* the targeting overlay — covers the whole TABLE pane. Hidden at rest;
+   lc_loop.js unhides it and shows the row subset matching the staged
+   card's targets class. */
+.lc-tgt { position: absolute; inset: 0; z-index: 8;
+          background: rgba(11, 9, 16, .82);
+          display: flex; flex-direction: column; gap: 8px;
+          padding: 12px 14px; overflow-y: auto; overflow-x: hidden;
+          scrollbar-width: none; -ms-overflow-style: none;
+          animation: lc-fade 140ms ease-out 1; }
+.lc-tgt::-webkit-scrollbar { display: none; }
+.lc-tgt[hidden] { display: none; }
+.lc-tgt-label { flex: none; text-align: center; font-family: var(--font-ui);
+                font-weight: 700; font-size: 9px; letter-spacing: .14em;
+                color: var(--lc-azure); }
+.lc-tgt-rows { flex: none; display: flex; flex-direction: column; gap: 8px; }
+.lc-tgt-row { flex: none; height: 52px; display: flex; align-items: center;
+              gap: 10px; padding: 0 14px; border-radius: 10px;
+              background: var(--lc-panel);
+              border: 1px solid var(--lc-hair-strong);
+              box-shadow: 0 3px 0 rgba(5, 3, 10, .5);
+              transition: transform 120ms var(--lc-ease), background 120ms; }
+.lc-tgt-row[hidden] { display: none; }
+.lc-tgt-row.is-over { background: var(--lc-focused);
+                      border: 2px solid var(--lc-azure);
+                      transform: scale(1.03); }
+/* the EVERYONE row carries no deck class — the dot falls back to azure */
+.lc-tgt-dot { width: 8px; height: 8px; border-radius: 50%;
+              background: var(--lc-fill, var(--lc-azure));
+              box-shadow: 0 0 8px var(--lc-fill, var(--lc-azure)); }
+.lc-tgt-name { font-family: var(--font-display); font-weight: 800;
+               font-size: 14px; letter-spacing: .01em; color: var(--lc-text); }
+.lc-tgt-you { font-family: var(--font-mono); font-size: 8px; padding: 1px 4px;
+              border-radius: 3px; background: rgba(180, 142, 247, .18);
+              color: var(--lc-violet); }
+.lc-tgt-hp { margin-left: auto; font-family: var(--font-display);
+             font-weight: 900; font-size: 15px; color: var(--lc-body); }
+/* the staged-card preview: a full card_face, restyled down to 206px */
+.lc-tgt-preview { flex: none; margin-top: auto; align-self: center;
+                  width: 206px; pointer-events: none; }
+.lc-tgt-preview .lc-cardface { height: auto; padding: 11px 13px;
+                               border: 2px solid var(--lc-ink, var(--lc-hair-strong));
+                               box-shadow: var(--lc-lift-lg); }
+.lc-tgt-preview .lc-face-title { font-size: 18px; }
+.lc-tgt-preview .lc-face-body { font-size: 11px; -webkit-line-clamp: 2; }
+
+/* the ARMED stack — the felt's left edge, vertically centred in the scene */
+.lc-stack { position: absolute; left: 12px; top: 50%;
+            transform: translateY(-50%); z-index: 7;
+            display: flex; flex-direction: column; gap: 6px; width: 58px; }
+.lc-stack[data-locked] { opacity: .75; }
+.lc-stack-head { text-align: center; font-family: var(--font-ui);
+                 font-weight: 700; font-size: 8.5px; letter-spacing: .1em;
+                 color: var(--lc-violet); background: rgba(14, 12, 20, .8);
+                 border-radius: 4px; padding: 1px 0; }
+.lc-stack-mini { display: flex; flex-direction: column; gap: 1px;
+                 width: 58px; height: 46px; padding: 5px; border-radius: 6px;
+                 background: var(--lc-focused);
+                 border: 1.5px solid var(--lc-ink);
+                 box-shadow: 0 3px 0 rgba(5, 3, 10, .5); text-align: left;
+                 animation: lc-pop 240ms var(--lc-ease) 1; }
+.lc-stack-line { font-family: var(--font-display); font-weight: 800;
+                 font-size: 8px; color: var(--lc-ink); white-space: nowrap;
+                 overflow: hidden; text-overflow: ellipsis; }
+.lc-stack-title { font-family: var(--font-display); font-weight: 800;
+                  font-size: 9px; line-height: 1.1; color: var(--lc-text);
+                  display: -webkit-box; -webkit-line-clamp: 2;
+                  -webkit-box-orient: vertical; overflow: hidden; }
+.lc-stack-foot { text-align: center; font-family: var(--font-mono);
+                 font-size: 7.5px; color: var(--lc-faint); }
+
+/* the arm-flash — a large preview at the felt centre that flies into the
+   stack. Lives in the #lc-flights layer (lc_motion.js lcArmFlash), so no
+   table repaint can destroy it mid-flight; left/top and the fly transform
+   are written inline by that helper. */
+.lc-armflash { position: absolute; z-index: 10; width: 224px;
+               pointer-events: none; transform: translate(-50%, -50%);
+               animation: lc-cardin 240ms var(--lc-ease) 1; }
+.lc-armflash-cap { text-align: center; font-family: var(--font-mono);
+                   font-size: 10px; letter-spacing: .08em;
+                   color: var(--lc-body); margin-bottom: 6px; }
+.lc-armflash .lc-cardface { height: auto;
+                            border: 2px solid var(--lc-ink, var(--lc-hair-strong));
+                            background: var(--lc-focused);
+                            box-shadow: var(--lc-lift-lg); }
+
+/* Pack 1 motion */
+@keyframes lc-dashflow {                /* dotted arrows crawling */
+  to { stroke-dashoffset: -30; }
+}
+@keyframes lc-wave {                    /* AOE ellipse, felt-shaped */
+  0%   { transform: scale(.12); opacity: .8; }
+  100% { transform: scale(1); opacity: 0; }
+}
+@keyframes lc-pop {                     /* stack mini pop-in */
+  0%   { opacity: 0; transform: scale(.55); }
+  100% { opacity: 1; transform: none; }
+}
+@keyframes lc-cardin {                  /* arm-flash entrance */
+  0%   { opacity: 0; transform: translate(-50%, -46%) scale(.55); }
+  100% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+}
+@keyframes lc-fade {                    /* overlay fade-in */
+  0%   { opacity: 0; }
+  100% { opacity: 1; }
+}
+
 /* Do not add a second reduced-motion @media block — one already exists
-   above. Nothing in this section animates; if that changes, extend the
-   existing block instead. */
+   above. Pack 1's animations are stilled there, not here. */
 
 /* Test play mode — the identity switcher bar, same component the room
    page's game.css carries (lc_room.html loads only this sheet, hence the

@@ -1,10 +1,10 @@
-// Last Call loop wiring (Plan E). The F.1 action bar's `data-lc-post`
-// buttons, the Lock-beat target picker, Plan C's `lc:arm`/`lc:disarm`
-// CustomEvents, and the live beat timer all funnel through here — one
-// delegated listener per event type, bound once on `document.body`, so
-// nothing here needs rebinding when a repaint (lcApply, lc_screen.html's
-// lcpublic swap) replaces the DOM it targets. Task 5 adds flights/hits on
-// top of the same globals.
+// Last Call loop wiring (Plan E; Pack 1 lc-mobile-play-flow). The F.1
+// action bar's `data-lc-post` buttons, Plan C's `lc:arm`/`lc:disarm`
+// CustomEvents, and Pack 1's tray/targeting-overlay/ARMED-stack surface
+// all funnel through here — one delegated listener per event type, bound
+// once on `document.body`, so nothing here needs rebinding when a repaint
+// (lcApply, lcApplyTable, lc_screen.html's lcpublic swap) replaces the DOM
+// it targets. Task 5 adds flights/hits on top of the same globals.
 (function () {
   "use strict";
 
@@ -147,7 +147,34 @@
   // button), everything else in the F.1 table (begin/lock/draw/end) posts
   // straight from here.
   function onClick(e) {
-    var el = e.target.closest ? e.target.closest("[data-lc-post]") : null;
+    if (!e.target.closest) return;
+    // Pack 1: a tab switch changes which pane is measurable — redraw the
+    // table's arrows once the new pane has laid out. No return: the tab
+    // buttons carry no other behaviour here.
+    if (e.target.closest("[data-lc-tab]")) {
+      window.requestAnimationFrame(function () {
+        if (window.lcTableSync) window.lcTableSync();
+      });
+    }
+    // Pack 1: overlay row -> commit; overlay backdrop -> cancel; stack
+    // mini -> take-back (locked stacks are committed, no take-back).
+    var row = e.target.closest(".lc-tgt-row");
+    if (row) {
+      chooseTarget(row);
+      return;
+    }
+    if (e.target.closest("[data-lc-overlay]")) {
+      closeTargeting();
+      return;
+    }
+    var stackMini = e.target.closest(".lc-stack-mini");
+    if (stackMini) {
+      if (!stackMini.closest("[data-locked]")) {
+        post("disarm", "card_id=" + encodeURIComponent(stackMini.dataset.cardId));
+      }
+      return;
+    }
+    var el = e.target.closest("[data-lc-post]");
     if (!el || el.disabled) return;
     var action = el.dataset.lcPost;
     var body;
@@ -168,16 +195,221 @@
     post(action, body);
   }
 
-  // One delegated change listener for the Lock-beat target picker.
-  function onChange(e) {
-    var sel = e.target.closest ? e.target.closest("select[data-lc-target]") : null;
-    if (!sel) return;
-    post(
-      "target",
-      "card_id=" + encodeURIComponent(sel.dataset.cardId) +
-        "&target=" + encodeURIComponent(sel.value)
-    );
+  // Pack 1 (lc-mobile-play-flow) retired the Lock-beat `<select>` target
+  // picker and its delegated change listener — targeting now happens in the
+  // TABLE tab's overlay below, which posts `arm` then `target` in one
+  // gesture.
+
+  // ---- Pack 1: the TABLE tab's tray / targeting overlay / ARMED stack ----
+  //
+  // Same delegation discipline as everything above: pointer + click
+  // listeners bound once on document.body, transient state (the staged
+  // card, the live drag) in module scope, and `lcTableSync` re-derives the
+  // visual state from whatever DOM the latest repaint left behind.
+
+  var trayState = { staged: null };
+  var trayDrag = null;
+
+  function tablePane() {
+    return document.querySelector('[data-lc-pane="table"]');
   }
+
+  function overlayEl() {
+    var pane = tablePane();
+    return pane ? pane.querySelector("[data-lc-overlay]") : null;
+  }
+
+  function trayMini(cardId) {
+    var pane = tablePane();
+    return pane
+      ? pane.querySelector('.lc-tray-mini[data-card-id="' + cardId + '"]')
+      : null;
+  }
+
+  function closeTargeting() {
+    trayState.staged = null;
+    var pane = tablePane();
+    if (!pane) return;
+    pane.querySelectorAll(".lc-tray-mini.is-staged").forEach(function (m) {
+      m.classList.remove("is-staged");
+    });
+    var ov = overlayEl();
+    if (ov) ov.hidden = true;
+  }
+
+  // Stage a card and open the overlay showing only the rows its `targets`
+  // class admits: "one" -> every seat row, "self" -> the viewer's own row,
+  // anything else ("all"/"table") -> the EVERYONE row. Reactions never arm
+  // (the engine refuses them — they play in the Reveal response window), so
+  // they get the note instead of a doomed POST.
+  function openTargeting(cardId) {
+    var mini = trayMini(cardId);
+    var ov = overlayEl();
+    if (!mini || !ov) return;
+    if (mini.dataset.kind === "reaction") {
+      note("REACTIONS PLAY AT THE REVEAL — HOLD ONTO IT");
+      return;
+    }
+    var targets = mini.dataset.targets;
+    trayState.staged = cardId;
+    tablePane().querySelectorAll(".lc-tray-mini").forEach(function (m) {
+      m.classList.toggle("is-staged", m === mini);
+    });
+    ov.querySelectorAll(".lc-tgt-row").forEach(function (row) {
+      var t = row.dataset.target;
+      var show = targets === "one" ? t !== "all"
+        : targets === "self" ? row.hasAttribute("data-me")
+          : t === "all";
+      row.hidden = !show;
+      row.classList.remove("is-over");
+    });
+    var pv = ov.querySelector("[data-lc-preview]");
+    var src = tablePane().querySelector('[data-preview-for="' + cardId + '"]');
+    if (pv) pv.innerHTML = src ? src.innerHTML : "";
+    ov.hidden = false;
+  }
+
+  // The commit: POST arm, then (for a seat-targeted card) POST target with
+  // the chosen seat, then fire the decorative arm flash. The tick repaint
+  // carries the real armed queue back — nothing here mutates game state
+  // client-side.
+  function chooseTarget(row) {
+    var id = trayState.staged;
+    var mini = id && trayMini(id);
+    if (!mini || !row) {
+      closeTargeting();
+      return;
+    }
+    var targets = mini.dataset.targets;
+    var deck = mini.dataset.deck;
+    var targetVal = row.dataset.target;
+    var nameEl = row.querySelector(".lc-tgt-name");
+    var label = targetVal === "all" ? "EVERYONE"
+      : row.hasAttribute("data-me") ? "YOURSELF"
+        : (nameEl ? nameEl.textContent : "");
+    var src = tablePane().querySelector('[data-preview-for="' + id + '"]');
+    var previewHTML = src ? src.innerHTML : "";
+    post("arm", "card_id=" + encodeURIComponent(id)).then(function (ok) {
+      if (!ok) return;
+      if (targets === "one" && targetVal !== "all") {
+        post(
+          "target",
+          "card_id=" + encodeURIComponent(id) +
+            "&target=" + encodeURIComponent(targetVal)
+        );
+      }
+      if (window.lcArmFlash) {
+        window.lcArmFlash({
+          deck: deck,
+          caption: "YOU → " + label,
+          previewHTML: previewHTML,
+        });
+      }
+    });
+    closeTargeting();
+  }
+
+  function onTrayPointerDown(e) {
+    var mini = e.target.closest ? e.target.closest(".lc-tray-mini") : null;
+    if (!mini) return;
+    try { mini.setPointerCapture(e.pointerId); } catch (_) {}
+    trayDrag = {
+      id: mini.dataset.cardId,
+      x0: e.clientX,
+      y0: e.clientY,
+      moved: false,
+      ghost: null,
+      over: null,
+    };
+  }
+
+  function onTrayPointerMove(e) {
+    var d = trayDrag;
+    if (!d) return;
+    if (!d.moved && Math.hypot(e.clientX - d.x0, e.clientY - d.y0) < 10) return;
+    d.moved = true;
+    var mini = trayMini(d.id);
+    if (!mini || mini.dataset.kind === "reaction") return;
+    if (trayState.staged !== d.id) openTargeting(d.id);
+    if (!d.ghost) {
+      var layer = document.getElementById("lc-flights");
+      if (layer) {
+        var g = document.createElement("div");
+        g.className = "lc-tray-ghost" +
+          (mini.dataset.deck ? " lc-deck-" + mini.dataset.deck : "");
+        var cost = document.createElement("span");
+        cost.className = "lc-tray-cost";
+        cost.textContent = mini.dataset.cost || "";
+        var title = document.createElement("span");
+        title.className = "lc-tray-title";
+        var titleEl = mini.querySelector(".lc-tray-title");
+        title.textContent = titleEl ? titleEl.textContent : "";
+        g.appendChild(cost);
+        g.appendChild(title);
+        layer.appendChild(g);
+        d.ghost = g;
+      }
+    }
+    if (d.ghost) {
+      var lr = d.ghost.parentNode.getBoundingClientRect();
+      d.ghost.style.left = (e.clientX - lr.left) + "px";
+      d.ghost.style.top = (e.clientY - lr.top) + "px";
+    }
+    var over = null;
+    var ov = overlayEl();
+    if (ov) {
+      ov.querySelectorAll(".lc-tgt-row:not([hidden])").forEach(function (row) {
+        var rr = row.getBoundingClientRect();
+        var hit = e.clientX >= rr.left && e.clientX <= rr.right &&
+          e.clientY >= rr.top && e.clientY <= rr.bottom;
+        row.classList.toggle("is-over", hit);
+        if (hit) over = row;
+      });
+    }
+    d.over = over;
+  }
+
+  function onTrayPointerUp(e) {
+    var d = trayDrag;
+    trayDrag = null;
+    if (!d) return;
+    if (d.ghost) d.ghost.remove();
+    // Same rule as the wheel (finding 5): only a genuine pointerup commits;
+    // a cancelled gesture cleans up without staging or dropping anything.
+    if (e.type !== "pointerup") {
+      if (d.moved) closeTargeting();
+      return;
+    }
+    if (d.moved) {
+      if (d.over) {
+        trayState.staged = d.id;
+        chooseTarget(d.over);
+      } else {
+        closeTargeting();
+      }
+    } else if (trayState.staged === d.id) {
+      closeTargeting(); // second tap un-stages
+    } else {
+      openTargeting(d.id);
+    }
+  }
+
+  // Re-derive the play surface's visual state after a repaint (lcApplyTable
+  // replaces #lc-table wholesale) or a tab switch: redraw the persistent
+  // arrows, and either restore or drop the targeting overlay depending on
+  // whether the staged card still sits in the fresh tray.
+  window.lcTableSync = function () {
+    if (window.lcTableArrows) window.lcTableArrows();
+    if (!trayState.staged) return;
+    if (trayMini(trayState.staged)) {
+      openTargeting(trayState.staged);
+    } else {
+      // the staged card left the tray (armed, or the hand changed under us)
+      trayState.staged = null;
+      var ov = overlayEl();
+      if (ov) ov.hidden = true;
+    }
+  };
 
   // Plan C's contract: lc:arm/lc:disarm are dispatched by the wheel/armed
   // column BEFORE the wheel's glide settles — this listener must not assume
@@ -242,10 +474,17 @@
     if (window.__lcLoopBound) return;
     window.__lcLoopBound = true;
     document.body.addEventListener("click", onClick);
-    document.body.addEventListener("change", onChange);
     document.body.addEventListener("lc:arm", onArm);
     document.body.addEventListener("lc:disarm", onDisarm);
+    // Pack 1: the tray's tap/drag surface — delegated like everything else;
+    // setPointerCapture keeps the move/up stream flowing through the mini
+    // (and bubbling here) even when the finger leaves it.
+    document.body.addEventListener("pointerdown", onTrayPointerDown);
+    document.body.addEventListener("pointermove", onTrayPointerMove);
+    document.body.addEventListener("pointerup", onTrayPointerUp);
+    document.body.addEventListener("pointercancel", onTrayPointerUp);
     window.lcLoopPublic();
+    if (window.lcTableSync) window.lcTableSync();
   }
   document.addEventListener("DOMContentLoaded", init);
 })();

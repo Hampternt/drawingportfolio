@@ -242,6 +242,14 @@ async fn test_lastcall_css_has_every_component_root() {
         "#lc-felt",
         "#lc-flights",
         "#lc-hand",
+        // Pack 1 (lc-mobile-play-flow): the TABLE tab's play surface.
+        ".lc-tablescene",
+        ".lc-arrowlay",
+        ".lc-tray",
+        ".lc-tray-ghost",
+        ".lc-tgt",
+        ".lc-stack",
+        ".lc-armflash",
     ] {
         assert!(css.contains(needle), "missing {needle}");
     }
@@ -271,6 +279,12 @@ async fn test_lastcall_css_has_every_keyframe() {
         "@keyframes lc-pulse",
         "@keyframes lc-banner",
         "@keyframes lc-timer",
+        // Pack 1 (lc-mobile-play-flow)
+        "@keyframes lc-dashflow",
+        "@keyframes lc-wave",
+        "@keyframes lc-pop",
+        "@keyframes lc-cardin",
+        "@keyframes lc-fade",
     ] {
         assert!(css.contains(needle), "missing {needle}");
     }
@@ -5468,8 +5482,12 @@ async fn test_an_unseated_member_gets_the_unrotated_table() {
 
     let table = body_string(get_table(&app, &cara, &code).await).await;
     assert!(!table.contains("data-me"));
+    // Pack 1 wrapped the mini table in the scene (stack/arrow layer) and
+    // appended the tray/overlay for a staging viewer — an unseated member
+    // gets none of the private surfaces, just the unrotated table in the
+    // scene shell.
     let expected = format!(
-        r#"<div id="lc-table" data-seq="{}">{}</div>"#,
+        r#"<div id="lc-table" data-seq="{}"><div class="lc-tablescene" data-lc-scene-table>{}<svg class="lc-arrowlay" data-lc-arrows aria-hidden="true"></svg></div></div>"#,
         st.public_view().seq,
         drinkinggame::lc_render::lc_mini_table(&st.public_view(), None),
     );
@@ -6563,15 +6581,18 @@ async fn test_lc_loop_js_is_served_and_binds_the_delegated_listeners() {
     for needle in [
         "DOMContentLoaded",
         "data-lc-post",
-        "data-lc-target",
         "lc:arm",
         "lc:disarm",
         "lcLoopApply",
         "lcLoopPublic",
+        "lcTableSync",
         "__lcLoopBound",
     ] {
         assert!(js.contains(needle), "missing {needle}");
     }
+    // Pack 1 retired the Lock-beat `<select>` target picker — its change
+    // listener must stay gone (the overlay posts `target` itself).
+    assert!(!js.contains("data-lc-target"), "select picker resurrected");
 }
 
 /// The armed column's `LOCKED {n}` bug the STATUS carried notes flagged:
@@ -6620,11 +6641,14 @@ async fn test_hand_fetch_carries_the_action_template_per_viewer() {
     assert!(!bob_hand.contains("LOCKED — WAITING"), "{bob_hand}");
 }
 
-/// Decision E8: the target picker lists only Alive seats and posts the
-/// choice back through `/lastcall/target`. cara is seated but eliminated —
-/// she must never appear as a pickable target, even though her seat exists.
+/// Pack 1 (lc-mobile-play-flow) replaced E8's `<select>` target picker with
+/// the TABLE tab's full-pane overlay: one drop-zone row per ALIVE seat plus
+/// one EVERYONE row. cara is seated but eliminated — she must never appear
+/// as a droppable row, even though her seat exists; and the retired
+/// `.lc-targets` section must stay out of the hand pane. `/lastcall/target`
+/// itself is unchanged and still accepts the overlay's post.
 #[tokio::test]
-async fn test_target_picker_lists_only_alive_seats_and_posts_back() {
+async fn test_targeting_overlay_lists_only_alive_seats_and_target_route_still_posts() {
     let (app, pool) = test_app_with_pool().await;
     let alice = login(&app, "alice", "1234").await;
     let bob = login(&app, "bob", "5678").await;
@@ -6661,36 +6685,31 @@ async fn test_target_picker_lists_only_alive_seats_and_posts_back() {
     let game_id = lc_game_id(&pool, &code).await;
     drinkinggame::db::set_game_state(&pool, game_id, &st.to_json()).await;
 
-    // beer-01 targets "one".
-    post_form(
+    let hand = body_string(get_hand(&app, &alice, &code).await).await;
+    assert!(!hand.contains("lc-targets"), "{hand}");
+    assert!(!hand.contains("data-lc-target"), "{hand}");
+
+    let table = body_string(get_table(&app, &alice, &code).await).await;
+    let overlay_start = table.find(r#"class="lc-tgt""#).expect("no overlay");
+    let overlay = &table[overlay_start..];
+    assert!(overlay.contains(r#"data-target="all""#), "{overlay}");
+    assert!(overlay.contains("BOB"), "{overlay}");
+    assert!(overlay.contains(r#"data-target="1""#), "{overlay}");
+    assert!(!overlay.contains("CARA"), "{overlay}");
+    // alice's own row carries the data-me marker (self-targeting is legal)
+    assert!(overlay.contains(" data-me"), "{overlay}");
+    // the EVERYONE row counts the two alive seats
+    assert!(overlay.contains("&times;2"), "{overlay}");
+
+    // The overlay's post sequence: arm, then target. beer-01 targets "one".
+    let res = post_form(
         &app,
         &alice,
         &format!("/room/{code}/lastcall/arm"),
         "card_id=beer-01",
     )
     .await;
-
-    // Scoped to the .lc-targets section itself, not the whole fragment —
-    // "cara" legitimately appears elsewhere in the pane (the handicap rows
-    // list every seated player regardless of status), so a whole-fragment
-    // `!contains("cara")` would pass or fail for the wrong reason.
-    fn targets_section(hand: &str) -> &str {
-        let start = hand
-            .find(r#"<section class="lc-targets">"#)
-            .expect("no .lc-targets section");
-        let rest = &hand[start..];
-        let end = rest
-            .find("</section>")
-            .expect("unterminated .lc-targets section");
-        &rest[..end]
-    }
-
-    let hand = body_string(get_hand(&app, &alice, &code).await).await;
-    let section = targets_section(&hand);
-    assert!(section.contains("data-lc-target"), "{section}");
-    assert!(section.contains("bob"), "{section}");
-    assert!(!section.contains("cara"), "{section}");
-
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
     let res = post_form(
         &app,
         &alice,
@@ -6700,9 +6719,99 @@ async fn test_target_picker_lists_only_alive_seats_and_posts_back() {
     .await;
     assert_eq!(res.status(), StatusCode::NO_CONTENT);
 
-    let hand = body_string(get_hand(&app, &alice, &code).await).await;
-    let section = targets_section(&hand);
-    assert!(section.contains(r#"value="1" selected"#), "{section}");
+    // The stack mini now names bob and carries his seat for the arrow.
+    let table = body_string(get_table(&app, &alice, &code).await).await;
+    assert!(table.contains(r#"data-arrow="1""#), "{table}");
+    assert!(table.contains("&rarr; BOB"), "{table}");
+}
+
+/// Pack 1: the private play surface renders only for its own viewer. The
+/// tray carries the viewer's own card ids; another player's table fetch
+/// must carry neither the tray card ids nor any card titles from a hand
+/// that isn't theirs — the same secrecy line the hand fetch draws.
+#[tokio::test]
+async fn test_table_fetch_tray_and_stack_are_private_to_the_viewer() {
+    let (app, _pool, code, alice, bob, _alice_id, _bob_id) = lc_action_rig().await;
+
+    let alice_table = body_string(get_table(&app, &alice, &code).await).await;
+    // alice (Beer vessel, F6 opener) trays her own beer hand…
+    assert!(alice_table.contains("lc-tray"), "{alice_table}");
+    assert!(alice_table.contains("beer-01"), "{alice_table}");
+    assert!(!alice_table.contains("cider-01"), "{alice_table}");
+
+    // …and bob's fetch of the SAME room carries his cider hand, none of
+    // alice's cards.
+    let bob_table = body_string(get_table(&app, &bob, &code).await).await;
+    assert!(bob_table.contains("lc-tray"), "{bob_table}");
+    assert!(bob_table.contains("cider-01"), "{bob_table}");
+    assert!(!bob_table.contains("beer-01"), "{bob_table}");
+
+    // Arming stays invisible to the other seat: alice arms, bob's table
+    // still shows no armed stack and no beer card.
+    post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/lastcall/arm"),
+        "card_id=beer-01",
+    )
+    .await;
+    let bob_table = body_string(get_table(&app, &bob, &code).await).await;
+    assert!(!bob_table.contains("lc-stack"), "{bob_table}");
+    assert!(!bob_table.contains("beer-01"), "{bob_table}");
+}
+
+/// Pack 1: arm -> the stack mini appears (pop-in markup, take-back
+/// affordance); disarm -> it's gone and the card is back in the tray. A
+/// locked viewer keeps the stack (`data-locked`, minis from
+/// `locked_plays`) but loses tray and overlay — the queue is committed.
+#[tokio::test]
+async fn test_armed_stack_rides_arm_disarm_and_lock() {
+    let (app, _pool, code, alice, _bob, _alice_id, _bob_id) = lc_action_rig().await;
+
+    // beer-03 targets "self" — armable and lockable with no target post.
+    post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/lastcall/arm"),
+        "card_id=beer-03",
+    )
+    .await;
+    let table = body_string(get_table(&app, &alice, &code).await).await;
+    assert!(table.contains(r#"class="lc-stack""#), "{table}");
+    assert!(table.contains("ARMED 1"), "{table}");
+    assert!(table.contains("TAP TO EDIT"), "{table}");
+    assert!(table.contains("&rarr; YOU"), "{table}");
+    // the armed card left the tray (one fewer beer-03 mini than the hand
+    // held) and the stack carries it instead
+    assert!(table.contains(r#"lc-stack-mini lc-deck-beer" data-card-id="beer-03""#));
+
+    // take-back: the stack empties again
+    post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/lastcall/disarm"),
+        "card_id=beer-03",
+    )
+    .await;
+    let table = body_string(get_table(&app, &alice, &code).await).await;
+    assert!(!table.contains("lc-stack"), "{table}");
+
+    // re-arm and lock: the stack survives as LOCKED, tray and overlay go
+    post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/lastcall/arm"),
+        "card_id=beer-03",
+    )
+    .await;
+    let res = post_form(&app, &alice, &format!("/room/{code}/lastcall/lock"), "").await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+    let table = body_string(get_table(&app, &alice, &code).await).await;
+    assert!(table.contains("data-locked"), "{table}");
+    assert!(table.contains("LOCKED 1"), "{table}");
+    assert!(!table.contains("TAP TO EDIT"), "{table}");
+    assert!(!table.contains("lc-tray"), "{table}");
+    assert!(!table.contains("lc-tgt"), "{table}");
 }
 
 /// E9: the reveal charge is priced through the VIEWER'S OWN handicap, not a

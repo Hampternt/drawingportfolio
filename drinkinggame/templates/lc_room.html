@@ -137,6 +137,11 @@ function lcApplyTable(html) {
   lcSeq = seq;
   const current = document.getElementById("lc-table");
   if (current) current.outerHTML = html;
+  // Pack 1 (lc-mobile-play-flow): the repaint rebuilt the tray/overlay/
+  // stack from server state — re-derive the client-held visual state
+  // (staged card, persistent arrows) against the fresh DOM. Guarded like
+  // lcLoopApply above: a missing lc_loop.js must not break the swap.
+  if (window.lcTableSync) window.lcTableSync();
 }
 
 // Coalesce: LcPublic and LcTick arrive as a pair for the same change, so a
