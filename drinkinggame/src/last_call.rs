@@ -4479,7 +4479,10 @@ mod tests {
         st.mulligan(1, &[id], vec![rep]).unwrap();
         let id = st.players[0].hand[0].id.clone();
         let rep = replacement_for(&st, 0);
-        assert_eq!(st.mulligan(1, &[id.clone()], vec![rep]), Err(LcError::BadDraw));
+        assert_eq!(
+            st.mulligan(1, std::slice::from_ref(&id), vec![rep]),
+            Err(LcError::BadDraw)
+        );
 
         // The rollover refreshes it.
         st.beat = Beat::Resolve;
@@ -6505,7 +6508,7 @@ mod tests {
         st.advance_beat().unwrap(); // Deal -> Diplomacy
         st.offer_pact(1, 1).unwrap(); // alice offers seat 1 (bob)
         st.accept_pact(2, 0).unwrap(); // bob accepts from seat 0 (alice) — secret, G13
-        // Staging happens right here in Diplomacy since the fold:
+                                       // Staging happens right here in Diplomacy since the fold:
         st.arm(1, "beer-02").unwrap(); // hostile at bob: betrays the pact
         st.set_target(1, "beer-02", Some(1)).unwrap();
         st.lock_in(1).unwrap();
