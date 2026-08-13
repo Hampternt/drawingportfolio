@@ -31,10 +31,10 @@
   <a class="account-link" href="{{ base_path }}/account">Not {{ player_name }}? Rename, change PIN or log out</a>
   {% else %}
   <h1>Drinks</h1>
-  <p class="landing-sub">Name and a PIN. No email, no app, no accounts to forget by round three.</p>
+  <p class="landing-sub">First, who are you? Pick a name and your own 4-digit PIN — the room code comes after. No email, no app, no accounts to forget by round three.</p>
   <form method="post" action="{{ base_path }}/login">
     <input name="name" placeholder="Your name" maxlength="20" required>
-    <input name="pin" placeholder="4-digit PIN" inputmode="numeric" pattern="[0-9]{4}"
+    <input name="pin" placeholder="Choose a 4-digit PIN" inputmode="numeric" pattern="[0-9]{4}"
            maxlength="4" required>
     {% if next != "" %}
     <input type="hidden" name="next" value="{{ next }}">
