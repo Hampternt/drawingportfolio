@@ -1,0 +1,781 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="_ds/hampter-design-system-03c25988-bba8-4fc5-801f-653a333b24c3/tokens/fonts.css">
+<link rel="stylesheet" href="_ds/hampter-design-system-03c25988-bba8-4fc5-801f-653a333b24c3/tokens/colors.css">
+<link rel="stylesheet" href="_ds/hampter-design-system-03c25988-bba8-4fc5-801f-653a333b24c3/tokens/typography.css">
+<link rel="stylesheet" href="_ds/hampter-design-system-03c25988-bba8-4fc5-801f-653a333b24c3/tokens/spacing.css">
+<link rel="stylesheet" href="_ds/hampter-design-system-03c25988-bba8-4fc5-801f-653a333b24c3/tokens/shape.css">
+<link rel="stylesheet" href="_ds/hampter-design-system-03c25988-bba8-4fc5-801f-653a333b24c3/tokens/motion.css">
+<link rel="stylesheet" href="_ds/hampter-design-system-03c25988-bba8-4fc5-801f-653a333b24c3/tokens/base.css">
+<link rel="stylesheet" href="_ds/hampter-design-system-03c25988-bba8-4fc5-801f-653a333b24c3/components/components.css">
+<script src="_ds/hampter-design-system-03c25988-bba8-4fc5-801f-653a333b24c3/_ds_bundle.js"></script>
+<style>
+html, body { margin: 0; padding: 0; background: #0B0910; }
+a { color: #B48EF7; } a:hover { color: #F2EEF8; }
+@keyframes lcDash { to { stroke-dashoffset: -30; } }
+@keyframes lcRing { 0%, 100% { opacity: .9; } 50% { opacity: .25; } }
+@keyframes lcCardIn { 0% { opacity: 0; transform: translate(-50%, -46%) scale(.55); } 100% { opacity: 1; transform: translate(-50%, -50%) scale(1); } }
+@keyframes lcSheetUp { 0% { transform: translateY(42px); opacity: 0; } 100% { transform: none; opacity: 1; } }
+@keyframes lcFadeIn { 0% { opacity: 0; } 100% { opacity: 1; } }
+@keyframes lcShake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-4px); } 60% { transform: translateX(4px); } 85% { transform: translateX(-2px); } }
+@keyframes lcPulseHint { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+@keyframes lcWave { 0% { transform: scale(.12); opacity: .8; } 100% { transform: scale(1); opacity: 0; } }
+@keyframes lcPop { 0% { opacity: 0; transform: scale(.55); } 100% { opacity: 1; transform: none; } }
+.lc-scroll-hide { scrollbar-width: none; -ms-overflow-style: none; }
+.lc-scroll-hide::-webkit-scrollbar { display: none; }
+</style>
+</helmet>
+<div style="width:100%;min-height:100vh;background:#0B0910;display:flex;align-items:center;justify-content:center;padding:20px 0">
+<div ref="{{shellRef}}" style="position:relative;width:390px;max-width:100%;height:844px;max-height:calc(100vh - 40px);min-height:600px;background:#0E0C14;color:#F2EEF8;font-family:'Space Grotesk',system-ui,sans-serif;display:flex;flex-direction:column;overflow:hidden;user-select:none;-webkit-user-select:none;border:1px solid rgba(242,238,248,.14);border-radius:30px;box-shadow:0 26px 80px rgba(5,3,10,.75)">
+  <div style="flex:none;height:34px;padding:0 18px;display:flex;align-items:center;justify-content:space-between;font-family:'IBM Plex Mono',ui-monospace,Menlo,monospace;font-size:11px;color:#8D87A0;white-space:nowrap"><span>21:47</span><span>ROOM K7Q2</span></div>
+  <div style="flex:none;padding:0 18px 9px;display:flex;align-items:baseline;justify-content:space-between;gap:12px">
+    <span style="font-family:'Archivo',sans-serif;font-weight:900;font-size:26px;letter-spacing:-.02em;text-transform:uppercase;color:#B48EF7">PLAY</span>
+    <span style="font-weight:700;font-size:10px;letter-spacing:.13em;text-transform:uppercase;color:#8D87A0;white-space:nowrap">ROUND 3 &middot; BEAT 3 OF 5</span>
+  </div>
+  <div style="flex:none;padding:0 18px;display:flex;border-bottom:1px solid rgba(242,238,248,.1)">
+    <button onClick="{{goHand}}" style="background:none;border:0;padding:9px 14px 8px;cursor:pointer;font-family:'Archivo',sans-serif;font-weight:800;font-size:11px;letter-spacing:.1em;color:{{tabHandColor}};border-bottom:2px solid {{tabHandBorder}}">HAND</button>
+    <button onClick="{{goTable}}" style="background:none;border:0;padding:9px 14px 8px;cursor:pointer;font-family:'Archivo',sans-serif;font-weight:800;font-size:11px;letter-spacing:.1em;color:{{tabTableColor}};border-bottom:2px solid {{tabTableBorder}}">TABLE</button>
+    <button onClick="{{goLog}}" style="background:none;border:0;padding:9px 14px 8px;cursor:pointer;font-family:'Archivo',sans-serif;font-weight:800;font-size:11px;letter-spacing:.1em;color:{{tabLogColor}};border-bottom:2px solid {{tabLogBorder}}">LOG</button>
+    <span style="margin-left:auto;align-self:center;display:flex;align-items:center;gap:8px">
+      <span style="padding:2px 8px;border-radius:999px;font-family:'Archivo',sans-serif;font-weight:800;font-size:8.5px;letter-spacing:.13em;background:{{modeBg}};color:{{modeInk}};border:1px solid {{modeBorder}};white-space:nowrap">{{modeBadge}}</span>
+      <span style="font-family:'IBM Plex Mono',ui-monospace,Menlo,monospace;font-size:10px;color:#FFB570;white-space:nowrap">{{pulls}} PULLS</span>
+    </span>
+  </div>
+  <div style="flex:1;min-height:0;position:relative">
+    <sc-if value="{{showHand}}" hint-placeholder-val="{{ true }}">
+      <div style="position:absolute;inset:0;display:flex;flex-direction:column">
+        <div onPointerDown="{{wheelDown}}" onPointerMove="{{wheelMove}}" onPointerUp="{{wheelUp}}" onPointerCancel="{{wheelUp}}" style="flex:1;min-height:0;position:relative;perspective:1400px;perspective-origin:50% 50%;overflow:hidden;clip-path:inset(0);touch-action:none;cursor:grab">
+          <div style="position:absolute;inset:0;transform-style:preserve-3d;transform:translateZ(-470px)">
+            <sc-for list="{{hand}}" as="c" hint-placeholder-count="5">
+              <div style="position:absolute;left:20px;right:20px;top:50%;height:176px;margin-top:-88px;transform:{{c.tf}};opacity:{{c.op}};visibility:{{c.vis}};z-index:{{c.z}};transition:{{c.trans}};will-change:transform">
+                <article style="height:100%;padding:14px 17px;border-radius:14px;background:{{c.bg}};border:{{c.border}};box-shadow:0 3px 0 rgba(5,3,10,.5),0 8px 16px rgba(5,3,10,.42);display:flex;flex-direction:column;gap:6px">
+                  <div style="display:flex;align-items:center;justify-content:space-between">
+                    <span style="font-weight:700;font-size:10px;letter-spacing:.13em;text-transform:uppercase;color:{{c.ink}}">{{c.deckLabel}}</span>
+                    <span style="display:flex;align-items:center;gap:7px"><span style="font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:8.5px;color:#6A6480">{{c.dur}}</span><span style="padding:2px 11px;border-radius:5px;background:{{c.fill}};color:{{c.on}};font-family:'Archivo',sans-serif;font-weight:900;font-size:16px">{{c.cost}}</span></span>
+                  </div>
+                  <h3 style="margin:0;font-family:'Archivo',sans-serif;font-weight:900;letter-spacing:-.03em;line-height:1.05;color:#F2EEF8;font-size:{{c.titleSize}}">{{c.title}}</h3>
+                  <p style="margin:0;font-size:13.5px;line-height:1.35;color:#CDC6DD;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden">{{c.text}}</p>
+                  <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:auto;align-items:center">
+                    <span style="display:{{c.k1Show}};padding:2px 8px;border-radius:999px;font-weight:700;font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:{{c.ink}};border:1px solid rgba(242,238,248,.12)">{{c.k1}}</span>
+                    <span style="display:{{c.k2Show}};padding:2px 8px;border-radius:999px;font-weight:700;font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:{{c.ink}};border:1px solid rgba(242,238,248,.12)">{{c.k2}}</span>
+                    <span style="display:{{c.k3Show}};padding:2px 8px;border-radius:999px;font-weight:700;font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:{{c.ink}};border:1px solid rgba(242,238,248,.12)">{{c.k3}}</span>
+                    <span style="display:{{c.tapShow}};margin-left:auto;font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:8.5px;letter-spacing:.1em;color:#6A6480;white-space:nowrap">TAP TO READ</span>
+                  </div>
+                </article>
+              </div>
+            </sc-for>
+          </div>
+          <span style="position:absolute;top:10px;right:16px;z-index:300;font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:10px;color:#6A6480;pointer-events:none;white-space:nowrap">{{wheelPos}}</span>
+        </div>
+        <div style="flex:none;text-align:center;padding:4px 64px 0 18px;font-weight:700;font-size:9px;letter-spacing:.14em;color:#6A6480;animation:lcPulseHint 2.6s ease-in-out infinite">DRAG UP OR DOWN TO SPIN &middot; TAP THE FRONT CARD TO READ</div>
+        <div style="position:absolute;right:0;bottom:34px;z-index:20;display:flex;align-items:stretch;transform:{{tabDrawerTf}};transition:transform 280ms cubic-bezier(.2,.8,.3,1)">
+          <button onClick="{{toggleTabDrawer}}" style="flex:none;align-self:center;writing-mode:vertical-rl;padding:12px 5px;border-radius:8px 0 0 8px;background:#251F35;border:1px solid rgba(242,238,248,.18);border-right:0;color:#B48EF7;font-family:'Archivo',sans-serif;font-weight:800;font-size:9px;letter-spacing:.16em;cursor:pointer;box-shadow:-4px 4px 12px rgba(5,3,10,.5)">YOUR TAB {{tabDrawerArrow}}</button>
+          <div style="width:212px;padding:12px 14px;background:#251F35;border:1px solid rgba(242,238,248,.18);border-radius:0 0 0 10px;box-shadow:0 8px 22px rgba(5,3,10,.55)">
+            <div style="font-size:9.5px;font-weight:700;letter-spacing:.16em;color:#6A6480">YOUR TAB &mdash; SIDE QUEST</div>
+            <div style="font-family:'Archivo',sans-serif;font-weight:900;font-size:18px;letter-spacing:-.01em;color:#F2EEF8;margin-top:3px">SHOWBOAT</div>
+            <div style="font-size:12.5px;color:#8D87A0;margin:3px 0 6px">Play three or more cards in one round. Make it look easy.</div>
+            <div style="font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:11px;letter-spacing:.1em;color:#F2EEF8">PAYS +2 PULLS</div>
+          </div>
+        </div>
+      </div>
+    </sc-if>
+    <sc-if value="{{showTable}}" hint-placeholder-val="{{ false }}">
+      <div ref="{{paneRef}}" style="position:absolute;inset:0;display:flex;flex-direction:column">
+        <div style="flex:1;min-height:0;position:relative;margin:12px 12px 0">
+          <div ref="{{feltRef}}" onClick="{{feltTap}}" style="position:absolute;inset:0;border-radius:170px;border:9px solid #2A2340;background:radial-gradient(ellipse at 50% 44%, #272038 0%, #191430 52%, #100C1B 100%);box-shadow:inset 0 0 0 2px rgba(242,238,248,.14),inset 0 40px 90px rgba(5,3,10,.5)" style-after="content:'';position:absolute;inset:32px;border-radius:150px;border:1px solid rgba(242,238,248,.1);pointer-events:none"></div>
+          <sc-if value="{{pendShow}}" hint-placeholder-val="{{ false }}">
+            <svg viewBox="{{pendViewBox}}" preserveAspectRatio="none" style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:4;overflow:visible">
+              <defs><marker id="lcArrowHead" markerWidth="9" markerHeight="8" refX="7" refY="3.5" orient="auto"><path d="M0,0 L8,3.5 L0,7 Z" fill="{{pendInk}}"></path></marker></defs>
+              <g opacity="{{arrowOpacity}}">
+                <sc-for list="{{pendArrows}}" as="ln" hint-placeholder-count="1">
+                  <path d="{{ln.d}}" fill="none" stroke="{{pendInk}}" stroke-width="2.5" stroke-dasharray="1 9" stroke-linecap="round" marker-end="url(#lcArrowHead)" style="animation:lcDash 1400ms linear infinite"></path>
+                </sc-for>
+                <sc-for list="{{pendWaves}}" as="pw" hint-placeholder-count="1">
+                  <ellipse cx="{{pw.cx}}" cy="{{pw.cy}}" rx="{{pw.rx}}" ry="{{pw.ry}}" fill="none" stroke="{{pw.ink}}" stroke-width="1.5" style="transform-box:fill-box;transform-origin:center;animation:lcWave 2s ease-out infinite;animation-delay:{{pw.delay}}"></ellipse>
+                </sc-for>
+              </g>
+            </svg>
+            <div style="position:absolute;left:50%;top:50%;z-index:10;width:224px;transform:{{pendTransform}};opacity:{{pendOpacity}};transition:{{pendTransition}};animation:lcCardIn 240ms cubic-bezier(.2,.8,.3,1)">
+              <div style="text-align:center;font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:10px;letter-spacing:.08em;color:#CDC6DD;margin-bottom:6px">{{pendCap}}</div>
+              <article style="padding:14px 16px;border-radius:14px;background:#2E2742;border:2px solid {{pendInk}};box-shadow:0 6px 0 rgba(5,3,10,.6),0 22px 40px rgba(5,3,10,.55);display:flex;flex-direction:column;gap:7px">
+                <div style="display:flex;align-items:center;justify-content:space-between">
+                  <span style="font-weight:700;font-size:10px;letter-spacing:.13em;text-transform:uppercase;color:{{pendInk}}">{{pendDeck}}</span>
+                  <span style="padding:1px 9px;border-radius:5px;background:{{pendFill}};color:{{pendOn}};font-family:'Archivo',sans-serif;font-weight:900;font-size:14px">{{pendCost}}</span>
+                </div>
+                <h3 style="margin:0;font-family:'Archivo',sans-serif;font-weight:900;letter-spacing:-.03em;line-height:1.05;font-size:{{pendTitleSize}};color:#F2EEF8">{{pendTitle}}</h3>
+                <p style="margin:0;font-size:12.5px;line-height:1.35;color:#CDC6DD">{{pendText}}</p>
+                <div style="font-family:'Archivo',sans-serif;font-weight:900;font-size:13px;letter-spacing:.04em;color:{{pendInk}}">{{pendEffect}}</div>
+              </article>
+            </div>
+          </sc-if>
+          <sc-if value="{{centerIdle}}" hint-placeholder-val="{{ true }}">
+            <div style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:3;display:flex;flex-direction:column;align-items:center;gap:6px;pointer-events:none">
+              <div style="width:46px;height:62px;border-radius:3px;background-color:#1B1628;border:1px solid rgba(242,238,248,.22);background-image:linear-gradient(rgba(242,238,248,.06) 1px,transparent 1px),linear-gradient(90deg,rgba(242,238,248,.06) 1px,transparent 1px);background-size:10px 10px"></div>
+              <span style="font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:9px;letter-spacing:.12em;color:#6A6480">PLAYS {{played}}</span>
+            </div>
+          </sc-if>
+          <sc-if value="{{queueArrowsShow}}" hint-placeholder-val="{{ false }}">
+            <svg viewBox="{{queueViewBox}}" preserveAspectRatio="none" style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:4;overflow:visible">
+              <g opacity="{{queueArrowOp}}">
+                <sc-for list="{{queueArrows}}" as="qa" hint-placeholder-count="1">
+                  <path d="{{qa.d}}" fill="none" stroke="{{qa.ink}}" stroke-width="2" stroke-dasharray="1 9" stroke-linecap="round" style="animation:lcDash 2400ms linear infinite"></path>
+                </sc-for>
+                <sc-for list="{{queueWaves}}" as="qw" hint-placeholder-count="1">
+                  <ellipse cx="{{qw.cx}}" cy="{{qw.cy}}" rx="{{qw.rx}}" ry="{{qw.ry}}" fill="none" stroke="{{qw.ink}}" stroke-width="1.5" style="transform-box:fill-box;transform-origin:center;animation:lcWave 2s ease-out infinite;animation-delay:{{qw.delay}}"></ellipse>
+                </sc-for>
+              </g>
+            </svg>
+          </sc-if>
+          <sc-if value="{{queueShow}}" hint-placeholder-val="{{ false }}">
+            <div style="position:absolute;left:12px;top:50%;transform:translateY(-50%);z-index:7;display:flex;flex-direction:column;gap:6px;width:58px">
+              <span style="text-align:center;font-weight:700;font-size:8.5px;letter-spacing:.1em;color:#B48EF7;background:rgba(14,12,20,.8);border-radius:4px;padding:1px 0">ARMED {{queueCount}}</span>
+              <sc-for list="{{queue}}" as="q" hint-placeholder-count="2">
+                <button onClick="{{q.takeBack}}" style="display:flex;flex-direction:column;gap:1px;width:58px;height:46px;padding:5px;border-radius:6px;background:#2E2742;border:1.5px solid {{q.ink}};box-shadow:0 3px 0 rgba(5,3,10,.5);cursor:pointer;text-align:left;animation:lcPop 240ms cubic-bezier(.2,.8,.3,1)">
+                  <span style="font-family:'Archivo',sans-serif;font-weight:800;font-size:8px;color:{{q.ink}}">{{q.cost}} &rarr; {{q.tgt}}</span>
+                  <span style="font-family:'Archivo',sans-serif;font-weight:800;font-size:9px;line-height:1.1;color:#F2EEF8;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">{{q.title}}</span>
+                </button>
+              </sc-for>
+              <span style="text-align:center;font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:7.5px;color:#6A6480">TAP TO EDIT</span>
+            </div>
+          </sc-if>
+          <sc-for list="{{seats}}" as="st" hint-placeholder-count="4">
+            <div style="position:absolute;left:{{st.left}};top:{{st.top}};transform:translate(-50%,-50%);z-index:6">
+              <span style="display:{{st.ringShow}};position:absolute;inset:-6px;border-radius:14px;border:2px solid #6FB6FF;animation:lcRing 1.1s ease-in-out infinite;pointer-events:none"></span>
+              <button onClick="{{st.tap}}" style="display:flex;flex-direction:column;align-items:center;gap:2px;min-width:78px;padding:7px 11px;border-radius:10px;background:{{st.bg}};border:{{st.border}};box-shadow:0 3px 0 rgba(5,3,10,.5),0 8px 16px rgba(5,3,10,.42);cursor:pointer;transform:{{st.scale}};transition:transform 140ms cubic-bezier(.2,.8,.3,1),background 140ms;animation:{{st.anim}}">
+                <span style="display:flex;align-items:center;gap:5px"><span style="font-family:'Archivo',sans-serif;font-weight:800;font-size:11px;letter-spacing:.02em;color:#F2EEF8">{{st.name}}</span><span style="display:{{st.youShow}};font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:7.5px;padding:1px 4px;border-radius:3px;background:rgba(180,142,247,.18);color:#B48EF7">YOU</span></span>
+                <span style="font-family:'Archivo',sans-serif;font-weight:900;font-size:16px;color:{{st.hpColor}}">{{st.hp}}</span>
+                <span style="display:flex;align-items:center;gap:6px">
+                  <span style="display:{{st.h1Show}};align-items:center;gap:2px"><span style="width:9px;height:13px;border-radius:2px;background:{{st.h1Bg}};border:1px solid {{st.h1Ink}}"></span><span style="font-family:'Archivo',sans-serif;font-weight:800;font-size:9.5px;color:{{st.h1Ink}}">{{st.h1N}}</span></span>
+                  <span style="display:{{st.h2Show}};align-items:center;gap:2px"><span style="width:9px;height:13px;border-radius:2px;background:{{st.h2Bg}};border:1px solid {{st.h2Ink}}"></span><span style="font-family:'Archivo',sans-serif;font-weight:800;font-size:9.5px;color:{{st.h2Ink}}">{{st.h2N}}</span></span>
+                </span>
+              </button>
+            </div>
+          </sc-for>
+        </div>
+        <div style="flex:none;padding:10px 16px 4px">
+          <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:6px">
+            <span style="font-weight:700;font-size:9px;letter-spacing:.14em;color:#6A6480;white-space:nowrap">YOUR HAND &middot; {{handCount}}</span>
+            <span style="font-weight:700;font-size:9px;letter-spacing:.14em;color:#6A6480;white-space:nowrap">DRAG A CARD ONTO A PLAYER</span>
+          </div>
+          <div class="lc-scroll-hide" style="display:flex;overflow-x:auto;padding:10px 2px 10px 16px">
+            <sc-for list="{{tray}}" as="tc" hint-placeholder-count="5">
+              <button onPointerDown="{{tc.down}}" onPointerMove="{{tc.move}}" onPointerUp="{{tc.up}}" onPointerCancel="{{tc.up}}" style="flex:none;width:64px;margin-left:-14px;padding:7px 6px;border-radius:6px;background:{{tc.bg}};border:{{tc.border}};box-shadow:-3px 3px 6px rgba(5,3,10,.55);text-align:left;cursor:grab;touch-action:none;transform:{{tc.lift}};transition:transform 140ms cubic-bezier(.2,.8,.3,1);display:flex;flex-direction:column;gap:2px">
+                <span style="font-family:'Archivo',sans-serif;font-weight:800;font-size:9px;color:{{tc.ink}}">{{tc.cost}}</span>
+                <span style="font-family:'Archivo',sans-serif;font-weight:800;font-size:10px;line-height:1.15;color:#F2EEF8;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;pointer-events:none">{{tc.title}}</span>
+              </button>
+            </sc-for>
+          </div>
+        </div>
+        <sc-if value="{{targetShow}}" hint-placeholder-val="{{ false }}">
+          <div onClick="{{clearStaged}}" class="lc-scroll-hide" style="position:absolute;inset:0;z-index:8;background:rgba(11,9,16,.82);display:flex;flex-direction:column;gap:8px;padding:12px 14px;overflow-y:auto;overflow-x:hidden;animation:lcFadeIn 140ms ease-out">
+            <div style="flex:none;height:16px;text-align:center;font-weight:700;font-size:9px;letter-spacing:.14em;color:#6FB6FF">CHOOSE A TARGET &mdash; TAP OR DROP</div>
+            <sc-for list="{{dropZones}}" as="dz" hint-placeholder-count="3">
+              <button onClick="{{dz.tap}}" style="flex:none;height:52px;display:flex;align-items:center;gap:10px;padding:0 14px;border-radius:10px;background:{{dz.bg}};border:{{dz.border}};box-shadow:0 3px 0 rgba(5,3,10,.5);cursor:pointer;transform:{{dz.scale}};transition:transform 120ms cubic-bezier(.2,.8,.3,1),background 120ms">
+                <span style="width:8px;height:8px;border-radius:50%;background:{{dz.dot}};box-shadow:0 0 8px {{dz.dot}}"></span>
+                <span style="font-family:'Archivo',sans-serif;font-weight:800;font-size:14px;letter-spacing:.01em;color:#F2EEF8">{{dz.label}}</span>
+                <span style="display:{{dz.youShow}};font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:8px;padding:1px 4px;border-radius:3px;background:rgba(180,142,247,.18);color:#B48EF7">YOU</span>
+                <span style="margin-left:auto;font-family:'Archivo',sans-serif;font-weight:900;font-size:15px;color:#CDC6DD">{{dz.hp}}</span>
+              </button>
+            </sc-for>
+            <div style="flex:none;margin-top:auto;align-self:center;width:206px;padding:11px 13px;border-radius:12px;background:#251F35;border:2px solid {{tgInk}};box-shadow:0 6px 0 rgba(5,3,10,.6),0 18px 34px rgba(5,3,10,.55);display:flex;flex-direction:column;gap:4px;pointer-events:none">
+              <div style="display:flex;align-items:center;justify-content:space-between">
+                <span style="font-weight:700;font-size:9px;letter-spacing:.13em;text-transform:uppercase;color:{{tgInk}}">{{tgDeck}}</span>
+                <span style="padding:1px 8px;border-radius:4px;background:{{tgFill}};color:{{tgOn}};font-family:'Archivo',sans-serif;font-weight:900;font-size:13px">{{tgCost}}</span>
+              </div>
+              <div style="font-family:'Archivo',sans-serif;font-weight:900;letter-spacing:-.03em;line-height:1.05;font-size:18px;color:#F2EEF8">{{tgTitle}}</div>
+              <div style="font-size:11px;line-height:1.3;color:#CDC6DD;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">{{tgText}}</div>
+              <div style="font-family:'Archivo',sans-serif;font-weight:900;font-size:11px;letter-spacing:.04em;color:{{tgInk}}">{{tgEffect}}</div>
+            </div>
+          </div>
+        </sc-if>
+      </div>
+    </sc-if>
+    <sc-if value="{{showLog}}" hint-placeholder-val="{{ false }}">
+      <div style="position:absolute;inset:0;overflow-y:auto;padding:14px 18px">
+        <div style="display:flex;flex-direction:column;gap:7px">
+          <sc-for list="{{logRows}}" as="lr" hint-placeholder-count="6">
+            <div style="font-size:{{lr.size}};letter-spacing:{{lr.ls}};color:{{lr.color}};margin-top:{{lr.mt}}">{{lr.text}}</div>
+          </sc-for>
+        </div>
+      </div>
+    </sc-if>
+  </div>
+  <sc-if value="{{noteShow}}" hint-placeholder-val="{{ false }}">
+    <div style="flex:none;padding:5px 14px 0;text-align:center;font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:10.5px;color:#8D87A0">{{noteText}}</div>
+  </sc-if>
+  <div style="flex:none;padding:10px 14px 16px;display:flex;gap:10px">
+    <sc-if value="{{barDefault}}" hint-placeholder-val="{{ true }}">
+      <button onClick="{{openDiscard}}" style="display:{{discardBtnShow}};flex:0 0 118px;height:58px;border-radius:8px;background:transparent;border:1px solid rgba(180,142,247,.55);color:#B48EF7;font-family:'Archivo',sans-serif;font-weight:900;font-size:14px;cursor:pointer">MULLIGAN</button>
+      <button onClick="{{lockTap}}" style="flex:1;height:58px;border-radius:8px;background:{{lockBg}};color:{{lockColor}};border:{{lockBorder}};font-family:'Archivo',sans-serif;font-weight:900;font-size:18px;letter-spacing:.02em;cursor:pointer">{{lockLabel}}</button>
+    </sc-if>
+  </div>
+  <sc-if value="{{inspectShow}}" hint-placeholder-val="{{ false }}">
+    <div style="position:absolute;inset:0;z-index:40">
+      <div onClick="{{closeInspect}}" style="position:absolute;inset:0;background:rgba(11,9,16,.78);backdrop-filter:blur(2px);animation:lcFadeIn 160ms ease-out"></div>
+      <div style="position:absolute;left:0;right:0;bottom:0;max-height:80%;overflow-y:auto;background:#16121F;border-top:1px solid rgba(242,238,248,.22);border-radius:18px 18px 0 0;padding:14px 18px 20px;display:flex;flex-direction:column;gap:12px;animation:lcSheetUp 240ms cubic-bezier(.2,.8,.3,1)">
+        <div style="width:36px;height:4px;border-radius:2px;background:rgba(242,238,248,.22);margin:0 auto"></div>
+        <article style="padding:16px 18px;border-radius:14px;background:#251F35;border:2px solid {{iInk}};box-shadow:0 6px 0 rgba(5,3,10,.6),0 22px 40px rgba(5,3,10,.55);display:flex;flex-direction:column;gap:8px">
+          <div style="display:flex;align-items:center;justify-content:space-between">
+            <span style="font-weight:700;font-size:10px;letter-spacing:.13em;text-transform:uppercase;color:{{iInk}}">{{iDeck}}</span>
+            <span style="padding:2px 11px;border-radius:5px;background:{{iFill}};color:{{iOn}};font-family:'Archivo',sans-serif;font-weight:900;font-size:17px">{{iCost}}</span>
+          </div>
+          <h3 style="margin:0;font-family:'Archivo',sans-serif;font-weight:900;letter-spacing:-.03em;line-height:1.05;font-size:26px;color:#F2EEF8">{{iTitle}}</h3>
+          <p style="margin:0;font-size:15px;line-height:1.4;color:#CDC6DD">{{iText}}</p>
+          <div style="font-family:'Archivo',sans-serif;font-weight:900;font-size:14px;letter-spacing:.04em;color:{{iInk}}">{{iEffect}}</div>
+          <div style="font-size:9px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:{{iInk}}">{{iKws}}</div>
+        </article>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+          <div style="background:#17141F;border:1px solid rgba(242,238,248,.1);border-radius:8px;padding:8px 10px"><div style="font-size:8.5px;font-weight:700;letter-spacing:.14em;color:#6A6480">TARGETS</div><div style="font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:12.5px;color:#F2EEF8;margin-top:2px">{{iTargets}}</div></div>
+          <div style="background:#17141F;border:1px solid rgba(242,238,248,.1);border-radius:8px;padding:8px 10px"><div style="font-size:8.5px;font-weight:700;letter-spacing:.14em;color:#6A6480">PULL COST</div><div style="font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:12.5px;color:#F2EEF8;margin-top:2px">{{iCostTxt}}</div></div>
+          <div style="background:#17141F;border:1px solid rgba(242,238,248,.1);border-radius:8px;padding:8px 10px"><div style="font-size:8.5px;font-weight:700;letter-spacing:.14em;color:#6A6480">DURATION</div><div style="font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:12.5px;color:#F2EEF8;margin-top:2px">{{iDur}}</div></div>
+          <div style="background:#17141F;border:1px solid rgba(242,238,248,.1);border-radius:8px;padding:8px 10px"><div style="font-size:8.5px;font-weight:700;letter-spacing:.14em;color:#6A6480">DECK</div><div style="font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:12.5px;color:#F2EEF8;margin-top:2px">{{iDeck}}</div></div>
+        </div>
+        <div style="display:flex;gap:10px">
+          <button onClick="{{closeInspect}}" style="flex:0 0 92px;height:54px;border-radius:8px;background:transparent;border:1px solid rgba(242,238,248,.22);color:#CDC6DD;font-family:'Archivo',sans-serif;font-weight:900;font-size:14px;cursor:pointer">CLOSE</button>
+          <button onClick="{{iPlay}}" style="flex:1;height:54px;border:0;border-radius:8px;background:{{iFill}};color:{{iOn}};font-family:'Archivo',sans-serif;font-weight:900;font-size:16px;cursor:pointer">{{iPlayLabel}}</button>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+  <sc-if value="{{discardShow}}" hint-placeholder-val="{{ false }}">
+    <div style="position:absolute;inset:0;z-index:45;background:rgba(11,9,16,.94);backdrop-filter:blur(3px);display:flex;flex-direction:column;padding:18px 18px 16px;animation:lcFadeIn 180ms ease-out">
+      <div style="flex:none">
+        <div style="font-weight:700;font-size:9.5px;letter-spacing:.16em;color:#B48EF7">MULLIGAN &mdash; ONCE PER GAME</div>
+        <div style="font-family:'Archivo',sans-serif;font-weight:900;font-size:28px;letter-spacing:-.02em;color:#F2EEF8;margin-top:2px">SWAP YOUR HAND</div>
+        <div style="font-size:12.5px;color:#A79FBB;margin-top:3px">Pick as many cards as you like &mdash; even all of them. Replacements come off your deck.</div>
+      </div>
+      <div style="flex:none;display:flex;align-items:center;justify-content:flex-end;margin:10px 0 12px">
+        <span style="font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:11px;color:#CDC6DD;white-space:nowrap">{{discardCount}} CHOSEN</span>
+      </div>
+      <div style="flex:1;min-height:0;overflow-y:auto;padding:8px 0 12px">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <sc-for list="{{discardCards}}" as="dc" hint-placeholder-count="6">
+            <button onClick="{{dc.toggle}}" style="position:relative;text-align:left;border-radius:12px;padding:11px 12px;background:{{dc.bg}};border:{{dc.border}};transform:{{dc.lift}};transition:transform 140ms cubic-bezier(.2,.8,.3,1);cursor:pointer;display:flex;flex-direction:column;gap:5px">
+              <span style="display:{{dc.badgeShow}};position:absolute;top:-8px;right:-6px;width:22px;height:22px;border-radius:50%;background:#B48EF7;color:#14101D;font-family:'Archivo',sans-serif;font-weight:900;font-size:12px;line-height:22px;text-align:center">{{dc.badge}}</span>
+              <span style="display:flex;align-items:center;justify-content:space-between;width:100%"><span style="font-weight:700;font-size:9px;letter-spacing:.13em;color:{{dc.ink}}">{{dc.deckLabel}}</span><span style="padding:1px 8px;border-radius:4px;background:{{dc.fill}};color:{{dc.on}};font-family:'Archivo',sans-serif;font-weight:900;font-size:12px">{{dc.cost}}</span></span>
+              <span style="font-family:'Archivo',sans-serif;font-weight:800;font-size:15px;letter-spacing:-.02em;line-height:1.1;color:#F2EEF8">{{dc.title}}</span>
+              <span style="font-size:11px;line-height:1.3;color:#A79FBB;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">{{dc.text}}</span>
+            </button>
+          </sc-for>
+        </div>
+      </div>
+      <div style="flex:none;display:flex;gap:10px">
+        <button onClick="{{cancelDiscard}}" style="flex:0 0 92px;height:58px;border-radius:8px;background:transparent;border:1px solid rgba(242,238,248,.22);color:#CDC6DD;font-family:'Archivo',sans-serif;font-weight:900;font-size:14px;cursor:pointer">CANCEL</button>
+        <button onClick="{{confirmDiscard}}" style="flex:1;height:58px;border:0;border-radius:8px;background:{{dcBg}};color:{{dcColor}};font-family:'Archivo',sans-serif;font-weight:900;font-size:17px;cursor:pointer">{{dcLabel}}</button>
+      </div>
+    </div>
+  </sc-if>
+  <sc-if value="{{ghostShow}}" hint-placeholder-val="{{ false }}">
+    <div style="position:absolute;left:{{ghostX}}px;top:{{ghostY}}px;z-index:60;pointer-events:none;transform:translate(-50%,-70%) rotate(-4deg) scale(1.15);width:64px;padding:7px 6px;border-radius:6px;background:#2E2742;border:2px solid {{ghostInk}};box-shadow:0 6px 0 rgba(5,3,10,.6),0 22px 40px rgba(5,3,10,.55)">
+      <div style="font-family:'Archivo',sans-serif;font-weight:800;font-size:9px;color:{{ghostInk}}">{{ghostCost}}</div>
+      <div style="font-family:'Archivo',sans-serif;font-weight:800;font-size:10px;line-height:1.15;color:#F2EEF8">{{ghostTitle}}</div>
+    </div>
+  </sc-if>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:430,&quot;height&quot;:900},&quot;arrowOpacity&quot;:{&quot;editor&quot;:&quot;range&quot;,&quot;default&quot;:0.5,&quot;min&quot;:0.15,&quot;max&quot;:1,&quot;step&quot;:0.05,&quot;tsType&quot;:&quot;number&quot;,&quot;section&quot;:&quot;Play flow&quot;}}">
+class Component extends DCLogic {
+  shellRef = React.createRef();
+  feltRef = React.createRef();
+  paneRef = React.createRef();
+  DECKS = {
+    beer:   { fill: '#FFB570', ink: '#FFB570', on: '#14101D', label: 'BEER' },
+    cider:  { fill: '#B48EF7', ink: '#B48EF7', on: '#14101D', label: 'CIDER' },
+    wine:   { fill: '#8B2F4A', ink: '#D4657F', on: '#F2EEF8', label: 'WINE' },
+    liquor: { fill: '#F7768E', ink: '#F7768E', on: '#14101D', label: 'LIQUOR' },
+    soft:   { fill: '#6FB6FF', ink: '#6FB6FF', on: '#0D1620', label: 'SOFT' }
+  };
+  CATALOG = [
+    { id: 'shot', deck: 'liquor', cost: 2, title: 'Shot Called', text: 'Deal 5 damage. Loud and immediate.', kws: ['burst'], targets: 'one', effect: '5 DAMAGE', dur: '', op: 'dmg', m: 5 },
+    { id: 'hang', deck: 'liquor', cost: 2, title: 'Hangover', text: 'Deal 2 damage a round for 2 rounds. Payable next round, with interest.', kws: ['dot'], targets: 'one', effect: '2 DMG / ROUND \u00d7 2', dur: '2 ROUNDS', op: 'dot', m: 2 },
+    { id: 'chaser', deck: 'liquor', cost: 2, title: 'Chaser', text: 'Heal 4. Something soft to land on.', kws: ['heal'], targets: 'self', effect: 'HEAL 4', dur: '', op: 'heal', m: 4 },
+    { id: 'cut', deck: 'soft', cost: 2, title: 'Cut Them Off', text: "Drain 3 pulls from a player's fullest vessel. It is for their own good.", kws: ['drain', 'petty'], targets: 'one', effect: 'DRAIN 3 PULLS', dur: '', op: 'drain', m: 3 },
+    { id: 'desig', deck: 'soft', cost: 1, title: 'Designated', text: 'Shield any player for 3 damage this round and the next 2. You take it for them.', kws: ['shield'], targets: 'one', effect: 'SHIELD 3', dur: '2 ROUNDS', op: 'shield', m: 3 },
+    { id: 'hen', deck: 'soft', cost: 2, title: 'Mother Hen', text: 'Shield every player for 2 damage this round and the next 2, you included. Everyone gets a coaster.', kws: ['aoe', 'shield', 'quiet'], targets: 'all', effect: 'SHIELD 2 \u00b7 EVERYONE', dur: '2 ROUNDS', op: 'shield', m: 2 },
+    { id: 'spit', deck: 'liquor', cost: 2, title: 'Spit It Out', text: 'Reaction: cancel a revealed play aimed at you. Undignified but effective.', kws: ['reaction'], targets: 'self', effect: 'CANCELS A PLAY', dur: '', op: 'react', m: 0 },
+    { id: 'double', deck: 'liquor', cost: 3, title: 'Double', text: 'Deal 7 damage. Louder and more immediate.', kws: ['burst', 'loud'], targets: 'one', effect: '7 DAMAGE', dur: '', op: 'dmg', m: 7 },
+    { id: 'lastcall', deck: 'liquor', cost: 3, title: 'Last Call', text: "Deal 8 damage. The biggest hit in the game, named after the night's last mistake.", kws: ['burst', 'loud', 'showy'], targets: 'one', effect: '8 DAMAGE', dur: '', op: 'dmg', m: 8 },
+    { id: 'dutch', deck: 'liquor', cost: 3, title: 'Dutch Courage', text: 'Gain a shield that absorbs 7 damage this round and the next 2. Liquid confidence, briefly real.', kws: ['shield'], targets: 'self', effect: 'SHIELD 7', dur: '2 ROUNDS', op: 'shield', m: 7 },
+    { id: 'water', deck: 'soft', cost: 1, title: 'Water Round', text: 'Heal 2 on any player. Someone feels better.', kws: ['heal'], targets: 'one', effect: 'HEAL 2', dur: '', op: 'heal', m: 2 },
+    { id: 'splash', deck: 'soft', cost: 1, title: 'Splash of Cold Water', text: 'Deal 2 damage. Rude, refreshing, effective.', kws: [], targets: 'one', effect: '2 DAMAGE', dur: '', op: 'dmg', m: 2 },
+    { id: 'wall', deck: 'soft', cost: 2, title: 'Glass Wall', text: 'Shield any player for 5 damage this round and the next 2. Politely impenetrable.', kws: ['shield'], targets: 'one', effect: 'SHIELD 5', dur: '2 ROUNDS', op: 'shield', m: 5 },
+    { id: 'snack', deck: 'soft', cost: 2, title: 'Snack Table', text: 'Heal 1 on every player at the table, you included. Crisps solve most things.', kws: ['aoe', 'heal'], targets: 'all', effect: 'HEAL 1 \u00b7 EVERYONE', dur: '', op: 'heal', m: 1 }
+  ];
+  SEATS = [
+    { id: 'n1', name: 'NORA', left: 24, top: 18, decks: ['wine'], handMix: [{ deck: 'wine', n: 4 }, { deck: 'soft', n: 2 }] },
+    { id: 'n2', name: 'VIKTOR', left: 50, top: 11, decks: ['beer'], handMix: [{ deck: 'beer', n: 6 }] },
+    { id: 'n3', name: 'EMIL', left: 76, top: 18, decks: ['cider'], handMix: [{ deck: 'cider', n: 3 }, { deck: 'liquor', n: 2 }] },
+    { id: 'me', name: 'MAJA', left: 50, top: 84, decks: ['liquor', 'soft'], me: true }
+  ];
+  state = {
+    tab: 'hand', wheelFocus: 2, wheelDragging: false,
+    hand: ['shot', 'hang', 'chaser', 'cut', 'desig', 'hen', 'spit'],
+    pulls: 9, played: 0, queue: [],
+    hp: { n1: 9, n2: 15, n3: 6, me: 11 },
+    staged: null, drag: null, pending: null, inspect: null,
+    discard: null, discardDone: false, locked: false, flash: {}, tabOpen: false,
+    log: [
+      { t: 'lock', text: 'VIKTOR LOCKS IN' },
+      { t: 'play', text: 'NORA PLAYS DECANT \u2192 MAJA' },
+      { t: 'draw', text: 'MAJA FINISHES A LIQUOR \u00b7 +2' },
+      { t: 'hit', text: 'EMIL HITS NORA \u22124' },
+      { t: 'round', text: '\u2014 ROUND 3 \u2014' },
+      { t: 'reshuffle', text: 'WINE RESHUFFLES' },
+      { t: 'round', text: '\u2014 ROUND 2 \u2014' }
+    ]
+  };
+  P(k, d) { const v = this.props[k]; return v === undefined || v === null ? d : v; }
+  card(id) { return this.CATALOG.find(c => c.id === id); }
+  seatOf(id) { return this.SEATS.find(s => s.id === id); }
+  validTargets(card) {
+    if (card.targets === 'one') return this.SEATS.map(s => s.id);
+    if (card.targets === 'self') return ['me'];
+    return [];
+  }
+  feltRect() { const el = this.feltRef.current; return el ? el.getBoundingClientRect() : null; }
+  goTab(t) { clearTimeout(this._auto); this.setState({ tab: t, staged: null, drag: null, pending: null }); setTimeout(() => this.forceUpdate(), 60); }
+  beginPending(cardId, target) {
+    const card = this.card(cardId); const r = this.feltRect(); if (!card || !r) return;
+    const W = r.width, H = r.height, cx = W / 2, cy = H * 0.5;
+    const ends = target === 'all' ? this.SEATS : [this.seatOf(target)];
+    const arrows = ends.map(s => {
+      const ex = s.left / 100 * W, ey = s.top / 100 * H;
+      const dx = ex - cx, dy = ey - cy, len = Math.hypot(dx, dy) || 1;
+      return { d: this.curve(cx + dx / len * 24, cy + dy / len * 24, ex - dx / len * 38, ey - dy / len * 38, W, H) };
+    });
+    this.setState({ pending: { cardId, target, arrows, W, H, confirming: false }, staged: null, drag: null });
+    clearTimeout(this._auto); this._auto = setTimeout(() => this.confirmPending(), 800);
+  }
+  confirmPending() {
+    const p = this.state.pending; if (!p || p.confirming) return;
+    const nq = this.state.queue.length;
+    const contH = 27 + (nq + 1) * 52;
+    const slotY = p.H / 2 - contH / 2 + 17 + nq * 52 + 23;
+    const dx = 41 - p.W / 2, dy = slotY - p.H / 2;
+    this.setState({ pending: { ...p, confirming: true, dx, dy } });
+    setTimeout(() => this.finalize(), 470);
+  }
+  finalize() {
+    const p = this.state.pending; if (!p) return;
+    const card = this.card(p.cardId);
+    const log = [...this.state.log];
+    const nm = sid => sid === 'me' ? 'MAJA' : this.seatOf(sid).name;
+    const tlabel = p.target === 'all' ? 'EVERYONE' : nm(p.target);
+    if (card.op === 'react') log.unshift({ t: 'play', text: 'MAJA ARMS ' + card.title.toUpperCase() });
+    else log.unshift({ t: 'play', text: 'MAJA PLAYS ' + card.title.toUpperCase() + ' \u2192 ' + tlabel });
+    this.setState({
+      hand: this.state.hand.filter(id => id !== p.cardId),
+      pulls: Math.max(0, this.state.pulls - card.cost),
+      played: this.state.played + 1, pending: null, log,
+      queue: [...this.state.queue, { cardId: p.cardId, target: p.target }]
+    });
+  }
+  resolveQueue() {
+    const q = this.state.queue; if (!q.length) return;
+    const hp = { ...this.state.hp }; const flash = {}; const log = [...this.state.log];
+    const nm = sid => sid === 'me' ? 'MAJA' : this.seatOf(sid).name;
+    log.unshift({ t: 'lock', text: 'MAJA LOCKS IN' });
+    log.unshift({ t: 'round', text: '\u2014 REVEAL \u2014' });
+    q.forEach(pl => {
+      const card = this.card(pl.cardId);
+      if (card.op === 'react') return;
+      const tgts = pl.target === 'all' ? this.SEATS.map(s => s.id) : [pl.target];
+      tgts.forEach(sid => {
+        if (card.op === 'dmg') { hp[sid] = Math.max(1, hp[sid] - card.m); flash[sid] = 'hit'; log.unshift({ t: 'hit', text: 'MAJA HITS ' + nm(sid) + ' \u2212' + card.m }); }
+        else if (card.op === 'heal') { hp[sid] = Math.min(20, hp[sid] + card.m); flash[sid] = 'good'; log.unshift({ t: 'heal', text: nm(sid) + ' +' + card.m + ' HP' }); }
+        else if (card.op === 'shield') { flash[sid] = 'good'; }
+        else if (card.op === 'drain') { flash[sid] = 'hit'; log.unshift({ t: 'drain', text: 'MAJA DRAINS ' + nm(sid) + ' \u2212' + card.m + ' PULLS' }); }
+        else if (card.op === 'dot') { flash[sid] = 'hit'; }
+      });
+      if (card.op === 'shield') log.unshift({ t: 'shield', text: 'MAJA SHIELDS ' + (pl.target === 'all' ? 'EVERYONE' : nm(pl.target)) + ' ' + card.m });
+    });
+    this.setState({ queue: [], hp, flash, log });
+    clearTimeout(this._flashT); this._flashT = setTimeout(() => this.setState({ flash: {} }), 700);
+  }
+  cancelPending() { clearTimeout(this._auto); this.setState({ pending: null }); }
+  onDown(id, e) {
+    if (this.state.pending || this.state.discard) return;
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch (err) {}
+    const shellEl = this.shellRef.current;
+    const paneEl = this.paneRef.current;
+    this._d = { id, sx: e.clientX, sy: e.clientY, moved: false, shell: shellEl ? shellEl.getBoundingClientRect() : null, pane: paneEl ? paneEl.getBoundingClientRect() : null, felt: this.feltRect() };
+  }
+  onMove(e) {
+    const d = this._d; if (!d || !d.shell) return;
+    if (!d.moved && Math.hypot(e.clientX - d.sx, e.clientY - d.sy) < 10) return;
+    d.moved = true;
+    const card = this.card(d.id);
+    let over = null;
+    if (d.pane) {
+      const zones = this.dropZoneIds(card);
+      const rowsTop = d.pane.top + 36;
+      const inX = e.clientX > d.pane.left + 14 && e.clientX < d.pane.right - 14;
+      const rel = e.clientY - rowsTop;
+      const idx = Math.floor(rel / 60);
+      if (inX && rel >= 0 && idx >= 0 && idx < zones.length && rel - idx * 60 <= 52) over = zones[idx];
+    }
+    this.setState({ drag: { id: d.id, x: e.clientX - d.shell.left, y: e.clientY - d.shell.top, over }, staged: null });
+  }
+  onUp(id, e) {
+    const d = this._d; this._d = null;
+    if (!d) return;
+    if (d.moved) {
+      const over = this.state.drag && this.state.drag.over;
+      if (over) { this.beginPending(id, over); } else { this.setState({ drag: null }); }
+    } else {
+      this.setState({ staged: this.state.staged === id ? null : id, drag: null });
+    }
+  }
+  seatTap(sid, e) {
+    e.stopPropagation();
+    const st = this.state.staged; if (!st || this.state.pending) return;
+    const card = this.card(st);
+    if (this.validTargets(card).includes(sid)) this.beginPending(st, sid);
+  }
+  feltTap() {
+    if (this.state.staged && !this.state.pending) {
+      const c = this.card(this.state.staged);
+      if (c.targets !== 'all') this.setState({ staged: null });
+    }
+  }
+  aoeTap(e) { e.stopPropagation(); if (this.state.staged) this.beginPending(this.state.staged, 'all'); }
+  dropZoneIds(card) {
+    if (card.targets === 'all') return ['all'];
+    if (card.targets === 'self') return ['me'];
+    return this.SEATS.map(s => s.id);
+  }
+  takeBack(i) {
+    const q = [...this.state.queue];
+    const pl = q.splice(i, 1)[0];
+    if (!pl) return;
+    const card = this.card(pl.cardId);
+    this.setState({
+      queue: q, hand: [...this.state.hand, pl.cardId],
+      pulls: this.state.pulls + card.cost,
+      played: Math.max(0, this.state.played - 1),
+      log: [{ t: 'play', text: 'MAJA TAKES BACK ' + card.title.toUpperCase() }, ...this.state.log]
+    });
+  }
+  clampFocus(f) { const n = this.state.hand.length; return Math.max(0, Math.min(Math.max(n - 1, 0), f)); }
+  curve(x1, y1, x2, y2, W, H) {
+    const mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
+    const dx = x2 - x1, dy = y2 - y1, len = Math.hypot(dx, dy) || 1;
+    const nx = -dy / len, ny = dx / len, bend = len * 0.18;
+    const a = { x: mx + nx * bend, y: my + ny * bend }, b = { x: mx - nx * bend, y: my - ny * bend };
+    const q = (Math.hypot(a.x - W / 2, a.y - H / 2) < Math.hypot(b.x - W / 2, b.y - H / 2)) ? a : b;
+    return 'M' + x1.toFixed(1) + ' ' + y1.toFixed(1) + ' Q' + q.x.toFixed(1) + ' ' + q.y.toFixed(1) + ' ' + x2.toFixed(1) + ' ' + y2.toFixed(1);
+  }
+  wheelDown(e) {
+    if (this.state.inspect || this.state.discard || this.state.pending) return;
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch (err) {}
+    this._w = { y: e.clientY, f0: this.state.wheelFocus, moved: false };
+  }
+  wheelMove(e) {
+    const w = this._w; if (!w) return;
+    const dy = e.clientY - w.y;
+    if (!w.moved && Math.abs(dy) < 6) return;
+    w.moved = true;
+    const n = this.state.hand.length;
+    let f = w.f0 - dy * 0.016;
+    f = Math.max(-0.4, Math.min(Math.max(n - 0.6, 0), f));
+    this.setState({ wheelFocus: f, wheelDragging: true });
+  }
+  wheelUp(e) {
+    const w = this._w; this._w = null;
+    if (!w) return;
+    const n = this.state.hand.length; if (!n) { this.setState({ wheelDragging: false }); return; }
+    const f = Math.round(this.clampFocus(this.state.wheelFocus));
+    if (w.moved) { this.setState({ wheelFocus: f, wheelDragging: false }); }
+    else { this.setState({ inspect: this.state.hand[f], wheelFocus: f, wheelDragging: false }); }
+  }
+  togglePick(id) {
+    const d = this.state.discard; if (!d) return;
+    const picks = d.picks.includes(id) ? d.picks.filter(p => p !== id) : [...d.picks, id];
+    this.setState({ discard: { picks } });
+  }
+  confirmDiscard() {
+    const d = this.state.discard;
+    if (!d || !d.picks.length) return;
+    const pool = this.CATALOG.map(c => c.id).filter(id => !this.state.hand.includes(id));
+    for (let i = pool.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); const t = pool[i]; pool[i] = pool[j]; pool[j] = t; }
+    const hand = this.state.hand.map(id => d.picks.includes(id) ? pool.pop() : id).filter(Boolean);
+    this.setState({
+      hand, discard: null, discardDone: true,
+      log: [{ t: 'play', text: 'MAJA SWAPS ' + d.picks.length }, ...this.state.log]
+    });
+  }
+  componentWillUnmount() { clearTimeout(this._auto); clearTimeout(this._flashT); }
+  renderVals() {
+    const s = this.state, D = this.DECKS;
+    const arrowOpacity = this.P('arrowOpacity', 0.5);
+    const dragCard = s.drag ? this.card(s.drag.id) : null;
+    const stagedCard = s.staged ? this.card(s.staged) : null;
+    const activeCard = dragCard || stagedCard;
+    const pendCard = s.pending ? this.card(s.pending.cardId) : null;
+    const titleSize = t => t.length <= 14 ? '26px' : (t.length <= 24 ? '21px' : '18px');
+    let modeBadge, modeInk, modeText;
+    if (s.discard) { modeBadge = 'MULLIGAN'; modeInk = '#B48EF7'; modeText = 'Pick any cards to swap \u2014 up to your whole hand.'; }
+    else if (s.pending && pendCard) {
+      const t = s.pending.target;
+      const nmT = t === 'all' ? 'EVERYONE' : (t === 'me' ? 'YOURSELF' : this.seatOf(t).name);
+      modeBadge = 'ARMING'; modeInk = D[pendCard.deck].ink;
+      modeText = pendCard.title + ' \u2192 ' + nmT + ' \u00b7 ' + pendCard.cost + ' pulls. Confirm below.';
+    }
+    else if (activeCard) {
+      modeBadge = 'TARGET'; modeInk = '#6FB6FF';
+      if (dragCard) {
+        modeText = activeCard.targets === 'all' ? 'Hits the whole table \u2014 drop it on the EVERYONE box.'
+          : activeCard.targets === 'self' ? 'This one is for you \u2014 drop it on your own box.'
+          : 'Drop ' + activeCard.title + ' on a target box.';
+      } else {
+        modeText = activeCard.targets === 'all' ? 'Hits everyone \u2014 tap the EVERYONE box.'
+          : activeCard.targets === 'self' ? 'For you \u2014 tap your own box.'
+          : 'Tap the player ' + activeCard.title + ' should hit.';
+      }
+    }
+    else if (s.tab === 'hand') { modeBadge = 'READ'; modeInk = '#B48EF7'; modeText = 'Swipe to browse, tap a card to read it. Playing happens on the TABLE.'; }
+    else if (s.tab === 'table') { modeBadge = 'PLAY'; modeInk = '#6FB6FF'; modeText = s.queue.length ? s.queue.length + ' play' + (s.queue.length > 1 ? 's' : '') + ' queued \u2014 keep playing, or LOCK IN to reveal them all.' : 'Drag a card from your tray onto a player \u2014 or tap it, then its target.'; }
+    else { modeBadge = 'LOG'; modeInk = '#8D87A0'; modeText = "The table's public record, newest first."; }
+    const mkCard = id => {
+      const c = this.card(id), d = D[c.deck];
+      return {
+        id, title: c.title, text: c.text, deckLabel: d.label, cost: c.cost,
+        ink: d.ink, fill: d.fill, on: d.on, dur: c.dur, titleSize: titleSize(c.title),
+        k1: (c.kws[0] || '').toUpperCase(), k1Show: c.kws[0] ? 'inline-block' : 'none',
+        k2: (c.kws[1] || '').toUpperCase(), k2Show: c.kws[1] ? 'inline-block' : 'none',
+        k3: (c.kws[2] || '').toUpperCase(), k3Show: c.kws[2] ? 'inline-block' : 'none',
+        inspect: () => this.setState({ inspect: id })
+      };
+    };
+    const n = s.hand.length;
+    const focus = this.clampFocus(s.wheelFocus);
+    const hand = s.hand.map((id, i) => {
+      const base = mkCard(id);
+      const d = i - focus, abs = Math.abs(d);
+      return { ...base,
+        tf: 'rotateX(' + (-d * 21) + 'deg) translateZ(470px)',
+        op: abs < 0.5 ? 1 : Math.max(0, 1 - (abs - 0.5) * 0.42),
+        vis: abs > 3.4 ? 'hidden' : 'visible',
+        z: String(200 - Math.round(abs * 10)),
+        trans: s.wheelDragging ? 'none' : 'transform 280ms cubic-bezier(.2,.8,.3,1), opacity 280ms cubic-bezier(.2,.8,.3,1)',
+        border: abs < 0.5 ? '2px solid ' + base.ink : '1px solid rgba(242,238,248,.22)',
+        bg: abs < 0.5 ? '#2E2742' : '#251F35',
+        tapShow: abs < 0.5 ? 'inline-block' : 'none'
+      };
+    });
+    const focusIdx = n ? Math.round(focus) : -1;
+    const fCard = focusIdx > -1 ? this.card(s.hand[focusIdx]) : null;
+    const fD = fCard ? D[fCard.deck] : null;
+    const tray = s.hand.map(id => {
+      const c = this.card(id), d = D[c.deck];
+      const staged = s.staged === id;
+      return {
+        id, title: c.title, cost: c.cost, ink: d.ink,
+        bg: staged ? '#2E2742' : '#17141F',
+        border: staged ? '2px solid ' + d.ink : '1.5px solid ' + d.ink,
+        lift: staged ? 'translateY(-6px)' : 'none',
+        down: e => this.onDown(id, e), move: e => this.onMove(e), up: e => this.onUp(id, e)
+      };
+    });
+    const seats = this.SEATS.map(st => {
+      const valid = activeCard ? (activeCard.targets === 'all' ? true : this.validTargets(activeCard).includes(st.id)) : false;
+      const over = !!(s.drag && s.drag.over && (s.drag.over === st.id || s.drag.over === 'all'));
+      const fl = s.flash[st.id];
+      let mix;
+      if (st.me) {
+        const m = {};
+        s.hand.forEach(id => { const dk = this.card(id).deck; m[dk] = (m[dk] || 0) + 1; });
+        mix = Object.keys(m).map(k => ({ deck: k, n: m[k] }));
+      } else { mix = st.handMix; }
+      const h1 = mix[0], h2 = mix[1];
+      return {
+        h1Show: h1 ? 'flex' : 'none', h1Bg: h1 ? D[h1.deck].ink + '2e' : 'transparent',
+        h1Ink: h1 ? D[h1.deck].ink : '#6A6480', h1N: h1 ? h1.n : '',
+        h2Show: h2 ? 'flex' : 'none', h2Bg: h2 ? D[h2.deck].ink + '2e' : 'transparent',
+        h2Ink: h2 ? D[h2.deck].ink : '#6A6480', h2N: h2 ? h2.n : '',
+        left: st.left + '%', top: st.top + '%', name: st.name,
+        youShow: st.me ? 'inline-block' : 'none', hp: s.hp[st.id],
+        hpColor: fl === 'hit' ? '#F7768E' : fl === 'good' ? '#4FD6A8' : '#F2EEF8',
+        ringShow: (valid && !s.pending) ? 'block' : 'none',
+        bg: over ? '#2E2742' : '#16121F',
+        border: over ? '2px solid #6FB6FF' : '1px solid ' + D[st.decks[0]].ink + '66',
+        scale: over ? 'scale(1.08)' : 'none',
+        anim: fl === 'hit' ? 'lcShake 320ms cubic-bezier(.2,.8,.3,1) 1' : 'none',
+        dot1: D[st.decks[0]].fill,
+        dot2: st.decks[1] ? D[st.decks[1]].fill : 'transparent',
+        dot2Show: st.decks[1] ? 'inline-block' : 'none',
+        tap: e => this.seatTap(st.id, e)
+      };
+    });
+    const p = s.pending;
+    let pend = {
+      pendShow: false, pendViewBox: '0 0 100 100', pendArrows: [], pendInk: '#B48EF7', pendCap: '',
+      pendDeck: '', pendCost: '', pendFill: '#251F35', pendOn: '#F2EEF8', pendTitle: '', pendText: '',
+      pendEffect: '', pendTitleSize: '20px', pendTransform: 'translate(-50%,-50%)', pendOpacity: 1,
+      pendTransition: 'none', confirmLabel: '', confirmBg: '#B48EF7', confirmColor: '#14101D'
+    };
+    if (p && pendCard) {
+      const d = D[pendCard.deck];
+      const tlabel = p.target === 'all' ? 'EVERYONE' : (p.target === 'me' ? 'MAJA' : this.seatOf(p.target).name);
+      pend = {
+        pendShow: true, pendViewBox: '0 0 ' + p.W + ' ' + p.H, pendArrows: p.arrows, pendInk: d.ink,
+        pendCap: 'MAJA \u2192 ' + tlabel, pendDeck: d.label, pendCost: pendCard.cost, pendFill: d.fill,
+        pendOn: d.on, pendTitle: pendCard.title, pendText: pendCard.text, pendEffect: pendCard.effect,
+        pendTitleSize: titleSize(pendCard.title),
+        pendTransform: p.confirming ? 'translate(calc(-50% + ' + p.dx + 'px), calc(-50% + ' + p.dy + 'px)) scale(0.26)' : 'translate(-50%,-50%)',
+        pendOpacity: p.confirming ? 0.3 : 1,
+        pendTransition: p.confirming ? 'transform 450ms cubic-bezier(.2,.8,.3,1), opacity 450ms cubic-bezier(.2,.8,.3,1)' : 'none',
+        confirmLabel: (pendCard.op === 'react' ? 'ARM' : 'CONFIRM') + ' \u00b7 ' + pendCard.cost + ' PULLS',
+        confirmBg: d.fill, confirmColor: d.on
+      };
+    }
+    const ic = s.inspect ? this.card(s.inspect) : null;
+    const idk = ic ? D[ic.deck] : null;
+    const dpicks = s.discard ? s.discard.picks : [];
+    const discardCards = s.hand.map(id => {
+      const c = this.card(id), d = D[c.deck];
+      const pi = dpicks.indexOf(id);
+      return {
+        id, deckLabel: d.label, ink: d.ink, fill: d.fill, on: d.on, cost: c.cost, title: c.title, text: c.text,
+        bg: pi > -1 ? '#2E2742' : '#251F35',
+        border: pi > -1 ? '2px solid #B48EF7' : '1px solid rgba(242,238,248,.22)',
+        lift: pi > -1 ? 'translateY(-5px)' : 'none',
+        badgeShow: pi > -1 ? 'block' : 'none', badge: pi + 1,
+        toggle: () => this.togglePick(id)
+      };
+    });
+    const dcReady = dpicks.length >= 1;
+    const queueCards = s.queue.map((pl, i) => {
+      const c = this.card(pl.cardId), qd = D[c.deck];
+      return {
+        title: c.title, cost: c.cost, ink: qd.ink,
+        tgt: pl.target === 'all' ? 'ALL' : (pl.target === 'me' ? 'YOU' : this.seatOf(pl.target).name),
+        takeBack: e => { e.stopPropagation(); this.takeBack(i); }
+      };
+    });
+    const targetShow = !!activeCard && s.tab === 'table' && !s.pending;
+    const tgD = activeCard ? D[activeCard.deck] : null;
+    const dropZones = activeCard ? this.dropZoneIds(activeCard).map(zid => {
+      const over = !!(s.drag && s.drag.over === zid);
+      const seat = zid === 'all' ? null : this.seatOf(zid);
+      return {
+        label: zid === 'all' ? 'EVERYONE AT THE TABLE' : seat.name,
+        hp: zid === 'all' ? '\u00d74' : s.hp[zid],
+        dot: zid === 'all' ? '#6FB6FF' : D[seat.decks[0]].fill,
+        youShow: seat && seat.me ? 'inline-block' : 'none',
+        bg: over ? '#2E2742' : '#16121F',
+        border: over ? '2px solid #6FB6FF' : '1px solid rgba(242,238,248,.22)',
+        scale: over ? 'scale(1.03)' : 'none',
+        tap: e => { e.stopPropagation(); if (this.state.staged) this.beginPending(this.state.staged, zid); }
+      };
+    }) : [];
+    let queueArrows = [], queueWaves = [], queueViewBox = '0 0 100 100', queueArrowsShow = false;
+    const fr = (s.tab === 'table' && !s.pending && !targetShow && s.queue.length) ? this.feltRect() : null;
+    if (fr) {
+      const W = fr.width, H = fr.height, nq = s.queue.length;
+      const contH = 27 + nq * 52;
+      s.queue.forEach((pl, i) => {
+        const sy = H / 2 - contH / 2 + 17 + i * 52 + 23;
+        const sx = 72;
+        const ink = D[this.card(pl.cardId).deck].ink;
+        if (pl.target === 'all') {
+          queueWaves.push({ cx: W / 2, cy: H / 2, rx: W / 2 - 16, ry: H / 2 - 14, ink, delay: '0s' });
+          queueWaves.push({ cx: W / 2, cy: H / 2, rx: W / 2 - 16, ry: H / 2 - 14, ink, delay: '1s' });
+          return;
+        }
+        const t = this.seatOf(pl.target);
+        const ex = t.left / 100 * W, ey = t.top / 100 * H;
+        const dx = ex - sx, dy = ey - sy, len = Math.hypot(dx, dy) || 1;
+        queueArrows.push({ d: this.curve(sx, sy, ex - dx / len * 36, ey - dy / len * 36, W, H), ink });
+      });
+      queueViewBox = '0 0 ' + W + ' ' + H;
+      queueArrowsShow = true;
+    }
+    let pendWaves = [];
+    if (p && pendCard && p.target === 'all') {
+      pendWaves = [
+        { cx: p.W / 2, cy: p.H / 2, rx: p.W / 2 - 16, ry: p.H / 2 - 14, ink: D[pendCard.deck].ink, delay: '0s' },
+        { cx: p.W / 2, cy: p.H / 2, rx: p.W / 2 - 16, ry: p.H / 2 - 14, ink: D[pendCard.deck].ink, delay: '1s' }
+      ];
+    }
+    const logRows = s.log.map(en => ({
+      text: en.text,
+      color: en.t === 'hit' ? '#F2EEF8' : en.t === 'round' ? '#6A6480' : '#A79FBB',
+      size: en.t === 'round' ? '11px' : '13px',
+      ls: en.t === 'round' ? '.14em' : '.04em',
+      mt: en.t === 'round' ? '8px' : '0'
+    }));
+    return {
+      shellRef: this.shellRef, feltRef: this.feltRef, paneRef: this.paneRef,
+      goHand: () => this.goTab('hand'), goTable: () => this.goTab('table'), goLog: () => this.goTab('log'),
+      tabHandColor: s.tab === 'hand' ? '#F2EEF8' : '#8D87A0', tabHandBorder: s.tab === 'hand' ? '#B48EF7' : 'transparent',
+      tabTableColor: s.tab === 'table' ? '#F2EEF8' : '#8D87A0', tabTableBorder: s.tab === 'table' ? '#6FB6FF' : 'transparent',
+      tabLogColor: s.tab === 'log' ? '#F2EEF8' : '#8D87A0', tabLogBorder: s.tab === 'log' ? '#8D87A0' : 'transparent',
+      modeBadge, modeText, modeInk, modeBg: modeInk + '22', modeBorder: modeInk + '55',
+      pulls: s.pulls, handCount: s.hand.length, played: s.played,
+      showHand: s.tab === 'hand', showTable: s.tab === 'table', showLog: s.tab === 'log',
+      hand, tray, seats, logRows,
+      wheelDown: e => this.wheelDown(e), wheelMove: e => this.wheelMove(e), wheelUp: e => this.wheelUp(e),
+      tabDrawerTf: s.tabOpen ? 'translateX(0)' : 'translateX(212px)',
+      tabDrawerArrow: s.tabOpen ? '\u25b8' : '\u25c2',
+      toggleTabDrawer: () => this.setState({ tabOpen: !this.state.tabOpen }),
+      wheelPos: fCard ? (String(focusIdx + 1).padStart(2, '0') + ' / ' + String(n).padStart(2, '0')) : '00 / 00',
+      focusFill: fD ? fD.fill : '#B48EF7', focusOn: fD ? fD.on : '#14101D',
+      inspectFocused: () => { if (fCard) this.setState({ inspect: s.hand[focusIdx] }); },
+      playFocused: () => { if (fCard) this.setState({ tab: 'table', staged: s.hand[focusIdx], inspect: null }); },
+      feltTap: () => this.feltTap(),
+      centerIdle: !s.pending && !s.queue.length,
+      queueShow: s.queue.length > 0, queue: queueCards, queueCount: s.queue.length,
+      queueArrows, queueWaves, pendWaves, queueViewBox, queueArrowsShow, queueArrowOp: Math.max(0.15, arrowOpacity * 0.7),
+      targetShow, dropZones,
+      clearStaged: () => { if (!this.state.drag) this.setState({ staged: null }); },
+      tgInk: tgD ? tgD.ink : '#B48EF7', tgDeck: tgD ? tgD.label : '', tgFill: tgD ? tgD.fill : '#251F35',
+      tgOn: tgD ? tgD.on : '#F2EEF8', tgCost: activeCard ? activeCard.cost : '',
+      tgTitle: activeCard ? activeCard.title : '', tgText: activeCard ? activeCard.text : '',
+      tgEffect: activeCard ? activeCard.effect : '',
+
+      arrowOpacity, ...pend,
+      cancelPending: () => this.cancelPending(), confirmPending: () => this.confirmPending(),
+      barDefault: true,
+      discardBtnShow: s.discardDone ? 'none' : 'block',
+      openDiscard: () => this.setState({ discard: { picks: [] } }),
+      lockTap: () => { if (this.state.queue.length) { this.resolveQueue(); } else if (!this.state.locked) { this.setState({ locked: true, log: [{ t: 'lock', text: 'MAJA LOCKS IN' }, ...this.state.log] }); } },
+      lockLabel: s.queue.length ? 'LOCK IN \u00b7 ' + s.queue.length + ' QUEUED' : (s.locked ? 'LOCKED \u25cf' : 'LOCK IN'),
+      lockBg: s.locked && !s.queue.length ? 'transparent' : '#B48EF7',
+      lockColor: s.locked && !s.queue.length ? '#B48EF7' : '#14101D',
+      lockBorder: s.locked && !s.queue.length ? '1px solid #B48EF7' : '0',
+      noteShow: !s.discardDone && !s.pending && !s.discard,
+      noteText: 'MULLIGAN AVAILABLE \u00b7 SWAP ANY NUMBER OF CARDS, ONCE',
+      inspectShow: !!ic,
+      closeInspect: () => this.setState({ inspect: null }),
+      iInk: ic ? idk.ink : '#B48EF7', iDeck: ic ? idk.label : '', iFill: ic ? idk.fill : '#251F35',
+      iOn: ic ? idk.on : '#F2EEF8', iCost: ic ? ic.cost : '', iTitle: ic ? ic.title : '', iText: ic ? ic.text : '',
+      iEffect: ic ? ic.effect : '', iKws: ic ? ic.kws.join(' \u00b7 ').toUpperCase() : '',
+      iTargets: ic ? (ic.targets === 'one' ? 'ONE PLAYER' : ic.targets === 'all' ? 'EVERYONE' : 'YOURSELF') : '',
+      iCostTxt: ic ? ic.cost + ' PULLS' : '', iDur: ic ? (ic.dur || 'IMMEDIATE') : '',
+      iPlay: () => this.setState({ inspect: null, tab: 'table', staged: s.inspect, pending: null }),
+      iPlayLabel: ic && ic.op === 'react' ? 'ARM ON THE TABLE \u2192' : 'PLAY ON THE TABLE \u2192',
+      discardShow: !!s.discard, discardCards,
+      discardCount: String(dpicks.length),
+      dcLabel: dpicks.length ? 'SWAP ' + dpicks.length + (dpicks.length === 1 ? ' CARD' : ' CARDS') : 'SWAP CARDS',
+      cancelDiscard: () => this.setState({ discard: null }),
+      confirmDiscard: () => this.confirmDiscard(),
+      dcBg: dcReady ? '#B48EF7' : '#251F35', dcColor: dcReady ? '#14101D' : '#6A6480',
+      ghostShow: !!s.drag, ghostX: s.drag ? s.drag.x : 0, ghostY: s.drag ? s.drag.y : 0,
+      ghostInk: dragCard ? D[dragCard.deck].ink : '#B48EF7',
+      ghostCost: dragCard ? dragCard.cost : '', ghostTitle: dragCard ? dragCard.title : ''
+    };
+  }
+}
+</script>
+</body>
+</html>

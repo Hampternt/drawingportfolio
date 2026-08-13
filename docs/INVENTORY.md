@@ -59,6 +59,9 @@ A party platform for phone-based drinking games in shared rooms.
   in-game FULL SCREEN toggle on Android browsers.
 - Player accounts with self-service rename; per-viewer personalized UI;
   optional sound effects (server drop-in).
+- 🚧 Mobile play-flow redesign (HAND = reading wheel + inspect sheet,
+  TABLE = drag-to-target tray with armed stack, mulligan overlay) —
+  `docs/manifests/2026-08-13-lc-mobile-play-flow.md`
 
 ## Infrastructure
 
