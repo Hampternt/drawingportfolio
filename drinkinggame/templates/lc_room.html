@@ -18,6 +18,7 @@
   {{ test_bar|safe }}
   <div class="lc-status">
     <span id="lc-clock"></span>
+    <button type="button" id="fs-btn" class="lc-fs">FULL SCREEN</button>
     <span>ROOM {{ code }}</span>
   </div>
 
@@ -68,6 +69,21 @@ function lcClock() {
     d.getHours() + ":" + String(d.getMinutes()).padStart(2, "0");
 }
 lcClock(); setInterval(lcClock, 20000);
+
+// Full screen: the in-browser answer to the URL bar (works in any Android
+// Chromium — Chrome, Brave; iPhone Safari has no page fullscreen, so the
+// button hides itself there and Add to Home Screen is the route instead).
+(() => {
+  const b = document.getElementById("fs-btn");
+  if (!document.documentElement.requestFullscreen) { b.hidden = true; return; }
+  b.addEventListener("click", () => {
+    if (document.fullscreenElement) document.exitFullscreen();
+    else document.documentElement.requestFullscreen().catch(() => {});
+  });
+  document.addEventListener("fullscreenchange", () => {
+    b.textContent = document.fullscreenElement ? "EXIT FULL SCREEN" : "FULL SCREEN";
+  });
+})();
 
 // The server-rendered pane is the seq floor; every later repaint must be at
 // least this fresh.

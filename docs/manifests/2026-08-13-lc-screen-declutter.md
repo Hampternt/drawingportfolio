@@ -22,7 +22,11 @@ rows and the container field all go; the browser bar should be dodgeable.
 - [x] **3. Installable app (browser bar)** — web app manifest + embedded
       icons + apple meta tags on every phone page; Add to Home Screen
       launches standalone, no browser chrome. That's the only method
-      phones allow. (87f3509)
+      phones allow.
+- [x] **4. Fullscreen toggle (follow-up ask)** — FULL SCREEN button in the
+      room topbar and the Last Call status bar via the Fullscreen API
+      (works in any Android Chromium incl. Brave; hides itself on iPhone
+      Safari, which has no page fullscreen). (87f3509)
 
 ## Later (noted, not in this pack)
 

@@ -20,6 +20,7 @@
       <span class="code-pill-value">{{ code }}</span>
     </div>
     <div class="topbar-right" id="topbar-strip"></div>
+    <button type="button" id="fs-btn" class="mute-btn" title="Full screen">⛶</button>
     <button type="button" id="mute-btn" class="mute-btn" title="Sound effects"></button>
   </header>
 
@@ -148,6 +149,17 @@ document.getElementById("mute-btn").addEventListener("click", () => {
   localStorage.setItem("drinks_muted", muted() ? "0" : "1"); syncMute();
 });
 function syncMute() { document.getElementById("mute-btn").textContent = muted() ? "🔇" : "🔊"; }
+// Full screen: the in-browser answer to the URL bar (works in any Android
+// Chromium — Chrome, Brave; iPhone Safari has no page fullscreen, so the
+// button hides itself there and Add to Home Screen is the route instead).
+(() => {
+  const b = document.getElementById("fs-btn");
+  if (!document.documentElement.requestFullscreen) { b.hidden = true; return; }
+  b.addEventListener("click", () => {
+    if (document.fullscreenElement) document.exitFullscreen();
+    else document.documentElement.requestFullscreen().catch(() => {});
+  });
+})();
 document.querySelectorAll("[data-tab]").forEach(b => b.addEventListener("click", () => {
   document.querySelectorAll("[data-tab]").forEach(x => x.classList.toggle("tab-active", x === b));
   document.querySelectorAll(".tab-pane").forEach(p => p.hidden = p.dataset.pane !== b.dataset.tab);
