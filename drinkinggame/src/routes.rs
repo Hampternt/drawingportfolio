@@ -135,7 +135,11 @@ async fn create_room(
 
 #[derive(Deserialize)]
 struct JoinForm {
-    code: String,
+    /// Named "room" in the form, not "code" — phone keyboards treat short
+    /// "code" fields as SMS one-time-codes and force the numpad (see the
+    /// comment in landing.html). `alias` keeps any old cached form working.
+    #[serde(alias = "code")]
+    room: String,
 }
 
 async fn join_room_handler(
@@ -143,7 +147,7 @@ async fn join_room_handler(
     PlayerSession(_player): PlayerSession,
     Form(form): Form<JoinForm>,
 ) -> axum::response::Response {
-    let code = form.code.trim().to_uppercase();
+    let code = form.room.trim().to_uppercase();
     match db::get_open_room(&state.pool, &code).await {
         // The room page itself performs the join — one code path for both
         // form joins and shared-link joins.

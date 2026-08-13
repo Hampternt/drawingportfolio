@@ -19,7 +19,10 @@
   <form method="post" action="{{ base_path }}/join" class="join-panel">
     <span class="join-panel-kicker">OR JOIN ONE</span>
     <div class="join-panel-row">
-      <input name="code" placeholder="CODE" maxlength="4" autocapitalize="characters"
+      <!-- Deliberately NOT named/labelled "code": phone keyboards sniff
+           short fields called "code" as SMS one-time-codes and force the
+           numpad regardless of inputmode. "room" dodges the heuristic. -->
+      <input name="room" placeholder="ROOM" maxlength="4" autocapitalize="characters"
              type="text" inputmode="text" autocomplete="off" required>
       <button type="submit">JOIN</button>
     </div>
