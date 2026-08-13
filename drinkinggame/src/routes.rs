@@ -931,6 +931,10 @@ pub fn router() -> Router<GameState> {
             post(crate::lc_routes::lc_lock_handler),
         )
         .route(
+            "/room/{code}/lastcall/ready",
+            post(crate::lc_routes::lc_ready_handler),
+        )
+        .route(
             "/room/{code}/lastcall/pact/offer",
             post(crate::lc_routes::lc_pact_offer_handler),
         )
