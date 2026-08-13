@@ -735,6 +735,37 @@ async fn screen_page(
     Html(tpl.render().unwrap()).into_response()
 }
 
+/// The web app manifest — the phone's route out from under the browser bar:
+/// Add to Home Screen installs the game as a standalone app (no URL bar,
+/// own icon). `start_url`/`scope`/icon `src` are RELATIVE, resolved against
+/// the manifest's own URL, so one file works both standalone (`/assets/…`
+/// -> `/`) and nested under `/drinks` in prod (`/drinks/assets/…` ->
+/// `/drinks/`).
+async fn manifest_json() -> impl IntoResponse {
+    (
+        [(header::CONTENT_TYPE, "application/manifest+json")],
+        include_str!("../assets/manifest.json"),
+    )
+}
+
+/// App icons for the manifest above (and apple-touch-icon). Same shape as
+/// `font_asset`: embedded, allowlisted by exact name, unknown names 404.
+async fn icon_asset(Path(name): Path<String>) -> axum::response::Response {
+    let bytes: &'static [u8] = match name.as_str() {
+        "icon-192.png" => include_bytes!("../assets/icon-192.png"),
+        "icon-512.png" => include_bytes!("../assets/icon-512.png"),
+        _ => return StatusCode::NOT_FOUND.into_response(),
+    };
+    (
+        [
+            (header::CONTENT_TYPE, "image/png"),
+            (header::CACHE_CONTROL, "public, max-age=86400"),
+        ],
+        bytes,
+    )
+        .into_response()
+}
+
 async fn game_css() -> impl IntoResponse {
     (
         [(header::CONTENT_TYPE, "text/css")],
@@ -1059,6 +1090,11 @@ pub fn router() -> Router<GameState> {
         )
         .route("/room/{code}/sse", get(sse_stream))
         .route("/room/{code}/screen", get(screen_page))
+        .route("/assets/manifest.json", get(manifest_json))
+        // The {name} capture coexists with the static /assets/* routes —
+        // axum gives statics priority — and today matches only the two
+        // allowlisted icons.
+        .route("/assets/{name}", get(icon_asset))
         .route("/assets/game.css", get(game_css))
         .route("/assets/lastcall.css", get(lastcall_css))
         .route("/assets/htmx.min.js", get(htmx_js))
