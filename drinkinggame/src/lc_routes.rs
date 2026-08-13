@@ -1887,6 +1887,7 @@ mod tests {
             hub: crate::hub::RoomHub::new(),
             base_path: std::sync::Arc::from("/drinks"),
             locks: crate::RoomLocks::default(),
+            test_mode: false,
         };
 
         // The test body takes the room guard FIRST — it plays the winning

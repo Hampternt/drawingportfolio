@@ -815,6 +815,86 @@ async fn sound_asset(Path(name): Path<String>) -> axum::response::Response {
     }
 }
 
+// -------------------------------------------------------------
+// Test play mode (2026-08-13): fake players + identity switching, so one
+// browser can drive every seat. Both handlers 404 unless the server was
+// started with DRINKS_TEST_MODE=1 (`GameState::test_mode`) — from outside,
+// indistinguishable from the routes not existing, which is the point: the
+// live server never exposes an impersonation endpoint.
+// -------------------------------------------------------------
+
+/// `POST /room/{code}/test/spawn` — create (or log back in) the next free
+/// `test-N` player (PIN 0000) and join it to the room. The fake gets no
+/// session here — `act-as` is how you become it, and visiting the room
+/// page as it (the 303 target) runs the ordinary late-join seating for any
+/// running game, so nothing game-specific lives here.
+async fn test_spawn(
+    State(state): State<GameState>,
+    PlayerSession(player): PlayerSession,
+    Path(code): Path<String>,
+) -> axum::response::Response {
+    if !state.test_mode {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    let room = match crate::game::member_room(&state, &code, &player).await {
+        Ok(r) => r,
+        Err(resp) => return resp,
+    };
+    let members = db::room_members(&state.pool, room.id).await;
+    for n in 1..=16 {
+        let name = format!("test-{n}");
+        // login_or_register: creates the fake on first use, logs into it on
+        // reuse. A REAL player who happens to own the name (different PIN)
+        // makes this Err — skip to the next number rather than failing.
+        let Ok(fake) = auth::login_or_register(&state.pool, &name, "0000").await else {
+            continue;
+        };
+        if members.iter().any(|m| m.id == fake.id) {
+            continue; // this fake is already at the table — next
+        }
+        db::join_room(&state.pool, room.id, fake.id).await;
+        crate::game::broadcast_room(&state, room.id, &room.code).await;
+        return Redirect::to(&format!("{}/room/{code}", state.base_path)).into_response();
+    }
+    StatusCode::CONFLICT.into_response() // 16 fakes seated — enough table
+}
+
+#[derive(Deserialize)]
+struct ActAsForm {
+    player_id: i64,
+}
+
+/// `POST /room/{code}/test/act-as` — re-issue the browser's session cookie
+/// as any member of the room, then 303 back to the room page (which
+/// forwards into a running game and late-join-seats the identity if
+/// needed). The old session row is left to expire — switching back is just
+/// another act-as.
+async fn test_act_as(
+    State(state): State<GameState>,
+    PlayerSession(player): PlayerSession,
+    Path(code): Path<String>,
+    Form(form): Form<ActAsForm>,
+) -> axum::response::Response {
+    if !state.test_mode {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    let room = match crate::game::member_room(&state, &code, &player).await {
+        Ok(r) => r,
+        Err(resp) => return resp,
+    };
+    let members = db::room_members(&state.pool, room.id).await;
+    if !members.iter().any(|m| m.id == form.player_id) {
+        return StatusCode::UNPROCESSABLE_ENTITY.into_response();
+    }
+    let sid = auth::new_session_id();
+    db::create_session(&state.pool, &sid, form.player_id, "+90 days").await;
+    (
+        [(header::SET_COOKIE, auth::session_cookie(&sid))],
+        Redirect::to(&format!("{}/room/{code}", state.base_path)),
+    )
+        .into_response()
+}
+
 pub fn router() -> Router<GameState> {
     Router::new()
         .route("/", get(landing))
@@ -826,6 +906,8 @@ pub fn router() -> Router<GameState> {
         .route("/rooms", post(create_room))
         .route("/join", post(join_room_handler))
         .route("/room/{code}", get(room_page))
+        .route("/room/{code}/test/spawn", post(test_spawn))
+        .route("/room/{code}/test/act-as", post(test_act_as))
         .route("/room/{code}/event", post(log_event))
         .route("/room/{code}/undo", post(undo_event))
         .route("/room/{code}/end", post(end_room_handler))

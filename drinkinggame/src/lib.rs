@@ -71,6 +71,11 @@ pub struct GameState {
     pub hub: hub::RoomHub,
     pub base_path: Arc<str>,
     pub locks: RoomLocks,
+    /// Test play mode (2026-08-13): `DRINKS_TEST_MODE=1` at startup enables
+    /// the fake-player spawn/act-as routes and the identity switcher bar,
+    /// so one browser can drive every seat of a table. Off (the default,
+    /// and always on the live server) the routes 404 and no UI renders.
+    pub test_mode: bool,
 }
 
 fn spawn_cleanup(state: GameState) {
@@ -98,13 +103,26 @@ pub async fn router(config: Config) -> axum::Router {
     router_with_pool(pool, &config.base_path)
 }
 
-/// Test seam: integration tests inject an in-memory pool here.
+/// Test seam: integration tests inject an in-memory pool here. Test play
+/// mode comes from the environment — tests that need it ON (or pinned OFF)
+/// use `router_with_pool_flagged` instead, since env vars race across
+/// parallel test threads.
 pub fn router_with_pool(pool: db::DbPool, base_path: &str) -> axum::Router {
+    let test_mode = std::env::var("DRINKS_TEST_MODE").is_ok_and(|v| v == "1");
+    router_with_pool_flagged(pool, base_path, test_mode)
+}
+
+pub fn router_with_pool_flagged(
+    pool: db::DbPool,
+    base_path: &str,
+    test_mode: bool,
+) -> axum::Router {
     let state = GameState {
         pool,
         hub: hub::RoomHub::new(),
         base_path: Arc::from(base_path),
         locks: RoomLocks::default(),
+        test_mode,
     };
     spawn_cleanup(state.clone());
     mechanics::spawn_ticker(state.clone());

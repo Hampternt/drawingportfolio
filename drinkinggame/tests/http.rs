@@ -22,6 +22,23 @@ async fn test_app() -> Router {
     test_app_with_pool().await.0
 }
 
+/// Test-play-mode rig: same in-memory pool, `test_mode` forced ON via the
+/// explicit flag seam (never the env var — parallel test threads share the
+/// environment). The default rigs above run with the flag OFF, which is
+/// also what pins the 404 behaviour.
+async fn test_app_test_mode() -> (Router, sqlx::SqlitePool) {
+    let pool = SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect("sqlite::memory:")
+        .await
+        .unwrap();
+    drinkinggame::db::run_migrations(&pool).await;
+    (
+        drinkinggame::router_with_pool_flagged(pool.clone(), "", true),
+        pool,
+    )
+}
+
 /// Same as `test_app`, but mounted under a non-empty base path — used to
 /// exercise `next`/redirect string composition against a realistic prefix
 /// (production mounts the crate at "/drinks", not "").
@@ -8091,4 +8108,79 @@ async fn test_vessel_redirect_uses_the_canonical_room_code() {
         res.headers()[header::LOCATION],
         format!("/room/{code}/lastcall")
     );
+}
+
+// -------------------------------------------------------------
+// Test play mode: fake players + identity switching (2026-08-13). The
+// default rigs run with the flag OFF; `test_app_test_mode` forces it ON.
+// -------------------------------------------------------------
+
+/// Flag off (every ordinary rig): the routes 404 — indistinguishable from
+/// not existing, which is the live server's contract.
+#[tokio::test]
+async fn test_play_mode_routes_404_when_flag_is_off() {
+    let app = test_app().await;
+    let alice = login(&app, "alice", "1234").await;
+    let code = create_room(&app, &alice).await;
+    for path in ["test/spawn", "test/act-as"] {
+        let res = post_form(&app, &alice, &format!("/room/{code}/{path}"), "player_id=1").await;
+        assert_eq!(res.status(), StatusCode::NOT_FOUND, "{path}");
+    }
+    // And no switcher bar renders anywhere.
+    let html = room_page_html(&app, &alice, &code).await;
+    assert!(!html.contains("test-bar"));
+    assert!(!html.contains("test/spawn"));
+}
+
+/// Flag on: spawn joins a `test-N` fake to the room; act-as hands back a
+/// fresh session cookie for it; that cookie really is the fake (the room
+/// page renders it as "you"); and act-as refuses a non-member id.
+#[tokio::test]
+async fn test_play_mode_spawn_and_act_as_switch_identities() {
+    let (app, pool) = test_app_test_mode().await;
+    let alice = login(&app, "alice", "1234").await;
+    let code = create_room(&app, &alice).await;
+
+    let res = post_form(&app, &alice, &format!("/room/{code}/test/spawn"), "").await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+    let room = drinkinggame::db::get_open_room(&pool, &code).await.unwrap();
+    let members = drinkinggame::db::room_members(&pool, room.id).await;
+    assert_eq!(members.len(), 2);
+    let fake = members.iter().find(|m| m.name == "test-1").unwrap();
+
+    // A second spawn brings test-2, not a duplicate test-1.
+    let res = post_form(&app, &alice, &format!("/room/{code}/test/spawn"), "").await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+    let members = drinkinggame::db::room_members(&pool, room.id).await;
+    assert_eq!(members.len(), 3);
+    assert!(members.iter().any(|m| m.name == "test-2"));
+
+    // act-as the fake: fresh cookie, and the room page now calls it "you".
+    let res = post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/test/act-as"),
+        &format!("player_id={}", fake.id),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+    let fake_cookie = res.headers()[header::SET_COOKIE]
+        .to_str()
+        .unwrap()
+        .split(';')
+        .next()
+        .unwrap()
+        .to_string();
+    let html = room_page_html(&app, &fake_cookie, &code).await;
+    assert!(html.contains(&format!(r#"data-player-id="{}""#, fake.id)));
+
+    // A non-member id is refused.
+    let res = post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/test/act-as"),
+        "player_id=99999",
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::UNPROCESSABLE_ENTITY);
 }
