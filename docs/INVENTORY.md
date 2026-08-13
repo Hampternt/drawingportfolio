@@ -50,17 +50,13 @@ A party platform for phone-based drinking games in shared rooms.
   room) plus a spectator "big screen" view with live standings.
 - Three games per room: Ring of Fire, 3 Man, and Last Call. Last Call's
   beats advance when every player taps READY (no clock — the table sets
-  its own pace).
-- 🚧 Ready-advance refinement:
-  [manifest](manifests/2026-08-13-lc-ready-advance.md)
-- 🚧 Beat restructure (lobby handicaps, Lock folded into Diplomacy,
-  discard/redraw): [manifest](manifests/2026-08-13-lc-beat-restructure.md)
-- 🚧 Test play mode (`DRINKS_TEST_MODE=1`: fake players + identity
-  switcher for solo playtesting):
-  [manifest](manifests/2026-08-13-drinks-test-mode.md)
-- 🚧 Screen declutter + installable app (pact UI retired, one-row lobby
-  setup, Add-to-Home-Screen standalone mode):
-  [manifest](manifests/2026-08-13-lc-screen-declutter.md)
+  its own pace); card swaps are free in the lobby, once a round after;
+  staging and locking happen during the open Diplomacy talk beat.
+- Test play mode (`DRINKS_TEST_MODE=1`): spawn fake players and hop
+  between identities to drive every seat from one browser. Off — routes
+  404 — unless the server opts in, so production can never expose it.
+- Installable as a home-screen app (standalone, no browser bar) with an
+  in-game FULL SCREEN toggle on Android browsers.
 - Player accounts with self-service rename; per-viewer personalized UI;
   optional sound effects (server drop-in).
 

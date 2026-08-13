@@ -27,7 +27,10 @@ from this file on 2026-08-12; `git log docs/WORKTREES.md` recovers them.
 - **`feat/last-call-refinement`** (started 2026-08-13, from `dev`): refining
   the recently released Last Call game — many small changes expected, worked
   one issue at a time, each an item committed on this branch; merges into
-  `dev` when a coherent batch lands, then `dev → master`.
+  `dev` when a coherent batch lands, then `dev → master`. First batch
+  (clock removal, beat restructure, test play mode, screen declutter +
+  installable app) merged to `master` 2026-08-13; the stream stays open for
+  the Reveal/Resolve visual passes and the table-screen card-play design.
 
 ## Reminders
 
