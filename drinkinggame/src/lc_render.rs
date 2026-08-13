@@ -585,7 +585,7 @@ pub fn lc_banner(view: &PublicView) -> String {
         String::new()
     };
     format!(
-        r#"<div class="lc-banner lc-beat-{hue}" id="lc-banner" data-beat="{slug}" data-round="{round}"><span class="lc-banner-beat">{label}</span><span class="lc-banner-meta">ROUND {round} &middot; BEAT {index} OF 6</span>{event_strip}</div>"#,
+        r#"<div class="lc-banner lc-beat-{hue}" id="lc-banner" data-beat="{slug}" data-round="{round}"><span class="lc-banner-beat">{label}</span><span class="lc-banner-meta">ROUND {round} &middot; BEAT {index} OF 5</span>{event_strip}</div>"#,
         hue = beat.hue(),
         slug = beat.slug(),
         round = view.round,
@@ -1478,17 +1478,14 @@ pub fn lc_action_bar(ab: &ActionBarView) -> String {
             }
         }
         Beat::Deal => r#"<p class="lc-actions-hint">DEALING…</p>"#.to_string(),
-        Beat::Diplomacy => {
-            format!(
-                r#"<p class="lc-actions-hint">TALK IT OUT — DEALS AREN'T BINDING</p>{}"#,
-                ready_control(ab.ready)
-            )
-        }
-        Beat::Lock => {
+        // Beat-restructure (2026-08-13): Diplomacy is the staging beat —
+        // talk, arm, retarget, then LOCK IN as your commit. The Lock arm
+        // is the legacy-blob rendering of the same decision.
+        Beat::Diplomacy | Beat::Lock => {
             if ab.locked {
                 r#"<p class="lc-actions-hint">LOCKED — WAITING FOR THE TABLE</p>"#.to_string()
             } else {
-                r#"<button class="lc-btn lc-btn-drink" data-lc-post="lock">LOCK IN</button>"#
+                r#"<p class="lc-actions-hint">TALK IT OUT — DEALS AREN'T BINDING</p><button class="lc-btn lc-btn-drink" data-lc-post="lock">LOCK IN</button>"#
                     .to_string()
             }
         }
@@ -2426,19 +2423,27 @@ mod tests {
         assert!(html.contains("lc-beat-violet"));
         assert!(html.contains("LOCK"));
         assert!(html.contains("ROUND 6"));
-        assert!(html.contains("BEAT 4 OF 6"));
+        assert!(html.contains("BEAT 4 OF 5")); // legacy blob at Lock
         assert!(html.contains(r#"data-beat="lock""#));
         assert!(html.contains(r#"data-round="6""#));
 
         st.beat = Beat::Draw;
         let html = lc_banner(&st.public_view());
         assert!(html.contains("lc-beat-amber"));
-        assert!(html.contains("BEAT 1 OF 6"));
+        assert!(html.contains("BEAT 1 OF 5"));
 
         st.beat = Beat::Deal;
         let html = lc_banner(&st.public_view());
         assert!(html.contains("lc-beat-amber"));
-        assert!(html.contains("BEAT 2 OF 6"));
+        assert!(html.contains("BEAT 2 OF 5"));
+
+        st.beat = Beat::Reveal;
+        let html = lc_banner(&st.public_view());
+        assert!(html.contains("BEAT 4 OF 5"));
+
+        st.beat = Beat::Resolve;
+        let html = lc_banner(&st.public_view());
+        assert!(html.contains("BEAT 5 OF 5"));
     }
 
     #[test]
@@ -3768,24 +3773,26 @@ mod tests {
         assert!(html.contains("DEALING…"));
         no_hex(&html);
 
-        // diplomacy: the talk-it-out hint + the READY tap.
+        // diplomacy, unlocked: the talk-it-out hint + LOCK IN — Diplomacy
+        // is the staging beat since the fold, and never offers READY.
         let mut ab = base();
         ab.beat = Beat::Diplomacy;
         let html = lc_action_bar(&ab);
         assert!(html.contains("TALK IT OUT — DEALS AREN'T BINDING"));
-        assert!(html.contains(r#"data-lc-post="ready">READY"#));
-        no_hex(&html);
-
-        // diplomacy, ready: the waiting hint replaces the tap.
-        let mut ab = base();
-        ab.beat = Beat::Diplomacy;
-        ab.ready = true;
-        let html = lc_action_bar(&ab);
-        assert!(html.contains("READY — WAITING FOR THE TABLE"));
+        assert!(html.contains("LOCK IN"));
         assert!(!html.contains(r#"data-lc-post="ready""#));
         no_hex(&html);
 
-        // lock, unlocked: LOCK IN.
+        // diplomacy, locked: waiting on the table.
+        let mut ab = base();
+        ab.beat = Beat::Diplomacy;
+        ab.locked = true;
+        let html = lc_action_bar(&ab);
+        assert!(html.contains("LOCKED — WAITING FOR THE TABLE"));
+        assert!(!html.contains("LOCK IN"));
+        no_hex(&html);
+
+        // lock (legacy blobs only), unlocked: same staging UI.
         let mut ab = base();
         ab.beat = Beat::Lock;
         let html = lc_action_bar(&ab);

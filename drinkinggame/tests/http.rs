@@ -6386,26 +6386,27 @@ async fn test_locking_the_whole_table_advances_early() {
     assert_eq!(after.beat_deadline_ms, None); // untimed — no clock to arm
 }
 
-/// The open beats' advance (clock removal, 2026-08-13): one seat tapping
-/// READY marks the tick but holds the beat; the LAST alive seat tapping is
-/// what advances — Diplomacy -> Lock here, through the real route. Also
-/// pins the ready flag's public projection (`PublicSeat::ready`) and the
-/// beat-scoping: the Lock beat the table lands on starts with every
-/// `ready` cleared.
+/// The open beats' advance (clock removal, 2026-08-13; ready beats are
+/// Draw ≥ r2 and Reveal since the Lock fold): one seat tapping READY marks
+/// the tick but holds the beat; the LAST alive seat tapping is what
+/// advances — Reveal -> Resolve -> round-2 Draw here, through the real
+/// route. Also pins the ready flag's public projection
+/// (`PublicSeat::ready`) and the beat-scoping: the beat the table lands on
+/// starts with every `ready` cleared.
 #[tokio::test]
 async fn test_ready_from_the_whole_table_advances_the_open_beat() {
     let (app, pool, code, alice, bob, _alice_id, _bob_id) = lc_action_rig().await;
 
-    // Re-point the rig's Lock state at Diplomacy — an open beat.
+    // Re-point the rig's state at Reveal — an open (ready) beat.
     let mut st = lc_state(&pool, &code).await;
-    st.beat = Beat::Diplomacy;
+    st.beat = Beat::Reveal;
     let game_id = lc_game_id(&pool, &code).await;
     drinkinggame::db::set_game_state(&pool, game_id, &st.to_json()).await;
 
     let res = post_form(&app, &alice, &format!("/room/{code}/lastcall/ready"), "").await;
     assert_eq!(res.status(), StatusCode::NO_CONTENT);
     let mid = lc_state(&pool, &code).await;
-    assert_eq!(mid.beat, Beat::Diplomacy, "one tap must not advance");
+    assert_eq!(mid.beat, Beat::Reveal, "one tap must not advance");
     assert!(mid.players[0].ready);
     assert!(mid.public_view().seats[0].ready); // legible at the table
     assert!(!mid.players[1].ready);
@@ -6413,7 +6414,8 @@ async fn test_ready_from_the_whole_table_advances_the_open_beat() {
     let res = post_form(&app, &bob, &format!("/room/{code}/lastcall/ready"), "").await;
     assert_eq!(res.status(), StatusCode::NO_CONTENT);
     let after = lc_state(&pool, &code).await;
-    assert_eq!(after.beat, Beat::Lock);
+    // Reveal's exit chains through the auto Resolve into round 2's Draw.
+    assert_eq!((after.round, after.beat), (2, Beat::Draw));
     assert_eq!(after.beat_deadline_ms, None);
     assert!(
         after.players.iter().all(|p| !p.ready),

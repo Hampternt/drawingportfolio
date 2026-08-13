@@ -505,7 +505,7 @@ fn shell_group(view: &PublicView) -> PreviewGroup {
     let mut body = String::new();
 
     let mut banner_cells = vec![swatch(
-        "current — ROUND 6 · BEAT 4 OF 6 (LOCK)",
+        "current — ROUND 6 · BEAT 4 OF 5 (legacy LOCK)",
         &lc_render::lc_banner(view),
     )];
     for beat in Beat::ORDER {

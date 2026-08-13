@@ -662,7 +662,7 @@ fn play_caption(st: &LastCallState, play: &Play) -> String {
 /// already committed. Options are titled/named through `html_escape`, as
 /// `lc_hand_pane` does for the same reason.
 fn targets_section_html(st: &LastCallState, seat: usize) -> String {
-    if st.beat != Beat::Lock {
+    if !matches!(st.beat, Beat::Diplomacy | Beat::Lock) {
         return String::new();
     }
     let p = &st.players[seat];
@@ -1222,9 +1222,10 @@ pub async fn lc_lock_handler(
     if let Err(e) = ctx.st.lock_in(player.id) {
         return map_lc(e);
     }
-    // Decision E3, now the Lock beat's ONLY exit (clock removal,
-    // 2026-08-13): the last alive seat locking is what flips the table.
-    if ctx.st.beat == Beat::Lock
+    // Decision E3, now Diplomacy's ONLY exit (clock removal + beat
+    // restructure, 2026-08-13): the last alive seat locking is what flips
+    // the table. `Beat::Lock` accepted for a legacy blob parked there.
+    if matches!(ctx.st.beat, Beat::Diplomacy | Beat::Lock)
         && ctx
             .st
             .players
@@ -1702,11 +1703,7 @@ mod tests {
         assert_eq!(st.beat_deadline_ms, None, "the chain sweeps stale clocks");
 
         lc_advance_chain(&mut st);
-        assert_eq!(st.beat, Beat::Lock);
-        assert_eq!(st.beat_deadline_ms, None);
-
-        lc_advance_chain(&mut st);
-        assert_eq!(st.beat, Beat::Reveal);
+        assert_eq!(st.beat, Beat::Reveal, "Diplomacy exits straight to Reveal");
         assert_eq!(st.beat_deadline_ms, None);
 
         // From Reveal: advance_beat (-> Resolve), then the loop's own

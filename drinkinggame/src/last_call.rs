@@ -100,14 +100,17 @@ impl Beat {
         Beat::Resolve,
     ];
 
+    /// 1-based position in the live five-beat cycle (Lock is out of it —
+    /// its 4 is the legacy-blob placeholder, never rendered for a game the
+    /// current binary started).
     pub fn index(self) -> u8 {
         match self {
             Beat::Draw => 1,
             Beat::Deal => 2,
             Beat::Diplomacy => 3,
-            Beat::Lock => 4,
-            Beat::Reveal => 5,
-            Beat::Resolve => 6,
+            Beat::Lock => 4, // legacy blobs only
+            Beat::Reveal => 4,
+            Beat::Resolve => 5,
         }
     }
 
@@ -145,13 +148,17 @@ impl Beat {
         }
     }
 
-    /// Wraps Resolve -> Draw.
+    /// Wraps Resolve -> Draw. Beat-restructure (2026-08-13): the live cycle
+    /// skips `Lock` — staging and locking happen during Diplomacy, so
+    /// Diplomacy exits straight into the reveal. `Lock` survives as a
+    /// variant only so a pre-restructure blob parked there still loads;
+    /// its own `next()` keeps it flowing into Reveal exactly once.
     pub fn next(self) -> Beat {
         match self {
             Beat::Draw => Beat::Deal,
             Beat::Deal => Beat::Diplomacy,
-            Beat::Diplomacy => Beat::Lock,
-            Beat::Lock => Beat::Reveal,
+            Beat::Diplomacy => Beat::Reveal,
+            Beat::Lock => Beat::Reveal, // legacy-blob migration path only
             Beat::Reveal => Beat::Resolve,
             Beat::Resolve => Beat::Draw,
         }
@@ -1333,7 +1340,9 @@ impl LastCallState {
         if self.players[seat].status != Status::Alive {
             return Err(LcError::NotAlive);
         }
-        if self.beat != Beat::Lock {
+        // Staging lives in Diplomacy since the beat-restructure
+        // (2026-08-13); Lock is accepted only for a legacy blob parked there.
+        if !matches!(self.beat, Beat::Diplomacy | Beat::Lock) {
             return Err(LcError::WrongBeat);
         }
         if self.players[seat].locked {
@@ -1372,7 +1381,9 @@ impl LastCallState {
         if self.players[seat].status != Status::Alive {
             return Err(LcError::NotAlive);
         }
-        if self.beat != Beat::Lock {
+        // Staging lives in Diplomacy since the beat-restructure
+        // (2026-08-13); Lock is accepted only for a legacy blob parked there.
+        if !matches!(self.beat, Beat::Diplomacy | Beat::Lock) {
             return Err(LcError::WrongBeat);
         }
         if self.players[seat].locked {
@@ -1405,7 +1416,9 @@ impl LastCallState {
         if self.players[seat].status != Status::Alive {
             return Err(LcError::NotAlive);
         }
-        if self.beat != Beat::Lock {
+        // Staging lives in Diplomacy since the beat-restructure
+        // (2026-08-13); Lock is accepted only for a legacy blob parked there.
+        if !matches!(self.beat, Beat::Diplomacy | Beat::Lock) {
             return Err(LcError::WrongBeat);
         }
         if self.players[seat].locked {
@@ -1449,10 +1462,12 @@ impl LastCallState {
     /// reveal (DDv2 6.4). Locking zero cards is legal.
     /// The open beats' READY tap (2026-08-13, clock removal): Draw (round
     /// ≥ 2 — round 1's Draw is the registration lobby, whose exit is
-    /// `begin`), Diplomacy and Reveal advance ONLY when every alive seat is
-    /// ready; Lock keeps `lock_in` as its ready. Idempotent like `lock_in`
-    /// (a second tap is `Ok`, not an error); the `seq` bump is what
-    /// re-broadcasts the tick. The flag is beat-scoped — see `advance_beat`.
+    /// `begin`) and Reveal advance ONLY when every alive seat is ready.
+    /// Diplomacy is no longer a ready beat (beat-restructure): `lock_in` is
+    /// its commit, and the lock route's all-locked advance is its exit.
+    /// Idempotent like `lock_in` (a second tap is `Ok`, not an error); the
+    /// `seq` bump is what re-broadcasts the tick. The flag is beat-scoped —
+    /// see `advance_beat`.
     pub fn set_ready(&mut self, player_id: i64) -> Result<(), LcError> {
         let Some(seat) = self.seat_of(player_id) else {
             return Err(LcError::NotSeated);
@@ -1460,7 +1475,7 @@ impl LastCallState {
         if self.players[seat].status != Status::Alive {
             return Err(LcError::NotAlive);
         }
-        if !matches!(self.beat, Beat::Draw | Beat::Diplomacy | Beat::Reveal)
+        if !matches!(self.beat, Beat::Draw | Beat::Reveal)
             || (self.round == 1 && self.beat == Beat::Draw)
         {
             return Err(LcError::WrongBeat);
@@ -1492,7 +1507,9 @@ impl LastCallState {
         if self.players[seat].status != Status::Alive {
             return Err(LcError::NotAlive);
         }
-        if self.beat != Beat::Lock {
+        // Staging lives in Diplomacy since the beat-restructure
+        // (2026-08-13); Lock is accepted only for a legacy blob parked there.
+        if !matches!(self.beat, Beat::Diplomacy | Beat::Lock) {
             return Err(LcError::WrongBeat);
         }
         if self.players[seat].locked {
@@ -1978,7 +1995,13 @@ impl LastCallState {
                 // dangle across an elimination (eliminations happen at
                 // Resolve, offers never survive past Diplomacy).
                 self.pact_offers.clear();
+                // Beat-restructure (2026-08-13): Diplomacy IS the lock beat
+                // now, so its exit is the reveal — the flip that used to
+                // live on the Lock→Reveal edge.
+                self.reveal();
             }
+            // Legacy-blob path only: a pre-restructure game parked at Lock
+            // still reveals on its way out.
             Beat::Lock => self.reveal(),
             // Deal→Diplomacy, Reveal→Resolve: nothing happens on these
             // edges. Events and tabs are no longer hollow systems (M2, Plan
@@ -3350,8 +3373,8 @@ mod tests {
         let mut st = at_diplomacy();
         st.offer_pact(1, 1).unwrap();
         st.offer_pact(3, 3).unwrap();
-        st.advance_beat().unwrap(); // Diplomacy -> Lock
-        assert_eq!(st.beat, Beat::Lock);
+        st.advance_beat().unwrap(); // Diplomacy -> Reveal (the fold)
+        assert_eq!(st.beat, Beat::Reveal);
         assert!(st.pact_offers.is_empty());
     }
 
@@ -3992,7 +4015,9 @@ mod tests {
             ]
         );
         assert_eq!(Beat::Draw.index(), 1);
-        assert_eq!(Beat::Resolve.index(), 6);
+        assert_eq!(Beat::Resolve.index(), 5);
+        assert_eq!(Beat::Diplomacy.next(), Beat::Reveal); // Lock skipped live
+        assert_eq!(Beat::Lock.next(), Beat::Reveal); // legacy blobs drain here
         assert_eq!(Beat::Resolve.next(), Beat::Draw);
         assert_eq!(
             Beat::ORDER.map(|b| b.hue()),
@@ -4257,8 +4282,7 @@ mod tests {
         for expected in [
             Beat::Deal,
             Beat::Diplomacy,
-            Beat::Lock,
-            Beat::Reveal,
+            Beat::Reveal, // Lock is out of the live cycle (beat-restructure)
             Beat::Resolve,
         ] {
             let seq = st.seq;
@@ -4295,7 +4319,7 @@ mod tests {
     fn test_set_ready_refuses_the_lobby_and_closed_beats() {
         let mut st = seated(); // round 1 Draw — the registration lobby
         assert_eq!(st.set_ready(1), Err(LcError::WrongBeat));
-        for beat in [Beat::Deal, Beat::Lock, Beat::Resolve] {
+        for beat in [Beat::Deal, Beat::Diplomacy, Beat::Lock, Beat::Resolve] {
             st.beat = beat;
             assert_eq!(st.set_ready(1), Err(LcError::WrongBeat), "{beat:?}");
         }
@@ -4304,6 +4328,7 @@ mod tests {
     #[test]
     fn test_set_ready_marks_the_seat_and_is_idempotent() {
         let mut st = at_diplomacy();
+        st.beat = Beat::Reveal; // Diplomacy locks, it doesn't ready (restructure)
         let seq = st.seq;
         st.set_ready(1).unwrap();
         assert!(st.players[0].ready);
@@ -4323,6 +4348,7 @@ mod tests {
     #[test]
     fn test_all_ready_counts_only_alive_seats() {
         let mut st = at_diplomacy();
+        st.beat = Beat::Reveal; // the ready beats are Draw (>= r2) and Reveal
         st.players[3].status = Status::Eliminated; // dave never taps
         st.set_ready(1).unwrap();
         st.set_ready(2).unwrap();
@@ -5142,9 +5168,9 @@ mod tests {
         st.advance_beat().unwrap(); // Draw -> Deal: the reveal
         assert_eq!(st.event.as_deref(), Some("toast")); // seed 42, round 2 (Task 1 pin)
         assert_eq!(st.public_view().event.as_deref(), Some("toast"));
-        for _ in 0..4 {
+        for _ in 0..3 {
             st.advance_beat().unwrap();
-        } // ... -> Resolve
+        } // ... -> Resolve (Diplomacy, Reveal, Resolve — Lock is folded)
         assert_eq!(st.event.as_deref(), Some("toast")); // still the same ONE event
         st.resolve().unwrap();
         assert_eq!(st.event, None); // rollover cleared it
@@ -6051,9 +6077,9 @@ mod tests {
         assert!(st.haunts.is_empty());
 
         // The vote refreshes next round: walk round 2 to another reveal.
-        for _ in 0..3 {
+        for _ in 0..2 {
             st.advance_beat().unwrap();
-        } // Draw→Deal→Diplomacy→Lock
+        } // Draw→Deal→Diplomacy — staging now lives here
         st.arm(1, "beer-01").unwrap(); // Damage 2, still in hand
         st.set_target(1, "beer-01", Some(1)).unwrap();
         st.lock_in(1).unwrap();
@@ -6283,14 +6309,14 @@ mod tests {
         st.advance_beat().unwrap(); // Deal -> Diplomacy
         st.offer_pact(1, 1).unwrap(); // alice offers seat 1 (bob)
         st.accept_pact(2, 0).unwrap(); // bob accepts from seat 0 (alice) — secret, G13
-        st.advance_beat().unwrap(); // Diplomacy -> Lock
+        // Staging happens right here in Diplomacy since the fold:
         st.arm(1, "beer-02").unwrap(); // hostile at bob: betrays the pact
         st.set_target(1, "beer-02", Some(1)).unwrap();
         st.lock_in(1).unwrap();
         st.lock_in(2).unwrap();
         st.lock_in(3).unwrap();
         st.lock_in(4).unwrap();
-        st.advance_beat().unwrap(); // Lock -> Reveal
+        st.advance_beat().unwrap(); // Diplomacy -> Reveal
         st.play_reaction(2, "cider-08", 1).unwrap(); // bob cancels alice's play — public the instant it's played (I9)
         st.advance_beat().unwrap(); // Reveal -> Resolve
         st.resolve().unwrap();
