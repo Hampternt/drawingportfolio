@@ -6238,11 +6238,12 @@ async fn test_lc_target_accepts_empty_as_none() {
 }
 
 // -------------------------------------------------------------
-// Last Call (Plan E Task 2): the beat clock — the persisted deadline field,
-// the auto-beat advance chain, the 1 Hz ticker riding mechanics::spawn_ticker
-// (already spawned by router_with_pool, so it runs inside every test app —
+// Last Call (Plan E Task 2, post-clock-removal 2026-08-13): the advance
+// machinery — the auto-beat advance chain, the 1 Hz ticker riding
+// mechanics::spawn_ticker as the stale-blob migration sweep (already
+// spawned by router_with_pool, so it runs inside every test app —
 // subscribing the SSE stream is what puts a room in active_rooms()), the
-// begin route, and lock's all-locked early advance.
+// begin route, lock's all-locked advance and ready's all-ready advance.
 // -------------------------------------------------------------
 
 fn unix_ms_now() -> i64 {

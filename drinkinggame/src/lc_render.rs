@@ -422,6 +422,9 @@ pub fn player_plaque(seat: &PublicSeat) -> String {
     if seat.locked {
         state_classes.push_str(" is-locked");
     }
+    if seat.ready {
+        state_classes.push_str(" is-ready");
+    }
     if seat.drawing {
         state_classes.push_str(" is-drawing");
     }
@@ -429,7 +432,9 @@ pub fn player_plaque(seat: &PublicSeat) -> String {
         state_classes.push_str(" is-eliminated");
     }
 
-    let lock_tick = if seat.locked {
+    // The lock tick doubles as the ready tick — same glyph, same slot; the
+    // plaque's is-locked/is-ready classes pick which rule shows it.
+    let lock_tick = if seat.locked || seat.ready {
         r#"<span class="lc-lock-tick">&#9679;</span>"#
     } else {
         ""
@@ -531,25 +536,16 @@ pub fn deck_list_row(deck: Deck, count: u16, discarded: usize) -> String {
 /// round/beat-index meta.
 pub fn lc_banner(view: &PublicView) -> String {
     let beat = view.beat;
-    // Plan E, decision E10: the live timer rides inside #lc-banner as its
-    // last child so the lcpublic banner swap (outerHTML on #lc-banner)
-    // replaces banner and timer atomically — no orphaned timer element, no
-    // inline-script bookkeeping to keep them in sync. Only rendered when the
-    // beat both has a deadline (untimed beats — round 1's Draw lobby, the
-    // auto beats, the frozen game-over tableau — carry `None`) and a
-    // duration (defensive: the two should never disagree, but the timer has
-    // nothing to size itself against without a duration either way).
-    let timer = match (view.beat_deadline_ms, beat.duration_secs()) {
-        (Some(deadline), Some(secs)) => beat_timer_live(u32::from(secs) * 1000, deadline),
-        _ => String::new(),
-    };
+    // The live timer died with the beat clock (2026-08-13): beats wait for
+    // the table's ready/lock taps, so the banner carries no countdown.
+    // (`beat_timer` survives for the static preview page only.)
+    //
     // Plan E, decision E13: game over is the frozen Resolve tableau (D16),
     // but the banner switches to a dedicated GAME OVER state rather than
     // going on saying RESOLVE — the beat name stops meaning anything once
     // the round stopped mid-cycle. `view.outcome` alone gates this, not
     // `beat == Resolve` (which the freeze always is anyway, but that is not
-    // the reason): no timer is emitted either way, since `beat_deadline_ms`
-    // is `None` at the freeze regardless of which branch runs here.
+    // the reason).
     if view.outcome.is_some() {
         // Plan H review fix (⚠️ 1 / erratum a2e66ab): game over owns the
         // EVENT chip outright (H6) — no event strip ever renders here — but
@@ -589,7 +585,7 @@ pub fn lc_banner(view: &PublicView) -> String {
         String::new()
     };
     format!(
-        r#"<div class="lc-banner lc-beat-{hue}" id="lc-banner" data-beat="{slug}" data-round="{round}"><span class="lc-banner-beat">{label}</span><span class="lc-banner-meta">ROUND {round} &middot; BEAT {index} OF 6</span>{event_strip}{timer}</div>"#,
+        r#"<div class="lc-banner lc-beat-{hue}" id="lc-banner" data-beat="{slug}" data-round="{round}"><span class="lc-banner-beat">{label}</span><span class="lc-banner-meta">ROUND {round} &middot; BEAT {index} OF 6</span>{event_strip}</div>"#,
         hue = beat.hue(),
         slug = beat.slug(),
         round = view.round,
@@ -630,17 +626,6 @@ pub fn beat_timer(duration_ms: u32, elapsed_ms: u32) -> String {
     let remaining = duration_ms.saturating_sub(elapsed_ms);
     format!(
         r#"<div id="lc-beat-timer" class="lc-timer" data-duration-ms="{duration_ms}" data-elapsed-ms="{elapsed_ms}" style="--lc-beat-ms:{remaining}ms"></div>"#
-    )
-}
-
-/// Live twin of `beat_timer` (which the preview keeps): same root id/class,
-/// but deadline-driven — lc_loop.js (Task 4) computes remaining client-side
-/// from `data-deadline-ms` and sets `--lc-beat-ms`, rather than this being
-/// computed server-side once at render time. No inline style, so the
-/// no-hex/no-style sweeps still hold.
-pub fn beat_timer_live(duration_ms: u32, deadline_ms: i64) -> String {
-    format!(
-        r#"<div id="lc-beat-timer" class="lc-timer" data-duration-ms="{duration_ms}" data-deadline-ms="{deadline_ms}"></div>"#
     )
 }
 
@@ -1331,7 +1316,13 @@ pub fn lc_mini_table(view: &PublicView, me: Option<usize>) -> String {
         .iter()
         .filter_map(|seat| {
             seat_pos(n, seat.seat, me).map(|(l, t)| {
-                let locked_attr = if seat.locked { " data-locked" } else { "" };
+                // `data-locked` doubles as the ready marker — one border
+                // treatment for "this seat is done with the beat".
+                let locked_attr = if seat.locked || seat.ready {
+                    " data-locked"
+                } else {
+                    ""
+                };
                 let out_attr = if seat.status != Status::Alive {
                     " data-out"
                 } else {
@@ -1385,6 +1376,9 @@ pub struct ActionBarView {
     pub seated: bool,
     pub alive: bool,
     pub locked: bool,
+    /// The viewer's own ready tick — drives the open beats' READY button
+    /// swap the same way `locked` drives Lock's.
+    pub ready: bool,
     pub drawing: bool,
     pub vessels: Vec<(usize, Deck)>, // (vessel index, deck)
     pub charged: u8,                 // viewer's pulls at the reveal (E9)
@@ -1453,7 +1447,10 @@ pub fn lc_action_bar(ab: &ActionBarView) -> String {
                     r#"<button class="lc-btn lc-btn-drink" data-lc-post="begin" disabled>START ROUND 1</button><p class="lc-actions-hint">NEEDS 2 DRINKS REGISTERED</p>"#.to_string()
                 }
             } else if ab.drawing {
-                r#"<p class="lc-actions-hint">FRESH VESSEL — DEALT</p>"#.to_string()
+                format!(
+                    r#"<p class="lc-actions-hint">FRESH VESSEL — DEALT</p>{}"#,
+                    ready_control(ab.ready)
+                )
             } else {
                 let buttons: String = ab
                     .vessels
@@ -1465,12 +1462,15 @@ pub fn lc_action_bar(ab: &ActionBarView) -> String {
                         )
                     })
                     .collect();
-                format!(r#"{buttons}<p class="lc-actions-hint">OR SIT TIGHT</p>"#)
+                format!("{buttons}{}", ready_control(ab.ready))
             }
         }
         Beat::Deal => r#"<p class="lc-actions-hint">DEALING…</p>"#.to_string(),
         Beat::Diplomacy => {
-            r#"<p class="lc-actions-hint">TALK IT OUT — DEALS AREN'T BINDING</p>"#.to_string()
+            format!(
+                r#"<p class="lc-actions-hint">TALK IT OUT — DEALS AREN'T BINDING</p>{}"#,
+                ready_control(ab.ready)
+            )
         }
         Beat::Lock => {
             if ab.locked {
@@ -1481,15 +1481,35 @@ pub fn lc_action_bar(ab: &ActionBarView) -> String {
             }
         }
         Beat::Reveal | Beat::Resolve => {
-            if ab.charged > 0 {
+            let pay = if ab.charged > 0 {
                 format!(
                     r#"<div class="lc-btn lc-btn-drink lc-drink-now">DRINK {}</div>"#,
                     ab.charged
                 )
             } else {
                 r#"<p class="lc-actions-hint">NOTHING TO PAY</p>"#.to_string()
+            };
+            // Resolve never renders for a live table (`lc_advance_chain`
+            // collapses it in the same pass), so the ready control is
+            // Reveal's — gated anyway, for the frozen-tableau edge.
+            if ab.beat == Beat::Reveal {
+                format!("{pay}{}", ready_control(ab.ready))
+            } else {
+                pay
             }
         }
+    }
+}
+
+/// The open beats' READY control (clock removal, 2026-08-13): the tap that
+/// replaces the countdown, or Lock's "waiting" hint once it's cast. Not
+/// `lc-btn-drink` — READY is never a drinking instruction, so the amber
+/// primary stays reserved (F.1) and the button takes the secondary style.
+fn ready_control(ready: bool) -> String {
+    if ready {
+        r#"<p class="lc-actions-hint">READY — WAITING FOR THE TABLE</p>"#.to_string()
+    } else {
+        r#"<button class="lc-btn lc-btn-secondary" data-lc-post="ready">READY</button>"#.to_string()
     }
 }
 
@@ -1836,6 +1856,7 @@ mod tests {
                 seated: true,
                 alive: true,
                 locked: false,
+                ready: false,
                 drawing: false,
                 vessels: vec![(0, Deck::Beer), (1, Deck::Soft)],
                 charged: 0,
@@ -1853,6 +1874,7 @@ mod tests {
                 seated: true,
                 alive: false,
                 locked: false,
+                ready: false,
                 drawing: false,
                 vessels: Vec::new(),
                 charged: 0,
@@ -1877,6 +1899,7 @@ mod tests {
                 seated: true,
                 alive: true,
                 locked: false,
+                ready: false,
                 drawing: false,
                 vessels: Vec::new(),
                 charged: 0,
@@ -2272,9 +2295,16 @@ mod tests {
         seat.status = Status::Alive;
 
         let idle = player_plaque(&seat);
-        for cls in ["is-locked", "is-drawing", "is-hit", "is-eliminated"] {
+        for cls in ["is-locked", "is-ready", "is-drawing", "is-hit", "is-eliminated"] {
             assert!(!idle.contains(cls), "idle should not contain {cls}");
         }
+        assert!(!idle.contains("lc-lock-tick"));
+
+        seat.ready = true;
+        let ready = player_plaque(&seat);
+        assert!(ready.contains("is-ready"));
+        assert!(ready.contains("lc-lock-tick")); // shared tick glyph
+        seat.ready = false;
 
         seat.locked = true;
         let locked = player_plaque(&seat);
@@ -3617,6 +3647,7 @@ mod tests {
                 seated: true,
                 alive: true,
                 locked: false,
+                ready: false,
                 drawing: false,
                 vessels: Vec::new(),
                 charged: 0,
@@ -3675,23 +3706,35 @@ mod tests {
         assert!(!html.contains("NEEDS 2 DRINKS REGISTERED"));
         no_hex(&html);
 
-        // draw, round >= 2, not drawing: per-vessel buttons + sit tight.
+        // draw, round >= 2, not drawing: per-vessel buttons + the READY
+        // tap (the sit-tight action since the clock's removal).
         let mut ab = base();
         ab.round = 2;
         ab.vessels = vec![(0, Deck::Beer), (1, Deck::Soft)];
         let html = lc_action_bar(&ab);
         assert!(html.contains(r#"data-vessel="0">FINISH BEER · DRAW"#));
         assert!(html.contains(r#"data-vessel="1">FINISH SOFT · DRAW"#));
-        assert!(html.contains("OR SIT TIGHT"));
+        assert!(html.contains(r#"data-lc-post="ready">READY"#));
         no_hex(&html);
 
-        // draw, round >= 2, drawing: the dealt hint, no buttons.
+        // draw, round >= 2, drawing: the dealt hint, no draw buttons — but
+        // still the READY tap (a fresh hand doesn't advance the table).
         let mut ab = base();
         ab.round = 2;
         ab.drawing = true;
         let html = lc_action_bar(&ab);
         assert!(html.contains("FRESH VESSEL — DEALT"));
         assert!(!html.contains("data-lc-post=\"draw\""));
+        assert!(html.contains(r#"data-lc-post="ready">READY"#));
+        no_hex(&html);
+
+        // draw, round >= 2, already ready: waiting hint, no second tap.
+        let mut ab = base();
+        ab.round = 2;
+        ab.ready = true;
+        let html = lc_action_bar(&ab);
+        assert!(html.contains("READY — WAITING FOR THE TABLE"));
+        assert!(!html.contains(r#"data-lc-post="ready""#));
         no_hex(&html);
 
         // deal: the auto-beat hint.
@@ -3701,11 +3744,21 @@ mod tests {
         assert!(html.contains("DEALING…"));
         no_hex(&html);
 
-        // diplomacy: the talk-it-out hint.
+        // diplomacy: the talk-it-out hint + the READY tap.
         let mut ab = base();
         ab.beat = Beat::Diplomacy;
         let html = lc_action_bar(&ab);
         assert!(html.contains("TALK IT OUT — DEALS AREN'T BINDING"));
+        assert!(html.contains(r#"data-lc-post="ready">READY"#));
+        no_hex(&html);
+
+        // diplomacy, ready: the waiting hint replaces the tap.
+        let mut ab = base();
+        ab.beat = Beat::Diplomacy;
+        ab.ready = true;
+        let html = lc_action_bar(&ab);
+        assert!(html.contains("READY — WAITING FOR THE TABLE"));
+        assert!(!html.contains(r#"data-lc-post="ready""#));
         no_hex(&html);
 
         // lock, unlocked: LOCK IN.
@@ -3736,19 +3789,24 @@ mod tests {
         assert!(!html.contains("NOTHING TO PAY"));
         no_hex(&html);
 
-        // reveal, nothing charged: NOTHING TO PAY.
+        // reveal, nothing charged: NOTHING TO PAY, plus the READY tap —
+        // Reveal is an open beat now, the response window closes when the
+        // whole table taps.
         let mut ab = base();
         ab.beat = Beat::Reveal;
         let html = lc_action_bar(&ab);
         assert!(html.contains("NOTHING TO PAY"));
+        assert!(html.contains(r#"data-lc-post="ready">READY"#));
         no_hex(&html);
 
-        // resolve mirrors reveal.
+        // resolve mirrors reveal's pay row but never offers READY (auto
+        // beat — only the frozen tableau ever renders it).
         let mut ab = base();
         ab.beat = Beat::Resolve;
         ab.charged = 1;
         let html = lc_action_bar(&ab);
         assert!(html.contains("DRINK 1"));
+        assert!(!html.contains(r#"data-lc-post="ready""#));
         no_hex(&html);
     }
 
@@ -3773,6 +3831,7 @@ mod tests {
                 seated: true,
                 alive,
                 locked: false,
+                ready: false,
                 drawing: false,
                 vessels: Vec::new(),
                 charged: 0,

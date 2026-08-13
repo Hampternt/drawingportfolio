@@ -8,8 +8,7 @@
 (function () {
   "use strict";
 
-  var NOTE_MS = 2600, URGENT_MS = 5000, REVEAL_STAGGER_MS = 220;
-  var urgentTimer = null;
+  var NOTE_MS = 2600, REVEAL_STAGGER_MS = 220;
 
   // The motion pass's own memory of "what the DOM said last time" — beat,
   // per-seat HP, per-seat draw count. Module-level (not read off the DOM
@@ -213,31 +212,13 @@
     tpl.remove();
   };
 
-  // Arms (or re-arms) the live beat timer from its own data-deadline-ms —
-  // both shells share the one #lc-beat-timer id, so this one function
-  // serves the phone banner and the big-screen banner alike. Task 5 adds
-  // the motion pass on top: a beat flip to "reveal" fires the E.1 flights
-  // from every locking seat to the felt, a `data-draws` increase fires a
-  // deck-to-seat flight, and a `data-hp` decrease shakes that seat's
-  // plaque — all diffed against `prev`, the previous call's own snapshot.
+  // The public-frame motion pass (the live beat timer this function once
+  // armed died with the beat clock, 2026-08-13): a beat flip to "reveal"
+  // fires the E.1 flights from every locking seat to the felt, a
+  // `data-draws` increase fires a deck-to-seat flight, and a `data-hp`
+  // decrease shakes that seat's plaque — all diffed against `prev`, the
+  // previous call's own snapshot.
   window.lcLoopPublic = function () {
-    var timer = document.getElementById("lc-beat-timer");
-    window.clearTimeout(urgentTimer);
-    urgentTimer = null;
-    if (timer && timer.dataset.deadlineMs !== undefined) {
-      var deadline = Number(timer.dataset.deadlineMs);
-      var remaining = Math.max(0, deadline - Date.now());
-      timer.style.setProperty("--lc-beat-ms", remaining + "ms");
-      timer.classList.remove("is-urgent");
-      if (remaining <= URGENT_MS) {
-        timer.classList.add("is-urgent");
-      } else {
-        urgentTimer = window.setTimeout(function () {
-          timer.classList.add("is-urgent");
-        }, remaining - URGENT_MS);
-      }
-    }
-
     var next = snapshot();
     if (prev.beat !== "reveal" && next.beat === "reveal") fireRevealFlights();
     fireDrawFlights(next);

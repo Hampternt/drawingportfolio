@@ -356,7 +356,7 @@ button:active { transform: scale(.97); }
    The animations for is-hit and is-drawing are authored in Plan A-vis's
    motion section below (.lc-plaque.is-hit / .is-drawing rules). */
 .lc-lock-tick { color: var(--lc-violet); font-size: 13px; margin-left: 6px; }
-.lc-plaque:not(.is-locked) .lc-lock-tick { display: none; }
+.lc-plaque:not(.is-locked):not(.is-ready) .lc-lock-tick { display: none; }
 .lc-plaque.is-eliminated { opacity: .4; }
 .lc-plaque.is-eliminated .lc-hp { font-size: 15px; letter-spacing: .1em; color: var(--lc-label); }
 

@@ -157,18 +157,6 @@ impl Beat {
         }
     }
 
-    /// None for the auto beats (Deal, Resolve) — Plan E's ticker consumes
-    /// this and does not display a countdown for either. DDv2 §5.
-    pub fn duration_secs(self) -> Option<u16> {
-        match self {
-            Beat::Draw => Some(DRAW_SECS),
-            Beat::Deal => None,
-            Beat::Diplomacy => Some(DIPLOMACY_SECS),
-            Beat::Lock => Some(LOCK_SECS),
-            Beat::Reveal => Some(REVEAL_SECS),
-            Beat::Resolve => None,
-        }
-    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
@@ -740,10 +728,8 @@ pub const HANDICAP_MAX_PCT: u16 = 300;
 /// Under this many cards a DeckStack count turns amber (`data-low`).
 pub const DECK_LOW_THRESHOLD: u16 = 5;
 
-pub const DRAW_SECS: u16 = 30; // DDv2 §5 beat 1
-pub const DIPLOMACY_SECS: u16 = 60; // DDv2 §5 beat 3, TBD-6
-pub const LOCK_SECS: u16 = 45; // DDv2 §5 beat 4
-pub const REVEAL_SECS: u16 = 20; // DDv2 §5 beat 5
+// The DDv2 §5 beat durations (DRAW/DIPLOMACY/LOCK/REVEAL_SECS) were deleted
+// with the beat clock (2026-08-13) — beats advance on the table's own taps.
 pub const DRAW_PER_VESSEL: usize = 5; // DDv2 §4.3, TBD-4
 pub const HAND_SOFT_CAP: usize = 12; // DDv2 §8.2, TBD-2
 pub const LC_DECK_SIZE: u16 = 40; // 40-card shoe size, test-pinned per Plan F
@@ -3928,14 +3914,6 @@ mod tests {
         let loaded = LastCallState::from_json(&st.to_json());
         assert_eq!(loaded.players.len(), MAX_SEATS);
         assert!(loaded.seat_of(9).is_none());
-    }
-
-    #[test]
-    fn test_beat_durations() {
-        assert_eq!(
-            Beat::ORDER.map(|b| b.duration_secs()),
-            [Some(30), None, Some(60), Some(45), Some(20), None]
-        );
     }
 
     #[test]

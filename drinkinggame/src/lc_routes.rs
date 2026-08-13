@@ -586,6 +586,7 @@ fn action_bar_view(st: &LastCallState, player_id: i64) -> ActionBarView {
                 seated: true,
                 alive: p.status == Status::Alive,
                 locked: p.locked,
+                ready: p.ready,
                 drawing: p.drawing,
                 vessels: p
                     .vessels
@@ -606,6 +607,7 @@ fn action_bar_view(st: &LastCallState, player_id: i64) -> ActionBarView {
             seated: false,
             alive: false,
             locked: false,
+            ready: false,
             drawing: false,
             vessels: Vec::new(),
             charged: 0,
