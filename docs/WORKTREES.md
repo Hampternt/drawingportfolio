@@ -11,6 +11,9 @@ from this file on 2026-08-12; `git log docs/WORKTREES.md` recovers them.
 - **Worktrees live outside the repo**, as siblings under
   `~/projects/drawingportfolio.worktrees/<name>`. Not in `.claude/worktrees/`
   — that is for short-lived session worktrees the harness offers to delete.
+- **`dev` is the staging branch** (decision 2026-08-13): it tracks `master`
+  and is where changes accumulate before merging into `master`. Merge
+  `dev → master` locally to release; `dev` is never deleted after a merge.
 - **Branch names say what the work is**: `feat/<stream>` for feature streams,
   `fix/<thing>` for single fixes.
 - **The worktree directory is named after the branch** minus the `feat/`
@@ -21,8 +24,9 @@ from this file on 2026-08-12; `git log docs/WORKTREES.md` recovers them.
 
 ## Streams
 
-**None active.** A bare `dev` branch exists at `master`'s tip (2026-08-12),
-unused so far. Next work starts a fresh `feat/<stream>` branch + worktree.
+**None active.** `dev` sits at `master`'s tip and serves as the staging
+branch (see Conventions). Next work lands on `dev` (or a `feat/<stream>`
+branch merged into `dev`), then `dev → master`.
 
 ## Reminders
 
