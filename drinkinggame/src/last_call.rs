@@ -233,6 +233,13 @@ pub struct LcPlayer {
     pub hand: Vec<Card>,
     pub armed: Vec<ArmedCard>,
     pub locked: bool,
+    /// Beat-scoped "I'm done here" for the open beats (Draw ≥ round 2,
+    /// Diplomacy, Reveal) — since the beat clock's removal (2026-08-13)
+    /// the all-ready advance is the ONLY thing that moves those beats.
+    /// Field-level `#[serde(default)]`: the `damage_dealt` precedent — a
+    /// blob written before this existed backfills `false`, not a hard error.
+    #[serde(default)]
+    pub ready: bool,
     pub drawing: bool,
     pub draws_this_round: u16,
     pub tabs: Vec<String>,
@@ -603,6 +610,10 @@ pub struct PublicSeat {
     pub vessels: Vec<PublicVessel>,
     pub hand_len: usize,
     pub locked: bool,
+    /// The ready tick — `LcPlayer::ready` verbatim, public the same way
+    /// `locked` is (who's holding the beat up must be legible at the table).
+    #[serde(default)]
+    pub ready: bool,
     pub drawing: bool,
     /// Cards drawn this round — the plaque's deck-tinted badge (D.1 row 2).
     /// Projected from `LcPlayer::draws_this_round`, which the Draw beat sets
@@ -796,6 +807,7 @@ impl LastCallState {
                 hand: Vec::new(),
                 armed: Vec::new(),
                 locked: false,
+                ready: false,
                 drawing: false,
                 draws_this_round: 0,
                 // H7: the opening deal — the seat's 0th tab, not empty.
@@ -937,6 +949,7 @@ impl LastCallState {
             hand: Vec::new(),
             armed: Vec::new(),
             locked: false,
+            ready: false,
             drawing: false,
             draws_this_round: 0,
             // H7: same opening deal `new` gives every founding seat — the
@@ -1158,6 +1171,7 @@ impl LastCallState {
                             .filter(|pl| pl.source_seat == p.seat)
                             .count(),
                     locked: p.locked,
+                    ready: p.ready,
                     drawing: p.drawing,
                     draws: p.draws_this_round,
                     damage_dealt: p.damage_dealt,
@@ -1445,6 +1459,44 @@ impl LastCallState {
     /// `locked_plays` (§3.4.1 — NEVER `plays`), `armed` is cleared, `locked`
     /// is set, `seq` bumps. Pulls are not charged here; payment happens at
     /// reveal (DDv2 6.4). Locking zero cards is legal.
+    /// The open beats' READY tap (2026-08-13, clock removal): Draw (round
+    /// ≥ 2 — round 1's Draw is the registration lobby, whose exit is
+    /// `begin`), Diplomacy and Reveal advance ONLY when every alive seat is
+    /// ready; Lock keeps `lock_in` as its ready. Idempotent like `lock_in`
+    /// (a second tap is `Ok`, not an error); the `seq` bump is what
+    /// re-broadcasts the tick. The flag is beat-scoped — see `advance_beat`.
+    pub fn set_ready(&mut self, player_id: i64) -> Result<(), LcError> {
+        let Some(seat) = self.seat_of(player_id) else {
+            return Err(LcError::NotSeated);
+        };
+        if self.players[seat].status != Status::Alive {
+            return Err(LcError::NotAlive);
+        }
+        if !matches!(self.beat, Beat::Draw | Beat::Diplomacy | Beat::Reveal)
+            || (self.round == 1 && self.beat == Beat::Draw)
+        {
+            return Err(LcError::WrongBeat);
+        }
+        if self.players[seat].ready {
+            return Ok(());
+        }
+        self.players[seat].ready = true;
+        self.seq += 1;
+        Ok(())
+    }
+
+    /// Every alive seat ready — the ready route's advance predicate, the
+    /// same shape as the lock route's all-locked check. Vacuously true on
+    /// an empty or all-dead table; the route only reaches it after
+    /// `set_ready` proved the caller a live seat, and `lc_advance_chain`
+    /// no-ops on empty players regardless.
+    pub fn all_ready(&self) -> bool {
+        self.players
+            .iter()
+            .filter(|p| p.status == Status::Alive)
+            .all(|p| p.ready)
+    }
+
     pub fn lock_in(&mut self, player_id: i64) -> Result<(), LcError> {
         let Some(seat) = self.seat_of(player_id) else {
             return Err(LcError::NotSeated);
@@ -1866,6 +1918,12 @@ impl LastCallState {
         }
         let from = self.beat;
         self.beat = from.next();
+        // READY is beat-scoped: every edge clears it, so no beat inherits
+        // the previous beat's taps (the rollover in `resolve()` is the
+        // Resolve->Draw edge's copy of the same rule).
+        for p in &mut self.players {
+            p.ready = false;
+        }
         match from {
             Beat::Draw => {
                 for p in &mut self.players {
@@ -2737,6 +2795,7 @@ impl LastCallState {
         self.beat = Beat::Draw;
         for p in &mut self.players {
             p.locked = false;
+            p.ready = false;
             p.drawing = false;
             p.draws_this_round = 0;
         }
@@ -4239,6 +4298,70 @@ mod tests {
     }
 
     #[test]
+    fn test_set_ready_refuses_the_lobby_and_closed_beats() {
+        let mut st = seated(); // round 1 Draw — the registration lobby
+        assert_eq!(st.set_ready(1), Err(LcError::WrongBeat));
+        for beat in [Beat::Deal, Beat::Lock, Beat::Resolve] {
+            st.beat = beat;
+            assert_eq!(st.set_ready(1), Err(LcError::WrongBeat), "{beat:?}");
+        }
+    }
+
+    #[test]
+    fn test_set_ready_marks_the_seat_and_is_idempotent() {
+        let mut st = at_diplomacy();
+        let seq = st.seq;
+        st.set_ready(1).unwrap();
+        assert!(st.players[0].ready);
+        assert_eq!(st.seq, seq + 1);
+        st.set_ready(1).unwrap(); // second tap: Ok, no seq churn
+        assert_eq!(st.seq, seq + 1);
+    }
+
+    #[test]
+    fn test_set_ready_refuses_strangers_and_ghosts() {
+        let mut st = at_diplomacy();
+        assert_eq!(st.set_ready(99), Err(LcError::NotSeated));
+        st.players[0].status = Status::Eliminated;
+        assert_eq!(st.set_ready(1), Err(LcError::NotAlive));
+    }
+
+    #[test]
+    fn test_all_ready_counts_only_alive_seats() {
+        let mut st = at_diplomacy();
+        st.players[3].status = Status::Eliminated; // dave never taps
+        st.set_ready(1).unwrap();
+        st.set_ready(2).unwrap();
+        assert!(!st.all_ready()); // cara (alive) hasn't tapped
+        st.set_ready(3).unwrap();
+        assert!(st.all_ready());
+    }
+
+    #[test]
+    fn test_ready_clears_on_every_beat_edge_and_the_rollover() {
+        let mut st = at_diplomacy();
+        for p in &mut st.players {
+            p.ready = true;
+        }
+        st.advance_beat().unwrap(); // Diplomacy -> Lock
+        assert!(st.players.iter().all(|p| !p.ready));
+
+        // The Resolve -> Draw rollover clears it too, and the round-2 Draw
+        // it lands on is an open beat — set_ready is legal there, unlike
+        // round 1's lobby.
+        let mut st = at_diplomacy();
+        for p in &mut st.players {
+            p.ready = true;
+        }
+        st.beat = Beat::Resolve;
+        st.resolve().unwrap();
+        assert_eq!((st.round, st.beat), (2, Beat::Draw));
+        assert!(st.players.iter().all(|p| !p.ready));
+        st.set_ready(1).unwrap();
+        assert!(st.players[0].ready);
+    }
+
+    #[test]
     fn test_reveal_charges_orders_and_flips() {
         let mut st = locked_table();
         st.advance_beat().unwrap(); // Lock → Reveal
@@ -5359,6 +5482,7 @@ mod tests {
             hand: Vec::new(),
             armed: Vec::new(),
             locked: false,
+            ready: false,
             drawing: false,
             draws_this_round: 0,
             tabs: Vec::new(),

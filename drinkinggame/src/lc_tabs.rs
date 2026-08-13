@@ -201,6 +201,7 @@ mod tests {
             hand: vec![filler.clone(), filler.clone(), filler],
             armed: Vec::new(),
             locked: false,
+            ready: false,
             drawing: false,
             draws_this_round: 0,
             tabs: Vec::new(),
