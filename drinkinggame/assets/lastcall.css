@@ -554,7 +554,7 @@ body.lc { margin: 0; min-height: 100vh; display: flex; flex-direction: column;
 .lc-setup form { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .lc-setup select { background: var(--lc-panel-alt); color: var(--lc-text);
             border: 1px solid var(--lc-hair); border-radius: 6px; padding: 8px 10px;
-            font-size: 14px; flex: 1; }
+            font-size: 14px; }
 .lc-setup button { background: var(--lc-panel-alt); color: var(--lc-text);
             border: 1px solid var(--lc-hair-strong); border-radius: 6px;
             padding: 8px 14px; font-size: 13px; cursor: pointer; }
