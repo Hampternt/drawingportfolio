@@ -156,7 +156,6 @@ impl Beat {
             Beat::Resolve => Beat::Draw,
         }
     }
-
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]

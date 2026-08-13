@@ -2295,7 +2295,13 @@ mod tests {
         seat.status = Status::Alive;
 
         let idle = player_plaque(&seat);
-        for cls in ["is-locked", "is-ready", "is-drawing", "is-hit", "is-eliminated"] {
+        for cls in [
+            "is-locked",
+            "is-ready",
+            "is-drawing",
+            "is-hit",
+            "is-eliminated",
+        ] {
             assert!(!idle.contains(cls), "idle should not contain {cls}");
         }
         assert!(!idle.contains("lc-lock-tick"));

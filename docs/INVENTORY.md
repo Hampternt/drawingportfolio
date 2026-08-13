@@ -48,7 +48,11 @@ A party platform for phone-based drinking games in shared rooms.
 
 - Rooms joined by name + PIN; three-tab phone shell (game / standings /
   room) plus a spectator "big screen" view with live standings.
-- Three games per room: Ring of Fire, 3 Man, and Last Call.
+- Three games per room: Ring of Fire, 3 Man, and Last Call. Last Call's
+  beats advance when every player taps READY (no clock — the table sets
+  its own pace).
+- 🚧 Ready-advance refinement:
+  [manifest](manifests/2026-08-13-lc-ready-advance.md)
 - Player accounts with self-service rename; per-viewer personalized UI;
   optional sound effects (server drop-in).
 
