@@ -75,17 +75,25 @@ Item manifest:
    a target — the stack mini shows "— PICK" and take-back + tray re-play
    is the edit path.
 
-### Pack 2 — HAND is a reading surface + shell chrome
+### Pack 2 — HAND is a reading surface + shell chrome (LANDED)
 
 Observable: tapping the focused wheel card opens a full-rules inspect
 sheet whose "PLAY ON THE TABLE →" jumps to a staged TABLE tab; the tab
 row carries the mode badge + pull count.
 
-Proposed items: inspect sheet (bottom sheet, expanded face, 2×2 meta
-grid) with the wheel-tap rewire (D3) · mode badge (READ / PLAY / TARGET /
-ARMING / MULLIGAN / LOG) + pull count + note row · focused-card
-affordances (TAP TO READ hint, position counter, hint line, stage
-`clip-path`) · side-quest "YOUR TAB" drawer replacing the inline card.
+Shipped items: inspect sheet (`.lc-sheet`: hidden skeleton + per-card
+stash in the private hand fetch — expanded face, 2×2 meta grid, CLOSE +
+PLAY row; a Reaction gets the reveal-window note, never PLAY, since the
+engine refuses `arm` for reactions) · wheel-tap rewire (D3: the wheel
+dispatches `lc:inspect`; `lc:arm` and the Draw-beat tap-to-swap it
+carried retire — the swap returns as Pack 3's overlay) · mode badge
+(READ / PLAY / TARGET / ARMING / LOG, `#lc-mode-badge`; MULLIGAN joins
+in Pack 3) + pull count (`data-pulls` on `#lc-hand`, summed vessel
+pulls) · focused-card affordances (TAP TO READ ::after, position counter
+as a stage SIBLING — inside it the 3D depth sort paints cards over any
+z-index — hint line moved below the stage, stage `clip-path`) ·
+side-quest drawer (the `.lc-tabcard` root name survives on purpose;
+privacy tests select on it).
 
 ### Pack 3 — Mulligan overlay + felt polish
 
@@ -138,6 +146,12 @@ change — D2) · felt/centre polish ("PLAYS n", chip flash states).
   change), D3 confirmed, D4 keep. Awaiting go on the pack sequence.
 - 2026-08-13: go given (user: run all three packs to completion). Pack 1
   activated; item manifest drafted above.
+- 2026-08-13: Pack 2 lands. verify.sh green (756 → 759: +2 render units,
+  +1 http). Browser-smoked: wheel tap → sheet → PLAY → staged TABLE
+  overlay, badge READ→TARGET→PLAY, pull count live, drawer slides.
+  Interim note: until Pack 3, the Draw beat has no swap UI (tap-to-swap
+  retired with `lc:arm`; the action-bar hints still mention it — Pack 3
+  re-words them onto the MULLIGAN button).
 - 2026-08-13: Pack 1 lands. All seven items shipped; verify.sh green
   (workspace 751 → 756: +3 render units, +3 http, −1 retired picker
   test). Browser-smoked on a live 2-player room at Diplomacy: tray →

@@ -153,8 +153,39 @@
     // buttons carry no other behaviour here.
     if (e.target.closest("[data-lc-tab]")) {
       window.requestAnimationFrame(function () {
+        restingMode();
         if (window.lcTableSync) window.lcTableSync();
       });
+    }
+    // Pack 2: the inspect sheet's PLAY row — stage the card and jump to
+    // the TABLE tab's targeting overlay (rAF: the pane must lay out first).
+    var toStage = e.target.closest("[data-lc-sheet-tostage]");
+    if (toStage) {
+      var stageId = toStage.dataset.cardId;
+      closeSheet();
+      var tableTab = document.querySelector('[data-lc-tab="table"]');
+      if (tableTab) tableTab.click();
+      window.requestAnimationFrame(function () {
+        openTargeting(stageId);
+      });
+      return;
+    }
+    if (e.target.closest("[data-lc-sheet-close]")) {
+      closeSheet();
+      return;
+    }
+    // Pack 2: the side-quest drawer's handle toggles it out and back.
+    var handle = e.target.closest("[data-lc-tabdrawer]");
+    if (handle) {
+      var drawer = handle.closest(".lc-tabcard");
+      if (drawer) {
+        if (drawer.hasAttribute("data-open")) {
+          drawer.removeAttribute("data-open");
+        } else {
+          drawer.setAttribute("data-open", "");
+        }
+      }
+      return;
     }
     // Pack 1: overlay row -> commit; overlay backdrop -> cancel; stack
     // mini -> take-back (locked stacks are committed, no take-back).
@@ -228,6 +259,7 @@
 
   function closeTargeting() {
     trayState.staged = null;
+    restingMode();
     var pane = tablePane();
     if (!pane) return;
     pane.querySelectorAll(".lc-tray-mini.is-staged").forEach(function (m) {
@@ -267,6 +299,7 @@
     var src = tablePane().querySelector('[data-preview-for="' + cardId + '"]');
     if (pv) pv.innerHTML = src ? src.innerHTML : "";
     ov.hidden = false;
+    setMode("target");
   }
 
   // The commit: POST arm, then (for a seat-targeted card) POST target with
@@ -305,6 +338,9 @@
           previewHTML: previewHTML,
         });
       }
+      // the badge narrates the flash, then falls back to the tab's rest
+      setMode("arming", deck);
+      window.setTimeout(restingMode, 1600);
     });
     closeTargeting();
   }
@@ -411,32 +447,66 @@
     }
   };
 
-  // Plan C's contract: lc:arm/lc:disarm are dispatched by the wheel/armed
-  // column BEFORE the wheel's glide settles — this listener must not assume
-  // the wheel is at rest. Delegated once, never rebound.
-  function onArm(e) {
-    // Beat-restructure (2026-08-13): during Draw a card tap IS the
-    // discard/redraw — round-1 lobby unlimited, once a round after; the
-    // server quietly 409s anything beyond that. Arming belongs to
-    // Diplomacy now.
-    var banner = document.getElementById("lc-banner");
-    if (banner && banner.dataset.beat === "draw") {
-      post("mulligan", "cards=" + encodeURIComponent(e.detail.cardId));
-      return;
-    }
-    post("arm", "card_id=" + encodeURIComponent(e.detail.cardId)).then(function (ok) {
-      if (!ok || !window.lcFlight) return;
-      var face = e.target.querySelector && e.target.querySelector(".lc-cardface");
-      window.lcFlight(e.target, window.lcAnchor("armed"), {
-        direction: "play",
-        scale: "dot",
-        deck: face && face.dataset.deck,
-      });
-    });
+  // Pack 2 / D3 (lc-mobile-play-flow): the wheel's tap now dispatches
+  // lc:inspect — reading, not arming. The old lc:arm listener (instant-arm,
+  // and the Draw-beat tap-to-swap it also carried) retires with the
+  // gesture; playing lives in the TABLE tray/overlay, and the swap moves
+  // into Pack 3's mulligan overlay. lc:disarm stays: the hand pane's armed
+  // column still takes a tap back.
+  function onInspect(e) {
+    openSheet(e.detail.cardId);
   }
 
   function onDisarm(e) {
     post("disarm", "card_id=" + encodeURIComponent(e.detail.cardId));
+  }
+
+  // ---- Pack 2: inspect sheet, side-quest drawer, mode badge ------------
+
+  function sheetEl() {
+    var pane = document.querySelector('[data-lc-pane="hand"]');
+    return pane ? pane.querySelector("[data-lc-sheet]") : null;
+  }
+
+  // Clone the tapped card's stash entry (expanded face + meta grid +
+  // actions, all server-rendered) into the sheet slot and lift the sheet.
+  function openSheet(cardId) {
+    var sheet = sheetEl();
+    if (!sheet) return;
+    var src = sheet.querySelector('[data-inspect-for="' + cardId + '"]');
+    var slot = sheet.querySelector("[data-lc-sheet-slot]");
+    if (!src || !slot) return;
+    slot.innerHTML = src.innerHTML;
+    sheet.hidden = false;
+  }
+
+  function closeSheet() {
+    var sheet = sheetEl();
+    if (!sheet) return;
+    sheet.hidden = true;
+    var slot = sheet.querySelector("[data-lc-sheet-slot]");
+    if (slot) slot.innerHTML = "";
+  }
+
+  // The tab row's mode badge: one word for what the player is doing.
+  // Deck-tinted for ARMING via the lc-deck-* class (CSS resolves the ink).
+  function setMode(mode, deck) {
+    var badge = document.getElementById("lc-mode-badge");
+    if (!badge) return;
+    badge.textContent = mode.toUpperCase();
+    badge.dataset.mode = mode;
+    badge.className = "lc-mode-badge" + (deck ? " lc-deck-" + deck : "");
+  }
+
+  function activeTab() {
+    var sel = document.querySelector('[data-lc-tab][aria-selected="true"]');
+    return sel ? sel.dataset.lcTab : "hand";
+  }
+
+  // The badge's at-rest state follows the active tab.
+  function restingMode() {
+    var t = activeTab();
+    setMode(t === "hand" ? "read" : t === "table" ? "play" : "log");
   }
 
   // Moves the private hand fetch's <template data-lc-actions> (a sibling of
@@ -446,6 +516,15 @@
   // missing bar: absence just means this fetch carried no template (the
   // route is unreachable without one), so nothing to relocate.
   window.lcLoopApply = function (pane) {
+    // Pack 2: the tab row's pull count rides every private repaint —
+    // updated BEFORE the template guard below, which returns early.
+    var handRoot = pane && pane.querySelector("#lc-hand");
+    var pulls = handRoot ? handRoot.dataset.pulls : undefined;
+    var pullEl = document.getElementById("lc-mode-pulls");
+    if (pullEl && pulls !== undefined) {
+      pullEl.textContent = pulls + " PULLS";
+      pullEl.hidden = false;
+    }
     var tpl = pane && pane.querySelector("template[data-lc-actions]");
     if (!tpl) return;
     var bar = document.querySelector(".lc-actions");
@@ -474,7 +553,7 @@
     if (window.__lcLoopBound) return;
     window.__lcLoopBound = true;
     document.body.addEventListener("click", onClick);
-    document.body.addEventListener("lc:arm", onArm);
+    document.body.addEventListener("lc:inspect", onInspect);
     document.body.addEventListener("lc:disarm", onDisarm);
     // Pack 1: the tray's tap/drag surface — delegated like everything else;
     // setPointerCapture keeps the move/up stream flowing through the mini
@@ -484,6 +563,10 @@
     document.body.addEventListener("pointerup", onTrayPointerUp);
     document.body.addEventListener("pointercancel", onTrayPointerUp);
     window.lcLoopPublic();
+    restingMode();
+    // the initial page carries no <template data-lc-actions>, so this only
+    // seeds the pull count off the server-rendered #lc-hand
+    window.lcLoopApply(document.querySelector('[data-lc-pane="hand"]'));
     if (window.lcTableSync) window.lcTableSync();
   }
   document.addEventListener("DOMContentLoaded", init);

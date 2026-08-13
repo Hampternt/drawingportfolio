@@ -466,7 +466,7 @@ fn hand_pane_html(base_path: &str, code: &str, st: &LastCallState, player_id: i6
         return format!(r#"{pane}<template data-lc-actions>{bar}</template>"#);
     }
     let seat = st.seat_of(player_id);
-    let (hand, armed, locked, handicap_pct) = match seat {
+    let (hand, armed, locked, handicap_pct, pulls_left) = match seat {
         Some(seat) => {
             let p = &st.players[seat];
             let armed_cards = if p.locked {
@@ -474,15 +474,25 @@ fn hand_pane_html(base_path: &str, code: &str, st: &LastCallState, player_id: i6
             } else {
                 p.armed.iter().map(|a| a.card.clone()).collect::<Vec<_>>()
             };
-            (p.hand.as_slice(), armed_cards, p.locked, p.handicap_pct)
+            // Pack 2: the tab row's pull count — the viewer's own pulls
+            // left, summed over their vessels.
+            let pulls: u16 = p.vessels.iter().map(|v| v.pulls_left as u16).sum();
+            (
+                p.hand.as_slice(),
+                armed_cards,
+                p.locked,
+                p.handicap_pct,
+                pulls,
+            )
         }
-        None => (&[] as &[_], Vec::new(), false, 100),
+        None => (&[] as &[_], Vec::new(), false, 100, 0),
     };
     let hg = HandGroupView {
         hand,
         armed: &armed,
         locked,
         handicap_pct,
+        pulls_left,
         // I1 (Plan H review): the CostRail prices through the same
         // `cost_halved` seam `arm`/`lock_in`/the reveal charge/the DRINK
         // chip all agree on, so a Happy Hour rail bar can't disagree with
@@ -523,8 +533,11 @@ fn hand_pane_html(base_path: &str, code: &str, st: &LastCallState, player_id: i6
         }
         _ => String::new(),
     };
+    // Pack 2: the inspect sheet rides the same private fetch as the hand
+    // it describes — skeleton + per-card stash, hidden until a wheel tap.
+    let sheet = lc_render::lc_inspect_sheet(hand);
     let bar = lc_render::lc_action_bar(&action_bar_view(st, player_id));
-    format!(r#"{pane}{response}{tab_panel}<template data-lc-actions>{bar}</template>"#)
+    format!(r#"{pane}{response}{tab_panel}{sheet}<template data-lc-actions>{bar}</template>"#)
 }
 
 /// Plan E Task 4: assembles the viewer's own `ActionBarView` from

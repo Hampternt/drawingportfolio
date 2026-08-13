@@ -252,8 +252,14 @@ pub fn hand_wheel(hand: &[Card]) -> String {
             )
         })
         .collect();
+    // Pack 2 (lc-mobile-play-flow): a position counter (`01 / 07`,
+    // lc_wheel.js's syncRail keeps it live) and the hint line, both OUTSIDE
+    // the stage — the stage's perspective makes it a 3D rendering context
+    // whose depth sort paints the cards over any sibling regardless of
+    // z-index (found live: the counter rendered under the focused card),
+    // and the clip-path'd stage would sit cards over an inside hint.
     format!(
-        r#"<div class="lc-wheel" data-count="{n}"><div class="lc-wheel-stage" data-lc-wheel><div class="lc-wheel-track">{cards}</div><span class="lc-wheel-hint">DRAG TO SPIN</span></div></div>"#
+        r#"<div class="lc-wheel" data-count="{n}"><span class="lc-wheel-pos">01 / {n:02}</span><div class="lc-wheel-stage" data-lc-wheel><div class="lc-wheel-track">{cards}</div></div><span class="lc-wheel-hint">DRAG UP OR DOWN TO SPIN &middot; TAP THE FRONT CARD TO READ</span></div>"#
     )
 }
 
@@ -270,6 +276,10 @@ pub struct HandGroupView<'a> {
     /// charge/the DRINK chip — a Happy Hour round can no longer show a rail
     /// price the engine won't actually charge.
     pub halved: bool,
+    /// Pack 2 (lc-mobile-play-flow): the viewer's pulls left, summed over
+    /// their vessels — emitted as `data-pulls` on `#lc-hand` so the tab
+    /// row's pull count can ride every private repaint.
+    pub pulls_left: u16,
 }
 
 /// §7.8 `Hand group` — private, `.lc-handgroup` with children `.lc-armed`,
@@ -497,6 +507,54 @@ pub fn lc_table_stack(
     };
     format!(
         r#"<div class="lc-stack" data-count="{n}"{locked_attr} data-flight-anchor="stack"><span class="lc-stack-head">{head}</span>{minis}{foot}</div>"#
+    )
+}
+
+/// Pack 2 (lc-mobile-play-flow): the HAND tab's inspect sheet — a hidden
+/// bottom-sheet skeleton plus a per-card stash. A wheel tap dispatches
+/// `lc:inspect`; `lc_loop.js` clones the tapped card's stash entry
+/// (expanded face, 2×2 meta grid, CLOSE + PLAY row) into the sheet slot
+/// and unhides it, so all card anatomy stays server-rendered. The PLAY
+/// button (`data-lc-sheet-tostage`) stages the card into the TABLE tab's
+/// targeting overlay; a Reaction gets the reveal-window note instead —
+/// the engine refuses `arm` for reactions, so the sheet never offers it
+/// (recorded deviation from the prototype's "ARM ON THE TABLE →").
+pub fn lc_inspect_sheet(hand: &[Card]) -> String {
+    let entries: String = hand
+        .iter()
+        .map(|card| {
+            let slug = card.deck.slug();
+            let targets_label = match card.targets.as_str() {
+                "one" => "ONE PLAYER".to_string(),
+                "all" => "EVERYONE".to_string(),
+                "self" => "YOURSELF".to_string(),
+                other => html_escape(&other.to_uppercase()),
+            };
+            let duration = card
+                .duration
+                .as_deref()
+                .map(|d| html_escape(&d.to_uppercase()))
+                .unwrap_or_else(|| "IMMEDIATE".to_string());
+            let play = if card.kind == CardKind::Reaction {
+                r#"<p class="lc-sheet-reactnote">A REACTION — THE REVEAL OFFERS IT WHEN A PLAY CAN BE ANSWERED</p>"#
+                    .to_string()
+            } else {
+                format!(
+                    r#"<button type="button" class="lc-btn lc-sheet-play lc-deck-{slug}" data-lc-sheet-tostage data-card-id="{id}">PLAY ON THE TABLE &rarr;</button>"#,
+                    id = html_escape(&card.id),
+                )
+            };
+            format!(
+                r#"<div data-inspect-for="{id}">{face}<div class="lc-sheet-meta"><div class="lc-sheet-cell"><span>TARGETS</span><b>{targets_label}</b></div><div class="lc-sheet-cell"><span>PULL COST</span><b>{cost} PULLS</b></div><div class="lc-sheet-cell"><span>DURATION</span><b>{duration}</b></div><div class="lc-sheet-cell"><span>DECK</span><b>{deck}</b></div></div><div class="lc-sheet-actions"><button type="button" class="lc-btn lc-btn-secondary" data-lc-sheet-close>CLOSE</button>{play}</div></div>"#,
+                id = html_escape(&card.id),
+                face = card_face_expanded(card),
+                cost = card.cost,
+                deck = card.deck.label(),
+            )
+        })
+        .collect();
+    format!(
+        r#"<div class="lc-sheet" data-lc-sheet hidden><div class="lc-sheet-scrim" data-lc-sheet-close></div><div class="lc-sheet-body"><div class="lc-sheet-grabber"></div><div class="lc-sheet-slot" data-lc-sheet-slot></div></div><div class="lc-sheet-stash" hidden>{entries}</div></div>"#
     )
 }
 
@@ -1023,8 +1081,9 @@ pub fn lc_hand_pane(
         String::new()
     };
     format!(
-        r#"<div id="lc-hand" data-seq="{seq}" data-count="{count}" data-flight-anchor="hand">{setup}{group}</div>"#,
+        r#"<div id="lc-hand" data-seq="{seq}" data-count="{count}" data-pulls="{pulls}" data-flight-anchor="hand">{setup}{group}</div>"#,
         count = hg.hand.len(),
+        pulls = hg.pulls_left,
         group = hand_group(hg),
     )
 }
@@ -1662,6 +1721,13 @@ fn ready_control(ready: bool) -> String {
 /// Static catalog strings need no escaping today, but title/text still cross
 /// `html_escape` — the builder must not rely on the catalog staying tame
 /// (the same argument `lc_hand_pane` makes for card titles).
+/// Pack 2 (lc-mobile-play-flow) reshapes this from an inline card into the
+/// design's slide-out drawer: a vertical-text handle docked on the hand
+/// pane's right edge, panel out of the way until tapped
+/// (`data-lc-tabdrawer` toggle, `lc_loop.js`). The `.lc-tabcard` root
+/// class survives the redesign on purpose — several privacy tests use it
+/// as the "tab identity rendered here" marker, and renaming it would pass
+/// their absence assertions vacuously.
 pub fn lc_tab_panel(tab: Option<&TabDef>) -> String {
     match tab {
         Some(def) => {
@@ -1670,13 +1736,13 @@ pub fn lc_tab_panel(tab: Option<&TabDef>) -> String {
                 TabReward::Pulls(n) => (n as i32, "PULLS"),
             };
             format!(
-                r#"<section class="lc-tabcard" data-tab="{id}"><h2>YOUR TAB</h2><span class="lc-tabcard-name">{title}</span><p class="lc-tabcard-text">{text}</p><span class="lc-tabcard-pay">PAYS +{amount} {unit}</span></section>"#,
+                r#"<section class="lc-tabcard" data-tab="{id}"><button type="button" class="lc-tabcard-handle" data-lc-tabdrawer>YOUR TAB</button><div class="lc-tabcard-panel"><h2>YOUR TAB &mdash; SIDE QUEST</h2><span class="lc-tabcard-name">{title}</span><p class="lc-tabcard-text">{text}</p><span class="lc-tabcard-pay">PAYS +{amount} {unit}</span></div></section>"#,
                 id = html_escape(def.id),
                 title = html_escape(def.title),
                 text = html_escape(def.text),
             )
         }
-        None => r#"<section class="lc-tabcard" data-tab-settled><h2>YOUR TAB</h2><p class="lc-tabcard-text">TAB SETTLED — a new one comes at the deal.</p></section>"#.to_string(),
+        None => r#"<section class="lc-tabcard" data-tab-settled><button type="button" class="lc-tabcard-handle" data-lc-tabdrawer>YOUR TAB</button><div class="lc-tabcard-panel"><h2>YOUR TAB &mdash; SIDE QUEST</h2><p class="lc-tabcard-text">TAB SETTLED — a new one comes at the deal.</p></div></section>"#.to_string(),
     }
 }
 
@@ -1982,6 +2048,7 @@ mod tests {
                 locked: false,
                 handicap_pct: 150,
                 halved: false,
+                pulls_left: 0,
             }),
             // Plan E Task 4: a populated `lc_action_bar` call, deliberately
             // in the per-vessel Draw state so both `data-lc-post` and
@@ -2067,6 +2134,8 @@ mod tests {
                 0,
             ),
             lc_table_stack(&[(&cards[0], Some(1))], true, &ring_fixture(3), 0),
+            // Pack 2: the inspect sheet (skeleton + stash, PLAY rows).
+            lc_inspect_sheet(&cards),
             lc_action_bar(&ActionBarView {
                 beat: Beat::Diplomacy,
                 round: 2,
@@ -2743,6 +2812,7 @@ mod tests {
             locked: false,
             handicap_pct: 100,
             halved: false,
+            pulls_left: 0,
         }
     }
 
@@ -3877,6 +3947,75 @@ mod tests {
 
         assert_eq!(lc_table_stack(&[], false, &view, 0), "");
         assert_eq!(lc_table_stack(&[], true, &view, 0), "");
+    }
+
+    /// Pack 2: the inspect sheet — hidden skeleton, a stash entry per hand
+    /// card with the 2×2 meta grid, a PLAY row for playable cards and the
+    /// reveal-window note (never a PLAY button) for reactions.
+    #[test]
+    fn test_inspect_sheet_meta_and_reaction_variant() {
+        let one = lc_cards::card_by_id("beer-01").unwrap(); // one, IMMEDIATE
+        let dur = lc_cards::card_by_id("beer-04").unwrap(); // shield, duration
+        let react = CATALOG
+            .iter()
+            .find(|d| {
+                lc_cards::card_by_id(d.id).unwrap().kind == crate::last_call::CardKind::Reaction
+            })
+            .map(|d| lc_cards::card_by_id(d.id).unwrap())
+            .expect("catalog has a reaction card");
+        let html = lc_inspect_sheet(&[one.clone(), dur.clone(), react.clone()]);
+        assert!(
+            html.contains(r#"class="lc-sheet" data-lc-sheet hidden"#),
+            "{html}"
+        );
+        assert!(html.contains("data-lc-sheet-slot"), "{html}");
+        assert!(
+            html.contains(&format!(r#"data-inspect-for="{}""#, one.id)),
+            "{html}"
+        );
+        assert!(html.contains("<b>ONE PLAYER</b>"), "{html}");
+        assert!(html.contains("<b>IMMEDIATE</b>"), "{html}");
+        assert!(html.contains("<b>YOURSELF</b>"), "{html}");
+        assert!(
+            dur.duration.is_some(),
+            "fixture needs a duration card to pin the non-IMMEDIATE cell"
+        );
+        // the expanded face renders unclamped inside the stash
+        assert!(html.contains("lc-cardface-expanded"), "{html}");
+        // playable cards get the stage button; the reaction gets the note
+        assert!(
+            html.contains(&format!(
+                r#"data-lc-sheet-tostage data-card-id="{}""#,
+                one.id
+            )),
+            "{html}"
+        );
+        assert!(html.contains("PLAY ON THE TABLE"), "{html}");
+        assert!(html.contains("lc-sheet-reactnote"), "{html}");
+        assert!(
+            !html.contains(&format!(
+                r#"data-lc-sheet-tostage data-card-id="{}""#,
+                react.id
+            )),
+            "{html}"
+        );
+        no_hex(&html);
+    }
+
+    /// Pack 2: the drawer keeps the `.lc-tabcard` marker class (privacy
+    /// tests select on it) while gaining the handle + panel anatomy.
+    #[test]
+    fn test_tab_drawer_anatomy() {
+        let html = lc_tab_panel(Some(crate::lc_tabs::tab_def("lie-low").unwrap()));
+        assert!(html.contains(r#"class="lc-tabcard""#), "{html}");
+        assert!(html.contains("data-lc-tabdrawer"), "{html}");
+        assert!(html.contains("lc-tabcard-handle"), "{html}");
+        assert!(html.contains("lc-tabcard-panel"), "{html}");
+        assert!(html.contains("SIDE QUEST"), "{html}");
+        let settled = lc_tab_panel(None);
+        assert!(settled.contains("data-lc-tabdrawer"), "{settled}");
+        assert!(settled.contains("TAB SETTLED"), "{settled}");
+        no_hex(&html);
     }
 
     /// Plan E Task 4 / F.1 — one assertion pair per row of the state table,

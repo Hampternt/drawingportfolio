@@ -250,6 +250,10 @@ async fn test_lastcall_css_has_every_component_root() {
         ".lc-tgt",
         ".lc-stack",
         ".lc-armflash",
+        // Pack 2: the HAND tab's inspect sheet + the tab row's mode badge.
+        ".lc-sheet",
+        ".lc-mode",
+        ".lc-wheel-pos",
     ] {
         assert!(css.contains(needle), "missing {needle}");
     }
@@ -285,6 +289,8 @@ async fn test_lastcall_css_has_every_keyframe() {
         "@keyframes lc-pop",
         "@keyframes lc-cardin",
         "@keyframes lc-fade",
+        // Pack 2
+        "@keyframes lc-sheetup",
     ] {
         assert!(css.contains(needle), "missing {needle}");
     }
@@ -6581,7 +6587,7 @@ async fn test_lc_loop_js_is_served_and_binds_the_delegated_listeners() {
     for needle in [
         "DOMContentLoaded",
         "data-lc-post",
-        "lc:arm",
+        "lc:inspect",
         "lc:disarm",
         "lcLoopApply",
         "lcLoopPublic",
@@ -6758,6 +6764,34 @@ async fn test_table_fetch_tray_and_stack_are_private_to_the_viewer() {
     let bob_table = body_string(get_table(&app, &bob, &code).await).await;
     assert!(!bob_table.contains("lc-stack"), "{bob_table}");
     assert!(!bob_table.contains("beer-01"), "{bob_table}");
+}
+
+/// Pack 2 (lc-mobile-play-flow): the private hand fetch carries the
+/// inspect sheet (skeleton + one stash entry per hand card), the
+/// side-quest drawer's handle, and the pull count on `#lc-hand` — all
+/// riding the same session-gated fetch as the hand itself.
+#[tokio::test]
+async fn test_hand_fetch_carries_sheet_drawer_and_pulls() {
+    let (app, _pool, code, alice, bob, _alice_id, _bob_id) = lc_action_rig().await;
+
+    let hand = body_string(get_hand(&app, &alice, &code).await).await;
+    assert!(hand.contains("data-lc-sheet"), "{hand}");
+    assert!(hand.contains(r#"data-inspect-for="beer-01""#), "{hand}");
+    assert!(hand.contains("PLAY ON THE TABLE"), "{hand}");
+    assert!(hand.contains("data-lc-tabdrawer"), "{hand}");
+    assert!(hand.contains(r#"data-pulls=""#), "{hand}");
+    // alice's sheet stashes her beer hand, not bob's cider one
+    assert!(!hand.contains(r#"data-inspect-for="cider"#), "{hand}");
+
+    let bob_hand = body_string(get_hand(&app, &bob, &code).await).await;
+    assert!(
+        bob_hand.contains(r#"data-inspect-for="cider-01""#),
+        "{bob_hand}"
+    );
+    assert!(
+        !bob_hand.contains(r#"data-inspect-for="beer"#),
+        "{bob_hand}"
+    );
 }
 
 /// Pack 1: arm -> the stack mini appears (pop-in markup, take-back
