@@ -586,11 +586,13 @@ body.lc { margin: 0; min-height: 100vh; display: flex; flex-direction: column;
 /* Pack 2: the position counter — a sibling of the stage, NOT a child: the
    stage's perspective creates a 3D rendering context whose depth sort
    paints the cards over anything inside it, z-index included. */
-/* z 500 outranks the wheel cards' inline z-index outright, and the dark
+/* z 120: above the wheel cards' inline z-index (≤ ~100, lc_wheel.js's
+   layout) but below the sheet/mulligan overlays (z 400/450) — at z 500 the
+   counter pill floated over the mulligan overlay (found live). The dark
    backdrop pill keeps the text legible when a card corner slides under it
    (the cards span the wheel's full width, unlike the prototype's 20px
    insets). */
-.lc-wheel-pos { position: absolute; top: 10px; right: 16px; z-index: 500;
+.lc-wheel-pos { position: absolute; top: 10px; right: 16px; z-index: 120;
                 font-family: var(--font-mono); font-size: 10px;
                 color: var(--lc-label); pointer-events: none;
                 white-space: nowrap; background: rgba(14, 12, 20, .8);
@@ -735,6 +737,12 @@ body.lc { margin: 0; min-height: 100vh; display: flex; flex-direction: column;
   /* Pack 2: hint pulse off, sheet appears without motion, drawer snaps. */
   .lc-wheel-hint, .lc-sheet-scrim, .lc-sheet-body { animation: none !important; }
   .lc-tabcard { transition: none; }
+  /* Pack 3: overlay appears without motion, chip flashes stilled. */
+  .lc-mull,
+  .lc-minitable-chip.is-hit,
+  .lc-minitable-chip.is-hit .lc-minitable-hp,
+  .lc-minitable-chip.is-good .lc-minitable-hp { animation: none !important; }
+  .lc-mull-card { transition: none; }
 }
 
 /* preview page (Plan A-vis Task 2) — a permanent style guide, not a shell
@@ -1331,7 +1339,9 @@ body.lc-screen .lc-timer { height: 3px; }
    bottom sheet. The skeleton ships hidden in the private hand fetch; the
    tapped card's stash entry (expanded face, meta grid, actions) is cloned
    into .lc-sheet-slot by lc_loop.js. */
-.lc-sheet { position: fixed; inset: 0; z-index: 40; }
+/* z 400/450 (sheet/mulligan): above everything in the panes, including
+   the wheel counter's 120 — the full-screen overlays must bury the shell. */
+.lc-sheet { position: fixed; inset: 0; z-index: 400; }
 .lc-sheet[hidden] { display: none; }
 .lc-sheet-scrim { position: absolute; inset: 0;
                   background: rgba(11, 9, 16, .78);
@@ -1371,6 +1381,91 @@ body.lc-screen .lc-timer { height: 3px; }
                       font-family: var(--font-ui); font-weight: 700;
                       font-size: 10px; letter-spacing: .12em;
                       text-transform: uppercase; color: var(--lc-faint); }
+
+/* Pack 3 (lc-mobile-play-flow) — the mulligan overlay: full-screen
+   multi-select over the existing route (engine semantics per D1). */
+.lc-mull { position: fixed; inset: 0; z-index: 450;
+           background: rgba(11, 9, 16, .94);
+           backdrop-filter: blur(3px);
+           display: flex; flex-direction: column;
+           padding: 18px 18px 16px;
+           animation: lc-fade 180ms ease-out 1; }
+.lc-mull[hidden] { display: none; }
+.lc-mull-kicker { font-family: var(--font-ui); font-weight: 700;
+                  font-size: 9.5px; letter-spacing: .16em;
+                  color: var(--lc-violet); }
+.lc-mull-title-lg { font-family: var(--font-display); font-weight: 900;
+                    font-size: 28px; letter-spacing: -.02em;
+                    color: var(--lc-text); margin-top: 2px; }
+.lc-mull-sub { font-size: 12.5px; color: var(--lc-secondary); margin-top: 3px; }
+.lc-mull-countrow { flex: none; display: flex; justify-content: flex-end;
+                    margin: 10px 0 12px; font-family: var(--font-mono);
+                    font-size: 11px; color: var(--lc-body);
+                    white-space: nowrap; }
+.lc-mull-grid { flex: 1; min-height: 0; overflow-y: auto;
+                display: grid; grid-template-columns: 1fr 1fr;
+                gap: 10px; align-content: start; padding: 8px 0 12px; }
+.lc-mull-card { position: relative; text-align: left; border-radius: 12px;
+                padding: 11px 12px; background: var(--lc-raised);
+                border: 1px solid var(--lc-hair-strong);
+                display: flex; flex-direction: column; gap: 5px;
+                transition: transform 140ms var(--lc-ease); }
+.lc-mull-card.is-picked { background: var(--lc-focused);
+                          border: 2px solid var(--lc-violet);
+                          transform: translateY(-5px); }
+.lc-mull-badge { position: absolute; top: -8px; right: -6px;
+                 width: 22px; height: 22px; border-radius: 50%;
+                 background: var(--lc-violet); color: #14101D;
+                 font-family: var(--font-display); font-weight: 900;
+                 font-size: 12px; line-height: 22px; text-align: center; }
+.lc-mull-top { display: flex; align-items: center;
+               justify-content: space-between; }
+.lc-mull-deck { font-family: var(--font-ui); font-weight: 700;
+                font-size: 9px; letter-spacing: .13em;
+                text-transform: uppercase; color: var(--lc-ink); }
+.lc-mull-cost { padding: 1px 8px; border-radius: 4px;
+                background: var(--lc-fill); color: var(--lc-on-fill);
+                font-family: var(--font-display); font-weight: 900;
+                font-size: 12px; }
+.lc-mull-title { font-family: var(--font-display); font-weight: 800;
+                 font-size: 15px; letter-spacing: -.02em; line-height: 1.1;
+                 color: var(--lc-text); }
+.lc-mull-text { font-size: 11px; line-height: 1.3;
+                color: var(--lc-secondary);
+                display: -webkit-box; -webkit-line-clamp: 2;
+                -webkit-box-orient: vertical; overflow: hidden; }
+.lc-mull-actions { flex: none; display: flex; gap: 10px; }
+.lc-mull-actions .lc-btn-secondary { flex: 0 0 92px; height: 58px; }
+.lc-mull-confirm { flex: 1; height: 58px; border: 0; border-radius: 8px;
+                   background: var(--lc-violet); color: #14101D;
+                   font-family: var(--font-display); font-weight: 900;
+                   font-size: 17px; }
+.lc-mull-confirm:disabled { background: var(--lc-raised);
+                            color: var(--lc-faint); cursor: default; }
+
+/* Pack 3 / D2 — the seat chips' hand-composition strip, plus the felt
+   centre's PLAYS caption and the chip hit/heal flashes. */
+.lc-minitable-mix { display: flex; align-items: center; gap: 6px; }
+.lc-mix { display: inline-flex; align-items: center; gap: 2px;
+          font-family: var(--font-display); font-weight: 800;
+          font-size: 9.5px; color: var(--lc-ink, var(--lc-faint)); }
+.lc-mix i { width: 9px; height: 13px; border-radius: 2px;
+            background: var(--lc-grid, transparent);
+            border: 1px solid var(--lc-ink, var(--lc-hair)); }
+.lc-minitable-chip { flex-wrap: wrap; justify-content: center; }
+.lc-minitable-plays { font-family: var(--font-mono); font-size: 9px;
+                      letter-spacing: .12em; color: var(--lc-faint); }
+@keyframes lc-hp-good {                 /* HP to mint and back (heal) */
+  0%   { color: var(--lc-text); }
+  15%  { color: var(--lc-mint); }
+  60%  { color: var(--lc-mint); }
+  100% { color: var(--lc-text); }
+}
+.lc-minitable-chip.is-hit { animation: lc-shake 320ms var(--lc-ease) 1; }
+.lc-minitable-chip.is-hit .lc-minitable-hp {
+  animation: lc-hp-flash 560ms var(--lc-ease) 1; }
+.lc-minitable-chip.is-good .lc-minitable-hp {
+  animation: lc-hp-good 560ms var(--lc-ease) 1; }
 
 /* Pack 1 motion */
 @keyframes lc-dashflow {                /* dotted arrows crawling */

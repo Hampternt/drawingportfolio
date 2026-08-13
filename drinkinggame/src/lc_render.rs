@@ -558,6 +558,44 @@ pub fn lc_inspect_sheet(hand: &[Card]) -> String {
     )
 }
 
+/// Pack 3 (lc-mobile-play-flow): the mulligan overlay — a full-screen
+/// multi-select over the EXISTING `/lastcall/mulligan` route, adopting the
+/// engine's semantics per D1 (per-card discard/redraw, free in the round-1
+/// lobby, once per round from round 2, same-deck replacements) rather than
+/// the prototype's once-per-game. Hidden skeleton in the private hand
+/// fetch; `lc_loop.js` toggles picks (order badges), keeps the counter and
+/// confirm label live, and posts the comma-joined card ids.
+pub fn lc_mulligan_overlay(hand: &[Card], round: u32) -> String {
+    let (kicker, sub) = if round == 1 {
+        (
+            "MULLIGAN — FREE IN THE LOBBY",
+            "Swap as many cards as you like — free until the game starts. Replacements come off the same deck.",
+        )
+    } else {
+        (
+            "MULLIGAN — ONCE A ROUND",
+            "Pick any cards to swap — once a round. Replacements come off the same deck.",
+        )
+    };
+    let cards: String = hand
+        .iter()
+        .map(|card| {
+            let slug = card.deck.slug();
+            format!(
+                r#"<button type="button" class="lc-mull-card lc-deck-{slug}" data-card-id="{id}"><span class="lc-mull-badge" hidden></span><span class="lc-mull-top"><span class="lc-mull-deck">{label}</span><span class="lc-mull-cost">{cost}</span></span><span class="lc-mull-title">{title}</span><span class="lc-mull-text">{text}</span></button>"#,
+                id = html_escape(&card.id),
+                label = card.deck.label(),
+                cost = card.cost,
+                title = html_escape(&card.title),
+                text = html_escape(&card.text),
+            )
+        })
+        .collect();
+    format!(
+        r#"<div class="lc-mull" data-lc-mull hidden><div class="lc-mull-head"><span class="lc-mull-kicker">{kicker}</span><h2 class="lc-mull-title-lg">SWAP YOUR HAND</h2><p class="lc-mull-sub">{sub}</p></div><div class="lc-mull-countrow"><span><span data-lc-mull-count>0</span> CHOSEN</span></div><div class="lc-mull-grid">{cards}</div><div class="lc-mull-actions"><button type="button" class="lc-btn lc-btn-secondary" data-lc-mull-cancel>CANCEL</button><button type="button" class="lc-btn lc-mull-confirm" data-lc-mull-confirm disabled>SWAP CARDS</button></div></div>"#
+    )
+}
+
 // ---------------------------------------------------------------------
 // Table components (§7.6's component half)
 // ---------------------------------------------------------------------
@@ -1498,8 +1536,26 @@ pub fn lc_mini_table(view: &PublicView, me: Option<usize>) -> String {
                     ""
                 };
                 let me_attr = if Some(seat.seat) == me { " data-me" } else { "" };
+                // Pack 3 / D2: the hand-composition strip — one card-back
+                // swatch + count per deck actually held. Counts come from
+                // the public projection (identity never does).
+                let mix: String = seat
+                    .hand_by_deck
+                    .iter()
+                    .map(|(deck, n)| {
+                        format!(
+                            r#"<span class="lc-mix lc-deck-{slug}"><i></i>{n}</span>"#,
+                            slug = deck.slug(),
+                        )
+                    })
+                    .collect();
+                let mix_html = if mix.is_empty() {
+                    String::new()
+                } else {
+                    format!(r#"<span class="lc-minitable-mix">{mix}</span>"#)
+                };
                 format!(
-                    r#"<div class="lc-minitable-chip" style="left:{l}%;top:{t}%" data-seat="{s}" data-flight-anchor="seat-{s}"{locked_attr}{out_attr}{me_attr}><span class="lc-minitable-name">{name}</span><span class="lc-minitable-hp">{hp}</span></div>"#,
+                    r#"<div class="lc-minitable-chip" style="left:{l}%;top:{t}%" data-seat="{s}" data-hp="{hp}" data-flight-anchor="seat-{s}"{locked_attr}{out_attr}{me_attr}><span class="lc-minitable-name">{name}</span><span class="lc-minitable-hp">{hp}</span>{mix_html}</div>"#,
                     s = seat.seat,
                     name = html_escape(&seat.name.to_uppercase()),
                     hp = seat.hp,
@@ -1519,8 +1575,19 @@ pub fn lc_mini_table(view: &PublicView, me: Option<usize>) -> String {
         .first()
         .map(|&(deck, _)| deck)
         .unwrap_or(Deck::Beer);
+    // Pack 3 (felt polish): the viewer's own plays-this-game count under
+    // the pile — public data (PublicSeat::cards_played), personal framing.
+    let plays = me
+        .and_then(|s| view.seats.iter().find(|seat| seat.seat == s))
+        .map(|seat| {
+            format!(
+                r#"<span class="lc-minitable-plays">PLAYS {}</span>"#,
+                seat.cards_played
+            )
+        })
+        .unwrap_or_default();
     let centre = format!(
-        r#"<div class="lc-minitable-centre">{pile}</div>"#,
+        r#"<div class="lc-minitable-centre">{pile}{plays}</div>"#,
         pile = card_back(pile_deck, BackSize::Pile),
     );
 
@@ -1616,20 +1683,22 @@ pub fn lc_action_bar(ab: &ActionBarView) -> String {
     match ab.beat {
         Beat::Draw => {
             if ab.round == 1 {
-                // The lobby's free mulligan hint — only once this viewer
-                // actually holds a hand (registered a vessel).
-                let swap_hint = if ab.vessels.is_empty() {
+                // Pack 3 (lc-mobile-play-flow): the swap moved off the
+                // wheel tap and into the mulligan overlay — the lobby's
+                // free swaps open from this button once the viewer holds a
+                // hand (registered a vessel).
+                let swap = if ab.vessels.is_empty() {
                     ""
                 } else {
-                    r#"<p class="lc-actions-hint">TAP A CARD TO SWAP IT — FREE UNTIL THE GAME STARTS</p>"#
+                    r#"<button class="lc-btn lc-btn-secondary" data-lc-mull-open>MULLIGAN</button><p class="lc-actions-hint">FREE SWAPS UNTIL THE GAME STARTS</p>"#
                 };
                 if ab.vessels_registered >= 2 {
                     format!(
-                        r#"<button class="lc-btn lc-btn-drink" data-lc-post="begin">START ROUND 1</button>{swap_hint}"#
+                        r#"<button class="lc-btn lc-btn-drink" data-lc-post="begin">START ROUND 1</button>{swap}"#
                     )
                 } else {
                     format!(
-                        r#"<button class="lc-btn lc-btn-drink" data-lc-post="begin" disabled>START ROUND 1</button><p class="lc-actions-hint">NEEDS 2 DRINKS REGISTERED</p>{swap_hint}"#
+                        r#"<button class="lc-btn lc-btn-drink" data-lc-post="begin" disabled>START ROUND 1</button><p class="lc-actions-hint">NEEDS 2 DRINKS REGISTERED</p>{swap}"#
                     )
                 }
             } else if ab.drawing {
@@ -1648,12 +1717,14 @@ pub fn lc_action_bar(ab: &ActionBarView) -> String {
                         )
                     })
                     .collect();
-                let swap_hint = if ab.mulliganed {
+                // Pack 3: hidden for good this round once spent — the
+                // button's presence IS the availability note.
+                let swap = if ab.mulliganed {
                     ""
                 } else {
-                    r#"<p class="lc-actions-hint">TAP A CARD TO SWAP IT — ONCE A ROUND</p>"#
+                    r#"<button class="lc-btn lc-btn-secondary" data-lc-mull-open>MULLIGAN</button>"#
                 };
-                format!("{buttons}{swap_hint}{}", ready_control(ab.ready))
+                format!("{buttons}{swap}{}", ready_control(ab.ready))
             }
         }
         Beat::Deal => r#"<p class="lc-actions-hint">DEALING…</p>"#.to_string(),
@@ -2136,6 +2207,9 @@ mod tests {
             lc_table_stack(&[(&cards[0], Some(1))], true, &ring_fixture(3), 0),
             // Pack 2: the inspect sheet (skeleton + stash, PLAY rows).
             lc_inspect_sheet(&cards),
+            // Pack 3: the mulligan overlay, both copy variants.
+            lc_mulligan_overlay(&cards, 1),
+            lc_mulligan_overlay(&cards, 2),
             lc_action_bar(&ActionBarView {
                 beat: Beat::Diplomacy,
                 round: 2,
@@ -2431,6 +2505,7 @@ mod tests {
             pulls_spent: 0,
             cards_played: 0,
             elim_order: None,
+            hand_by_deck: Vec::new(),
         };
         let plaque = player_plaque(&seat);
         // both the plaque's own data-decks and the nested strip's must read
@@ -2632,6 +2707,7 @@ mod tests {
             pulls_spent: 0,
             cards_played: 0,
             elim_order: None,
+            hand_by_deck: Vec::new(),
         };
         let html = player_plaque(&seat);
         assert!(html.contains(r#"<span class="lc-draws">3</span>"#));
@@ -2999,6 +3075,7 @@ mod tests {
                 pulls_spent: 0,
                 cards_played: 0,
                 elim_order: None,
+                hand_by_deck: Vec::new(),
             })
             .collect();
         PublicView {
@@ -3354,11 +3431,18 @@ mod tests {
         // and a spectator never carries `data-me` at all.
         let view = ring_fixture(4);
         let spectator = lc_mini_table(&view, None);
+        // Pack 3 widened the per-viewer delta: Some(0) also carries the
+        // felt centre's personal PLAYS caption, which a spectator (nobody's
+        // "own plays" to count) never gets — discounted here the same way
+        // data-me is.
         assert_eq!(
             spectator,
-            lc_mini_table(&view, Some(0)).replace(" data-me", "")
+            lc_mini_table(&view, Some(0))
+                .replace(" data-me", "")
+                .replace(r#"<span class="lc-minitable-plays">PLAYS 0</span>"#, "")
         );
         assert!(!spectator.contains("data-me"));
+        assert!(!spectator.contains("PLAYS"));
     }
 
     #[test]
@@ -4000,6 +4084,93 @@ mod tests {
             "{html}"
         );
         no_hex(&html);
+    }
+
+    /// Pack 3: the mulligan overlay — hidden skeleton, per-round copy,
+    /// one grid entry per hand card, confirm disabled until a pick.
+    #[test]
+    fn test_mulligan_overlay_anatomy() {
+        let cards = lc_cards::deck_cards(Deck::Beer);
+        let lobby = lc_mulligan_overlay(&cards[..2], 1);
+        assert!(
+            lobby.contains(r#"class="lc-mull" data-lc-mull hidden"#),
+            "{lobby}"
+        );
+        assert!(lobby.contains("FREE IN THE LOBBY"), "{lobby}");
+        assert!(lobby.contains("SWAP YOUR HAND"), "{lobby}");
+        assert!(lobby.contains("data-lc-mull-count"), "{lobby}");
+        assert!(lobby.contains("data-lc-mull-cancel"), "{lobby}");
+        assert!(lobby.contains("data-lc-mull-confirm disabled"), "{lobby}");
+        assert_eq!(lobby.matches("lc-mull-card").count(), 2, "{lobby}");
+        assert!(
+            lobby.contains(&format!(r#"data-card-id="{}""#, cards[0].id)),
+            "{lobby}"
+        );
+        no_hex(&lobby);
+
+        let round2 = lc_mulligan_overlay(&cards[..1], 2);
+        assert!(round2.contains("ONCE A ROUND"), "{round2}");
+        assert!(!round2.contains("FREE IN THE LOBBY"), "{round2}");
+    }
+
+    /// Pack 3 / D2: the mini table's chips carry the hand-composition
+    /// strip (one lc-mix per deck held), data-hp for the flash diff, and
+    /// the centre carries the viewer's own PLAYS count.
+    #[test]
+    fn test_mini_table_mix_strip_and_plays_caption() {
+        let mut view = ring_fixture(2);
+        view.seats[0].hand_by_deck = vec![(Deck::Wine, 4), (Deck::Soft, 2)];
+        view.seats[0].cards_played = 3;
+        let html = lc_mini_table(&view, Some(0));
+        assert!(html.contains(r#"data-hp="15""#), "{html}");
+        assert!(html.contains(r#"lc-mix lc-deck-wine"><i></i>4"#), "{html}");
+        assert!(html.contains(r#"lc-mix lc-deck-soft"><i></i>2"#), "{html}");
+        assert!(html.contains("PLAYS 3"), "{html}");
+        no_hex(&html);
+        // a spectator (me: None) gets no PLAYS caption
+        let spectator = lc_mini_table(&view, None);
+        assert!(!spectator.contains("PLAYS"), "{spectator}");
+        // an empty strip renders no wrapper at all
+        assert!(!lc_mini_table(&ring_fixture(2), Some(0)).contains("lc-minitable-mix"));
+    }
+
+    /// Pack 3: the Draw beat's MULLIGAN button — present in the lobby once
+    /// a hand is held and in round 2+ until spent, gone once `mulliganed`.
+    #[test]
+    fn test_action_bar_offers_mulligan_until_spent() {
+        let ab = |round: u32, mulliganed: bool, vessels: Vec<(usize, Deck)>| ActionBarView {
+            beat: Beat::Draw,
+            round,
+            seated: true,
+            alive: true,
+            locked: false,
+            ready: false,
+            mulliganed,
+            drawing: false,
+            vessels,
+            charged: 0,
+            vessels_registered: 2,
+            outcome: None,
+            haunt_plays: Vec::new(),
+            haunted: false,
+            armed_count: 0,
+        };
+        let lobby = lc_action_bar(&ab(1, false, vec![(0, Deck::Beer)]));
+        assert!(lobby.contains("data-lc-mull-open"), "{lobby}");
+        assert!(
+            lobby.contains("FREE SWAPS UNTIL THE GAME STARTS"),
+            "{lobby}"
+        );
+        // no vessel yet: nothing to swap
+        let unregistered = lc_action_bar(&ab(1, false, Vec::new()));
+        assert!(
+            !unregistered.contains("data-lc-mull-open"),
+            "{unregistered}"
+        );
+        let r2 = lc_action_bar(&ab(2, false, vec![(0, Deck::Beer)]));
+        assert!(r2.contains("data-lc-mull-open"), "{r2}");
+        let spent = lc_action_bar(&ab(2, true, vec![(0, Deck::Beer)]));
+        assert!(!spent.contains("data-lc-mull-open"), "{spent}");
     }
 
     /// Pack 2: the drawer keeps the `.lc-tabcard` marker class (privacy

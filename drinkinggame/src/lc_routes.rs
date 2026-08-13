@@ -536,8 +536,23 @@ fn hand_pane_html(base_path: &str, code: &str, st: &LastCallState, player_id: i6
     // Pack 2: the inspect sheet rides the same private fetch as the hand
     // it describes — skeleton + per-card stash, hidden until a wheel tap.
     let sheet = lc_render::lc_inspect_sheet(hand);
+    // Pack 3: the mulligan overlay — only while the engine would accept
+    // the post (Draw beat, alive, holding a hand, round-1 lobby or the
+    // round's swap unspent), so the MULLIGAN button and the overlay
+    // appear and disappear together.
+    let mull = match seat {
+        Some(s)
+            if st.beat == Beat::Draw
+                && st.players[s].status == Status::Alive
+                && !st.players[s].hand.is_empty()
+                && (st.round == 1 || !st.players[s].mulliganed) =>
+        {
+            lc_render::lc_mulligan_overlay(&st.players[s].hand, st.round)
+        }
+        _ => String::new(),
+    };
     let bar = lc_render::lc_action_bar(&action_bar_view(st, player_id));
-    format!(r#"{pane}{response}{tab_panel}{sheet}<template data-lc-actions>{bar}</template>"#)
+    format!(r#"{pane}{response}{tab_panel}{sheet}{mull}<template data-lc-actions>{bar}</template>"#)
 }
 
 /// Plan E Task 4: assembles the viewer's own `ActionBarView` from

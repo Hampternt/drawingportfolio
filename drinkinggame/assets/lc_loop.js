@@ -174,6 +174,32 @@
       closeSheet();
       return;
     }
+    // Pack 3: the mulligan overlay — open / pick / cancel / confirm.
+    if (e.target.closest("[data-lc-mull-open]")) {
+      openMulligan();
+      return;
+    }
+    var mullCard = e.target.closest(".lc-mull-card");
+    if (mullCard) {
+      var at = mullPicks.indexOf(mullCard);
+      if (at > -1) mullPicks.splice(at, 1);
+      else mullPicks.push(mullCard);
+      var overlay = mullCard.closest("[data-lc-mull]");
+      if (overlay) mullSync(overlay);
+      return;
+    }
+    if (e.target.closest("[data-lc-mull-cancel]")) {
+      closeMulligan();
+      return;
+    }
+    if (e.target.closest("[data-lc-mull-confirm]")) {
+      var ids = mullPicks.map(function (card) { return card.dataset.cardId; });
+      if (ids.length) {
+        post("mulligan", "cards=" + encodeURIComponent(ids.join(",")));
+      }
+      closeMulligan();
+      return;
+    }
     // Pack 2: the side-quest drawer's handle toggles it out and back.
     var handle = e.target.closest("[data-lc-tabdrawer]");
     if (handle) {
@@ -436,6 +462,7 @@
   // whether the staged card still sits in the fresh tray.
   window.lcTableSync = function () {
     if (window.lcTableArrows) window.lcTableArrows();
+    flashChips();
     if (!trayState.staged) return;
     if (trayMini(trayState.staged)) {
       openTargeting(trayState.staged);
@@ -486,6 +513,82 @@
     sheet.hidden = true;
     var slot = sheet.querySelector("[data-lc-sheet-slot]");
     if (slot) slot.innerHTML = "";
+  }
+
+  // ---- Pack 3: the mulligan overlay --------------------------------------
+
+  var mullPicks = []; // picked .lc-mull-card elements, in pick order
+
+  function mullEl() {
+    var pane = document.querySelector('[data-lc-pane="hand"]');
+    return pane ? pane.querySelector("[data-lc-mull]") : null;
+  }
+
+  function mullSync(overlay) {
+    overlay.querySelectorAll(".lc-mull-card").forEach(function (card) {
+      var i = mullPicks.indexOf(card);
+      card.classList.toggle("is-picked", i > -1);
+      var badge = card.querySelector(".lc-mull-badge");
+      if (badge) {
+        badge.hidden = i === -1;
+        badge.textContent = i === -1 ? "" : String(i + 1);
+      }
+    });
+    var count = overlay.querySelector("[data-lc-mull-count]");
+    if (count) count.textContent = String(mullPicks.length);
+    var confirm = overlay.querySelector("[data-lc-mull-confirm]");
+    if (confirm) {
+      confirm.disabled = mullPicks.length === 0;
+      confirm.textContent = mullPicks.length
+        ? "SWAP " + mullPicks.length +
+          (mullPicks.length === 1 ? " CARD" : " CARDS")
+        : "SWAP CARDS";
+    }
+  }
+
+  function openMulligan() {
+    var overlay = mullEl();
+    if (!overlay) return;
+    mullPicks = [];
+    mullSync(overlay);
+    overlay.hidden = false;
+    setMode("mulligan");
+  }
+
+  function closeMulligan() {
+    var overlay = mullEl();
+    if (overlay) overlay.hidden = true;
+    mullPicks = [];
+    restingMode();
+  }
+
+  // ---- Pack 3: mini-table chip flashes (hit shake / heal tick) ----------
+
+  var prevChipHp = {};
+
+  // Diffs each seat chip's data-hp against the previous repaint and plays
+  // the hit shake / heal flash — the phone-chip analogue of fireHits'
+  // plaque path. Called from lcTableSync, so every table repaint diffs
+  // exactly once; the class rides off on animationend like fireHits'.
+  function flashChips() {
+    var next = {};
+    document
+      .querySelectorAll('.lc-minitable-chip[data-seat]')
+      .forEach(function (chip) {
+        var seat = chip.dataset.seat;
+        var hp = Number(chip.dataset.hp);
+        next[seat] = hp;
+        var was = prevChipHp[seat];
+        if (was === undefined || hp === was) return;
+        var cls = hp < was ? "is-hit" : "is-good";
+        chip.classList.add(cls);
+        chip.addEventListener("animationend", function onEnd(e) {
+          if (e.animationName !== "lc-hp-flash" && e.animationName !== "lc-hp-good") return;
+          chip.classList.remove(cls);
+          chip.removeEventListener("animationend", onEnd);
+        });
+      });
+    prevChipHp = next;
   }
 
   // The tab row's mode badge: one word for what the player is doing.

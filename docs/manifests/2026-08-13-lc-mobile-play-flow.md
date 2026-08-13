@@ -1,6 +1,7 @@
 # Last Call: mobile play flow (container)
 
-**Status:** go given 2026-08-13 — Pack 1 active
+**Status:** COMPLETE 2026-08-13 — all three packs landed on
+`claude/last-call-plan-review-2bia3p` (PR #11, draft, → `dev`)
 **Branch:** `feat/last-call-refinement` (existing stream; merges → `dev` → `master`)
 **Design source:** `docs/design/lastcall-mobile/` — HANDOFF.md (spec) +
 prototype.html (interactive 390×844 reference), delivered 2026-08-13 as
@@ -95,14 +96,22 @@ z-index — hint line moved below the stage, stage `clip-path`) ·
 side-quest drawer (the `.lc-tabcard` root name survives on purpose;
 privacy tests select on it).
 
-### Pack 3 — Mulligan overlay + felt polish
+### Pack 3 — Mulligan overlay + felt polish (LANDED)
 
 Observable: card swaps happen in a full-screen multi-select overlay; seat
 chips carry hand-composition strips (if D2 approves).
 
-Proposed items: mulligan overlay UI over the existing route (semantics
-per D1) · seat-chip hand-composition strips (needs a `public_view`
-change — D2) · felt/centre polish ("PLAYS n", chip flash states).
+Shipped items: mulligan overlay (`.lc-mull`, D1 semantics — copy says
+free-in-lobby / once-a-round, never once-per-game; opens from the Draw
+beat's new MULLIGAN action-bar button, posts comma-joined ids to the
+existing route; the old wheel-tap swap hints are gone with the gesture) ·
+D2 hand strips (`PublicSeat.hand_by_deck`: per-deck counts over
+hand+armed+locked — the same three terms as `hand_len`, so staging never
+moves the strip; identity stays private, pinned by
+`test_public_view_hand_by_deck_counts_but_never_identity`; rendered as
+`.lc-mix` swatches on every seat chip) · felt polish (the viewer's own
+"PLAYS n" under the centre pile; chip hit-shake/heal-flash diffed off
+`data-hp` in `lcTableSync`, the phone twin of the plaque pass).
 
 ## Decisions (resolved 2026-08-13)
 
@@ -146,6 +155,17 @@ change — D2) · felt/centre polish ("PLAYS n", chip flash states).
   change), D3 confirmed, D4 keep. Awaiting go on the pack sequence.
 - 2026-08-13: go given (user: run all three packs to completion). Pack 1
   activated; item manifest drafted above.
+- 2026-08-13: Pack 3 lands — the container is COMPLETE. verify.sh green
+  (759 → 765: +1 engine, +3 render units, +2 http). Browser-smoked: the
+  overlay swaps real cards through the engine (same-deck replacements
+  observed), mix strips + PLAYS render, badge shows MULLIGAN. Fix found
+  live: overlay z-tiers re-cut (wheel counter 120 < sheet 400 < mulligan
+  450 — the counter pill floated over the overlay at its old 500).
+  Remaining known deviations, all deliberate: no arrowhead markers on
+  arrows (SVG markers can't take per-deck ink portably), the note row
+  folded into the action-bar hints, and the HAND pane keeps its armed
+  column + cost rail (the manifest never retired them; the design's
+  cleaner HAND is a candidate follow-up).
 - 2026-08-13: Pack 2 lands. verify.sh green (756 → 759: +2 render units,
   +1 http). Browser-smoked: wheel tap → sheet → PLAY → staged TABLE
   overlay, badge READ→TARGET→PLAY, pull count live, drawer slides.

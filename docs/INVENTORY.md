@@ -59,9 +59,13 @@ A party platform for phone-based drinking games in shared rooms.
   in-game FULL SCREEN toggle on Android browsers.
 - Player accounts with self-service rename; per-viewer personalized UI;
   optional sound effects (server drop-in).
-- 🚧 Mobile play-flow redesign (HAND = reading wheel + inspect sheet,
-  TABLE = drag-to-target tray with armed stack, mulligan overlay) —
-  `docs/manifests/2026-08-13-lc-mobile-play-flow.md`
+- Mobile play flow (2026-08-13 redesign): HAND is a reading wheel — tap
+  the focused card for a full-rules inspect sheet whose PLAY button jumps
+  to the TABLE; TABLE is the play surface — drag or tap a tray card onto
+  a target, armed plays queue on the felt with dotted arrows until LOCK
+  IN; card swaps happen in a full-screen mulligan overlay; seat chips
+  show everyone's per-deck hand counts; a mode badge + pull count ride
+  the tab row. Container: `docs/manifests/2026-08-13-lc-mobile-play-flow.md`
 
 ## Infrastructure
 

@@ -254,6 +254,10 @@ async fn test_lastcall_css_has_every_component_root() {
         ".lc-sheet",
         ".lc-mode",
         ".lc-wheel-pos",
+        // Pack 3: the mulligan overlay + the chips' hand-composition strip.
+        ".lc-mull",
+        ".lc-mix",
+        ".lc-minitable-plays",
     ] {
         assert!(css.contains(needle), "missing {needle}");
     }
@@ -291,6 +295,8 @@ async fn test_lastcall_css_has_every_keyframe() {
         "@keyframes lc-fade",
         // Pack 2
         "@keyframes lc-sheetup",
+        // Pack 3
+        "@keyframes lc-hp-good",
     ] {
         assert!(css.contains(needle), "missing {needle}");
     }
@@ -6791,6 +6797,100 @@ async fn test_hand_fetch_carries_sheet_drawer_and_pulls() {
     assert!(
         !bob_hand.contains(r#"data-inspect-for="beer"#),
         "{bob_hand}"
+    );
+}
+
+/// Pack 3 (lc-mobile-play-flow): the mulligan overlay rides the hand fetch
+/// exactly while the engine would accept the post — present at Draw for a
+/// hand-holding viewer, gone once the round's swap is spent — and the
+/// existing `/lastcall/mulligan` route serves the overlay's confirm.
+#[tokio::test]
+async fn test_mulligan_overlay_appears_and_spends() {
+    let (app, pool) = test_app_with_pool().await;
+    let alice = login(&app, "alice", "1234").await;
+    let bob = login(&app, "bob", "5678").await;
+    let code = create_room(&app, &alice).await;
+    room_page_html(&app, &bob, &code).await;
+    post_form(&app, &alice, &format!("/room/{code}/lastcall/start"), "").await;
+
+    let alice_id = drinkinggame::db::get_player_by_name(&pool, "alice")
+        .await
+        .unwrap()
+        .id;
+    let bob_id = drinkinggame::db::get_player_by_name(&pool, "bob")
+        .await
+        .unwrap()
+        .id;
+
+    // round-2 Draw: the once-a-round window
+    let mut st = LastCallState::new(vec![(alice_id, "alice".into()), (bob_id, "bob".into())], 7);
+    st.set_vessel(alice_id, Deck::Beer, "can").unwrap();
+    st.set_vessel(bob_id, Deck::Cider, "bottle").unwrap();
+    st.round = 2;
+    let game_id = lc_game_id(&pool, &code).await;
+    drinkinggame::db::set_game_state(&pool, game_id, &st.to_json()).await;
+
+    let hand = body_string(get_hand(&app, &alice, &code).await).await;
+    assert!(hand.contains("data-lc-mull"), "{hand}");
+    assert!(hand.contains("ONCE A ROUND"), "{hand}");
+    assert!(hand.contains("data-lc-mull-open"), "{hand}");
+
+    // the overlay's confirm: comma-joined ids to the existing route
+    let res = post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/lastcall/mulligan"),
+        "cards=beer-01,beer-02",
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+
+    // spent: overlay and button both gone
+    let hand = body_string(get_hand(&app, &alice, &code).await).await;
+    assert!(!hand.contains("data-lc-mull"), "{hand}");
+}
+
+/// Pack 3 / D2: every viewer's table shows every seat's per-deck hand
+/// counts — composition is public, identity stays private (the card ids
+/// still never cross into another viewer's fetch, pinned by
+/// `test_table_fetch_tray_and_stack_are_private_to_the_viewer`).
+#[tokio::test]
+async fn test_table_chips_carry_public_hand_composition() {
+    let (app, _pool, code, alice, bob, _alice_id, _bob_id) = lc_action_rig().await;
+
+    let alice_table = body_string(get_table(&app, &alice, &code).await).await;
+    // both seats' strips render in ONE viewer's fetch: her beer, his cider
+    assert!(
+        alice_table.contains(r#"lc-mix lc-deck-beer"><i></i>5"#),
+        "{alice_table}"
+    );
+    assert!(
+        alice_table.contains(r#"lc-mix lc-deck-cider"><i></i>5"#),
+        "{alice_table}"
+    );
+
+    let bob_table = body_string(get_table(&app, &bob, &code).await).await;
+    assert!(
+        bob_table.contains(r#"lc-mix lc-deck-beer"><i></i>5"#),
+        "{bob_table}"
+    );
+    assert!(
+        bob_table.contains(r#"lc-mix lc-deck-cider"><i></i>5"#),
+        "{bob_table}"
+    );
+
+    // arming moves nothing: the strip counts hand+armed+locked as one set
+    post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/lastcall/arm"),
+        "card_id=beer-01",
+    )
+    .await;
+    let bob_table = body_string(get_table(&app, &bob, &code).await).await;
+    assert!(
+        bob_table.contains(r#"lc-mix lc-deck-beer"><i></i>5"#),
+        "{bob_table}"
     );
 }
 
