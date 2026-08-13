@@ -1280,6 +1280,37 @@ pub fn tm_screen_over(s: &TmOverView) -> String {
     )
 }
 
+/// The test-play-mode identity switcher (2026-08-13): one button per room
+/// member (the current identity highlighted and inert) plus "+ FAKE".
+/// Plain form posts — `test_act_as` sets the cookie and 303s back, so no
+/// JS is involved. Rendered ONLY when `GameState::test_mode` is on; the
+/// empty string otherwise is what the templates interpolate.
+pub fn test_switcher_bar(
+    base_path: &str,
+    code: &str,
+    members: &[crate::models::RoomMember],
+    me: i64,
+) -> String {
+    let buttons: String = members
+        .iter()
+        .map(|m| {
+            let (me_attr, disabled) = if m.id == me {
+                (" data-me", " disabled")
+            } else {
+                ("", "")
+            };
+            format!(
+                r#"<form method="post" action="{base_path}/room/{code}/test/act-as"><input type="hidden" name="player_id" value="{id}"><button{me_attr}{disabled}>{name}</button></form>"#,
+                id = m.id,
+                name = html_escape(&m.name),
+            )
+        })
+        .collect();
+    format!(
+        r#"<div class="test-bar"><span class="test-bar-tag">TEST</span>{buttons}<form method="post" action="{base_path}/room/{code}/test/spawn"><button>+ FAKE</button></form></div>"#
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

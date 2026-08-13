@@ -1107,3 +1107,16 @@ body.lc-screen .lc-timer { height: 3px; }
 /* Do not add a second reduced-motion @media block — one already exists
    above. Nothing in this section animates; if that changes, extend the
    existing block instead. */
+
+/* Test play mode — the identity switcher bar, same component the room
+   page's game.css carries (lc_room.html loads only this sheet, hence the
+   duplicate). DRINKS_TEST_MODE=1 only; must never look like the game. */
+.test-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+            padding: 6px 10px; background: #2a1a06; border-bottom: 1px dashed #b8862f; }
+.test-bar-tag { font: 800 10px var(--font-ui); letter-spacing: .14em; color: #e8b555; }
+.test-bar form { display: inline; }
+.test-bar button { font: 700 11px var(--font-ui); letter-spacing: .06em;
+                   padding: 4px 10px; border-radius: 999px; cursor: pointer;
+                   background: transparent; border: 1px solid #b8862f; color: #e8b555; }
+.test-bar button[data-me] { background: #e8b555; color: #1a1206; }
+.test-bar button:disabled { cursor: default; }

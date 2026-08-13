@@ -8184,3 +8184,27 @@ async fn test_play_mode_spawn_and_act_as_switch_identities() {
     .await;
     assert_eq!(res.status(), StatusCode::UNPROCESSABLE_ENTITY);
 }
+
+/// Flag on: the switcher bar renders on the room page (every member as a
+/// button, the current identity marked) and on the Last Call shell — the
+/// two surfaces a solo tester actually hops between.
+#[tokio::test]
+async fn test_play_mode_bar_renders_on_room_and_lc_shell() {
+    let (app, _pool) = test_app_test_mode().await;
+    let alice = login(&app, "alice", "1234").await;
+    let code = create_room(&app, &alice).await;
+    post_form(&app, &alice, &format!("/room/{code}/test/spawn"), "").await;
+
+    let html = room_page_html(&app, &alice, &code).await;
+    assert!(html.contains(r#"class="test-bar""#));
+    assert!(html.contains("test-1"));
+    assert!(html.contains("+ FAKE"));
+    assert!(html.contains(" data-me disabled>alice<")); // current identity inert
+
+    // The Last Call shell carries the same bar.
+    post_form(&app, &alice, &format!("/room/{code}/lastcall/start"), "").await;
+    let res = get_shell(&app, &alice, &code).await;
+    let html = body_string(res).await;
+    assert!(html.contains(r#"class="test-bar""#));
+    assert!(html.contains("test/act-as"));
+}

@@ -830,3 +830,17 @@ button {
 
 /* error */
 .error { color: var(--red); font: 600 14px var(--font-ui); }
+
+/* Test play mode — the identity switcher bar (DRINKS_TEST_MODE=1 only;
+   rendered by render::test_switcher_bar on the room page). Deliberately
+   loud: this must never look like part of the game. */
+.test-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+            padding: 6px 10px; background: #2a1a06; border-bottom: 1px dashed #b8862f; }
+.test-bar-tag { font: 800 10px var(--font-ui, sans-serif); letter-spacing: .14em;
+                color: #e8b555; }
+.test-bar form { display: inline; }
+.test-bar button { font: 700 11px var(--font-ui, sans-serif); letter-spacing: .06em;
+                   padding: 4px 10px; border-radius: 999px; cursor: pointer;
+                   background: transparent; border: 1px solid #b8862f; color: #e8b555; }
+.test-bar button[data-me] { background: #e8b555; color: #1a1206; }
+.test-bar button:disabled { cursor: default; }

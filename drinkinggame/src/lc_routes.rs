@@ -932,6 +932,8 @@ struct LcRoomTemplate {
     base_path: String,
     code: String,
     player_id: i64,
+    /// Test play mode's identity switcher, or `""` (the flag-off default).
+    test_bar: String,
     banner: String,     // lc_render::lc_banner(&view)
     hand_pane: String,  // lc_render::lc_hand_pane(...)
     table_pane: String, // table_pane_html(&view, me) — the #lc-table fragment
@@ -957,10 +959,17 @@ pub async fn lc_page(
     let hand_pane = hand_pane_html(&state.base_path, &code, &ctx.st, player.id);
     let actions = lc_render::lc_action_bar(&action_bar_view(&ctx.st, player.id));
     let view = ctx.st.public_view();
+    let test_bar = if state.test_mode {
+        let members = db::room_members(&state.pool, ctx.room.id).await;
+        crate::render::test_switcher_bar(&state.base_path, &code, &members, player.id)
+    } else {
+        String::new()
+    };
     let tpl = LcRoomTemplate {
         base_path: state.base_path.to_string(),
         code,
         player_id: player.id,
+        test_bar,
         banner: lc_render::lc_banner(&view),
         hand_pane,
         table_pane: table_pane_html(&view, me),

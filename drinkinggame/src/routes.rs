@@ -120,6 +120,8 @@ struct RoomTemplate {
     leaderboard_items: String,
     game_panel: String,
     room_panel: String,
+    /// Test play mode's identity switcher, or `""` (the flag-off default).
+    test_bar: String,
 }
 
 async fn create_room(
@@ -252,6 +254,12 @@ async fn room_page(
     let leaderboard_items = render_leaderboard(&state, room.id).await;
     let game_panel = crate::game::current_panel(&state, room.id, &code, None).await;
     let room_panel = crate::game::current_room_panel(&state, room.id, &code).await;
+    let test_bar = if state.test_mode {
+        let members = db::room_members(&state.pool, room.id).await;
+        render::test_switcher_bar(&state.base_path, &code, &members, player.id)
+    } else {
+        String::new()
+    };
     let tpl = RoomTemplate {
         base_path: state.base_path.to_string(),
         code,
@@ -259,6 +267,7 @@ async fn room_page(
         leaderboard_items,
         game_panel,
         room_panel,
+        test_bar,
     };
     Html(tpl.render().unwrap()).into_response()
 }
