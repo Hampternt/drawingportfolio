@@ -4174,16 +4174,14 @@ async fn test_lastcall_hand_route_takes_no_player_input() {
     assert_eq!(baseline, with_target);
 }
 
-/// Plan G, Task 3: the fragment half of the mandatory privacy property for
-/// pacts — `pacts_section_html` reads `pacts`/`pact_offers`/`pact_barred`,
-/// none of which `PublicView` ever projects (G13), so the ONLY place any of
-/// it may render is the viewer's own `/lastcall/hand` fragment. Mirrors
-/// `test_hand_fragment_carries_only_the_viewers_armed_cards`'s shape (Task
-/// 4's fixture rig), but for pacts: state is hand-rolled with real player
-/// ids so `offer_pact`/`accept_pact` — which validate against `seat_of` —
-/// can be called directly on it before persisting.
+/// Plan G, Task 3, tightened by the 2026-08-13 screen-declutter pack: the
+/// pact section is retired, so a formed pact renders NOWHERE — not on a
+/// third party's fragment (the original G13 privacy property) and no
+/// longer on the parties' own fragments either. State is hand-rolled with
+/// real player ids so `offer_pact`/`accept_pact` — which validate against
+/// `seat_of` — can be called directly on it before persisting.
 #[tokio::test]
-async fn test_the_hand_fragment_shows_only_the_viewers_own_pact() {
+async fn test_the_hand_fragment_renders_no_pact_ui_at_all() {
     let (app, pool) = test_app_with_pool().await;
     let alice = login(&app, "alice", "1234").await;
     let bob = login(&app, "bob", "5678").await;
@@ -4251,10 +4249,11 @@ async fn test_the_hand_fragment_shows_only_the_viewers_own_pact() {
     drinkinggame::db::set_game_state(&pool, game_id, &st.to_json()).await;
 
     let alice_hand = body_string(get_hand(&app, &alice, &code).await).await;
-    assert!(alice_hand.contains("PACT WITH BOB"));
+    assert!(!alice_hand.contains("PACT WITH"), "{alice_hand}");
+    assert!(!alice_hand.contains("lc-pacts"), "{alice_hand}");
 
     let bob_hand = body_string(get_hand(&app, &bob, &code).await).await;
-    assert!(bob_hand.contains("PACT WITH ALICE"));
+    assert!(!bob_hand.contains("PACT WITH"), "{bob_hand}");
 
     let cara_hand = body_string(get_hand(&app, &cara, &code).await).await;
     assert!(!cara_hand.contains("PACT WITH"));
@@ -6954,13 +6953,14 @@ async fn test_a_pact_between_a_and_b_is_invisible_to_c_and_the_wire() {
         "{seen}"
     );
 
+    // The pact formed (state truth — the UI section is retired, so the
+    // parties' own hands no longer announce it either).
+    let formed = lc_state(&pool, &code).await;
+    assert_eq!(formed.pacts.len(), 1);
     let alice_hand = body_string(get_hand(&app, &alice, &code).await).await;
-    assert!(
-        alice_hand.contains("PACT WITH BOB — SINCE ROUND 1"),
-        "{alice_hand}"
-    );
+    assert!(!alice_hand.contains("PACT WITH"), "{alice_hand}");
     let bob_hand = body_string(get_hand(&app, &bob, &code).await).await;
-    assert!(bob_hand.contains("PACT WITH ALICE"), "{bob_hand}");
+    assert!(!bob_hand.contains("PACT WITH"), "{bob_hand}");
 
     let cara_after = body_string(get_hand(&app, &cara, &code).await).await;
     assert_eq!(
@@ -7150,10 +7150,11 @@ async fn test_pact_routes_are_guarded_and_answer_in_words() {
     assert_eq!(body_string(res).await, "No pact to be had.");
 }
 
-/// A decline clears the offer for both phones: the target's row disappears
-/// and the offeror's own WAITING line reverts to a propose button — no
-/// error, tick-only broadcast (the same E5 policy assertion arm/disarm's
-/// test makes for its own routes).
+/// A decline clears the offer cleanly: no error, tick-only broadcast (the
+/// same E5 policy assertion arm/disarm's test makes for its own routes),
+/// and the offer is gone from state with nobody pacted or barred. (The
+/// phones' pact section is retired — screen-declutter pack 2026-08-13 —
+/// so the offer/decline round-trip is asserted on state, not markup.)
 #[tokio::test]
 async fn test_decline_clears_the_offer_for_both_phones() {
     let (app, pool) = test_app_with_pool().await;
@@ -7215,9 +7216,10 @@ async fn test_decline_clears_the_offer_for_both_phones() {
     assert_eq!(res.status(), StatusCode::NO_CONTENT);
     read_sse_until(&mut body, "event: lctick").await;
 
-    let bob_hand = body_string(get_hand(&app, &bob, &code).await).await;
-    assert!(bob_hand.contains("ALICE OFFERS A PACT"), "{bob_hand}");
-    assert!(bob_hand.contains(r#"data-lc-body="from=0""#), "{bob_hand}");
+    let offered = lc_state(&pool, &code).await;
+    assert_eq!(offered.pact_offers.len(), 1);
+    assert_eq!(offered.pact_offers[0].from, 0);
+    assert_eq!(offered.pact_offers[0].to, 1);
 
     let res = post_form(
         &app,
@@ -7235,13 +7237,10 @@ async fn test_decline_clears_the_offer_for_both_phones() {
         "{seen}"
     );
 
-    let bob_hand = body_string(get_hand(&app, &bob, &code).await).await;
-    assert!(!bob_hand.contains("ALICE OFFERS A PACT"), "{bob_hand}");
-    assert!(!bob_hand.contains("ACCEPT"), "{bob_hand}");
-
-    let alice_hand = body_string(get_hand(&app, &alice, &code).await).await;
-    assert!(!alice_hand.contains("WAITING"), "{alice_hand}");
-    assert!(alice_hand.contains("PROPOSE TO BOB"), "{alice_hand}");
+    let declined = lc_state(&pool, &code).await;
+    assert!(declined.pact_offers.is_empty());
+    assert!(declined.pacts.is_empty());
+    assert!(declined.pact_barred.is_empty());
 }
 
 /// G5/G10 together, at the wire: a betrayal (`pact_breaks`) is the only

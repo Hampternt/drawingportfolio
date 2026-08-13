@@ -15,7 +15,7 @@ use crate::db;
 use crate::error::GameError;
 use crate::last_call::{
     Beat, Card, CardKind, Deck, EffectOp, LastCallState, LcError, Play, PublicView, Status,
-    DRAW_PER_VESSEL, PACT_MIN_ALIVE,
+    DRAW_PER_VESSEL,
 };
 use crate::lc_render::{self, ActionBarView, HandGroupView, SetupRow};
 use crate::models::{Game, Player, Room};
@@ -451,8 +451,8 @@ fn setup_rows(st: &LastCallState) -> Vec<SetupRow> {
 /// private fetch, seq gate and stale-drop as the target picker above it.
 ///
 /// Plan J Task 3: once `st.outcome()` is `Some`, the pane body switches
-/// wholesale to `lc_end_card` — the vessel/handicap setup section, targets,
-/// response window, pacts and tab card all stop applying to a finished game
+/// wholesale to `lc_end_card` — the register row, targets, response window
+/// and tab card all stop applying to a finished game
 /// (`targets_section_html`'s own `Beat::Lock` gate, for one, is already moot
 /// once the beat is frozen at Resolve). The root id and `data-seq` stay put
 /// so `lcApply`'s `querySelector("#lc-hand")` stale-drop gate keeps working
@@ -539,11 +539,8 @@ fn hand_pane_html(base_path: &str, code: &str, st: &LastCallState, player_id: i6
         }
         _ => String::new(),
     };
-    let pacts = pacts_section_html(st, player_id);
     let bar = lc_render::lc_action_bar(&action_bar_view(st, player_id));
-    format!(
-        r#"{pane}{targets}{response}{pacts}{tab_panel}<template data-lc-actions>{bar}</template>"#
-    )
+    format!(r#"{pane}{targets}{response}{tab_panel}<template data-lc-actions>{bar}</template>"#)
 }
 
 /// Plan E Task 4: assembles the viewer's own `ActionBarView` from
@@ -800,119 +797,16 @@ fn response_section_html(st: &LastCallState, seat: usize) -> String {
     format!(r#"<section class="lc-react"><h2>Response window</h2>{blocks}</section>"#)
 }
 
-/// A seat's name, uppercased and escaped — the `pacts_section_html` analogue
+/// A seat's name, uppercased and escaped — the `&LastCallState` analogue
 /// of `lc_render::seat_name_upper`, which reads `&PublicView` and so cannot
-/// be reused here: every seat this function names comes from `pacts`/
-/// `pact_offers`/`pact_barred`, none of which `PublicView` ever carries
-/// (G13). `.get()`, not `[]`, for the same defensive reason `seat_name_upper`
-/// gives — a stored seat index outliving the player it named is a corrupt-
-/// blob concern, not a panic.
+/// be reused here. `.get()`, not `[]`, for the same defensive reason
+/// `seat_name_upper` gives — a stored seat index outliving the player it
+/// named is a corrupt-blob concern, not a panic.
 fn seat_name(st: &LastCallState, seat: usize) -> String {
     st.players
         .get(seat)
         .map(|p| crate::render::html_escape(&p.name.to_uppercase()))
         .unwrap_or_default()
-}
-
-/// Plan G, Task 3: the private pact section — the §7.8 "Pact" component,
-/// Follows `targets_section_html`'s shape and placement (appended to the
-/// hand pane, outside `#lc-hand`). Reads `pacts`/`pact_offers`/
-/// `pact_barred` directly off `&LastCallState` — fields `PublicView` never
-/// projects (G13) — so this builder, like `targets_section_html`, must never
-/// be handed to anything but the viewer's own private hand fragment.
-///
-/// `""` for a non-member, and `""` again for a seated member with nothing to
-/// show — the section is additive: each of the three parts below either
-/// contributes a fragment of markup or contributes nothing, and an entirely
-/// empty body means no `<section>` wrapper either.
-fn pacts_section_html(st: &LastCallState, player_id: i64) -> String {
-    let Some(seat) = st.seat_of(player_id) else {
-        return String::new();
-    };
-    let mut body = String::new();
-
-    // 1. Standing pact — any beat, while pacted. Read `pacts` directly
-    // (rather than `pact_partner`, which drops `formed_round`) since the
-    // line needs both the partner's seat and the round the pact formed.
-    if let Some(pact) = st.pacts.iter().find(|p| p.a == seat || p.b == seat) {
-        let partner = if pact.a == seat { pact.b } else { pact.a };
-        body.push_str(&format!(
-            r#"<p class="lc-pact-standing">PACT WITH {name} — SINCE ROUND {round}</p>"#,
-            name = seat_name(st, partner),
-            round = pact.formed_round,
-        ));
-    }
-
-    // 2. Betrayed notice — any beat, current round only. A break record
-    // outlives its round (Plan J's recap reads history), so this is
-    // deliberately gated on `round == st.round`, not "any break naming me".
-    if let Some(brk) = st
-        .pact_breaks
-        .iter()
-        .find(|b| b.betrayed == seat && b.round == st.round)
-    {
-        body.push_str(&format!(
-            r#"<p class="lc-pact-broken">{name} BROKE YOUR PACT</p>"#,
-            name = seat_name(st, brk.betrayer),
-        ));
-    }
-
-    // 3. The Diplomacy-only market — an Alive viewer only. Dead/eliminated
-    // seats get nothing here (there is nothing left for them to negotiate),
-    // and every beat but Diplomacy hides the market even for a live one.
-    if st.beat == Beat::Diplomacy && st.players[seat].status == Status::Alive {
-        if st.pact_barred.contains(&seat) {
-            body.push_str(
-                r#"<p class="lc-pact-barred">YOU BROKE A PACT — NOBODY DEALS WITH YOU NOW</p>"#,
-            );
-        } else if st.pact_partner(seat).is_none() {
-            let alive_count = st
-                .players
-                .iter()
-                .filter(|p| p.status == Status::Alive)
-                .count();
-            if alive_count >= PACT_MIN_ALIVE {
-                for offer in st.pact_offers.iter().filter(|o| o.to == seat) {
-                    body.push_str(&format!(
-                        r#"<div class="lc-pact-offer-row"><span>{name} OFFERS A PACT</span><button class="lc-btn lc-pact-accept" data-lc-post="pact/accept" data-lc-body="from={from}">ACCEPT</button><button class="lc-btn lc-pact-decline" data-lc-post="pact/decline" data-lc-body="from={from}">DECLINE</button></div>"#,
-                        name = seat_name(st, offer.from),
-                        from = offer.from,
-                    ));
-                }
-                let outgoing = st.pact_offers.iter().find(|o| o.from == seat);
-                if let Some(offer) = outgoing {
-                    body.push_str(&format!(
-                        r#"<p class="lc-pact-pending">OFFERED TO {name} — WAITING</p>"#,
-                        name = seat_name(st, offer.to),
-                    ));
-                }
-                // Secretly-pacted seats stay listed (G11 — the list must not
-                // be a pact detector); only publicly-barred seats and the
-                // pending outgoing target (already rendered above as the
-                // WAITING line) are dropped.
-                for tp in st.players.iter().filter(|tp| tp.status == Status::Alive) {
-                    if tp.seat == seat
-                        || st.pact_barred.contains(&tp.seat)
-                        || outgoing.is_some_and(|o| o.to == tp.seat)
-                    {
-                        continue;
-                    }
-                    body.push_str(&format!(
-                        r#"<button class="lc-btn lc-pact-propose" data-lc-post="pact/offer" data-lc-body="target={target}">PROPOSE TO {name}</button>"#,
-                        target = tp.seat,
-                        name = seat_name(st, tp.seat),
-                    ));
-                }
-            }
-        }
-        // else: pacted viewer — nothing beyond the standing line, no market.
-    }
-
-    if body.is_empty() {
-        String::new()
-    } else {
-        format!(r#"<section class="lc-pacts"><h2>Pact</h2>{body}</section>"#)
-    }
 }
 
 // NOTE: the brief's Produces section lists a `seq: u64` field on this struct,
@@ -1422,7 +1316,10 @@ pub async fn lc_mulligan_handler(
 }
 
 // -------------------------------------------------------------
-// Plan G (Task 4): the pact routes — offer/accept/decline. All three share
+// Plan G (Task 4): the pact routes — offer/accept/decline. Screen-declutter
+// pack (2026-08-13): the phone's pact section no longer renders, so no
+// button posts here anymore — the routes and the engine stay, dormant, for
+// a future pact redesign. All three share
 // Plan E Task 1's exact skeleton (`lc_lock` -> `load_lc` -> mutate -> `map_lc`
 // on error -> persist -> `204`) and, like arm/disarm/target, publish
 // `LcTick` alone (tick-only — E5's rule applied a second time): nothing
@@ -1432,7 +1329,7 @@ pub async fn lc_mulligan_handler(
 // public information at all, only free the market's private state to a
 // spectator who has no business seeing a market exists. But both parties'
 // own phones still need the private re-fetch signal to repaint their own
-// `#lc-pacts` section, and the spectator screen never notices: it consumes
+// hand fragment, and the spectator screen never notices: it consumes
 // only `LcPublic`, so it has no listener for `LcTick` to ignore in the
 // first place ("who is subscribed and what are they looking at").
 //
@@ -1943,19 +1840,6 @@ mod tests {
     /// alice(1)/bob(2)/cara(3)/dave(4) -> seats 0-3, the same shape as
     /// `last_call.rs`'s own `at_diplomacy()` test fixture — private to that
     /// module, so redefined here rather than reached across the crate.
-    /// §7.8: `pacts_section_html` is structure + `data-*` only — no
-    /// `hx-post`, no `onclick`, no `action=`. `data-lc-post`/`data-lc-body`
-    /// are data-contract attributes (the same status as Plan E's
-    /// `data-lc-post`), not behaviour, so neither is in this banned list.
-    fn assert_no_behaviour(html: &str) {
-        for banned in ["hx-post", "hx-get", "onclick", "action=\""] {
-            assert!(
-                !html.contains(banned),
-                "found forbidden `{banned}` in: {html}"
-            );
-        }
-    }
-
     fn diplomacy_state() -> LastCallState {
         let mut st = LastCallState::new(
             vec![
@@ -1974,116 +1858,6 @@ mod tests {
         st
     }
 
-    #[test]
-    fn test_pacts_section_states() {
-        let mut st = diplomacy_state();
-
-        // Fresh state, viewer alice: 3 PROPOSE TO buttons, no ACCEPT, no
-        // "PACT WITH", no WAITING.
-        let alice_html = pacts_section_html(&st, 1);
-        assert_eq!(alice_html.matches("lc-pact-propose").count(), 3);
-        assert!(alice_html
-            .contains(r#"data-lc-post="pact/offer" data-lc-body="target=1">PROPOSE TO BOB"#));
-        assert!(alice_html
-            .contains(r#"data-lc-post="pact/offer" data-lc-body="target=2">PROPOSE TO CARA"#));
-        assert!(alice_html
-            .contains(r#"data-lc-post="pact/offer" data-lc-body="target=3">PROPOSE TO DAVE"#));
-        assert!(!alice_html.contains("ACCEPT"));
-        assert!(!alice_html.contains("PACT WITH"));
-        assert!(!alice_html.contains("WAITING"));
-        assert_no_behaviour(&alice_html);
-
-        // Captured before the offer below, for the third-party-invisibility
-        // check.
-        let cara_before = pacts_section_html(&st, 3);
-
-        st.offer_pact(1, 1).unwrap(); // alice (seat 0) -> bob (seat 1)
-
-        let alice_html = pacts_section_html(&st, 1);
-        assert!(alice_html.contains("OFFERED TO BOB — WAITING"));
-        assert_eq!(alice_html.matches("lc-pact-propose").count(), 2);
-        assert!(alice_html.contains("PROPOSE TO CARA"));
-        assert!(alice_html.contains("PROPOSE TO DAVE"));
-        assert!(!alice_html.contains("PROPOSE TO BOB"));
-
-        let bob_html = pacts_section_html(&st, 2);
-        assert!(bob_html.contains("ALICE OFFERS A PACT"));
-        assert!(bob_html.contains(r#"data-lc-post="pact/accept" data-lc-body="from=0""#));
-        assert!(bob_html.contains(r#"data-lc-post="pact/decline" data-lc-body="from=0""#));
-        assert_no_behaviour(&bob_html);
-
-        // cara: offers between third parties are invisible — her section is
-        // byte-identical to before the offer.
-        let cara_after = pacts_section_html(&st, 3);
-        assert_eq!(
-            cara_after, cara_before,
-            "an offer between two other seats must not touch a third party's section"
-        );
-
-        st.accept_pact(2, 0).unwrap(); // bob accepts alice's offer
-
-        let alice_html = pacts_section_html(&st, 1);
-        assert!(alice_html.contains("PACT WITH BOB — SINCE ROUND 1"));
-        assert!(!alice_html.contains("lc-pact-propose"));
-
-        // cara: STILL proposes to alice, bob and dave — secretly-pacted
-        // seats stay listed (G11: no pact detector).
-        let cara_html = pacts_section_html(&st, 3);
-        assert!(cara_html.contains("PROPOSE TO ALICE"));
-        assert!(cara_html.contains("PROPOSE TO BOB"));
-        assert!(cara_html.contains("PROPOSE TO DAVE"));
-
-        st.pact_barred.push(3); // dave publicly barred
-
-        let dave_html = pacts_section_html(&st, 4);
-        assert_eq!(
-            dave_html,
-            r#"<section class="lc-pacts"><h2>Pact</h2><p class="lc-pact-barred">YOU BROKE A PACT — NOBODY DEALS WITH YOU NOW</p></section>"#
-        );
-
-        // cara's propose list drops dave now that he's publicly barred.
-        let cara_html = pacts_section_html(&st, 3);
-        assert!(!cara_html.contains("PROPOSE TO DAVE"));
-        assert!(cara_html.contains("PROPOSE TO ALICE"));
-        assert!(cara_html.contains("PROPOSE TO BOB"));
-
-        st.beat = Beat::Lock;
-        // Pacted alice keeps the standing line at any beat.
-        let alice_html = pacts_section_html(&st, 1);
-        assert!(alice_html.contains("PACT WITH BOB — SINCE ROUND 1"));
-        // Unpacted cara has nothing to show once the market beat has passed.
-        let cara_html = pacts_section_html(&st, 3);
-        assert_eq!(cara_html, "");
-
-        st.beat = Beat::Diplomacy;
-        st.players[3].status = Status::Eliminated; // dave out: 3 alive < PACT_MIN_ALIVE
-        let cara_html = pacts_section_html(&st, 3);
-        assert_eq!(cara_html, "");
-    }
-
-    #[test]
-    fn test_pacts_section_betrayed_notice() {
-        let mut st = diplomacy_state();
-        st.pact_breaks = vec![crate::last_call::PactBreak {
-            betrayer: 0,
-            betrayed: 1,
-            round: 1,
-        }];
-        st.beat = Beat::Lock;
-
-        let bob_html = pacts_section_html(&st, 2); // bob is seat 1, the betrayed
-        assert!(bob_html.contains("ALICE BROKE YOUR PACT"));
-
-        st.round = 2;
-        let bob_html = pacts_section_html(&st, 2);
-        assert!(!bob_html.contains("BROKE YOUR PACT"));
-
-        st.round = 1;
-        st.pact_barred.push(0); // alice barred, but at Lock the barred line never shows
-        let alice_html = pacts_section_html(&st, 1); // alice is seat 0, the betrayer
-        assert_eq!(alice_html, "");
-    }
-
     /// Plan G whole-plan-review erratum (originally found by Task 3, fixed
     /// as a cross-task seam repair): `resolve()` used to stamp
     /// `PactBreak { round: self.round }` in Step 1, BEFORE Step 8's
@@ -2091,10 +1865,10 @@ mod tests {
     /// `lc_advance_chain` never persists an intermediate state between the
     /// two (Reveal -> Resolve -> the round+1 Draw is one synchronous pass),
     /// no client fetch could ever observe `st.round` still equal to the
-    /// round a non-terminal betrayal was recorded against. Both round-scoped
-    /// readers (`pacts_section_html`'s betrayed notice, `lc_screen_panel`'s
-    /// break strip, both filtering `round == st.round`/`round == view.round`
-    /// verbatim per the brief) were unreachable for every betrayal except
+    /// round a non-terminal betrayal was recorded against. The round-scoped
+    /// reader (`lc_screen_panel`'s break strip, filtering
+    /// `round == view.round` verbatim per the brief; the retired pact
+    /// section's betrayed notice was its twin) was unreachable for every betrayal except
     /// one that also happened to end the game — contradicting G5 ("loud, by
     /// name"). `resolve()` now re-stamps a non-terminal break with the round
     /// it rolls over INTO (the round players actually land on) rather than
@@ -2122,9 +1896,10 @@ mod tests {
              over into, not the round it was thrown in"
         );
 
-        // Both round-scoped surfaces now show the betrayal in the very
-        // first frame anyone can fetch it in.
-        assert!(pacts_section_html(&st, 2).contains("ALICE BROKE YOUR PACT"));
+        // The round-scoped surface now shows the betrayal in the very
+        // first frame anyone can fetch it in. (The private pact section was
+        // the other reader until the 2026-08-13 screen-declutter pack
+        // retired the pact UI; the break strip is the one left.)
         let view = st.public_view();
         assert!(lc_render::lc_screen_panel(&view).contains("lc-pact-break"));
 
@@ -2134,7 +1909,6 @@ mod tests {
         st.beat = Beat::Resolve;
         st.resolve().unwrap();
         assert_ne!(st.pact_breaks.last().unwrap().round, st.round);
-        assert!(!pacts_section_html(&st, 2).contains("BROKE YOUR PACT"));
         assert!(!lc_render::lc_screen_panel(&st.public_view()).contains("lc-pact-break"));
     }
 }
