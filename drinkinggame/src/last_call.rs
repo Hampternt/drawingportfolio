@@ -234,6 +234,11 @@ pub struct LcPlayer {
     /// blob written before this existed backfills `false`, not a hard error.
     #[serde(default)]
     pub ready: bool,
+    /// Round-scoped: this seat has spent its one discard/redraw
+    /// (`mulligan`) this round. Never checked in round 1 — the lobby's
+    /// mulligans are unlimited. Reset at the rollover with `locked`/`ready`.
+    #[serde(default)]
+    pub mulliganed: bool,
     pub drawing: bool,
     pub draws_this_round: u16,
     pub tabs: Vec<String>,
@@ -405,6 +410,13 @@ pub enum LogEntry {
     Draw {
         seat: usize,
         deck: Deck,
+        n: u8,
+    },
+    /// A discard/redraw (beat-restructure, 2026-08-13). Count only — which
+    /// cards left the hand is private, exactly like `Draw` says nothing
+    /// about what arrived.
+    Mulligan {
+        seat: usize,
         n: u8,
     },
     Lock {
@@ -800,6 +812,7 @@ impl LastCallState {
                 armed: Vec::new(),
                 locked: false,
                 ready: false,
+                mulliganed: false,
                 drawing: false,
                 draws_this_round: 0,
                 // H7: the opening deal — the seat's 0th tab, not empty.
@@ -942,6 +955,7 @@ impl LastCallState {
             armed: Vec::new(),
             locked: false,
             ready: false,
+            mulliganed: false,
             drawing: false,
             draws_this_round: 0,
             // H7: same opening deal `new` gives every founding seat — the
@@ -1077,6 +1091,97 @@ impl LastCallState {
             deck,
             n: drawn_count as u8,
         });
+        Ok(())
+    }
+
+    /// The per-card discard/redraw (beat-restructure, 2026-08-13). Draw-beat
+    /// gated; round 1 (the lobby, once hands are dealt at registration) is
+    /// unlimited, every later round allows ONE use — `mulliganed`, reset at
+    /// the rollover. `finish_and_draw`'s D6 split: card identity is decided
+    /// by the route (shoe-sampled per discarded card's own deck), this only
+    /// validates — each discard id must name a distinct hand card, each
+    /// replacement must match its discard's deck pairwise, and each deck's
+    /// shoe must cover what it's asked for. Discards join `self.discards`
+    /// (they re-enter the shoe at a reshuffle like play discards); shoe
+    /// counts drop per replacement, so hand size is preserved and the only
+    /// public traces are the count-shaped ones (log line, deck counts).
+    pub fn mulligan(
+        &mut self,
+        player_id: i64,
+        discard_ids: &[String],
+        replacements: Vec<Card>,
+    ) -> Result<(), LcError> {
+        let Some(seat) = self.seat_of(player_id) else {
+            return Err(LcError::NotSeated);
+        };
+        if self.players[seat].status != Status::Alive {
+            return Err(LcError::NotAlive);
+        }
+        if self.beat != Beat::Draw {
+            return Err(LcError::WrongBeat);
+        }
+        if discard_ids.is_empty() || replacements.len() != discard_ids.len() {
+            return Err(LcError::BadDraw);
+        }
+        if self.round >= 2 && self.players[seat].mulliganed {
+            return Err(LcError::BadDraw);
+        }
+        // Each id claims a DISTINCT hand index (a hand can hold duplicates
+        // — F11's with-replacement sampling — so ids alone are ambiguous).
+        let p = &self.players[seat];
+        let mut taken: Vec<usize> = Vec::with_capacity(discard_ids.len());
+        for id in discard_ids {
+            let Some(idx) = p
+                .hand
+                .iter()
+                .enumerate()
+                .find(|(i, c)| c.id == *id && !taken.contains(i))
+                .map(|(i, _)| i)
+            else {
+                return Err(LcError::UnknownCard);
+            };
+            taken.push(idx);
+        }
+        for (i, &idx) in taken.iter().enumerate() {
+            if replacements[i].deck != p.hand[idx].deck {
+                return Err(LcError::BadDraw);
+            }
+        }
+        for deck in Deck::ALL {
+            let need = taken.iter().filter(|&&i| p.hand[i].deck == deck).count() as u16;
+            if need == 0 {
+                continue;
+            }
+            let shoe = self
+                .deck_counts
+                .iter()
+                .find(|(d, _)| *d == deck)
+                .map(|&(_, c)| c)
+                .unwrap_or(0);
+            if shoe < need {
+                return Err(LcError::BadDraw);
+            }
+        }
+
+        let n = taken.len() as u8;
+        let mut removed: Vec<Card> = Vec::with_capacity(taken.len());
+        let mut order = taken;
+        order.sort_unstable_by(|a, b| b.cmp(a)); // back-to-front removal
+        let p = &mut self.players[seat];
+        for idx in order {
+            removed.push(p.hand.remove(idx));
+        }
+        for card in &replacements {
+            if let Some(entry) = self.deck_counts.iter_mut().find(|(d, _)| *d == card.deck) {
+                entry.1 = entry.1.saturating_sub(1);
+            }
+        }
+        let p = &mut self.players[seat];
+        p.hand.extend(replacements);
+        p.mulliganed = true; // only ever *checked* from round 2 on
+        self.discards.extend(removed);
+        self.seq += 1;
+        self.push_log(LogEntry::Mulligan { seat, n });
         Ok(())
     }
 
@@ -2807,6 +2912,7 @@ impl LastCallState {
         for p in &mut self.players {
             p.locked = false;
             p.ready = false;
+            p.mulliganed = false;
             p.drawing = false;
             p.draws_this_round = 0;
         }
@@ -4315,6 +4421,95 @@ mod tests {
         assert_eq!(st.players[0].handicap_pct, 150);
     }
 
+    /// alice registered (Beer hand dealt), still in the round-1 lobby.
+    fn lobby_with_hand() -> LastCallState {
+        let mut st = seated();
+        st.set_vessel(1, Deck::Beer, "can").unwrap();
+        st.set_vessel(2, Deck::Cider, "bottle").unwrap();
+        st
+    }
+
+    /// A same-deck replacement for the card at alice's hand index `i`,
+    /// picked to be an id she doesn't currently hold so "the discard left
+    /// the hand" stays assertable (the engine itself is happy with
+    /// duplicates — F11 sampling).
+    fn replacement_for(st: &LastCallState, i: usize) -> Card {
+        let deck = st.players[0].hand[i].deck;
+        crate::lc_cards::shoe(deck)
+            .iter()
+            .find(|s| !st.players[0].hand.iter().any(|h| h.id == s.id))
+            .unwrap()
+            .clone()
+    }
+
+    #[test]
+    fn test_mulligan_swaps_cards_and_keeps_hand_size() {
+        let mut st = lobby_with_hand();
+        let hand_before = st.players[0].hand.len();
+        let discards_before = st.discards.len();
+        let shoe_before = st.deck_counts[0].1; // Beer
+        let ids = vec![
+            st.players[0].hand[0].id.clone(),
+            st.players[0].hand[1].id.clone(),
+        ];
+        let reps = vec![replacement_for(&st, 0), replacement_for(&st, 1)];
+        st.mulligan(1, &ids, reps).unwrap();
+        assert_eq!(st.players[0].hand.len(), hand_before); // size preserved
+        assert!(!st.players[0].hand.iter().any(|c| c.id == ids[0]));
+        assert_eq!(st.discards.len(), discards_before + 2);
+        assert_eq!(st.deck_counts[0].1, shoe_before - 2); // shoe debited
+        assert_eq!(st.log.last(), Some(&LogEntry::Mulligan { seat: 0, n: 2 }));
+    }
+
+    #[test]
+    fn test_mulligan_is_unlimited_in_the_lobby_but_once_a_round_after() {
+        // Lobby (round 1): two swaps in a row, both fine.
+        let mut st = lobby_with_hand();
+        for _ in 0..2 {
+            let id = st.players[0].hand[0].id.clone();
+            let rep = replacement_for(&st, 0);
+            st.mulligan(1, &[id], vec![rep]).unwrap();
+        }
+
+        // Round 2: the first swap spends the round's one use.
+        let mut st = lobby_with_hand();
+        st.round = 2;
+        let id = st.players[0].hand[0].id.clone();
+        let rep = replacement_for(&st, 0);
+        st.mulligan(1, &[id], vec![rep]).unwrap();
+        let id = st.players[0].hand[0].id.clone();
+        let rep = replacement_for(&st, 0);
+        assert_eq!(st.mulligan(1, &[id.clone()], vec![rep]), Err(LcError::BadDraw));
+
+        // The rollover refreshes it.
+        st.beat = Beat::Resolve;
+        st.resolve().unwrap();
+        assert!(!st.players[0].mulliganed);
+        let id = st.players[0].hand[0].id.clone();
+        let rep = replacement_for(&st, 0);
+        st.mulligan(1, &[id], vec![rep]).unwrap();
+    }
+
+    #[test]
+    fn test_mulligan_validates_ids_decks_and_beat() {
+        let mut st = lobby_with_hand();
+        // Unknown id.
+        let rep = replacement_for(&st, 0);
+        assert_eq!(
+            st.mulligan(1, &["no-such-card".into()], vec![rep]),
+            Err(LcError::UnknownCard)
+        );
+        // Wrong-deck replacement (alice's hand is Beer; hand a Wine back).
+        let id = st.players[0].hand[0].id.clone();
+        let wrong = crate::lc_cards::shoe(Deck::Wine)[0].clone();
+        assert_eq!(st.mulligan(1, &[id], vec![wrong]), Err(LcError::BadDraw));
+        // Wrong beat.
+        st.beat = Beat::Diplomacy;
+        let id = st.players[0].hand[0].id.clone();
+        let rep = replacement_for(&st, 0);
+        assert_eq!(st.mulligan(1, &[id], vec![rep]), Err(LcError::WrongBeat));
+    }
+
     #[test]
     fn test_set_ready_refuses_the_lobby_and_closed_beats() {
         let mut st = seated(); // round 1 Draw — the registration lobby
@@ -5503,6 +5698,7 @@ mod tests {
             armed: Vec::new(),
             locked: false,
             ready: false,
+            mulliganed: false,
             drawing: false,
             draws_this_round: 0,
             tabs: Vec::new(),

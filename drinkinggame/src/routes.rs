@@ -951,6 +951,10 @@ pub fn router() -> Router<GameState> {
             post(crate::lc_routes::lc_draw_handler),
         )
         .route(
+            "/room/{code}/lastcall/mulligan",
+            post(crate::lc_routes::lc_mulligan_handler),
+        )
+        .route(
             "/room/{code}/lastcall/react",
             post(crate::lc_routes::lc_react_handler),
         )

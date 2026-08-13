@@ -679,6 +679,7 @@ fn log_tag(entry: &LogEntry) -> &'static str {
         LogEntry::Vessel { .. } => "vessel",
         LogEntry::Handicap { .. } => "handicap",
         LogEntry::Draw { .. } => "draw",
+        LogEntry::Mulligan { .. } => "mulligan",
         LogEntry::Lock { .. } => "lock",
         LogEntry::Play { .. } => "play",
         LogEntry::Hit { .. } => "hit",
@@ -715,6 +716,9 @@ fn log_line(view: &PublicView, entry: &LogEntry) -> String {
             log_seat_name(view, *seat),
             deck.label()
         ),
+        LogEntry::Mulligan { seat, n } => {
+            format!("{} SWAPS {n}", log_seat_name(view, *seat))
+        }
         LogEntry::Lock { seat } => format!("{} LOCKS IN", log_seat_name(view, *seat)),
         LogEntry::Play {
             seat,
@@ -1391,6 +1395,9 @@ pub struct ActionBarView {
     /// The viewer's own ready tick — drives the open beats' READY button
     /// swap the same way `locked` drives Lock's.
     pub ready: bool,
+    /// The viewer has spent this round's discard/redraw — hides the Draw
+    /// beat's tap-to-swap hint (round 1 never sets the round-2+ limit).
+    pub mulliganed: bool,
     pub drawing: bool,
     pub vessels: Vec<(usize, Deck)>, // (vessel index, deck)
     pub charged: u8,                 // viewer's pulls at the reveal (E9)
@@ -1453,10 +1460,21 @@ pub fn lc_action_bar(ab: &ActionBarView) -> String {
     match ab.beat {
         Beat::Draw => {
             if ab.round == 1 {
-                if ab.vessels_registered >= 2 {
-                    r#"<button class="lc-btn lc-btn-drink" data-lc-post="begin">START ROUND 1</button>"#.to_string()
+                // The lobby's free mulligan hint — only once this viewer
+                // actually holds a hand (registered a vessel).
+                let swap_hint = if ab.vessels.is_empty() {
+                    ""
                 } else {
-                    r#"<button class="lc-btn lc-btn-drink" data-lc-post="begin" disabled>START ROUND 1</button><p class="lc-actions-hint">NEEDS 2 DRINKS REGISTERED</p>"#.to_string()
+                    r#"<p class="lc-actions-hint">TAP A CARD TO SWAP IT — FREE UNTIL THE GAME STARTS</p>"#
+                };
+                if ab.vessels_registered >= 2 {
+                    format!(
+                        r#"<button class="lc-btn lc-btn-drink" data-lc-post="begin">START ROUND 1</button>{swap_hint}"#
+                    )
+                } else {
+                    format!(
+                        r#"<button class="lc-btn lc-btn-drink" data-lc-post="begin" disabled>START ROUND 1</button><p class="lc-actions-hint">NEEDS 2 DRINKS REGISTERED</p>{swap_hint}"#
+                    )
                 }
             } else if ab.drawing {
                 format!(
@@ -1474,7 +1492,12 @@ pub fn lc_action_bar(ab: &ActionBarView) -> String {
                         )
                     })
                     .collect();
-                format!("{buttons}{}", ready_control(ab.ready))
+                let swap_hint = if ab.mulliganed {
+                    ""
+                } else {
+                    r#"<p class="lc-actions-hint">TAP A CARD TO SWAP IT — ONCE A ROUND</p>"#
+                };
+                format!("{buttons}{swap_hint}{}", ready_control(ab.ready))
             }
         }
         Beat::Deal => r#"<p class="lc-actions-hint">DEALING…</p>"#.to_string(),
@@ -1866,6 +1889,7 @@ mod tests {
                 alive: true,
                 locked: false,
                 ready: false,
+                mulliganed: false,
                 drawing: false,
                 vessels: vec![(0, Deck::Beer), (1, Deck::Soft)],
                 charged: 0,
@@ -1884,6 +1908,7 @@ mod tests {
                 alive: false,
                 locked: false,
                 ready: false,
+                mulliganed: false,
                 drawing: false,
                 vessels: Vec::new(),
                 charged: 0,
@@ -1909,6 +1934,7 @@ mod tests {
                 alive: true,
                 locked: false,
                 ready: false,
+                mulliganed: false,
                 drawing: false,
                 vessels: Vec::new(),
                 charged: 0,
@@ -3677,6 +3703,7 @@ mod tests {
                 alive: true,
                 locked: false,
                 ready: false,
+                mulliganed: false,
                 drawing: false,
                 vessels: Vec::new(),
                 charged: 0,
@@ -3863,6 +3890,7 @@ mod tests {
                 alive,
                 locked: false,
                 ready: false,
+                mulliganed: false,
                 drawing: false,
                 vessels: Vec::new(),
                 charged: 0,

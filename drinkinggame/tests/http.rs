@@ -6423,6 +6423,70 @@ async fn test_ready_from_the_whole_table_advances_the_open_beat() {
     );
 }
 
+/// The mulligan route (beat-restructure): a lobby tap swaps a card for a
+/// same-deck replacement with hand size preserved — and the lobby is
+/// unlimited, so a second swap lands too. Off the Draw beat it's the
+/// standard "not now" 409.
+#[tokio::test]
+async fn test_mulligan_swaps_a_card_in_the_lobby() {
+    let (app, pool) = test_app_with_pool().await;
+    let alice = login(&app, "alice", "1234").await;
+    let bob = login(&app, "bob", "5678").await;
+    let code = create_room(&app, &alice).await;
+    room_page_html(&app, &bob, &code).await;
+    post_form(&app, &alice, &format!("/room/{code}/lastcall/start"), "").await;
+    post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/lastcall/vessel"),
+        "deck=beer&container=can",
+    )
+    .await;
+
+    let st = lc_state(&pool, &code).await;
+    let hand_before = st.players[0].hand.len();
+    assert!(hand_before > 0, "registration deals the hand");
+    let discard_id = st.players[0].hand[0].id.clone();
+
+    let res = post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/lastcall/mulligan"),
+        &format!("cards={discard_id}"),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+    let mid = lc_state(&pool, &code).await;
+    assert_eq!(mid.players[0].hand.len(), hand_before); // size preserved
+    assert_eq!(mid.discards.len(), 1);
+
+    // Lobby swaps are unlimited — another one is fine.
+    let second_id = mid.players[0].hand[0].id.clone();
+    let res = post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/lastcall/mulligan"),
+        &format!("cards={second_id}"),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+
+    // Off the Draw beat: refused.
+    let mut st = lc_state(&pool, &code).await;
+    st.beat = Beat::Diplomacy;
+    let game_id = lc_game_id(&pool, &code).await;
+    drinkinggame::db::set_game_state(&pool, game_id, &st.to_json()).await;
+    let third_id = st.players[0].hand[0].id.clone();
+    let res = post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/lastcall/mulligan"),
+        &format!("cards={third_id}"),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::CONFLICT);
+}
+
 /// READY has no meaning in the round-1 Draw lobby (`begin` is that beat's
 /// exit) or in the Lock beat (`lock` is): both refuse with the same "not
 /// now" 409 every wrong-beat action gets.

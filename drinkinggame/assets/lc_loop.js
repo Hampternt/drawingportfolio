@@ -183,6 +183,15 @@
   // column BEFORE the wheel's glide settles — this listener must not assume
   // the wheel is at rest. Delegated once, never rebound.
   function onArm(e) {
+    // Beat-restructure (2026-08-13): during Draw a card tap IS the
+    // discard/redraw — round-1 lobby unlimited, once a round after; the
+    // server quietly 409s anything beyond that. Arming belongs to
+    // Diplomacy now.
+    var banner = document.getElementById("lc-banner");
+    if (banner && banner.dataset.beat === "draw") {
+      post("mulligan", "cards=" + encodeURIComponent(e.detail.cardId));
+      return;
+    }
     post("arm", "card_id=" + encodeURIComponent(e.detail.cardId)).then(function (ok) {
       if (!ok || !window.lcFlight) return;
       var face = e.target.querySelector && e.target.querySelector(".lc-cardface");

@@ -202,6 +202,7 @@ mod tests {
             armed: Vec::new(),
             locked: false,
             ready: false,
+            mulliganed: false,
             drawing: false,
             draws_this_round: 0,
             tabs: Vec::new(),

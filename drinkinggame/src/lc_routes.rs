@@ -587,6 +587,7 @@ fn action_bar_view(st: &LastCallState, player_id: i64) -> ActionBarView {
                 alive: p.status == Status::Alive,
                 locked: p.locked,
                 ready: p.ready,
+                mulliganed: p.mulliganed,
                 drawing: p.drawing,
                 vessels: p
                     .vessels
@@ -608,6 +609,7 @@ fn action_bar_view(st: &LastCallState, player_id: i64) -> ActionBarView {
             alive: false,
             locked: false,
             ready: false,
+            mulliganed: false,
             drawing: false,
             vessels: Vec::new(),
             charged: 0,
@@ -1329,6 +1331,81 @@ pub async fn lc_draw_handler(
             .collect()
     };
     if let Err(e) = ctx.st.finish_and_draw(player.id, form.vessel, drawn) {
+        return map_lc(e);
+    }
+    persist_and_broadcast_lc(&state, &ctx).await;
+    StatusCode::NO_CONTENT.into_response()
+}
+
+#[derive(Deserialize)]
+pub struct MulliganForm {
+    /// Comma-separated card ids to discard (duplicates allowed — a hand can
+    /// hold two copies; each occurrence claims a distinct hand card).
+    pub cards: String,
+}
+
+/// `POST /room/{code}/lastcall/mulligan` — the per-card discard/redraw
+/// (beat-restructure, 2026-08-13). `lc_draw_handler`'s D6 split, one card
+/// at a time: replacements are shoe-sampled HERE, each from its discarded
+/// card's own deck, and `st.mulligan` validates everything (beat, the
+/// round-1-unlimited/one-per-round-after rule, id/deck/shoe coherence).
+/// Public shape changes (deck counts, discard count, the log line) ride the
+/// full broadcast, same as draw.
+pub async fn lc_mulligan_handler(
+    State(state): State<GameState>,
+    PlayerSession(player): PlayerSession,
+    Path(code): Path<String>,
+    Form(form): Form<MulliganForm>,
+) -> axum::response::Response {
+    let lock = match lc_lock(&state, &code).await {
+        Ok(l) => l,
+        Err(r) => return r,
+    };
+    let _guard = lock.lock().await;
+    let mut ctx = match load_lc(&state, &code, &player).await {
+        Ok(c) => c,
+        Err(r) => return r,
+    };
+    let Some(seat) = ctx.st.seat_of(player.id) else {
+        return GameError::NotYourCall.into_response();
+    };
+    let ids: Vec<String> = form
+        .cards
+        .split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(String::from)
+        .collect();
+    if ids.is_empty() {
+        return StatusCode::UNPROCESSABLE_ENTITY.into_response();
+    }
+    // Resolve each id to a distinct hand card to learn its deck — the same
+    // claim walk `st.mulligan` re-runs as the authority; an id that doesn't
+    // resolve here gets the engine's own `UnknownCard` shortly anyway.
+    let hand = &ctx.st.players[seat].hand;
+    let mut taken: Vec<usize> = Vec::with_capacity(ids.len());
+    for id in &ids {
+        let Some(idx) = hand
+            .iter()
+            .enumerate()
+            .find(|(i, c)| c.id == *id && !taken.contains(i))
+            .map(|(i, _)| i)
+        else {
+            return map_lc(crate::last_call::LcError::UnknownCard);
+        };
+        taken.push(idx);
+    }
+    let replacements: Vec<crate::last_call::Card> = {
+        let mut rng = rand::thread_rng();
+        taken
+            .iter()
+            .map(|&i| {
+                let pool = crate::lc_cards::shoe(hand[i].deck);
+                pool[rng.gen_range(0..pool.len())].clone()
+            })
+            .collect()
+    };
+    if let Err(e) = ctx.st.mulligan(player.id, &ids, replacements) {
         return map_lc(e);
     }
     persist_and_broadcast_lc(&state, &ctx).await;
