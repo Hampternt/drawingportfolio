@@ -912,8 +912,20 @@ pub fn lc_hand_pane(
         }
     };
 
+    // Beat-restructure pack (2026-08-13): the whole setup section — drink
+    // registration, the waiting line, handicaps — is lobby furniture and
+    // vanishes once the game begins (reversing Plan J Task 4's
+    // unconditional handicap rows; `set_handicap` is lobby-gated
+    // engine-side to match).
+    let setup = if lobby {
+        format!(
+            r#"<section class="lc-setup"><h2>Your drink</h2><form method="post" action="{base_path}/room/{code}/lastcall/vessel"><select name="deck">{deck_options}</select><input name="container" maxlength="24" placeholder="50cl can"><button type="submit">REGISTER</button></form>{wait_line}<h2>Handicaps</h2>{handicap_rows}</section>"#
+        )
+    } else {
+        String::new()
+    };
     format!(
-        r#"<div id="lc-hand" data-seq="{seq}" data-count="{count}" data-flight-anchor="hand"><section class="lc-setup"><h2>Your drink</h2><form method="post" action="{base_path}/room/{code}/lastcall/vessel"><select name="deck">{deck_options}</select><input name="container" maxlength="24" placeholder="50cl can"><button type="submit">REGISTER</button></form>{wait_line}<h2>Handicaps</h2>{handicap_rows}</section>{group}</div>"#,
+        r#"<div id="lc-hand" data-seq="{seq}" data-count="{count}" data-flight-anchor="hand">{setup}{group}</div>"#,
         count = hg.hand.len(),
         group = hand_group(hg),
     )
@@ -2602,7 +2614,9 @@ mod tests {
             setup_row(2, "bob", 150, &[Deck::Wine]),
         ];
         let view = hg(&hand, &[]);
-        let html = lc_hand_pane("/drinks", "QK4M", 1, &view, &rows, 1, false);
+        // lobby: the setup forms are lobby furniture since the
+        // beat-restructure pack — they don't render mid-game at all.
+        let html = lc_hand_pane("/drinks", "QK4M", 1, &view, &rows, 1, true);
         assert!(html.contains(r#"action="/drinks/room/QK4M/lastcall/vessel""#));
         assert!(html.contains(r#"action="/drinks/room/QK4M/lastcall/handicap""#));
         assert_eq!(
@@ -2624,7 +2638,7 @@ mod tests {
             setup_row(3, "cara", 100, &[Deck::Soft]),
         ];
         let view = hg(&hand, &[]);
-        let html = lc_hand_pane("", "QK4M", 2, &view, &rows, 1, false);
+        let html = lc_hand_pane("", "QK4M", 2, &view, &rows, 1, true);
         assert_eq!(html.matches(">SET<").count(), 3);
         assert_eq!(html.matches("(you)").count(), 1);
         assert!(html.contains("bob (you)"));
@@ -2710,10 +2724,14 @@ mod tests {
         assert_eq!(all_ready_html.matches("data-ready").count(), 3);
         assert!(all_ready_html.contains(r#"data-waiting="0">ALL SET — PRESS START"#));
 
-        // Round 2: no wait line at all, though `data-ready` is unconditional.
+        // Round 2: the whole setup section is gone — no wait line, no
+        // handicap rows, no register form (beat-restructure pack: setup is
+        // lobby furniture).
         let round_two_html = lc_hand_pane("", "QK4M", 1, &hg_view, &rows, 1, false);
         assert!(!round_two_html.contains("lc-lobby-wait"));
-        assert_eq!(round_two_html.matches("data-ready").count(), 1);
+        assert!(!round_two_html.contains("lc-setup"));
+        assert!(!round_two_html.contains("data-ready"));
+        assert!(!round_two_html.contains("lastcall/handicap"));
     }
 
     #[test]

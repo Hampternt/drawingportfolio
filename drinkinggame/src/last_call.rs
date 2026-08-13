@@ -1087,7 +1087,10 @@ impl LastCallState {
         let Some(seat) = self.seat_of(target_id) else {
             return Err(LcError::NotSeated);
         };
-        if self.beat != Beat::Draw {
+        // Beat-restructure pack (2026-08-13): handicaps are a LOBBY concern
+        // — set once before the game starts, not retuned every round. This
+        // narrows D19's old any-Draw gate to round 1's registration lobby.
+        if self.beat != Beat::Draw || self.round != 1 {
             return Err(LcError::WrongBeat);
         }
         if !(HANDICAP_MIN_PCT..=HANDICAP_MAX_PCT).contains(&handicap_pct) {
@@ -4272,6 +4275,20 @@ mod tests {
         st.players[0].drawing = true;
         st.advance_beat().unwrap();
         assert!(!st.players[0].drawing);
+    }
+
+    #[test]
+    fn test_set_handicap_is_lobby_only() {
+        // Round-1 Draw (the lobby): legal.
+        let mut st = seated();
+        st.set_handicap(1, 150).unwrap();
+        assert_eq!(st.players[0].handicap_pct, 150);
+
+        // Round-2 Draw: same beat, no longer the lobby — refused (the
+        // beat-restructure narrowing of D19's any-Draw gate).
+        st.round = 2;
+        assert_eq!(st.set_handicap(1, 200), Err(LcError::WrongBeat));
+        assert_eq!(st.players[0].handicap_pct, 150);
     }
 
     #[test]

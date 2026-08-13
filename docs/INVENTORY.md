@@ -53,6 +53,8 @@ A party platform for phone-based drinking games in shared rooms.
   its own pace).
 - 🚧 Ready-advance refinement:
   [manifest](manifests/2026-08-13-lc-ready-advance.md)
+- 🚧 Beat restructure (lobby handicaps, Lock folded into Diplomacy,
+  discard/redraw): [manifest](manifests/2026-08-13-lc-beat-restructure.md)
 - Player accounts with self-service rename; per-viewer personalized UI;
   optional sound effects (server drop-in).
 
