@@ -79,38 +79,12 @@ function lcApply(html) {
   if (!frag || seq < lcSeq) return;
   lcSeq = seq;
 
-  // #lc-hand holds the LIVE vessel/handicap forms, so a broadcast triggered
-  // by another player must not wipe what THIS player is mid-typing, or
-  // silently reset a choice they already made. Capture from the outgoing
-  // DOM before it's replaced, then restore onto the corresponding element
-  // in the new markup.
+  // #lc-hand's one live input is the lobby's deck <select> (the register
+  // row — the 2026-08-13 screen-declutter pack retired the container and
+  // handicap inputs). A broadcast triggered by another player must not
+  // silently revert a deck the viewer already picked, so it's captured
+  // from the outgoing DOM and restored onto the new markup.
   const pane = document.querySelector('[data-lc-pane="hand"]');
-  const active = document.activeElement;
-  const focused = active && active.name && pane.contains(active) ? active : null;
-
-  let restore = null;
-  if (focused) {
-    restore = {
-      name: focused.name,
-      value: focused.value,
-      // Handicap rows repeat name="handicap_pct" once per seat — the
-      // sibling hidden `target` input is that row's real key.
-      target: focused.form ? focused.form.elements.target?.value : undefined,
-    };
-    // <select> has no text selection at all, and reading .selectionStart on
-    // <input type="number"> throws in some browsers (not just returns
-    // undefined) — the whole read has to be guarded, not just the type
-    // check after it.
-    try {
-      if (typeof focused.selectionStart === "number") {
-        restore.selectionStart = focused.selectionStart;
-        restore.selectionEnd = focused.selectionEnd;
-      }
-    } catch (_) {}
-  }
-  // The deck <select> is preserved independently of focus: a user who
-  // picked a deck and then tabbed to the container field would otherwise
-  // see the swap silently revert it to the first option.
   const oldDeck = pane.querySelector('select[name="deck"]');
   const deckValue = oldDeck ? oldDeck.value : null;
 
@@ -119,22 +93,6 @@ function lcApply(html) {
   if (deckValue) {
     const newDeck = pane.querySelector('select[name="deck"]');
     if (newDeck) newDeck.value = deckValue;
-  }
-  if (restore) {
-    const candidates = [...pane.querySelectorAll(`[name="${restore.name}"]`)];
-    const el = restore.target != null
-      ? candidates.find(c => c.form && c.form.elements.target?.value === restore.target)
-      : candidates[0];
-    if (el) {
-      el.value = restore.value;
-      if (restore.selectionStart != null) {
-        try { el.setSelectionRange(restore.selectionStart, restore.selectionEnd); } catch (_) {}
-      }
-      // preventScroll: a broadcast landing while the player has scrolled
-      // down to their cards must not yank the viewport back up to the
-      // setup form just to restore focus.
-      el.focus({ preventScroll: true });
-    }
   }
   if (window.lcWheelInit) window.lcWheelInit(pane);
   // Inline <script> fails silently on a typo/exception (STATUS-recorded

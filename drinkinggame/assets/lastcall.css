@@ -546,30 +546,20 @@ body.lc { margin: 0; min-height: 100vh; display: flex; flex-direction: column;
                            opacity 190ms var(--lc-ease); }
 .lc-costrail-group.is-active .lc-costrail-bar { width: 14px; opacity: 1; }
 
-/* setup — plain and undesigned on purpose (spec §2, item 2). Plan A2 fills it. */
+/* setup — since the 2026-08-13 screen-declutter pack this is one register
+   row (deck select + button), lobby only. Plain and undesigned on purpose
+   (spec §2, item 2). */
 .lc-setup { background: var(--lc-panel); border-radius: 8px; padding: 14px;
             margin-bottom: 14px; display: flex; flex-direction: column; gap: 10px; }
-.lc-setup h2 { font-family: var(--font-display); font-weight: 900; font-size: 15px;
-               letter-spacing: .04em; text-transform: uppercase; color: var(--lc-text); }
 .lc-setup form { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-.lc-setup select, .lc-setup input { background: var(--lc-panel-alt); color: var(--lc-text);
+.lc-setup select { background: var(--lc-panel-alt); color: var(--lc-text);
             border: 1px solid var(--lc-hair); border-radius: 6px; padding: 8px 10px;
-            font-size: 14px; }
+            font-size: 14px; flex: 1; }
 .lc-setup button { background: var(--lc-panel-alt); color: var(--lc-text);
             border: 1px solid var(--lc-hair-strong); border-radius: 6px;
             padding: 8px 14px; font-size: 13px; cursor: pointer; }
 .lc-setup-row { display: flex; align-items: center; gap: 8px; font-size: 13px;
                 color: var(--lc-body); }
-/* J12 (Plan A2 carried minor): a two-deck player's dots need a visible gap —
-   the class was already emitted in setup rows but had no rule of its own. */
-.lc-setup-decks { display: inline-flex; gap: 4px; }
-
-/* Plan J Task 4 — the lobby's phone half: who's still unregistered, or the
-   all-set line once every seat has a vessel. Lives beside .lc-setup-row,
-   the section it sits above. */
-.lc-lobby-wait { font-family: var(--font-ui); font-weight: 700; font-size: 12px;
-                 letter-spacing: .06em; color: var(--lc-faint); margin: 0; }
-.lc-lobby-wait[data-waiting="0"] { color: var(--lc-mint); }
 
 /* Plan J — the LOG tab (J1-J4): a public shared round log, newest first. */
 .lc-log { list-style: none; margin: 0; padding: 4px 2px; display: flex;

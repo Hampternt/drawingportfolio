@@ -17,7 +17,7 @@ use crate::last_call::{
     Beat, Card, CardKind, Deck, EffectOp, LastCallState, LcError, Play, PublicView, Status,
     DRAW_PER_VESSEL,
 };
-use crate::lc_render::{self, ActionBarView, HandGroupView, SetupRow};
+use crate::lc_render::{self, ActionBarView, HandGroupView};
 use crate::models::{Game, Player, Room};
 use crate::GameState;
 
@@ -302,6 +302,10 @@ pub async fn lc_rematch_handler(
 #[derive(Deserialize)]
 pub struct VesselForm {
     pub deck: String,
+    // Screen-declutter pack (2026-08-13): the container field left the UI
+    // (people drink from their own glasses). Defaulted so the route stays
+    // wire-compatible with anything still posting one.
+    #[serde(default)]
     pub container: String,
 }
 
@@ -411,21 +415,6 @@ pub async fn lc_handicap_handler(
     .into_response()
 }
 
-/// The rows come from the state itself, not a second `room_members` query —
-/// `LastCallState.players` already carries name, handicap and vessels, and
-/// using it keeps the shell and the hand fragment reading one source.
-fn setup_rows(st: &LastCallState) -> Vec<SetupRow> {
-    st.players
-        .iter()
-        .map(|p| SetupRow {
-            player_id: p.player_id,
-            name: p.name.clone(),
-            handicap_pct: p.handicap_pct,
-            decks: p.vessels.iter().map(|v| v.deck).collect(),
-        })
-        .collect()
-}
-
 /// The single builder of the `#lc-hand` fragment — mirrors
 /// `table_pane_html`'s role, so the shell's initial paint (`lc_page`) and the
 /// per-viewer refetch (`lc_hand_handler`) can never disagree about the
@@ -477,7 +466,6 @@ fn hand_pane_html(base_path: &str, code: &str, st: &LastCallState, player_id: i6
         let bar = lc_render::lc_action_bar(&action_bar_view(st, player_id));
         return format!(r#"{pane}<template data-lc-actions>{bar}</template>"#);
     }
-    let rows = setup_rows(st);
     let seat = st.seat_of(player_id);
     let (hand, armed, locked, handicap_pct) = match seat {
         Some(seat) => {
@@ -506,7 +494,7 @@ fn hand_pane_html(base_path: &str, code: &str, st: &LastCallState, player_id: i6
     // early return above already ruled outcome out, so the gate collapses
     // to these two fields.
     let lobby = st.round == 1 && st.beat == Beat::Draw;
-    let pane = lc_render::lc_hand_pane(base_path, code, player_id, &hg, &rows, st.seq, lobby);
+    let pane = lc_render::lc_hand_pane(base_path, code, &hg, st.seq, lobby);
     let targets = seat
         .map(|s| targets_section_html(st, s))
         .unwrap_or_default();

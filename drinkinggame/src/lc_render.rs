@@ -833,97 +833,35 @@ pub fn lc_log(view: &PublicView) -> String {
 // the builder because it posts to routes only this plan owns.
 // ---------------------------------------------------------------------
 
-/// One row of the plain setup form: who, their handicap, their registered
-/// decks.
-#[derive(Clone, Debug)]
-pub struct SetupRow {
-    pub player_id: i64,
-    pub name: String,
-    pub handicap_pct: u16,
-    pub decks: Vec<Deck>,
-}
-
 /// The private hand fragment's body — the §7.8 "Hand region" component.
 /// Not broadcast: served only to its own viewer by
 /// `GET /room/{code}/lastcall/hand`.
 ///
-/// Handicap rows are **not** gated on `player_id == me` — spec §2, item 2:
-/// any room member may set any player's handicap, because the table sets
-/// handicaps rather than each player declaring themselves a lightweight.
-/// `me` is used only to append " (you)" to the viewer's own row.
+/// Screen-declutter pack (2026-08-13): the old setup section ("Your
+/// drink" with a container label, handicap rows, the waiting line) is now
+/// one register row — deck select + button, lobby only (round-1 Draw, no
+/// outcome — E1's gate, computed by the caller from `&LastCallState`).
+/// Containers are gone for good (people drink from their own glasses);
+/// handicaps lost their UI (engine + route stay, dormant); the
+/// who's-still-unregistered roll call lives on the felt
+/// (`lc_centre_lobby`) and the action bar's NEEDS-2 hint, not here.
 ///
-/// The trailing card list (Plan A2) is now `hand_group(hg)` — the armed
+/// The trailing card list (Plan A2) is `hand_group(hg)` — the armed
 /// column, HandWheel (or its empty message) and cost rail (Plan C Task 2).
 pub fn lc_hand_pane(
     base_path: &str,
     code: &str,
-    me: i64,
     hg: &HandGroupView,
-    rows: &[SetupRow],
     seq: u64,
     lobby: bool,
 ) -> String {
-    let deck_options: String = Deck::ALL
-        .iter()
-        .map(|d| format!(r#"<option value="{}">{}</option>"#, d.slug(), d.label()))
-        .collect();
-
-    let handicap_rows: String = rows
-        .iter()
-        .map(|row| {
-            let you = if row.player_id == me { " (you)" } else { "" };
-            let dots: String = row.decks.iter().map(|&d| card_dot(d)).collect();
-            // Plan J Task 4: unconditional (not just in the lobby) — the
-            // §7.8 setup section marks every player who has registered a
-            // vessel, at any round, so a mid-game handicap tweak still shows
-            // who's dealt in.
-            let ready_attr = if row.decks.is_empty() {
-                ""
-            } else {
-                " data-ready"
-            };
-            format!(
-                r#"<form class="lc-setup-row"{ready_attr} method="post" action="{base_path}/room/{code}/lastcall/handicap"><input type="hidden" name="target" value="{player_id}"><span>{name}{you}</span><span class="lc-setup-decks">{dots}</span><input type="number" name="handicap_pct" min="25" max="300" step="5" value="{handicap_pct}"><button type="submit">SET</button></form>"#,
-                player_id = row.player_id,
-                name = html_escape(&row.name),
-                handicap_pct = row.handicap_pct,
-            )
-        })
-        .collect();
-
-    // Plan J Task 4: the phone's half of the lobby polish — who's still
-    // unregistered, or the all-set line once everyone has a vessel. Gated
-    // on `lobby` (round-1 Draw, no outcome — E1's gate, computed by the
-    // caller from `&LastCallState` so this builder stays `PublicView`-only
-    // in spirit without taking the whole view just for two fields) so a
-    // mid-game handicap tweak never grows a stray "WAITING ON" line.
-    let wait_line = if !lobby {
-        String::new()
-    } else {
-        let waiting: Vec<&SetupRow> = rows.iter().filter(|r| r.decks.is_empty()).collect();
-        if waiting.is_empty() {
-            r#"<p class="lc-lobby-wait" data-waiting="0">ALL SET — PRESS START</p>"#.to_string()
-        } else {
-            let names = waiting
-                .iter()
-                .map(|r| html_escape(&r.name.to_uppercase()))
-                .collect::<Vec<_>>()
-                .join(", ");
-            format!(
-                r#"<p class="lc-lobby-wait" data-waiting="{n}">WAITING ON {n}: {names}</p>"#,
-                n = waiting.len(),
-            )
-        }
-    };
-
-    // Beat-restructure pack (2026-08-13): the whole setup section — drink
-    // registration, the waiting line, handicaps — is lobby furniture and
-    // vanishes once the game begins (reversing Plan J Task 4's
-    // unconditional handicap rows; `set_handicap` is lobby-gated
-    // engine-side to match).
     let setup = if lobby {
+        let deck_options: String = Deck::ALL
+            .iter()
+            .map(|d| format!(r#"<option value="{}">{}</option>"#, d.slug(), d.label()))
+            .collect();
         format!(
-            r#"<section class="lc-setup"><h2>Your drink</h2><form method="post" action="{base_path}/room/{code}/lastcall/vessel"><select name="deck">{deck_options}</select><input name="container" maxlength="24" placeholder="50cl can"><button type="submit">REGISTER</button></form>{wait_line}<h2>Handicaps</h2>{handicap_rows}</section>"#
+            r#"<section class="lc-setup"><form class="lc-setup-row" method="post" action="{base_path}/room/{code}/lastcall/vessel"><select name="deck">{deck_options}</select><button type="submit">REGISTER A DRINK</button></form></section>"#
         )
     } else {
         String::new()
@@ -2596,15 +2534,6 @@ mod tests {
         }
     }
 
-    fn setup_row(player_id: i64, name: &str, handicap_pct: u16, decks: &[Deck]) -> SetupRow {
-        SetupRow {
-            player_id,
-            name: name.to_string(),
-            handicap_pct,
-            decks: decks.to_vec(),
-        }
-    }
-
     /// Fills in the fields `HandGroupView` needs beyond `hand`, so each call
     /// site only spells out what it's varying.
     fn hg<'a>(hand: &'a [Card], armed: &'a [Card]) -> HandGroupView<'a> {
@@ -2621,9 +2550,8 @@ mod tests {
     fn test_lc_hand_pane_satisfies_the_contract() {
         let hand = lc_cards::deck_cards(Deck::Beer);
         let armed = [hand[0].clone()];
-        let rows = [setup_row(1, "alice", 100, &[Deck::Beer])];
         let view = hg(&hand, &armed);
-        let html = lc_hand_pane("", "QK4M", 1, &view, &rows, 7, false);
+        let html = lc_hand_pane("", "QK4M", &view, 7, false);
         assert!(html.contains(r#"id="lc-hand""#));
         assert!(html.contains(r#"data-seq="7""#));
         assert!(html.contains(&format!(r#"data-count="{}""#, hand.len())));
@@ -2637,49 +2565,26 @@ mod tests {
         assert_eq!(html.matches(r#"data-flight-anchor="armed""#).count(), 1);
     }
 
+    /// Screen-declutter pack (2026-08-13): the lobby's whole setup section
+    /// is one register row — deck select + button, posting to the prefixed
+    /// vessel route. No container input (people drink from their own
+    /// glasses), no handicap rows (the mechanic is dormant, UI-less).
     #[test]
     fn test_lc_hand_pane_posts_to_prefixed_urls() {
         let hand = lc_cards::deck_cards(Deck::Beer);
-        let rows = [
-            setup_row(1, "alice", 100, &[Deck::Beer]),
-            setup_row(2, "bob", 150, &[Deck::Wine]),
-        ];
         let view = hg(&hand, &[]);
-        // lobby: the setup forms are lobby furniture since the
-        // beat-restructure pack — they don't render mid-game at all.
-        let html = lc_hand_pane("/drinks", "QK4M", 1, &view, &rows, 1, true);
+        let html = lc_hand_pane("/drinks", "QK4M", &view, 1, true);
         assert!(html.contains(r#"action="/drinks/room/QK4M/lastcall/vessel""#));
-        assert!(html.contains(r#"action="/drinks/room/QK4M/lastcall/handicap""#));
-        assert_eq!(
-            html.matches(r#"<input type="hidden" name="target" value=""#)
-                .count(),
-            rows.len()
-        );
-    }
-
-    /// The regression this guards is gating the control on ownership, which
-    /// spec §2 explicitly rejects: any room member may set any player's
-    /// handicap, not just their own.
-    #[test]
-    fn test_lc_hand_pane_handicap_rows_are_not_self_gated() {
-        let hand: Vec<Card> = Vec::new();
-        let rows = [
-            setup_row(1, "alice", 100, &[Deck::Beer]),
-            setup_row(2, "bob", 100, &[Deck::Wine]),
-            setup_row(3, "cara", 100, &[Deck::Soft]),
-        ];
-        let view = hg(&hand, &[]);
-        let html = lc_hand_pane("", "QK4M", 2, &view, &rows, 1, true);
-        assert_eq!(html.matches(">SET<").count(), 3);
-        assert_eq!(html.matches("(you)").count(), 1);
-        assert!(html.contains("bob (you)"));
+        assert_eq!(html.matches("<option value=").count(), Deck::ALL.len());
+        assert!(!html.contains(r#"name="container""#));
+        assert!(!html.contains("lastcall/handicap"));
+        assert!(!html.contains(r#"name="handicap_pct""#));
     }
 
     #[test]
     fn test_lc_hand_pane_empty_hand() {
-        let rows = [setup_row(1, "alice", 100, &[])];
         let view = hg(&[], &[]);
-        let html = lc_hand_pane("", "QK4M", 1, &view, &rows, 0, false);
+        let html = lc_hand_pane("", "QK4M", &view, 0, false);
         assert!(html.contains("lc-empty"));
         assert!(html.contains("Register your drink to be dealt a hand."));
         assert!(!html.contains("lc-cardface"));
@@ -2688,11 +2593,11 @@ mod tests {
     }
 
     /// Plan J Task 4 / E1: the lobby is round-1 `Beat::Draw` with no
-    /// outcome — "ready" is having a vessel, on both the felt (`{k}/{n}`,
-    /// names of the unregistered) and the phone (`data-ready` rows, the
-    /// same waiting/all-set line). Both surfaces go quiet the moment the
-    /// gate no longer holds, whether because the round moved on or the game
-    /// ended.
+    /// outcome — "ready" is having a vessel, and the felt carries the roll
+    /// call (`{k}/{n}`, names of the unregistered). The phone's only lobby
+    /// furniture is the register row (screen-declutter pack, 2026-08-13).
+    /// Both surfaces go quiet the moment the gate no longer holds, whether
+    /// because the round moved on or the game ended.
     #[test]
     fn test_the_lobby_says_who_it_waits_on() {
         let mut view = ring_fixture(3);
@@ -2731,38 +2636,19 @@ mod tests {
         decided.outcome = Some(LcOutcome::Winner(0));
         assert!(!lc_screen_panel(&decided).contains("lc-centre-lobby"));
 
-        // The phone half — same states, `setup_rows`-shaped input.
-        let rows = [
-            setup_row(1, "player1", 100, &[Deck::Beer]),
-            setup_row(2, "player2", 100, &[]),
-            setup_row(3, "player3", 100, &[]),
-        ];
+        // The phone half — the felt carries the roll call; the hand pane's
+        // lobby furniture is just the register row (screen-declutter pack),
+        // and even that is gone once the game begins.
         let hg_view = hg(&[], &[]);
-        let waiting_html = lc_hand_pane("", "QK4M", 1, &hg_view, &rows, 1, true);
-        assert_eq!(waiting_html.matches("data-ready").count(), 1);
-        assert!(waiting_html.contains(r#"<form class="lc-setup-row" data-ready"#));
-        assert!(waiting_html.contains(r#"data-waiting="2">WAITING ON 2: "#));
-        assert!(waiting_html.contains("PLAYER2"));
-        assert!(waiting_html.contains("PLAYER3"));
-        no_hex(&waiting_html);
+        let lobby_html = lc_hand_pane("", "QK4M", &hg_view, 1, true);
+        assert!(lobby_html.contains("lc-setup"));
+        assert!(lobby_html.contains("lastcall/vessel"));
+        assert!(!lobby_html.contains("WAITING ON"));
+        no_hex(&lobby_html);
 
-        let all_rows = [
-            setup_row(1, "player1", 100, &[Deck::Beer]),
-            setup_row(2, "player2", 100, &[Deck::Wine]),
-            setup_row(3, "player3", 100, &[Deck::Soft]),
-        ];
-        let all_ready_html = lc_hand_pane("", "QK4M", 1, &hg_view, &all_rows, 1, true);
-        assert_eq!(all_ready_html.matches("data-ready").count(), 3);
-        assert!(all_ready_html.contains(r#"data-waiting="0">ALL SET — PRESS START"#));
-
-        // Round 2: the whole setup section is gone — no wait line, no
-        // handicap rows, no register form (beat-restructure pack: setup is
-        // lobby furniture).
-        let round_two_html = lc_hand_pane("", "QK4M", 1, &hg_view, &rows, 1, false);
-        assert!(!round_two_html.contains("lc-lobby-wait"));
+        let round_two_html = lc_hand_pane("", "QK4M", &hg_view, 1, false);
         assert!(!round_two_html.contains("lc-setup"));
-        assert!(!round_two_html.contains("data-ready"));
-        assert!(!round_two_html.contains("lastcall/handicap"));
+        assert!(!round_two_html.contains("lastcall/vessel"));
     }
 
     #[test]

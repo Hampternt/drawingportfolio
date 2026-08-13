@@ -4285,28 +4285,24 @@ async fn test_lastcall_hand_rejects_wrong_game_kind() {
     assert!(body_string(res).await.contains("belongs to the other game"));
 }
 
-/// Spec §2, item 2, at the page level: alice's shell shows a settable
-/// handicap row for bob as well as for herself, not just her own.
+/// Screen-declutter pack (2026-08-13): the lobby shell carries exactly one
+/// setup control — the register row (deck select + button). No handicap
+/// rows (spec §2 item 2's page-level property retired with the UI; the
+/// route and engine stay dormant), no container input.
 #[tokio::test]
-async fn test_lastcall_shell_shows_all_handicap_rows() {
-    let (app, pool) = test_app_with_pool().await;
+async fn test_lastcall_shell_lobby_setup_is_one_register_row() {
+    let app = test_app().await;
     let alice = login(&app, "alice", "1234").await;
     let bob = login(&app, "bob", "5678").await;
     let code = create_room(&app, &alice).await;
     room_page_html(&app, &bob, &code).await;
     post_form(&app, &alice, &format!("/room/{code}/lastcall/start"), "").await;
 
-    let alice_player = drinkinggame::db::get_player_by_name(&pool, "alice")
-        .await
-        .unwrap();
-    let bob_player = drinkinggame::db::get_player_by_name(&pool, "bob")
-        .await
-        .unwrap();
-
     let html = body_string(get_shell(&app, &alice, &code).await).await;
-    assert_eq!(html.matches("lc-setup-row").count(), 2);
-    assert!(html.contains(&format!(r#"value="{}""#, alice_player.id)));
-    assert!(html.contains(&format!(r#"value="{}""#, bob_player.id)));
+    assert_eq!(html.matches("lc-setup-row").count(), 1, "{html}");
+    assert!(html.contains("lastcall/vessel"), "{html}");
+    assert!(!html.contains("lastcall/handicap"), "{html}");
+    assert!(!html.contains(r#"name="container""#), "{html}");
 }
 
 // -------------------------------------------------------------
@@ -4831,15 +4827,15 @@ async fn test_a_lagged_subscriber_is_told_to_refetch() {
 
 // -------------------------------------------------------------
 // Last Call (Task 3, fix-loop round 1): `lcApply`'s `innerHTML` swap on
-// `[data-lc-pane="hand"]` was clobbering in-progress form state (the vessel
-// container text, the focused handicap input, the deck <select>) on every
-// broadcast from ANY player, including the caret position — reproduced in a
-// live browser. Since this is client-side JS inside an Askama template,
-// `node --check` never reaches it (it only walks `static/*.js` and
+// `[data-lc-pane="hand"]` was clobbering in-progress form state on every
+// broadcast from ANY player — reproduced in a live browser. The
+// screen-declutter pack (2026-08-13) shrank the pane's live inputs to just
+// the register row's deck <select> (container/handicap inputs retired), so
+// the shipped preservation code is now only the deck capture-and-restore.
+// Since this is client-side JS inside an Askama template, `node --check`
+// never reaches it (it only walks `static/*.js` and
 // `drinkinggame/assets/*.js` — CLAUDE.md), so this is a text-presence check
-// on the rendered shell, not a behavioural one: it proves the
-// capture-and-restore code shipped in the page a browser actually receives,
-// not that a DOM diff/replay was run against it.
+// on the rendered shell, not a behavioural one.
 // -------------------------------------------------------------
 
 #[tokio::test]
@@ -4853,20 +4849,10 @@ async fn test_lastcall_shell_ships_form_state_preservation() {
 
     let html = body_string(get_shell(&app, &alice, &code).await).await;
 
-    // Captures the focused element inside #lc-hand before the swap...
-    assert!(html.contains("document.activeElement"), "{html}");
-    // ...disambiguates which handicap row by its hidden `target` sibling...
-    assert!(html.contains("elements.target"), "{html}");
-    // ...guards the number-input selectionStart read/restore, which throws
-    // in some browsers rather than just returning undefined...
-    assert!(html.contains("selectionStart"), "{html}");
-    assert!(html.contains("setSelectionRange"), "{html}");
-    // ...restores the deck <select> even when it wasn't the focused
-    // element (the "tabbed to container" case)...
+    // Captures the outgoing deck <select> before the swap and restores it
+    // onto the new markup.
     assert!(html.contains(r#"select[name="deck"]"#), "{html}");
-    // ...and refocuses the restored element rather than leaving focus on
-    // <body>, which is exactly what the live-browser repro observed.
-    assert!(html.contains("el.focus("), "{html}");
+    assert!(html.contains("newDeck.value = deckValue"), "{html}");
 }
 
 // -------------------------------------------------------------
