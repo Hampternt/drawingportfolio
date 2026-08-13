@@ -24,9 +24,10 @@ from this file on 2026-08-12; `git log docs/WORKTREES.md` recovers them.
 
 ## Streams
 
-**None active.** `dev` sits at `master`'s tip and serves as the staging
-branch (see Conventions). Next work lands on `dev` (or a `feat/<stream>`
-branch merged into `dev`), then `dev → master`.
+- **`feat/last-call-refinement`** (started 2026-08-13, from `dev`): refining
+  the recently released Last Call game — many small changes expected, worked
+  one issue at a time, each an item committed on this branch; merges into
+  `dev` when a coherent batch lands, then `dev → master`.
 
 ## Reminders
 
