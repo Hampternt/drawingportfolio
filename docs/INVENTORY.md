@@ -55,6 +55,9 @@ A party platform for phone-based drinking games in shared rooms.
   [manifest](manifests/2026-08-13-lc-ready-advance.md)
 - 🚧 Beat restructure (lobby handicaps, Lock folded into Diplomacy,
   discard/redraw): [manifest](manifests/2026-08-13-lc-beat-restructure.md)
+- 🚧 Test play mode (`DRINKS_TEST_MODE=1`: fake players + identity
+  switcher for solo playtesting):
+  [manifest](manifests/2026-08-13-drinks-test-mode.md)
 - Player accounts with self-service rename; per-viewer personalized UI;
   optional sound effects (server drop-in).
 
