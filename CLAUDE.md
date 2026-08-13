@@ -5,7 +5,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 ```bash
-./scripts/verify.sh    # the gate: fmt + clippy + tests + JS syntax — run this before claiming done
+./scripts/check.sh     # item gate (~6s): compile + JS syntax — after every item; add targeted tests when logic is touched
+./scripts/verify.sh    # pack gate: fmt + clippy + tests + JS syntax — before review/merge and before claiming done
 cargo test --workspace # run all tests — the --workspace flag is NOT optional, see below
 ```
 
@@ -61,10 +62,6 @@ Single Rust/Axum binary with server-side rendering via Askama templates + HTMX f
 ## Architecture Rules
 
 See `docs/design.md` for the human-readable design guide. Rules Claude must follow:
-
-**Writing or executing a plan**
-- Invoke the project skill `plan-economics` **before** writing a spec into a plan or starting subagent-driven-development. It sets plan sizing (one plan = one session = one deployable slice), delegates plan writing and design ingestion to subagents, and defines the per-task risk classes that decide which tasks get an LLM review. It overrides parts of `superpowers:writing-plans` and `superpowers:subagent-driven-development` — the overrides are named in the skill.
-- Plan shape: `docs/superpowers/plan-template.md`. Every task carries a class and one acceptance line (`./scripts/verify.sh`).
 
 **Templates**
 - Every user-facing page must extend `base.html`. Exception: `admin.html` is standalone — when adding any new global feature (script, style, header element), update **both** `base.html` and `admin.html`.
