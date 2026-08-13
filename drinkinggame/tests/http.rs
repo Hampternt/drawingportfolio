@@ -4892,6 +4892,12 @@ async fn test_lastcall_start_broadcasts_game_panel() {
          sitting on the idle start cards sees the game begin without a \
          reload: {frame}"
     );
+    assert!(
+        frame.contains("data-lc-table"),
+        "the game frame must carry the data-lc-table marker — room.html's \
+         game listener navigates every phone parked on the room page \
+         straight to the table off it: {frame}"
+    );
 }
 
 /// Plan-end review finding M3: the late-join `broadcast_lc` call in

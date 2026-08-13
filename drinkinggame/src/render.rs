@@ -387,8 +387,13 @@ pub fn game_over_panel(s: &GameSummary) -> String {
 /// reconnects mid-navigation) still needs a non-panicking fragment here.
 /// Plan B replaces this with the real shell fragment.
 pub fn lc_placeholder_panel(base_path: &str, code: &str) -> String {
+    // `data-lc-table` is the phone-side twin of the screen's `data-lc-live`
+    // marker: room.html's `game` SSE listener navigates to the table when
+    // the swapped panel carries it, so nobody is left parked on a "click
+    // through" interstitial when a game starts under them. The link stays
+    // as the no-JS fallback.
     format!(
-        r#"<div class="game-active"><p>Last Call is running. <a href="{base_path}/room/{code}/lastcall">Open the table &rarr;</a></p></div>"#
+        r#"<div class="game-active" data-lc-table><p>Last Call is running. <a href="{base_path}/room/{code}/lastcall">Open the table &rarr;</a></p></div>"#
     )
 }
 

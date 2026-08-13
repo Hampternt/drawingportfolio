@@ -101,7 +101,18 @@ function swapPanel(id, evName, html) {
 }
 const es = new EventSource(BP + "/room/" + CODE + "/sse");
 es.addEventListener("leaderboard", e => { document.getElementById("standings-list").innerHTML = e.data; personalize(); });
-es.addEventListener("game", e => swapPanel("game-panel", "game", e.data));
+es.addEventListener("game", e => {
+  swapPanel("game-panel", "game", e.data);
+  // Last Call lives on its own page — the moment the game frame carries the
+  // data-lc-table marker (game started, or a reconnect snapshot mid-game),
+  // go straight to the table instead of parking on the interstitial link.
+  // Queried off the swapped DOM, not e.data string-matching: player names
+  // are escaped server-side, so a name can't spoof the attribute (the same
+  // argument screen.html makes for data-lc-live).
+  if (document.getElementById("game-panel").querySelector("[data-lc-table]")) {
+    window.location = BP + "/room/" + CODE + "/lastcall";
+  }
+});
 es.addEventListener("room", e => {
   const tpl = document.createElement("div");
   tpl.innerHTML = e.data;
