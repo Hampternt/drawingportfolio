@@ -440,10 +440,11 @@ pub async fn lc_handicap_handler(
 /// private fetch, seq gate and stale-drop as the target picker above it.
 ///
 /// Plan J Task 3: once `st.outcome()` is `Some`, the pane body switches
-/// wholesale to `lc_end_card` — the register row, targets, response window
-/// and tab card all stop applying to a finished game
-/// (`targets_section_html`'s own `Beat::Lock` gate, for one, is already moot
-/// once the beat is frozen at Resolve). The root id and `data-seq` stay put
+/// wholesale to `lc_end_card` — the register row, response window, tab
+/// drawer, inspect sheet and mulligan overlay all stop applying to a
+/// finished game (their gates — `table_pane_html`'s staging window, the
+/// overlay's Draw window — are already moot once the beat is frozen at
+/// Resolve). The root id and `data-seq` stay put
 /// so `lcApply`'s `querySelector("#lc-hand")` stale-drop gate keeps working
 /// unchanged, and the `<template data-lc-actions>` sibling is still
 /// appended — `lc_action_bar`'s own `outcome.is_some()` branch (REMATCH /
@@ -458,8 +459,11 @@ fn hand_pane_html(base_path: &str, code: &str, st: &LastCallState, player_id: i6
         // `data-seq` alone (see the fn doc above). Hardcoded 0 to keep the
         // §7.8 DOM contract's attribute present rather than to feed a
         // consumer.
+        // Review fix: data-pulls="0" so the tab row's pull count clears on
+        // the finished-game repaint instead of freezing at its last
+        // mid-game value.
         let pane = format!(
-            r#"<div id="lc-hand" data-seq="{seq}" data-count="0">{card}</div>"#,
+            r#"<div id="lc-hand" data-seq="{seq}" data-count="0" data-pulls="0">{card}</div>"#,
             seq = view.seq,
             card = lc_render::lc_end_card(&view, me),
         );
@@ -467,7 +471,7 @@ fn hand_pane_html(base_path: &str, code: &str, st: &LastCallState, player_id: i6
         return format!(r#"{pane}<template data-lc-actions>{bar}</template>"#);
     }
     let seat = st.seat_of(player_id);
-    let (hand, armed, locked, handicap_pct) = match seat {
+    let (hand, armed, locked, handicap_pct, pulls_left) = match seat {
         Some(seat) => {
             let p = &st.players[seat];
             let armed_cards = if p.locked {
@@ -475,15 +479,25 @@ fn hand_pane_html(base_path: &str, code: &str, st: &LastCallState, player_id: i6
             } else {
                 p.armed.iter().map(|a| a.card.clone()).collect::<Vec<_>>()
             };
-            (p.hand.as_slice(), armed_cards, p.locked, p.handicap_pct)
+            // Pack 2: the tab row's pull count — the viewer's own pulls
+            // left, summed over their vessels.
+            let pulls: u16 = p.vessels.iter().map(|v| v.pulls_left as u16).sum();
+            (
+                p.hand.as_slice(),
+                armed_cards,
+                p.locked,
+                p.handicap_pct,
+                pulls,
+            )
         }
-        None => (&[] as &[_], Vec::new(), false, 100),
+        None => (&[] as &[_], Vec::new(), false, 100, 0),
     };
     let hg = HandGroupView {
         hand,
         armed: &armed,
         locked,
         handicap_pct,
+        pulls_left,
         // I1 (Plan H review): the CostRail prices through the same
         // `cost_halved` seam `arm`/`lock_in`/the reveal charge/the DRINK
         // chip all agree on, so a Happy Hour rail bar can't disagree with
@@ -495,9 +509,6 @@ fn hand_pane_html(base_path: &str, code: &str, st: &LastCallState, player_id: i6
     // to these two fields.
     let lobby = st.round == 1 && st.beat == Beat::Draw;
     let pane = lc_render::lc_hand_pane(base_path, code, &hg, st.seq, lobby);
-    let targets = seat
-        .map(|s| targets_section_html(st, s))
-        .unwrap_or_default();
     // Plan I Task 5: the response window (Alive) or the ghost note
     // (Eliminated) — an unseated spectator gets neither, same gating as the
     // tab panel below. A ghost's tabs were already voided at elimination
@@ -527,8 +538,31 @@ fn hand_pane_html(base_path: &str, code: &str, st: &LastCallState, player_id: i6
         }
         _ => String::new(),
     };
+    // Pack 2: the inspect sheet rides the same private fetch as the hand
+    // it describes — skeleton + per-card stash, hidden until a wheel tap.
+    // Review fix: PLAY only renders inside the staging window (the same
+    // gate table_pane_html uses for the tray) — outside it the sheet says
+    // when playing opens instead of dead-ending on a tray-less TABLE.
+    let staging = matches!(st.beat, Beat::Diplomacy | Beat::Lock)
+        && seat.is_some_and(|s| st.players[s].status == Status::Alive && !st.players[s].locked);
+    let sheet = lc_render::lc_inspect_sheet(hand, staging);
+    // Pack 3: the mulligan overlay — only while the engine would accept
+    // the post (Draw beat, alive, holding a hand, round-1 lobby or the
+    // round's swap unspent), so the MULLIGAN button and the overlay
+    // appear and disappear together.
+    let mull = match seat {
+        Some(s)
+            if st.beat == Beat::Draw
+                && st.players[s].status == Status::Alive
+                && !st.players[s].hand.is_empty()
+                && (st.round == 1 || !st.players[s].mulliganed) =>
+        {
+            lc_render::lc_mulligan_overlay(&st.players[s].hand, st.round)
+        }
+        _ => String::new(),
+    };
     let bar = lc_render::lc_action_bar(&action_bar_view(st, player_id));
-    format!(r#"{pane}{targets}{response}{tab_panel}<template data-lc-actions>{bar}</template>"#)
+    format!(r#"{pane}{response}{tab_panel}{sheet}{mull}<template data-lc-actions>{bar}</template>"#)
 }
 
 /// Plan E Task 4: assembles the viewer's own `ActionBarView` from
@@ -585,6 +619,7 @@ fn action_bar_view(st: &LastCallState, player_id: i64) -> ActionBarView {
                 outcome,
                 haunt_plays: haunt_plays(st),
                 haunted: st.haunts.iter().any(|h| h.seat == seat),
+                armed_count: p.armed.len(),
             }
         }
         None => ActionBarView {
@@ -602,6 +637,7 @@ fn action_bar_view(st: &LastCallState, player_id: i64) -> ActionBarView {
             outcome,
             haunt_plays: Vec::new(),
             haunted: false,
+            armed_count: 0,
         },
     }
 }
@@ -642,53 +678,11 @@ fn play_caption(st: &LastCallState, play: &Play) -> String {
     format!("{src} → {tgt}")
 }
 
-/// Plan E Task 4 / decision E8: the per-card seat `<select>` target picker,
-/// appended to the hand pane. Empty string unless the viewer is mid-Lock,
-/// unlocked, and has at least one armed `targets == "one"` card — outside
-/// that window there is nothing to pick, and a locked player's picks are
-/// already committed. Options are titled/named through `html_escape`, as
-/// `lc_hand_pane` does for the same reason.
-fn targets_section_html(st: &LastCallState, seat: usize) -> String {
-    if !matches!(st.beat, Beat::Diplomacy | Beat::Lock) {
-        return String::new();
-    }
-    let p = &st.players[seat];
-    if p.locked {
-        return String::new();
-    }
-    let armed_one: Vec<_> = p.armed.iter().filter(|a| a.card.targets == "one").collect();
-    if armed_one.is_empty() {
-        return String::new();
-    }
-    let rows: String = armed_one
-        .iter()
-        .map(|a| {
-            let options: String = st
-                .players
-                .iter()
-                .filter(|tp| tp.status == Status::Alive)
-                .map(|tp| {
-                    let selected = if a.target == Some(tp.seat) {
-                        " selected"
-                    } else {
-                        ""
-                    };
-                    format!(
-                        r#"<option value="{seat}"{selected}>{name}</option>"#,
-                        seat = tp.seat,
-                        name = crate::render::html_escape(&tp.name),
-                    )
-                })
-                .collect();
-            format!(
-                r#"<label class="lc-target-row"><span>{title}</span><select data-lc-target data-card-id="{id}"><option value="">PICK A TARGET</option>{options}</select></label>"#,
-                title = crate::render::html_escape(&a.card.title),
-                id = crate::render::html_escape(&a.card.id),
-            )
-        })
-        .collect();
-    format!(r#"<section class="lc-targets"><h2>Targets</h2>{rows}</section>"#)
-}
+// Pack 1 (lc-mobile-play-flow) retired `targets_section_html` — the E8
+// per-card `<select>` target picker. Targeting now happens in the TABLE
+// tab's full-pane overlay at arm time (`lc_target_overlay` + the
+// `lc_loop.js` tray/overlay wiring, which posts `arm` then `target`); the
+// `/lastcall/target` route itself is unchanged.
 
 /// The route-side twin of `last_call::play_subjects` (private to that
 /// module, and not in this task's file list to touch): the answered play's
@@ -837,7 +831,6 @@ pub async fn lc_page(
         Ok(c) => c,
         Err(r) => return r,
     };
-    let me = ctx.st.seat_of(player.id);
     let hand_pane = hand_pane_html(&state.base_path, &code, &ctx.st, player.id);
     let actions = lc_render::lc_action_bar(&action_bar_view(&ctx.st, player.id));
     let view = ctx.st.public_view();
@@ -854,7 +847,7 @@ pub async fn lc_page(
         test_bar,
         banner: lc_render::lc_banner(&view),
         hand_pane,
-        table_pane: table_pane_html(&view, me),
+        table_pane: table_pane_html(&ctx.st, &view, player.id),
         actions,
         log_pane: lc_render::lc_log(&view),
     };
@@ -866,11 +859,51 @@ pub async fn lc_page(
 /// `#lc-hand` root. Shared by `lc_page` (initial paint) and
 /// `lc_table_handler` (the per-viewer refetch) so the two can never
 /// disagree on the fragment's shape for the same state.
-fn table_pane_html(view: &PublicView, me: Option<usize>) -> String {
+///
+/// Pack 1 (lc-mobile-play-flow): now takes `&LastCallState` + `player_id`
+/// (the `hand_pane_html` shape) rather than `&PublicView` + `me` — the
+/// TABLE fetch was already per-viewer and session-gated, and the play
+/// surface adds the viewer's OWN tray, targeting overlay and armed stack
+/// to it. Those three render only for a seated, ALIVE viewer during the
+/// staging beat (Diplomacy; Lock for a legacy blob) with no outcome — the
+/// same window `arm`/`disarm` accept — and read only the viewer's own
+/// seat, so player A's fragment can never carry player B's cards. A
+/// locked viewer keeps the stack (their own `locked_plays`, `data-locked`,
+/// no take-back) but loses the tray and overlay: the queue is committed.
+/// Review fix: takes the already-built `&PublicView` alongside the state
+/// instead of projecting its own copy — `lc_page` builds one view for the
+/// banner/log and passes it here, so a page render projects once, not
+/// twice. Callers must pass a view built from the SAME `st`.
+fn table_pane_html(st: &LastCallState, view: &PublicView, player_id: i64) -> String {
+    let me = st.seat_of(player_id);
+    let staging = matches!(st.beat, Beat::Diplomacy | Beat::Lock) && st.outcome().is_none();
+    let mut stack = String::new();
+    let mut tray = String::new();
+    let mut overlay = String::new();
+    if let Some(seat) = me {
+        let p = &st.players[seat];
+        if staging && p.status == Status::Alive {
+            if p.locked {
+                let staged: Vec<(&Card, Option<usize>)> = st
+                    .locked_plays
+                    .iter()
+                    .filter(|pl| pl.source_seat == seat)
+                    .map(|pl| (&pl.card, pl.target))
+                    .collect();
+                stack = lc_render::lc_table_stack(&staged, true, view, seat);
+            } else {
+                let armed: Vec<(&Card, Option<usize>)> =
+                    p.armed.iter().map(|a| (&a.card, a.target)).collect();
+                stack = lc_render::lc_table_stack(&armed, false, view, seat);
+                tray = lc_render::lc_tray(&p.hand);
+                overlay = lc_render::lc_target_overlay(view, seat);
+            }
+        }
+    }
     format!(
-        r#"<div id="lc-table" data-seq="{}">{}</div>"#,
-        view.seq,
-        lc_render::lc_mini_table(view, me),
+        r#"<div id="lc-table" data-seq="{seq}"><div class="lc-tablescene" data-lc-scene-table>{mini}{stack}<svg class="lc-arrowlay" data-lc-arrows aria-hidden="true"></svg></div>{tray}{overlay}</div>"#,
+        seq = view.seq,
+        mini = lc_render::lc_mini_table(view, me),
     )
 }
 
@@ -902,9 +935,8 @@ pub async fn lc_table_handler(
         Ok(c) => c,
         Err(r) => return r,
     };
-    let me = ctx.st.seat_of(player.id);
     let view = ctx.st.public_view();
-    Html(table_pane_html(&view, me)).into_response()
+    Html(table_pane_html(&ctx.st, &view, player.id)).into_response()
 }
 
 /// `GET /room/{code}/lastcall/hand` — PRIVATE.

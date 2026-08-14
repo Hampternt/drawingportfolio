@@ -634,6 +634,16 @@ pub struct PublicSeat {
     pub pulls_spent: u32,
     pub cards_played: u32,
     pub elim_order: Option<u32>,
+    /// Pack 3 / D2 (lc-mobile-play-flow, decision 2026-08-13): per-deck
+    /// hand-composition counts — `Deck::ALL` order, zero-count decks
+    /// omitted. Counts are public; card identity stays private (this is a
+    /// count over decks, which the table can already infer from vessels
+    /// and draws — it names no card). Composed over hand + armed + this
+    /// seat's `locked_plays`, the same three terms as `hand_len` above and
+    /// for the same reason: a strip that moved the moment a player staged
+    /// would leak which deck they are staging from.
+    #[serde(default)]
+    pub hand_by_deck: Vec<(Deck, u16)>,
 }
 
 impl PublicSeat {
@@ -1278,6 +1288,22 @@ impl LastCallState {
                     pulls_spent: p.pulls_spent,
                     cards_played: p.cards_played,
                     elim_order: p.elim_order,
+                    // D2: deck counts over the same hand+armed+locked set
+                    // as hand_len — see the field's doc comment.
+                    hand_by_deck: Deck::ALL
+                        .iter()
+                        .map(|&d| {
+                            let n = p.hand.iter().filter(|c| c.deck == d).count()
+                                + p.armed.iter().filter(|a| a.card.deck == d).count()
+                                + self
+                                    .locked_plays
+                                    .iter()
+                                    .filter(|pl| pl.source_seat == p.seat && pl.card.deck == d)
+                                    .count();
+                            (d, n as u16)
+                        })
+                        .filter(|&(_, n)| n > 0)
+                        .collect(),
                 })
                 .collect(),
             round: self.round,
@@ -3884,6 +3910,41 @@ mod tests {
         assert!(!json.contains("beer-01"));
         assert!(!json.contains("cider-01"));
         assert!(!json.contains("wine-01"));
+    }
+
+    /// Pack 3 / D2 (2026-08-13): the hand-composition strip's projection —
+    /// per-deck COUNTS are public, card identity stays private, and the
+    /// counts hold still while a player stages (hand + armed + locked, the
+    /// same three terms as `hand_len` and for the same reason: a strip
+    /// that moved on arm would leak which deck is being staged from).
+    #[test]
+    fn test_public_view_hand_by_deck_counts_but_never_identity() {
+        let mut st = seated();
+        st.set_vessel(1, Deck::Beer, "can").unwrap();
+        st.set_vessel(2, Deck::Cider, "bottle").unwrap();
+
+        let view = st.public_view();
+        assert_eq!(view.seats[0].hand_by_deck, vec![(Deck::Beer, 5)]);
+        assert_eq!(view.seats[1].hand_by_deck, vec![(Deck::Cider, 5)]);
+        // seat 2 registered nothing: no strip, not a zero-count row
+        assert!(view.seats[2].hand_by_deck.is_empty());
+
+        // Staging must not move the strip: arm, then lock, same counts.
+        st.beat = Beat::Diplomacy;
+        st.arm(1, "beer-01").unwrap();
+        assert_eq!(
+            st.public_view().seats[0].hand_by_deck,
+            vec![(Deck::Beer, 5)]
+        );
+        st.set_target(1, "beer-01", Some(1)).unwrap();
+        st.lock_in(1).unwrap();
+        assert_eq!(
+            st.public_view().seats[0].hand_by_deck,
+            vec![(Deck::Beer, 5)]
+        );
+        // …and identity still never rides the projection pre-reveal.
+        let json = serde_json::to_string(&st.public_view()).unwrap();
+        assert!(!json.contains("beer-01"));
     }
 
     /// finding 3: pins the projection side of the `plays`/`revealed`

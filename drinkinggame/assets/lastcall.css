@@ -407,6 +407,28 @@ body.lc { margin: 0; min-height: 100vh; display: flex; flex-direction: column;
                  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .lc-tabs { padding: 0 18px; display: flex; border-bottom: 1px solid var(--lc-hair); }
+/* Pack 2 (lc-mobile-play-flow): the tab row's right side — mode badge +
+   pull count. The badge's fixed modes carry their colours here (CSS owns
+   hex); ARMING additionally rides an lc-deck-* class from the JS, and the
+   var() fallbacks below keep the deckless modes on their own colours. */
+.lc-mode { margin-left: auto; align-self: center; display: flex;
+           align-items: center; gap: 8px; }
+.lc-mode-badge { padding: 2px 8px; border-radius: 999px;
+                 font-family: var(--font-display); font-weight: 800;
+                 font-size: 8.5px; letter-spacing: .13em; white-space: nowrap;
+                 color: var(--lc-ink, var(--lc-label));
+                 background: var(--lc-grid, rgba(141, 135, 160, .13));
+                 border: 1px solid var(--lc-ink-59, rgba(141, 135, 160, .33)); }
+.lc-mode-badge[data-mode="read"],
+.lc-mode-badge[data-mode="mulligan"] { color: var(--lc-violet);
+                 background: rgba(180, 142, 247, .13);
+                 border-color: rgba(180, 142, 247, .33); }
+.lc-mode-badge[data-mode="play"],
+.lc-mode-badge[data-mode="target"] { color: var(--lc-azure);
+                 background: rgba(111, 182, 255, .13);
+                 border-color: rgba(111, 182, 255, .33); }
+.lc-mode-pulls { font-family: var(--font-mono); font-size: 10px;
+                 color: var(--lc-amber); white-space: nowrap; }
 .lc-tab { background: none; border: 0; padding: 9px 14px 8px; cursor: pointer;
           font-family: var(--font-display); font-weight: 800; font-size: 11px;
           letter-spacing: .1em; color: var(--lc-label);
@@ -440,9 +462,9 @@ body.lc { margin: 0; min-height: 100vh; display: flex; flex-direction: column;
                    color: var(--lc-rose); }
 .lc-drink-now { display: flex; align-items: center; justify-content: center;
                 cursor: default; }
-.lc-targets { padding: 0 14px 10px; }
-.lc-target-row { display: flex; align-items: center; justify-content: space-between;
-                 gap: 10px; padding: 6px 0; font-size: 13px; }
+/* Pack 1 (lc-mobile-play-flow) retired .lc-targets/.lc-target-row — the E8
+   select picker's rows. Targeting lives in the TABLE tab's .lc-tgt overlay
+   below. */
 
 /* Plan G — pacts. The private pact section was retired by the 2026-08-13
    screen-declutter pack (routes + engine stay dormant); the break strip is
@@ -455,15 +477,39 @@ body.lc { margin: 0; min-height: 100vh; display: flex; flex-direction: column;
                  font-weight: 700; font-size: 18px; letter-spacing: .14em;
                  color: var(--lc-rose); pointer-events: none; }
 
-/* Plan H: the private tab card (decision H13) — hand pane only. Token names
-   corrected against this tree's actual custom properties (`--lc-hair`, not
-   the brief's `--lc-hairline`), same caveat as Task 4's strip. */
-.lc-tabcard { margin: 10px 14px; padding: 10px 12px; border-radius: 10px;
-              background: var(--lc-raised); border: 1px solid var(--lc-hair); }
-.lc-tabcard h2 { font-size: 10px; letter-spacing: .16em; color: var(--lc-faint); }
+/* Plan H's private tab card (H13), reshaped by Pack 2 (lc-mobile-play-flow)
+   into the design's slide-out drawer: a vertical-text handle docked on the
+   hand pane's right edge, the 212px panel off-canvas until [data-open].
+   The root keeps its .lc-tabcard name on purpose — privacy tests use it as
+   the tab-identity marker (see lc_tab_panel's doc comment). display: none
+   on the hidden HAND pane hides it wholesale, so it never floats over the
+   TABLE tab despite position: fixed. */
+.lc-tabcard { position: fixed; right: 0; bottom: 128px; z-index: 20;
+              display: flex; align-items: stretch;
+              transform: translateX(212px);
+              transition: transform 280ms var(--lc-ease); }
+.lc-tabcard[data-open] { transform: translateX(0); }
+.lc-tabcard-handle { flex: none; align-self: center; writing-mode: vertical-rl;
+                     padding: 12px 5px; border-radius: 8px 0 0 8px;
+                     background: var(--lc-raised);
+                     border: 1px solid var(--lc-hair-strong); border-right: 0;
+                     color: var(--lc-violet); font-family: var(--font-display);
+                     font-weight: 800; font-size: 9px; letter-spacing: .16em;
+                     cursor: pointer;
+                     box-shadow: -4px 4px 12px rgba(5, 3, 10, .5); }
+.lc-tabcard-handle::after { content: " \25C2"; }
+.lc-tabcard[data-open] .lc-tabcard-handle::after { content: " \25B8"; }
+.lc-tabcard-panel { width: 212px; padding: 12px 14px;
+                    background: var(--lc-raised);
+                    border: 1px solid var(--lc-hair-strong);
+                    border-radius: 0 0 0 10px;
+                    box-shadow: 0 8px 22px rgba(5, 3, 10, .55); }
+.lc-tabcard h2 { font-size: 9.5px; font-weight: 700; letter-spacing: .16em;
+                 color: var(--lc-faint); }
 .lc-tabcard-name { font-family: var(--font-display); font-weight: 900;
-                   font-size: 18px; letter-spacing: -.01em; color: var(--lc-text); }
-.lc-tabcard-text { font-size: 13px; color: var(--lc-faint); margin: 4px 0 6px; }
+                   font-size: 18px; letter-spacing: -.01em; color: var(--lc-text);
+                   display: block; margin-top: 3px; }
+.lc-tabcard-text { font-size: 12.5px; color: var(--lc-label); margin: 3px 0 6px; }
 .lc-tabcard-pay { font-family: var(--font-mono); font-size: 11px;
                   letter-spacing: .1em; color: var(--lc-text); }
 
@@ -504,9 +550,13 @@ body.lc { margin: 0; min-height: 100vh; display: flex; flex-direction: column;
    pushed back by the radius so the focused card keeps its authored size;
    lc_wheel.js writes each card's rotateX/translateZ, opacity, visibility and
    z-index inline from the constants it owns (STEP 21, RADIUS 470, sens .28). */
-.lc-wheel { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.lc-wheel { flex: 1; min-width: 0; display: flex; flex-direction: column;
+            position: relative; }
+/* Pack 2: clip-path in addition to overflow: hidden — preserve-3d
+   descendants are not clipped by overflow alone (design handoff). */
 .lc-wheel-stage { flex: 1; position: relative; perspective: 1400px;
                   perspective-origin: 50% 50%; overflow: hidden;
+                  clip-path: inset(0);
                   touch-action: none; cursor: grab; }
 .lc-wheel-stage:active { cursor: grabbing; }
 .lc-wheel-track { position: absolute; inset: 0; transform-style: preserve-3d;
@@ -526,11 +576,35 @@ body.lc { margin: 0; min-height: 100vh; display: flex; flex-direction: column;
 .lc-wheel-card.is-focused .lc-cardface { background: var(--lc-focused);
     border: 2px solid var(--lc-ink, var(--lc-hair-strong));
     box-shadow: var(--lc-lift-lg); }
-.lc-wheel-hint { position: absolute; left: 0; right: 0; bottom: 6px;
+/* Pack 2: the focused card invites the tap that reads it. ::after rather
+   than renderer markup — focus is a JS-side state (is-focused), and the
+   server can't know which card holds it. */
+.lc-wheel-card.is-focused .lc-cardface::after {
+  content: "TAP TO READ"; position: absolute; right: 18px; bottom: 16px;
+  font-family: var(--font-mono); font-size: 8.5px; letter-spacing: .1em;
+  color: var(--lc-faint); white-space: nowrap; }
+/* Pack 2: the position counter — a sibling of the stage, NOT a child: the
+   stage's perspective creates a 3D rendering context whose depth sort
+   paints the cards over anything inside it, z-index included. */
+/* z 120: above the wheel cards' inline z-index (≤ ~100, lc_wheel.js's
+   layout) but below the sheet/mulligan overlays (z 400/450) — at z 500 the
+   counter pill floated over the mulligan overlay (found live). The dark
+   backdrop pill keeps the text legible when a card corner slides under it
+   (the cards span the wheel's full width, unlike the prototype's 20px
+   insets). */
+.lc-wheel-pos { position: absolute; top: 10px; right: 16px; z-index: 120;
+                font-family: var(--font-mono); font-size: 10px;
+                color: var(--lc-label); pointer-events: none;
+                white-space: nowrap; background: rgba(14, 12, 20, .8);
+                border-radius: 4px; padding: 1px 6px; }
+/* Pack 2: the hint moved OUT of the stage (clip-path would sit cards over
+   it) — a static pulsing line below it. */
+.lc-wheel-hint { flex: none; padding: 4px 8px 0;
                  text-align: center; font-family: var(--font-ui);
                  font-weight: 700; font-size: 9px; letter-spacing: .14em;
                  text-transform: uppercase; color: var(--lc-faint);
-                 pointer-events: none; }
+                 pointer-events: none;
+                 animation: lc-pulse 2.6s ease-in-out infinite; }
 
 /* C.3 CostRail — 26px column, a cost histogram you can scrub. Bars are
    right-aligned inside a 14px inner rail; the whole column is one pointer
@@ -651,6 +725,24 @@ body.lc { margin: 0; min-height: 100vh; display: flex; flex-direction: column;
   .lc-timer { transform: scaleX(0); }
   .lc-cardface, .lc-btn { transition: none; }
   .lc-wheel-card, .lc-costrail-bar { transition: none; }
+  /* Pack 1 (lc-mobile-play-flow): arrows still (dashes stay, no crawl),
+     waves and pop-ins off, the decorative arm-flash suppressed outright —
+     lc_motion.js's lcArmFlash also guards on reduced() and never builds
+     the node, so this display rule is the CSS-side belt to that brace. */
+  .lc-arrowlay path, .lc-arrowlay ellipse,
+  .lc-stack-mini, .lc-tgt { animation: none !important; }
+  .lc-arrowlay ellipse { opacity: .25; }
+  .lc-armflash { display: none; }
+  .lc-tray-mini, .lc-tgt-row { transition: none; }
+  /* Pack 2: hint pulse off, sheet appears without motion, drawer snaps. */
+  .lc-wheel-hint, .lc-sheet-scrim, .lc-sheet-body { animation: none !important; }
+  .lc-tabcard { transition: none; }
+  /* Pack 3: overlay appears without motion, chip flashes stilled. */
+  .lc-mull,
+  .lc-minitable-chip.is-hit,
+  .lc-minitable-chip.is-hit .lc-minitable-hp,
+  .lc-minitable-chip.is-good .lc-minitable-hp { animation: none !important; }
+  .lc-mull-card { transition: none; }
 }
 
 /* preview page (Plan A-vis Task 2) — a permanent style guide, not a shell
@@ -1088,9 +1180,320 @@ body.lc-screen .lc-timer { height: 3px; }
   gap: 9px;
 }
 
+/* Pack 1 (lc-mobile-play-flow) — the TABLE tab as the play surface: the
+   scene wrapper, the fanned tray, the targeting overlay, the felt-edge
+   ARMED stack, the arrow layer and the arm-flash. Everything composes from
+   the tokens above — no new colours. All animation additions extend the
+   ONE reduced-motion block above, per the rule below. */
+
+/* The scene: the mini table plus its private overlays (stack, arrows) in
+   one positioned box — the stack and the SVG resolve their absolute
+   positions against this, not the pane. Owns the 14px gap the mini table
+   used to carry, so the arrow layer's inset: 0 spans exactly the felt. */
+.lc-tablescene { position: relative; margin: 0 0 14px; }
+.lc-tablescene > .lc-minitable { margin: 0; }
+/* The pane is the targeting overlay's containing block (inset: 0 covers
+   the whole TABLE pane, tray and END GAME form included, per the design). */
+.lc-pane { position: relative; }
+
+/* the persistent arrow layer — JS (lc_motion.js lcTableArrows) writes the
+   viewBox and the deck-classed paths/ellipses; CSS owns every colour and
+   all motion. Sits above the felt, below the seat chips (z 6). */
+.lc-arrowlay { position: absolute; inset: 0; width: 100%; height: 100%;
+               pointer-events: none; z-index: 4; overflow: visible; }
+.lc-arrowlay path { fill: none; stroke: var(--lc-ink, var(--lc-violet));
+                    stroke-width: 2; stroke-dasharray: 1 9;
+                    stroke-linecap: round; opacity: .35;
+                    animation: lc-dashflow 2400ms linear infinite; }
+.lc-arrowlay ellipse { fill: none; stroke: var(--lc-ink, var(--lc-violet));
+                       stroke-width: 1.5; opacity: .5;
+                       transform-box: fill-box; transform-origin: center;
+                       animation: lc-wave 2s ease-out infinite; }
+
+/* the fanned tray — 64px minis overlapping -14px (the scroller's 16px
+   left padding compensates the first). No visible scrollbar ever: the
+   one legitimate stylesheet scrollbar rule (design handoff). */
+.lc-tray { padding: 10px 16px 4px; }
+.lc-tray-head { display: flex; align-items: baseline;
+                justify-content: space-between; margin-bottom: 6px;
+                font-family: var(--font-ui); font-weight: 700; font-size: 9px;
+                letter-spacing: .14em; color: var(--lc-faint);
+                white-space: nowrap; }
+.lc-tray-cards { display: flex; overflow-x: auto;
+                 padding: 10px 2px 10px 16px;
+                 scrollbar-width: none; -ms-overflow-style: none; }
+.lc-tray-cards::-webkit-scrollbar { display: none; }
+.lc-tray-mini { flex: none; width: 64px; margin-left: -14px; padding: 7px 6px;
+                border-radius: 6px; background: var(--lc-panel-alt);
+                border: 1.5px solid var(--lc-ink);
+                box-shadow: -3px 3px 6px rgba(5, 3, 10, .55);
+                text-align: left; cursor: grab; touch-action: none;
+                display: flex; flex-direction: column; gap: 2px;
+                transition: transform 140ms var(--lc-ease); }
+.lc-tray-mini.is-staged { background: var(--lc-focused); border-width: 2px;
+                          transform: translateY(-6px); }
+.lc-tray-cost { font-family: var(--font-display); font-weight: 800;
+                font-size: 9px; color: var(--lc-ink); }
+.lc-tray-title { font-family: var(--font-display); font-weight: 800;
+                 font-size: 10px; line-height: 1.15; color: var(--lc-text);
+                 display: -webkit-box; -webkit-line-clamp: 2;
+                 -webkit-box-orient: vertical; overflow: hidden;
+                 pointer-events: none; }
+
+/* the pointer-drag ghost — created by lc_loop.js in the #lc-flights layer,
+   reusing .lc-tray-cost/.lc-tray-title for its two lines */
+.lc-tray-ghost { position: absolute; z-index: 60; pointer-events: none;
+                 width: 64px; padding: 7px 6px; border-radius: 6px;
+                 background: var(--lc-focused);
+                 border: 2px solid var(--lc-ink, var(--lc-hair-strong));
+                 box-shadow: var(--lc-lift-lg);
+                 display: flex; flex-direction: column; gap: 2px;
+                 transform: translate(-50%, -70%) rotate(-4deg) scale(1.15); }
+
+/* the targeting overlay — covers the whole TABLE pane. Hidden at rest;
+   lc_loop.js unhides it and shows the row subset matching the staged
+   card's targets class. */
+.lc-tgt { position: absolute; inset: 0; z-index: 8;
+          background: rgba(11, 9, 16, .82);
+          display: flex; flex-direction: column; gap: 8px;
+          padding: 12px 14px; overflow-y: auto; overflow-x: hidden;
+          scrollbar-width: none; -ms-overflow-style: none;
+          animation: lc-fade 140ms ease-out 1; }
+.lc-tgt::-webkit-scrollbar { display: none; }
+.lc-tgt[hidden] { display: none; }
+.lc-tgt-label { flex: none; text-align: center; font-family: var(--font-ui);
+                font-weight: 700; font-size: 9px; letter-spacing: .14em;
+                color: var(--lc-azure); }
+.lc-tgt-rows { flex: none; display: flex; flex-direction: column; gap: 8px; }
+.lc-tgt-row { flex: none; height: 52px; display: flex; align-items: center;
+              gap: 10px; padding: 0 14px; border-radius: 10px;
+              background: var(--lc-panel);
+              border: 1px solid var(--lc-hair-strong);
+              box-shadow: 0 3px 0 rgba(5, 3, 10, .5);
+              transition: transform 120ms var(--lc-ease), background 120ms; }
+.lc-tgt-row[hidden] { display: none; }
+.lc-tgt-row.is-over { background: var(--lc-focused);
+                      border: 2px solid var(--lc-azure);
+                      transform: scale(1.03); }
+/* the EVERYONE row carries no deck class — the dot falls back to azure */
+.lc-tgt-dot { width: 8px; height: 8px; border-radius: 50%;
+              background: var(--lc-fill, var(--lc-azure));
+              box-shadow: 0 0 8px var(--lc-fill, var(--lc-azure)); }
+.lc-tgt-name { font-family: var(--font-display); font-weight: 800;
+               font-size: 14px; letter-spacing: .01em; color: var(--lc-text); }
+.lc-tgt-you { font-family: var(--font-mono); font-size: 8px; padding: 1px 4px;
+              border-radius: 3px; background: rgba(180, 142, 247, .18);
+              color: var(--lc-violet); }
+.lc-tgt-hp { margin-left: auto; font-family: var(--font-display);
+             font-weight: 900; font-size: 15px; color: var(--lc-body); }
+/* the staged-card preview: a full card_face, restyled down to 206px */
+.lc-tgt-preview { flex: none; margin-top: auto; align-self: center;
+                  width: 206px; pointer-events: none; }
+.lc-tgt-preview .lc-cardface { height: auto; padding: 11px 13px;
+                               border: 2px solid var(--lc-ink, var(--lc-hair-strong));
+                               box-shadow: var(--lc-lift-lg); }
+.lc-tgt-preview .lc-face-title { font-size: 18px; }
+.lc-tgt-preview .lc-face-body { font-size: 11px; -webkit-line-clamp: 2; }
+
+/* the ARMED stack — the felt's left edge, vertically centred in the scene */
+.lc-stack { position: absolute; left: 12px; top: 50%;
+            transform: translateY(-50%); z-index: 7;
+            display: flex; flex-direction: column; gap: 6px; width: 58px; }
+.lc-stack[data-locked] { opacity: .75; }
+.lc-stack-head { text-align: center; font-family: var(--font-ui);
+                 font-weight: 700; font-size: 8.5px; letter-spacing: .1em;
+                 color: var(--lc-violet); background: rgba(14, 12, 20, .8);
+                 border-radius: 4px; padding: 1px 0; }
+.lc-stack-mini { display: flex; flex-direction: column; gap: 1px;
+                 width: 58px; height: 46px; padding: 5px; border-radius: 6px;
+                 background: var(--lc-focused);
+                 border: 1.5px solid var(--lc-ink);
+                 box-shadow: 0 3px 0 rgba(5, 3, 10, .5); text-align: left;
+                 animation: lc-pop 240ms var(--lc-ease) 1; }
+.lc-stack-line { font-family: var(--font-display); font-weight: 800;
+                 font-size: 8px; color: var(--lc-ink); white-space: nowrap;
+                 overflow: hidden; text-overflow: ellipsis; }
+.lc-stack-title { font-family: var(--font-display); font-weight: 800;
+                  font-size: 9px; line-height: 1.1; color: var(--lc-text);
+                  display: -webkit-box; -webkit-line-clamp: 2;
+                  -webkit-box-orient: vertical; overflow: hidden; }
+.lc-stack-foot { text-align: center; font-family: var(--font-mono);
+                 font-size: 7.5px; color: var(--lc-faint); }
+
+/* the arm-flash — a large preview at the felt centre that flies into the
+   stack. Lives in the #lc-flights layer (lc_motion.js lcArmFlash), so no
+   table repaint can destroy it mid-flight; left/top and the fly transform
+   are written inline by that helper. */
+.lc-armflash { position: absolute; z-index: 10; width: 224px;
+               pointer-events: none; transform: translate(-50%, -50%);
+               animation: lc-cardin 240ms var(--lc-ease) 1; }
+.lc-armflash-cap { text-align: center; font-family: var(--font-mono);
+                   font-size: 10px; letter-spacing: .08em;
+                   color: var(--lc-body); margin-bottom: 6px; }
+.lc-armflash .lc-cardface { height: auto;
+                            border: 2px solid var(--lc-ink, var(--lc-hair-strong));
+                            background: var(--lc-focused);
+                            box-shadow: var(--lc-lift-lg); }
+
+/* Pack 2 (lc-mobile-play-flow) — the HAND tab's inspect sheet: scrim +
+   bottom sheet. The skeleton ships hidden in the private hand fetch; the
+   tapped card's stash entry (expanded face, meta grid, actions) is cloned
+   into .lc-sheet-slot by lc_loop.js. */
+/* z 400/450 (sheet/mulligan): above everything in the panes, including
+   the wheel counter's 120 — the full-screen overlays must bury the shell. */
+.lc-sheet { position: fixed; inset: 0; z-index: 400; }
+.lc-sheet[hidden] { display: none; }
+.lc-sheet-scrim { position: absolute; inset: 0;
+                  background: rgba(11, 9, 16, .78);
+                  backdrop-filter: blur(2px);
+                  animation: lc-fade 160ms ease-out 1; }
+.lc-sheet-body { position: absolute; left: 0; right: 0; bottom: 0;
+                 max-height: 80%; overflow-y: auto;
+                 background: var(--lc-panel);
+                 border-top: 1px solid var(--lc-hair-strong);
+                 border-radius: 18px 18px 0 0; padding: 14px 18px 20px;
+                 animation: lc-sheetup 240ms var(--lc-ease) 1; }
+.lc-sheet-grabber { width: 36px; height: 4px; border-radius: 2px;
+                    background: var(--lc-hair-strong); margin: 0 auto 12px; }
+.lc-sheet-slot { display: flex; flex-direction: column; gap: 12px; }
+.lc-sheet-slot .lc-cardface { height: auto; padding: 16px 18px;
+                              border: 2px solid var(--lc-ink, var(--lc-hair-strong));
+                              background: var(--lc-raised);
+                              box-shadow: var(--lc-lift-lg); }
+.lc-sheet-meta { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.lc-sheet-cell { background: var(--lc-panel-alt);
+                 border: 1px solid var(--lc-hair); border-radius: 8px;
+                 padding: 8px 10px; }
+.lc-sheet-cell span { display: block; font-family: var(--font-ui);
+                      font-weight: 700; font-size: 8.5px;
+                      letter-spacing: .14em; color: var(--lc-faint); }
+.lc-sheet-cell b { display: block; font-family: var(--font-mono);
+                   font-weight: 400; font-size: 12.5px;
+                   color: var(--lc-text); margin-top: 2px; }
+.lc-sheet-actions { display: flex; gap: 10px; }
+.lc-sheet-actions .lc-btn-secondary { flex: 0 0 92px; height: 54px; }
+.lc-sheet-play { flex: 1; height: 54px; border: 0; border-radius: 8px;
+                 background: var(--lc-fill, var(--lc-violet));
+                 color: var(--lc-on-fill, #14101D);
+                 font-family: var(--font-display); font-weight: 900;
+                 font-size: 16px; }
+.lc-sheet-reactnote { flex: 1; align-self: center; text-align: center;
+                      font-family: var(--font-ui); font-weight: 700;
+                      font-size: 10px; letter-spacing: .12em;
+                      text-transform: uppercase; color: var(--lc-faint); }
+
+/* Pack 3 (lc-mobile-play-flow) — the mulligan overlay: full-screen
+   multi-select over the existing route (engine semantics per D1). */
+.lc-mull { position: fixed; inset: 0; z-index: 450;
+           background: rgba(11, 9, 16, .94);
+           backdrop-filter: blur(3px);
+           display: flex; flex-direction: column;
+           padding: 18px 18px 16px;
+           animation: lc-fade 180ms ease-out 1; }
+.lc-mull[hidden] { display: none; }
+.lc-mull-kicker { font-family: var(--font-ui); font-weight: 700;
+                  font-size: 9.5px; letter-spacing: .16em;
+                  color: var(--lc-violet); }
+.lc-mull-title-lg { font-family: var(--font-display); font-weight: 900;
+                    font-size: 28px; letter-spacing: -.02em;
+                    color: var(--lc-text); margin-top: 2px; }
+.lc-mull-sub { font-size: 12.5px; color: var(--lc-secondary); margin-top: 3px; }
+.lc-mull-countrow { flex: none; display: flex; justify-content: flex-end;
+                    margin: 10px 0 12px; font-family: var(--font-mono);
+                    font-size: 11px; color: var(--lc-body);
+                    white-space: nowrap; }
+.lc-mull-grid { flex: 1; min-height: 0; overflow-y: auto;
+                display: grid; grid-template-columns: 1fr 1fr;
+                gap: 10px; align-content: start; padding: 8px 0 12px; }
+.lc-mull-card { position: relative; text-align: left; border-radius: 12px;
+                padding: 11px 12px; background: var(--lc-raised);
+                border: 1px solid var(--lc-hair-strong);
+                display: flex; flex-direction: column; gap: 5px;
+                transition: transform 140ms var(--lc-ease); }
+.lc-mull-card.is-picked { background: var(--lc-focused);
+                          border: 2px solid var(--lc-violet);
+                          transform: translateY(-5px); }
+.lc-mull-badge { position: absolute; top: -8px; right: -6px;
+                 width: 22px; height: 22px; border-radius: 50%;
+                 background: var(--lc-violet); color: #14101D;
+                 font-family: var(--font-display); font-weight: 900;
+                 font-size: 12px; line-height: 22px; text-align: center; }
+.lc-mull-top { display: flex; align-items: center;
+               justify-content: space-between; }
+.lc-mull-deck { font-family: var(--font-ui); font-weight: 700;
+                font-size: 9px; letter-spacing: .13em;
+                text-transform: uppercase; color: var(--lc-ink); }
+.lc-mull-cost { padding: 1px 8px; border-radius: 4px;
+                background: var(--lc-fill); color: var(--lc-on-fill);
+                font-family: var(--font-display); font-weight: 900;
+                font-size: 12px; }
+.lc-mull-title { font-family: var(--font-display); font-weight: 800;
+                 font-size: 15px; letter-spacing: -.02em; line-height: 1.1;
+                 color: var(--lc-text); }
+.lc-mull-text { font-size: 11px; line-height: 1.3;
+                color: var(--lc-secondary);
+                display: -webkit-box; -webkit-line-clamp: 2;
+                -webkit-box-orient: vertical; overflow: hidden; }
+.lc-mull-actions { flex: none; display: flex; gap: 10px; }
+.lc-mull-actions .lc-btn-secondary { flex: 0 0 92px; height: 58px; }
+.lc-mull-confirm { flex: 1; height: 58px; border: 0; border-radius: 8px;
+                   background: var(--lc-violet); color: #14101D;
+                   font-family: var(--font-display); font-weight: 900;
+                   font-size: 17px; }
+.lc-mull-confirm:disabled { background: var(--lc-raised);
+                            color: var(--lc-faint); cursor: default; }
+
+/* Pack 3 / D2 — the seat chips' hand-composition strip, plus the felt
+   centre's PLAYS caption and the chip hit/heal flashes. */
+.lc-minitable-mix { display: flex; align-items: center; gap: 6px; }
+.lc-mix { display: inline-flex; align-items: center; gap: 2px;
+          font-family: var(--font-display); font-weight: 800;
+          font-size: 9.5px; color: var(--lc-ink, var(--lc-faint)); }
+.lc-mix i { width: 9px; height: 13px; border-radius: 2px;
+            background: var(--lc-grid, transparent);
+            border: 1px solid var(--lc-ink, var(--lc-hair)); }
+.lc-minitable-chip { flex-wrap: wrap; justify-content: center; }
+.lc-minitable-plays { font-family: var(--font-mono); font-size: 9px;
+                      letter-spacing: .12em; color: var(--lc-faint); }
+@keyframes lc-hp-good {                 /* HP to mint and back (heal) */
+  0%   { color: var(--lc-text); }
+  15%  { color: var(--lc-mint); }
+  60%  { color: var(--lc-mint); }
+  100% { color: var(--lc-text); }
+}
+.lc-minitable-chip.is-hit { animation: lc-shake 320ms var(--lc-ease) 1; }
+.lc-minitable-chip.is-hit .lc-minitable-hp {
+  animation: lc-hp-flash 560ms var(--lc-ease) 1; }
+.lc-minitable-chip.is-good .lc-minitable-hp {
+  animation: lc-hp-good 560ms var(--lc-ease) 1; }
+
+/* Pack 1 motion */
+@keyframes lc-dashflow {                /* dotted arrows crawling */
+  to { stroke-dashoffset: -30; }
+}
+@keyframes lc-wave {                    /* AOE ellipse, felt-shaped */
+  0%   { transform: scale(.12); opacity: .8; }
+  100% { transform: scale(1); opacity: 0; }
+}
+@keyframes lc-pop {                     /* stack mini pop-in */
+  0%   { opacity: 0; transform: scale(.55); }
+  100% { opacity: 1; transform: none; }
+}
+@keyframes lc-cardin {                  /* arm-flash entrance */
+  0%   { opacity: 0; transform: translate(-50%, -46%) scale(.55); }
+  100% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+}
+@keyframes lc-fade {                    /* overlay fade-in */
+  0%   { opacity: 0; }
+  100% { opacity: 1; }
+}
+@keyframes lc-sheetup {                 /* inspect sheet rise (Pack 2) */
+  0%   { transform: translateY(42px); opacity: 0; }
+  100% { transform: none; opacity: 1; }
+}
+
 /* Do not add a second reduced-motion @media block — one already exists
-   above. Nothing in this section animates; if that changes, extend the
-   existing block instead. */
+   above. Pack 1's animations are stilled there, not here. */
 
 /* Test play mode — the identity switcher bar, same component the room
    page's game.css carries (lc_room.html loads only this sheet, hence the

@@ -67,6 +67,16 @@
   }
 
   function syncRail(stage, focusedIdx) {
+    // Pack 2: the wheel's position counter ("03 / 07") rides the same
+    // focus sync as the cost rail. It lives on .lc-wheel, a SIBLING of the
+    // stage — inside it, the 3D depth sort paints cards over it.
+    var wheel = stage.closest(".lc-wheel");
+    var pos = wheel && wheel.querySelector(".lc-wheel-pos");
+    if (pos) {
+      var n = stage.querySelectorAll(".lc-wheel-card").length;
+      pos.textContent = String(focusedIdx + 1).padStart(2, "0") +
+        " / " + String(n).padStart(2, "0");
+    }
     var group = stage.closest(".lc-handgroup");
     if (!group) return;
     var above = group.querySelector(".lc-costrail-above");
@@ -137,9 +147,13 @@
       raf = requestAnimationFrame(step);
     }
 
-    function dispatchArm(cardEl) {
-      if (locked(cardEl)) return;
-      cardEl.dispatchEvent(new CustomEvent("lc:arm", {
+    // Pack 2 / D3 (lc-mobile-play-flow): a tap on the focused card READS it
+    // — the inspect sheet, not an instant arm. Playing moved to the TABLE
+    // tray and the sheet's PLAY button, so no locked() gate applies here:
+    // reading is always legal. lc:arm is no longer dispatched by anything;
+    // lc:disarm (the armed column) keeps its listener.
+    function dispatchInspect(cardEl) {
+      cardEl.dispatchEvent(new CustomEvent("lc:inspect", {
         bubbles: true,
         detail: { cardId: cardEl.dataset.cardId },
       }));
@@ -183,7 +197,7 @@
           downTarget.closest(".lc-wheel-card") : null;
         if (cardEl && cardEl.classList.contains("is-focused")) {
           angle = a0;
-          dispatchArm(cardEl);
+          dispatchInspect(cardEl);
           // finding 7 (fix wave): a tap that interrupted a mid-flight
           // glide restores `a0`, which may itself be unsnapped — glide to
           // the snapped angle instead of a bare relayout so the wheel is

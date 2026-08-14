@@ -28,6 +28,10 @@
     <button type="button" class="lc-tab" data-lc-tab="hand"  role="tab" aria-selected="true">HAND</button>
     <button type="button" class="lc-tab" data-lc-tab="table" role="tab" aria-selected="false">TABLE</button>
     <button type="button" class="lc-tab" data-lc-tab="log"   role="tab" aria-selected="false">LOG</button>
+    {# Pack 2 (lc-mobile-play-flow): the mode badge always states what the
+       player is doing (lc_loop.js drives it); the pull count rides every
+       private hand repaint via #lc-hand's data-pulls. #}
+    <span class="lc-mode"><span class="lc-mode-badge" id="lc-mode-badge" data-mode="read">READ</span><span class="lc-mode-pulls" id="lc-mode-pulls" hidden></span></span>
   </nav>
 
   <main class="lc-view">
@@ -120,6 +124,10 @@ function lcApply(html) {
   // property) — guarded so a missing lc_loop.js never breaks the rest of
   // this swap.
   if (window.lcLoopApply) window.lcLoopApply(pane);
+  // Review fix: the repaint rebuilt any open per-hand surface (mulligan
+  // overlay + picks, inspect sheet, drawer) hidden — restore them from
+  // lc_loop.js's module state, same guard rationale as above.
+  if (window.lcHandSync) window.lcHandSync();
 }
 
 // The TABLE pane has no live inputs to preserve, so its apply is the plain
@@ -137,6 +145,11 @@ function lcApplyTable(html) {
   lcSeq = seq;
   const current = document.getElementById("lc-table");
   if (current) current.outerHTML = html;
+  // Pack 1 (lc-mobile-play-flow): the repaint rebuilt the tray/overlay/
+  // stack from server state — re-derive the client-held visual state
+  // (staged card, persistent arrows) against the fresh DOM. Guarded like
+  // lcLoopApply above: a missing lc_loop.js must not break the swap.
+  if (window.lcTableSync) window.lcTableSync();
 }
 
 // Coalesce: LcPublic and LcTick arrive as a pair for the same change, so a

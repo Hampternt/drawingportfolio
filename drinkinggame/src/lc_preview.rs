@@ -627,6 +627,7 @@ fn hand_group_group(st: &LastCallState) -> PreviewGroup {
         locked: false,
         handicap_pct: 100,
         halved: false,
+        pulls_left: 0,
     };
     let live_frame = format!(
         r#"<div class="lc-preview-scroll"><div class="lc-preview-handframe">{}</div></div>"#,
@@ -653,6 +654,7 @@ fn hand_group_group(st: &LastCallState) -> PreviewGroup {
         locked: false,
         handicap_pct: 100,
         halved: false,
+        pulls_left: 0,
     };
     let one_card: Vec<Card> = lc_cards::card_by_id("wine-03").into_iter().collect();
     let one_view = lc_render::HandGroupView {
@@ -661,6 +663,7 @@ fn hand_group_group(st: &LastCallState) -> PreviewGroup {
         locked: false,
         handicap_pct: 100,
         halved: false,
+        pulls_left: 0,
     };
     let empty_no_armed = lc_render::HandGroupView {
         hand: &[],
@@ -668,6 +671,7 @@ fn hand_group_group(st: &LastCallState) -> PreviewGroup {
         locked: false,
         handicap_pct: 100,
         halved: false,
+        pulls_left: 0,
     };
     let empty_armed_cards: Vec<Card> = lc_cards::card_by_id("cider-01").into_iter().collect();
     let empty_all_armed = lc_render::HandGroupView {
@@ -676,6 +680,7 @@ fn hand_group_group(st: &LastCallState) -> PreviewGroup {
         locked: false,
         handicap_pct: 100,
         halved: false,
+        pulls_left: 0,
     };
     body.push_str(&row(
         "HandWheel — degenerate hand sizes",
