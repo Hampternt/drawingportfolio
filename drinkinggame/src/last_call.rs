@@ -3059,8 +3059,11 @@ impl LastCallState {
             let title = crate::lc_cards::card_by_id(&card_id)
                 .map(|c| c.title)
                 .unwrap_or_else(|| card_id.clone());
-            let alive =
-                |s: usize| self.players.get(s).is_some_and(|p| p.status == Status::Alive);
+            let alive = |s: usize| {
+                self.players
+                    .get(s)
+                    .is_some_and(|p| p.status == Status::Alive)
+            };
             // Collected via the same lookup, so this always resolves; the
             // and_then keeps it fail-soft anyway (F1).
             let Some(chfx) = crate::lc_cards::card_chfx(&card_id) else {
@@ -3107,9 +3110,7 @@ impl LastCallState {
             let eligible_voters = |inst: usize, opp: Option<usize>| {
                 self.players
                     .iter()
-                    .filter(|p| {
-                        p.status == Status::Alive && p.seat != inst && Some(p.seat) != opp
-                    })
+                    .filter(|p| p.status == Status::Alive && p.seat != inst && Some(p.seat) != opp)
                     .count()
             };
             match roles {
@@ -3235,11 +3236,7 @@ impl LastCallState {
     /// -> `CantVote` (contestant, or already voted). The verdict lands the
     /// instant the last eligible vote does — the no-clock philosophy: the
     /// table sets its own pace, advancement is votes-in, never a timer.
-    pub fn challenge_vote(
-        &mut self,
-        player_id: i64,
-        for_instigator: bool,
-    ) -> Result<(), LcError> {
+    pub fn challenge_vote(&mut self, player_id: i64, for_instigator: bool) -> Result<(), LcError> {
         let Some(seat) = self.seat_of(player_id) else {
             return Err(LcError::NotSeated);
         };
@@ -3262,10 +3259,7 @@ impl LastCallState {
         });
         self.seq += 1;
         let votes = &self.challenges[0].votes;
-        if voters
-            .iter()
-            .all(|s| votes.iter().any(|v| v.voter == *s))
-        {
+        if voters.iter().all(|s| votes.iter().any(|v| v.voter == *s)) {
             self.settle_challenge();
         }
         Ok(())
@@ -3362,8 +3356,11 @@ impl LastCallState {
         // The last penalty may have invalidated a queued challenge —
         // re-run the activation checks on each new front entry.
         while let Some(next) = self.challenges.first() {
-            let alive =
-                |s: usize| self.players.get(s).is_some_and(|p| p.status == Status::Alive);
+            let alive = |s: usize| {
+                self.players
+                    .get(s)
+                    .is_some_and(|p| p.status == Status::Alive)
+            };
             let valid = alive(next.instigator)
                 && next.opponent.is_none_or(&alive)
                 && Some(next.instigator) != next.opponent
@@ -7142,7 +7139,11 @@ mod tests {
         assert!(st.discards.iter().any(|c| c.id == "liquor-09"));
         assert!(st.log.iter().any(|e| matches!(
             e,
-            LogEntry::ChallengeOpen { instigator: 0, opponent: Some(2), .. }
+            LogEntry::ChallengeOpen {
+                instigator: 0,
+                opponent: Some(2),
+                ..
+            }
         )));
     }
 
@@ -7259,12 +7260,20 @@ mod tests {
         // Bob is the whole electorate: his vote is the verdict.
         st.challenge_vote(2, true).unwrap();
         assert!(!st.challenge_pending());
-        assert_eq!(st.players[2].hp, hp_before - 4, "the loser takes Bar Court's 4");
+        assert_eq!(
+            st.players[2].hp,
+            hp_before - 4,
+            "the loser takes Bar Court's 4"
+        );
         assert_eq!(st.round, 2, "the parked round finally rolls over");
         assert_eq!(st.beat, Beat::Draw);
         assert!(st.log.iter().any(|e| matches!(
             e,
-            LogEntry::ChallengeVerdict { loser: Some(2), loser2: None, .. }
+            LogEntry::ChallengeVerdict {
+                loser: Some(2),
+                loser2: None,
+                ..
+            }
         )));
         // A lost argument is not card damage: no Hit line, no stat credit.
         assert_eq!(st.players[0].damage_dealt, 0);
@@ -7289,7 +7298,11 @@ mod tests {
         assert_eq!(st.round, 2);
         assert!(st.log.iter().any(|e| matches!(
             e,
-            LogEntry::ChallengeVerdict { loser: Some(0), loser2: Some(3), .. }
+            LogEntry::ChallengeVerdict {
+                loser: Some(0),
+                loser2: Some(3),
+                ..
+            }
         )));
     }
 
@@ -7315,7 +7328,11 @@ mod tests {
         assert_eq!(st.players[2].hp, hp_parked, "a pass costs nothing");
         assert!(st.log.iter().any(|e| matches!(
             e,
-            LogEntry::ChallengeVerdict { loser: None, loser2: None, .. }
+            LogEntry::ChallengeVerdict {
+                loser: None,
+                loser2: None,
+                ..
+            }
         )));
 
         // Fail: a tie is not a majority — the performer loses. Drink is a
@@ -7338,7 +7355,11 @@ mod tests {
         assert!(!st.challenge_pending());
         assert!(st.log.iter().any(|e| matches!(
             e,
-            LogEntry::ChallengeVerdict { loser: Some(2), loser2: None, .. }
+            LogEntry::ChallengeVerdict {
+                loser: Some(2),
+                loser2: None,
+                ..
+            }
         )));
         assert_eq!(st.players[2].hp, hp_parked);
         let pulls_after: Vec<u8> = st.players[2].vessels.iter().map(|v| v.pulls_left).collect();
@@ -7378,7 +7399,10 @@ mod tests {
         st.challenge_vote(3, false).unwrap();
         assert_eq!(st.outcome(), Some(LcOutcome::Pact(1, 2)));
         assert_eq!(st.beat, Beat::Resolve, "frozen final tableau");
-        assert!(st.challenges.is_empty(), "queued challenges die with the game");
+        assert!(
+            st.challenges.is_empty(),
+            "queued challenges die with the game"
+        );
         assert!(st
             .log
             .iter()
@@ -7440,7 +7464,11 @@ mod tests {
         assert_eq!(ch.opponent, None);
         assert!(st.log.iter().any(|e| matches!(
             e,
-            LogEntry::ChallengeOpen { instigator: 2, opponent: None, .. }
+            LogEntry::ChallengeOpen {
+                instigator: 2,
+                opponent: None,
+                ..
+            }
         )));
     }
 }

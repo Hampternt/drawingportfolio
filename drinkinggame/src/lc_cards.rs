@@ -94,9 +94,9 @@ pub struct CardDef {
     pub title: &'static str,
     pub text: &'static str,
     pub keywords: &'static [&'static str],
-    pub copies: u8,              // shoe frequency; per-deck sum == LC_DECK_SIZE
-    pub fx: Option<FxDef>,       // None ⇔ kind == Reaction or Challenge (F5)
-    pub rfx: Option<ReactionFx>, // Some ⇔ kind == Reaction — the reaction's rules (I4/I6)
+    pub copies: u8,                 // shoe frequency; per-deck sum == LC_DECK_SIZE
+    pub fx: Option<FxDef>,          // None ⇔ kind == Reaction or Challenge (F5)
+    pub rfx: Option<ReactionFx>,    // Some ⇔ kind == Reaction — the reaction's rules (I4/I6)
     pub chfx: Option<ChallengeDef>, // Some ⇔ kind == Challenge — the contest's rules
 }
 

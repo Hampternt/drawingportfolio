@@ -1121,11 +1121,7 @@ fn log_line(view: &PublicView, entry: &LogEntry) -> String {
                 log_seat_name(view, *b),
                 html_escape(title)
             ),
-            (Some(l), None) => format!(
-                "{} LOSES {}",
-                log_seat_name(view, *l),
-                html_escape(title)
-            ),
+            (Some(l), None) => format!("{} LOSES {}", log_seat_name(view, *l), html_escape(title)),
             (None, _) => format!("THE TABLE APPROVES — {}", html_escape(title)),
         },
     }
@@ -4168,7 +4164,7 @@ mod tests {
 
         // review fix: outside the staging window NO card offers PLAY —
         // the sheet says when playing opens instead.
-        let closed = lc_inspect_sheet(&[one.clone()], false);
+        let closed = lc_inspect_sheet(std::slice::from_ref(&one), false);
         assert!(!closed.contains("data-lc-sheet-tostage"), "{closed}");
         assert!(closed.contains("ARMING OPENS AT DIPLOMACY"), "{closed}");
     }
