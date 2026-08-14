@@ -826,7 +826,12 @@ pub fn lc_banner(view: &PublicView) -> String {
     //    the tab id/title, which stays off `PublicView` entirely (H8).
     // An event id `event_def` does not recognise renders nothing — H3's
     // fail-soft, applied here at the display layer too.
-    let event_strip = if let Some(id) = &view.event {
+    let event_strip = if let Some(ch) = view.challenges.first() {
+        // Challenge-cards container: the parked round's strip — one strip,
+        // first match wins, and a live challenge outranks the event (the
+        // numeric round is already over when the park begins).
+        challenge_strip(view, ch)
+    } else if let Some(id) = &view.event {
         match event_def(id) {
             Some(def) => format!(
                 r#"<div class="lc-event" data-event="{id}"><span class="lc-event-name">{title}</span><span class="lc-event-text">{text}</span></div>"#,
@@ -848,6 +853,37 @@ pub fn lc_banner(view: &PublicView) -> String {
         round = view.round,
         label = beat.label(),
         index = beat.index(),
+    )
+}
+
+/// Challenge-cards container (Pack 1, bare loop): the active challenge's
+/// banner strip — contestants and the live tally. Rides the `.lc-event`
+/// strip slot so the room page and the spectator screen both carry it via
+/// the same `lc_banner` fragment; Pack 2 owns the real spectacle surfaces.
+fn challenge_strip(view: &PublicView, ch: &crate::last_call::ChallengeState) -> String {
+    let title = crate::lc_cards::card_by_id(&ch.card_id)
+        .map(|c| c.title)
+        .unwrap_or_else(|| ch.card_id.clone());
+    let eligible = view
+        .seats
+        .iter()
+        .filter(|s| {
+            s.status == Status::Alive && s.seat != ch.instigator && Some(s.seat) != ch.opponent
+        })
+        .count();
+    let head = match ch.opponent {
+        Some(o) => format!(
+            "{} VS {}",
+            log_seat_name(view, ch.instigator),
+            log_seat_name(view, o)
+        ),
+        None => format!("{} PERFORMS", log_seat_name(view, ch.instigator)),
+    };
+    format!(
+        r#"<div class="lc-event" data-challenge><span class="lc-event-name">CHALLENGE — {head}</span><span class="lc-event-text">{title} &middot; VOTES {m}/{n}</span></div>"#,
+        title = html_escape(&title),
+        m = ch.votes.len(),
+        n = eligible,
     )
 }
 
@@ -951,6 +987,8 @@ fn log_tag(entry: &LogEntry) -> &'static str {
         LogEntry::TabSettle { .. } => "tab_settle",
         LogEntry::ReactionPlay { .. } => "reaction_play",
         LogEntry::Haunt { .. } => "haunt",
+        LogEntry::ChallengeOpen { .. } => "challenge_open",
+        LogEntry::ChallengeVerdict { .. } => "challenge_verdict",
     }
 }
 
@@ -1053,6 +1091,38 @@ fn log_line(view: &PublicView, entry: &LogEntry) -> String {
                 log_seat_name(view, *t)
             ),
             None => format!("{} HAUNTS THE TABLE", log_seat_name(view, *seat)),
+        },
+        // Challenge-cards container — the challenge phase's two beats.
+        LogEntry::ChallengeOpen {
+            instigator,
+            opponent,
+            title,
+        } => match opponent {
+            Some(o) => format!(
+                "{} CHALLENGES {} — {}",
+                log_seat_name(view, *instigator),
+                log_seat_name(view, *o),
+                html_escape(title)
+            ),
+            None => format!(
+                "{} TAKES ON {}",
+                log_seat_name(view, *instigator),
+                html_escape(title)
+            ),
+        },
+        LogEntry::ChallengeVerdict {
+            loser,
+            loser2,
+            title,
+        } => match (loser, loser2) {
+            (Some(a), Some(b)) => format!(
+                "TIE — {} & {} BOTH LOSE {}",
+                log_seat_name(view, *a),
+                log_seat_name(view, *b),
+                html_escape(title)
+            ),
+            (Some(l), None) => format!("{} LOSES {}", log_seat_name(view, *l), html_escape(title)),
+            (None, _) => format!("THE TABLE APPROVES — {}", html_escape(title)),
         },
     }
 }
@@ -3102,6 +3172,7 @@ mod tests {
             reactions: Vec::new(),
             haunts: Vec::new(),
             log: Vec::new(),
+            challenges: Vec::new(),
         }
     }
 
@@ -4093,7 +4164,7 @@ mod tests {
 
         // review fix: outside the staging window NO card offers PLAY —
         // the sheet says when playing opens instead.
-        let closed = lc_inspect_sheet(&[one.clone()], false);
+        let closed = lc_inspect_sheet(std::slice::from_ref(&one), false);
         assert!(!closed.contains("data-lc-sheet-tostage"), "{closed}");
         assert!(closed.contains("ARMING OPENS AT DIPLOMACY"), "{closed}");
     }

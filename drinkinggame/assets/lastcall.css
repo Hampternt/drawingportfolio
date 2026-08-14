@@ -522,6 +522,19 @@ body.lc { margin: 0; min-height: 100vh; display: flex; flex-direction: column;
 .lc-ghost-note { padding: 10px 14px; font-family: var(--font-mono);
                  font-size: 11px; color: var(--lc-faint); }
 
+/* Challenge-cards container, Pack 1 — the bare vote section. Pack 2 owns
+   the announcement HUD and the spectacle styling; this just has to be
+   legible and tappable. */
+.lc-chal { padding: 10px 14px; display: flex; flex-direction: column; gap: 6px; }
+.lc-chal h2 { font-family: var(--font-ui); font-weight: 800; font-size: 12px;
+              letter-spacing: .12em; color: var(--lc-text); margin: 0; }
+.lc-chal-title { font-family: var(--font-ui); font-weight: 700; font-size: 14px;
+                 color: var(--lc-text); margin: 0; }
+.lc-chal-text { font-size: 12.5px; color: var(--lc-label); margin: 0; }
+.lc-chal-note { font-family: var(--font-mono); font-size: 11px;
+                letter-spacing: .08em; color: var(--lc-faint); margin: 2px 0 0; }
+.lc-chal-btn { width: 100%; }
+
 /* slice 2 — the hand group (Module Spec C.1–C.3): ArmedColumn | HandWheel |
    CostRail. "One widget in three parts and always ship together." This
    replaces Plan A2's throwaway plain-list container; the CardFace inside the

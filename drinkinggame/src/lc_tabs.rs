@@ -211,6 +211,7 @@ mod tests {
             pulls_spent: 0,
             cards_played: 0,
             elim_order: None,
+            rules: Vec::new(),
         }
     }
 

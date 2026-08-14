@@ -17,6 +17,12 @@
 //! the response window is `Beat::Reveal`, and `rfx: Option<ReactionFx>` is
 //! their rules column — a catalog-side analog to `fx` (I4/I6), resolved by
 //! id at play time and applied by `resolve()` as play-queue modifiers.
+//!
+//! The challenge-cards container (2026-08-14) adds a third rules column on
+//! the same pattern: `chfx: Option<ChallengeDef>` for `CardKind::Challenge`
+//! cards, whose contest resolves at the table (vote) rather than in the
+//! engine. Challenge prototypes may carry `copies: 0` — catalog-present,
+//! shoe-absent — until Pack 3 balances the real wave into the decks.
 
 use crate::last_call::{Card, CardKind, Deck, EffectOp};
 
@@ -44,6 +50,41 @@ pub enum ReactionFx {
     Reflect,
 }
 
+/// The shape of a challenge card's real-life contest.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Contest {
+    /// Instigator vs the first Alive seat to their right (table order);
+    /// the table votes a winner.
+    Duel,
+    /// The player performs the card's task themselves; the table votes
+    /// pass/fail.
+    Solo,
+}
+
+/// What the challenge's loser suffers. `Drink` and `Rule` resolve in real
+/// life — the engine only records and displays them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Penalty {
+    Damage(i32),
+    /// Pulls drained from the loser's fullest vessel.
+    Drain(i32),
+    /// Real-life sips; no game-state change beyond the log.
+    Drink(u8),
+    /// A personal rule (text) the loser carries for this many rounds. The
+    /// text lives HERE — the blob stores only `(card_id, expires_round)`,
+    /// so a reworded rule reaches in-flight games (the FxDef principle).
+    Rule(&'static str, u32),
+}
+
+/// A challenge card's rules, resolved by id at play time — catalog-side
+/// like FxDef/ReactionFx: never stored in the blob; unknown ids resolve
+/// inert (fail-soft).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ChallengeDef {
+    pub contest: Contest,
+    pub penalty: Penalty,
+}
+
 pub struct CardDef {
     pub id: &'static str,
     pub deck: Deck,
@@ -53,9 +94,10 @@ pub struct CardDef {
     pub title: &'static str,
     pub text: &'static str,
     pub keywords: &'static [&'static str],
-    pub copies: u8,              // shoe frequency; per-deck sum == LC_DECK_SIZE
-    pub fx: Option<FxDef>,       // None ⇔ kind == Reaction (F5)
-    pub rfx: Option<ReactionFx>, // Some ⇔ kind == Reaction — the reaction's rules (I4/I6)
+    pub copies: u8,                 // shoe frequency; per-deck sum == LC_DECK_SIZE
+    pub fx: Option<FxDef>,          // None ⇔ kind == Reaction or Challenge (F5)
+    pub rfx: Option<ReactionFx>,    // Some ⇔ kind == Reaction — the reaction's rules (I4/I6)
+    pub chfx: Option<ChallengeDef>, // Some ⇔ kind == Challenge — the contest's rules
 }
 
 const fn fx(op: EffectOp, magnitude: i32, rounds: u32) -> Option<FxDef> {
@@ -82,7 +124,16 @@ const fn drain(m: i32) -> Option<FxDef> {
 }
 
 /// F7 — mechanical keywords, each a tested predicate over card data.
-pub const MECHANICAL_KW: [&str; 7] = ["aoe", "burst", "dot", "shield", "heal", "drain", "reaction"];
+pub const MECHANICAL_KW: [&str; 8] = [
+    "aoe",
+    "burst",
+    "dot",
+    "shield",
+    "heal",
+    "drain",
+    "reaction",
+    "challenge",
+];
 /// F7 — tone keywords: cosmetic vocabulary, whitelisted, NO rules attach.
 pub const TONE_KW: [&str; 6] = ["loud", "public", "petty", "slow", "showy", "quiet"];
 /// Single-target immediate damage at or above this carries `burst`.
@@ -117,161 +168,179 @@ const OPENERS: [(Deck, [&str; 5]); 5] = [
     ),
 ];
 
-pub const CATALOG: [CardDef; 40] = [
+pub const CATALOG: [CardDef; 43] = [
     // ---- Beer — Attrition, costs 1-2, 8 pulls. Par 2 dmg/pull, no hit > 4.
     CardDef { id: "beer-01", deck: Deck::Beer, kind: CardKind::Atk, cost: 1,
-        targets: "one", title: "Nudge", copies: 6, keywords: &[], fx: dmg(2), rfx: None,
+        targets: "one", title: "Nudge", copies: 6, keywords: &[], fx: dmg(2), rfx: None, chfx: None,
         text: "Deal 2 damage. Small, boring, and there is always another one." },
     CardDef { id: "beer-02", deck: Deck::Beer, kind: CardKind::Atk, cost: 2,
-        targets: "one", title: "Grind", copies: 6, keywords: &["slow"], fx: dmg(4), rfx: None,
+        targets: "one", title: "Grind", copies: 6, keywords: &["slow"], fx: dmg(4), rfx: None, chfx: None,
         text: "Deal 4 damage. Nothing flashy, the tab just keeps running." },
     CardDef { id: "beer-03", deck: Deck::Beer, kind: CardKind::Buff, cost: 1,
-        targets: "self", title: "Second Wind", copies: 6, keywords: &["heal"], fx: heal(2), rfx: None,
+        targets: "self", title: "Second Wind", copies: 6, keywords: &["heal"], fx: heal(2), rfx: None, chfx: None,
         text: "Heal 2. Shake it off, it was only a nudge." },
     CardDef { id: "beer-04", deck: Deck::Beer, kind: CardKind::Buff, cost: 2,
         targets: "self", title: "Head of Foam", copies: 6, keywords: &["shield"],
-        fx: shield(4, 2), rfx: None,
+        fx: shield(4, 2), rfx: None, chfx: None,
         text: "Gain a shield that absorbs 4 damage this round and the next 2." },
     CardDef { id: "beer-05", deck: Deck::Beer, kind: CardKind::Atk, cost: 2,
         targets: "all", title: "One For The Table", copies: 5, keywords: &["aoe"],
-        fx: dmg(1), rfx: None,
+        fx: dmg(1), rfx: None, chfx: None,
         text: "Deal 1 damage to every player at the table. Yes, including you." },
     CardDef { id: "beer-06", deck: Deck::Beer, kind: CardKind::Buff, cost: 2,
-        targets: "self", title: "Steady Pour", copies: 5, keywords: &["heal"], fx: heal(4), rfx: None,
+        targets: "self", title: "Steady Pour", copies: 5, keywords: &["heal"], fx: heal(4), rfx: None, chfx: None,
         text: "Heal 4. Slow beer, long night." },
     CardDef { id: "beer-07", deck: Deck::Beer, kind: CardKind::Curse, cost: 2,
         targets: "one", title: "Tab Runs Long", copies: 4, keywords: &["dot", "slow"],
-        fx: dot(1, 5), rfx: None,
+        fx: dot(1, 5), rfx: None, chfx: None,
         text: "Deal 1 damage a round for 5 rounds. It did not seem like much at the time." },
     CardDef { id: "beer-08", deck: Deck::Beer, kind: CardKind::Reaction, cost: 1,
         targets: "self", title: "Coaster", copies: 2, keywords: &["reaction"], fx: None,
-        rfx: Some(ReactionFx::Reduce(3)),
+        rfx: Some(ReactionFx::Reduce(3)), chfx: None,
         text: "Reaction: a revealed play deals 3 less damage to you. Slide it over your glass." },
     // ---- Cider — Trickster, costs 1-3, 10 pulls. Par hits + pull drains.
     CardDef { id: "cider-01", deck: Deck::Cider, kind: CardKind::Curse, cost: 1,
-        targets: "one", title: "Sticky Pour", copies: 6, keywords: &["dot"], fx: dot(1, 2), rfx: None,
+        targets: "one", title: "Sticky Pour", copies: 6, keywords: &["dot"], fx: dot(1, 2), rfx: None, chfx: None,
         text: "Deal 1 damage a round for 2 rounds. Something inconvenient, later." },
     CardDef { id: "cider-02", deck: Deck::Cider, kind: CardKind::Util, cost: 1,
         targets: "one", title: "Spilled", copies: 6, keywords: &["drain", "petty"],
-        fx: drain(2), rfx: None,
+        fx: drain(2), rfx: None, chfx: None,
         text: "Drain 2 pulls from a player's fullest vessel. Whoops." },
     CardDef { id: "cider-03", deck: Deck::Cider, kind: CardKind::Util, cost: 2,
         targets: "one", title: "Watered Down", copies: 6, keywords: &["drain"],
-        fx: drain(3), rfx: None,
+        fx: drain(3), rfx: None, chfx: None,
         text: "Drain 3 pulls from a player's fullest vessel. They will taste it eventually." },
     CardDef { id: "cider-04", deck: Deck::Cider, kind: CardKind::Atk, cost: 3,
         targets: "one", title: "Windfall", copies: 4,
-        keywords: &["burst", "loud", "public", "petty", "showy"], fx: dmg(6), rfx: None,
+        keywords: &["burst", "loud", "public", "petty", "showy"], fx: dmg(6), rfx: None, chfx: None,
         text: "Deal 6 damage. The whole orchard at once, and everyone hears it land." },
     CardDef { id: "cider-05", deck: Deck::Cider, kind: CardKind::Atk, cost: 2,
-        targets: "one", title: "Sour Turn", copies: 6, keywords: &[], fx: dmg(4), rfx: None,
+        targets: "one", title: "Sour Turn", copies: 6, keywords: &[], fx: dmg(4), rfx: None, chfx: None,
         text: "Deal 4 damage. Sweet up front, then it bites." },
     CardDef { id: "cider-06", deck: Deck::Cider, kind: CardKind::Util, cost: 3,
         targets: "all", title: "Happy Hour Panic", copies: 5, keywords: &["aoe", "drain"],
-        fx: drain(1), rfx: None,
+        fx: drain(1), rfx: None, chfx: None,
         text: "Drain 1 pull from every player at the table, you included. Last orders moved up." },
     CardDef { id: "cider-07", deck: Deck::Cider, kind: CardKind::Curse, cost: 2,
-        targets: "one", title: "Two Straws", copies: 5, keywords: &["dot"], fx: dot(2, 2), rfx: None,
+        targets: "one", title: "Two Straws", copies: 5, keywords: &["dot"], fx: dot(2, 2), rfx: None, chfx: None,
         text: "Deal 2 damage a round for 2 rounds. Double the trouble, half the dignity." },
     CardDef { id: "cider-08", deck: Deck::Cider, kind: CardKind::Reaction, cost: 2,
         targets: "one", title: "Not So Fast, Friend", copies: 2, keywords: &["reaction"],
         fx: None,
-        rfx: Some(ReactionFx::Cancel),
+        rfx: Some(ReactionFx::Cancel), chfx: None,
         text: "Reaction: cancel any revealed play, whoever it was aimed at. Keep it where they can see it." },
     // ---- Wine — Control, costs 2-3, 6 pulls. Dots at 2.0-3.0 total/pull.
     CardDef { id: "wine-01", deck: Deck::Wine, kind: CardKind::Curse, cost: 2,
-        targets: "one", title: "Decant", copies: 6, keywords: &["dot"], fx: dot(2, 2), rfx: None,
+        targets: "one", title: "Decant", copies: 6, keywords: &["dot"], fx: dot(2, 2), rfx: None, chfx: None,
         text: "Deal 2 damage a round for 2 rounds. Poured slowly, from a great height, \
                while keeping eye contact the whole time, a patient problem that keeps \
                arriving well after the glass is set down." },
     CardDef { id: "wine-02", deck: Deck::Wine, kind: CardKind::Curse, cost: 2,
         targets: "one", title: "Let It Breathe", copies: 6, keywords: &["dot", "slow"],
-        fx: dot(1, 4), rfx: None,
+        fx: dot(1, 4), rfx: None, chfx: None,
         text: "Deal 1 damage a round for 4 rounds. It only improves with time." },
     CardDef { id: "wine-03", deck: Deck::Wine, kind: CardKind::Atk, cost: 2,
-        targets: "one", title: "Tannin Bite", copies: 6, keywords: &[], fx: dmg(4), rfx: None,
+        targets: "one", title: "Tannin Bite", copies: 6, keywords: &[], fx: dmg(4), rfx: None, chfx: None,
         text: "Deal 4 damage. Dry, sharp, structured." },
     CardDef { id: "wine-04", deck: Deck::Wine, kind: CardKind::Atk, cost: 3,
-        targets: "one", title: "Corked", copies: 5, keywords: &["burst"], fx: dmg(6), rfx: None,
+        targets: "one", title: "Corked", copies: 5, keywords: &["burst"], fx: dmg(6), rfx: None, chfx: None,
         text: "Deal 6 damage. Control, delivered as damage." },
     CardDef { id: "wine-05", deck: Deck::Wine, kind: CardKind::Util, cost: 3,
         targets: "all", title: "House Rules Amendment", copies: 5,
-        keywords: &["aoe", "drain", "public"], fx: drain(1), rfx: None,
+        keywords: &["aoe", "drain", "public"], fx: drain(1), rfx: None, chfx: None,
         text: "Drain 1 pull from every player at the table, you included. Motion carried." },
     CardDef { id: "wine-06", deck: Deck::Wine, kind: CardKind::Curse, cost: 3,
-        targets: "one", title: "Cellar Chill", copies: 6, keywords: &["dot"], fx: dot(2, 3), rfx: None,
+        targets: "one", title: "Cellar Chill", copies: 6, keywords: &["dot"], fx: dot(2, 3), rfx: None, chfx: None,
         text: "Deal 2 damage a round for 3 rounds. Best served cold and repeatedly." },
     CardDef { id: "wine-07", deck: Deck::Wine, kind: CardKind::Curse, cost: 3,
         targets: "one", title: "The Long Decant of Winter", copies: 4,
-        keywords: &["dot", "slow", "showy"], fx: dot(3, 3), rfx: None,
+        keywords: &["dot", "slow", "showy"], fx: dot(3, 3), rfx: None, chfx: None,
         text: "Deal 3 damage a round for 3 rounds. A vintage grudge, opened at last." },
     CardDef { id: "wine-08", deck: Deck::Wine, kind: CardKind::Reaction, cost: 2,
         targets: "one", title: "Send It Back", copies: 2, keywords: &["reaction"], fx: None,
-        rfx: Some(ReactionFx::Reflect),
+        rfx: Some(ReactionFx::Reflect), chfx: None,
         text: "Reaction: a revealed play aimed at one player resolves against its owner instead. Summon the sommelier." },
     // ---- Liquor — Burst, costs 2-3, 4 pulls. Premium 2.5-2.67 dmg/pull.
     CardDef { id: "liquor-01", deck: Deck::Liquor, kind: CardKind::Atk, cost: 2,
-        targets: "one", title: "Shot Called", copies: 6, keywords: &["burst"], fx: dmg(5), rfx: None,
+        targets: "one", title: "Shot Called", copies: 6, keywords: &["burst"], fx: dmg(5), rfx: None, chfx: None,
         text: "Deal 5 damage. Loud and immediate." },
     CardDef { id: "liquor-02", deck: Deck::Liquor, kind: CardKind::Atk, cost: 3,
         targets: "one", title: "Double", copies: 5, keywords: &["burst", "loud"],
-        fx: dmg(7), rfx: None,
+        fx: dmg(7), rfx: None, chfx: None,
         text: "Deal 7 damage. Louder and more immediate." },
     CardDef { id: "liquor-03", deck: Deck::Liquor, kind: CardKind::Curse, cost: 2,
-        targets: "one", title: "Hangover", copies: 6, keywords: &["dot"], fx: dot(2, 2), rfx: None,
+        targets: "one", title: "Hangover", copies: 6, keywords: &["dot"], fx: dot(2, 2), rfx: None, chfx: None,
         text: "Deal 2 damage a round for 2 rounds. Payable next round, with interest." },
     CardDef { id: "liquor-04", deck: Deck::Liquor, kind: CardKind::Buff, cost: 2,
-        targets: "self", title: "Chaser", copies: 6, keywords: &["heal"], fx: heal(4), rfx: None,
+        targets: "self", title: "Chaser", copies: 6, keywords: &["heal"], fx: heal(4), rfx: None, chfx: None,
         text: "Heal 4. Something soft to land on." },
     CardDef { id: "liquor-05", deck: Deck::Liquor, kind: CardKind::Atk, cost: 3,
         targets: "all", title: "Neat, No Ice, No Mercy", copies: 5,
-        keywords: &["aoe", "loud"], fx: dmg(2), rfx: None,
+        keywords: &["aoe", "loud"], fx: dmg(2), rfx: None, chfx: None,
         text: "Deal 2 damage to every player at the table, you included. A round of shots is still a round." },
     CardDef { id: "liquor-06", deck: Deck::Liquor, kind: CardKind::Buff, cost: 3,
         targets: "self", title: "Dutch Courage", copies: 6, keywords: &["shield"],
-        fx: shield(7, 2), rfx: None,
+        fx: shield(7, 2), rfx: None, chfx: None,
         text: "Gain a shield that absorbs 7 damage this round and the next 2. Liquid confidence, briefly real." },
     CardDef { id: "liquor-07", deck: Deck::Liquor, kind: CardKind::Atk, cost: 3,
         targets: "one", title: "Last Call", copies: 4,
-        keywords: &["burst", "loud", "showy", "public"], fx: dmg(8), rfx: None,
+        keywords: &["burst", "loud", "showy", "public"], fx: dmg(8), rfx: None, chfx: None,
         text: "Deal 8 damage. The biggest hit in the game, named after the night's last mistake." },
     CardDef { id: "liquor-08", deck: Deck::Liquor, kind: CardKind::Reaction, cost: 2,
         targets: "self", title: "Spit It Out", copies: 2, keywords: &["reaction"], fx: None,
-        rfx: Some(ReactionFx::Cancel),
+        rfx: Some(ReactionFx::Cancel), chfx: None,
         text: "Reaction: cancel a revealed play aimed at you. Undignified but effective." },
     // ---- Soft — Support, costs 1-2, 6 pulls. Shields at premium, one chip.
     CardDef { id: "soft-01", deck: Deck::Soft, kind: CardKind::Buff, cost: 1,
-        targets: "one", title: "Water Round", copies: 6, keywords: &["heal"], fx: heal(2), rfx: None,
+        targets: "one", title: "Water Round", copies: 6, keywords: &["heal"], fx: heal(2), rfx: None, chfx: None,
         text: "Heal 2 on any player. Someone feels better." },
     CardDef { id: "soft-02", deck: Deck::Soft, kind: CardKind::Buff, cost: 1,
         targets: "one", title: "Designated", copies: 6, keywords: &["shield"],
-        fx: shield(3, 2), rfx: None,
+        fx: shield(3, 2), rfx: None, chfx: None,
         text: "Shield any player for 3 damage this round and the next 2. You take it for them." },
     CardDef { id: "soft-03", deck: Deck::Soft, kind: CardKind::Buff, cost: 2,
         targets: "all", title: "Snack Table", copies: 6, keywords: &["aoe", "heal"],
-        fx: heal(1), rfx: None,
+        fx: heal(1), rfx: None, chfx: None,
         text: "Heal 1 on every player at the table, you included. Crisps solve most things." },
     CardDef { id: "soft-04", deck: Deck::Soft, kind: CardKind::Reaction, cost: 1,
         targets: "self", title: "The Long Sober Look Across The Table", copies: 2,
         keywords: &["reaction"], fx: None,
-        rfx: Some(ReactionFx::Reduce(4)),
+        rfx: Some(ReactionFx::Reduce(4)), chfx: None,
         text: "Reaction: a revealed play deals 4 less damage to you. You know what you did." },
     CardDef { id: "soft-05", deck: Deck::Soft, kind: CardKind::Util, cost: 2,
         targets: "one", title: "Cut Them Off", copies: 6, keywords: &["drain", "petty"],
-        fx: drain(3), rfx: None,
+        fx: drain(3), rfx: None, chfx: None,
         text: "Drain 3 pulls from a player's fullest vessel. It is for their own good." },
     CardDef { id: "soft-06", deck: Deck::Soft, kind: CardKind::Atk, cost: 1,
         targets: "one", title: "Splash of Cold Water", copies: 5, keywords: &[],
-        fx: dmg(2), rfx: None,
+        fx: dmg(2), rfx: None, chfx: None,
         text: "Deal 2 damage. Rude, refreshing, effective." },
     CardDef { id: "soft-07", deck: Deck::Soft, kind: CardKind::Buff, cost: 2,
         targets: "one", title: "Glass Wall", copies: 5, keywords: &["shield"],
-        fx: shield(5, 2), rfx: None,
+        fx: shield(5, 2), rfx: None, chfx: None,
         text: "Shield any player for 5 damage this round and the next 2. Politely impenetrable." },
     CardDef { id: "soft-08", deck: Deck::Soft, kind: CardKind::Buff, cost: 2,
         targets: "all", title: "Mother Hen", copies: 4,
-        keywords: &["aoe", "shield", "quiet"], fx: shield(2, 2), rfx: None,
+        keywords: &["aoe", "shield", "quiet"], fx: shield(2, 2), rfx: None, chfx: None,
         text: "Shield every player for 2 damage this round and the next 2, you included. Everyone gets a coaster." },
+    // ---- Challenge prototype (challenge-cards container, Pack 1). Ships at
+    // copies: 0 — catalog-present so the engine and test mode can exercise
+    // the phase, shoe-absent until Pack 3 balances the real wave in.
+    CardDef { id: "liquor-09", deck: Deck::Liquor, kind: CardKind::Challenge, cost: 2,
+        targets: "right", title: "Bar Court", copies: 0,
+        keywords: &["challenge", "loud", "public"], fx: None, rfx: None,
+        chfx: Some(ChallengeDef { contest: Contest::Duel, penalty: Penalty::Damage(4) }),
+        text: "Challenge: state your case against the player on your right — the table votes a winner, and the loser takes 4 damage. Court is now in session." },
+    CardDef { id: "soft-09", deck: Deck::Soft, kind: CardKind::Challenge, cost: 1,
+        targets: "self", title: "Floor Show", copies: 0,
+        keywords: &["challenge", "showy"], fx: None, rfx: None,
+        chfx: Some(ChallengeDef { contest: Contest::Solo, penalty: Penalty::Drink(2) }),
+        text: "Challenge: put on a thirty-second performance of the table's choosing. If they are not impressed, drink 2. No refunds." },
+    CardDef { id: "beer-09", deck: Deck::Beer, kind: CardKind::Challenge, cost: 1,
+        targets: "right", title: "House Etiquette", copies: 0,
+        keywords: &["challenge", "petty"], fx: None, rfx: None,
+        chfx: Some(ChallengeDef { contest: Contest::Duel, penalty: Penalty::Rule("Speak only in questions.", 2) }),
+        text: "Challenge: out-argue the player on your right — the table votes, and the loser speaks only in questions for the next 2 rounds. House rules are house rules." },
 ];
 
 fn to_card(def: &CardDef) -> Card {
@@ -294,7 +363,8 @@ fn to_card(def: &CardDef) -> Card {
     }
 }
 
-/// The eight `Card`s for `deck`, in catalog order.
+/// Every `Card` for `deck`, in catalog order — the eight shoe-carrying
+/// cards plus any `copies: 0` challenge prototypes.
 pub fn deck_cards(deck: Deck) -> Vec<Card> {
     CATALOG
         .iter()
@@ -317,6 +387,24 @@ pub fn card_fx(id: &str) -> Option<FxDef> {
 /// (fail-soft, mirrors `card_fx`).
 pub fn card_rfx(id: &str) -> Option<ReactionFx> {
     CATALOG.iter().find(|def| def.id == id).and_then(|d| d.rfx)
+}
+
+/// A challenge's rules by id — `None` for non-challenges AND for an unknown
+/// id (fail-soft, mirrors `card_fx`/`card_rfx`).
+pub fn card_chfx(id: &str) -> Option<ChallengeDef> {
+    CATALOG.iter().find(|def| def.id == id).and_then(|d| d.chfx)
+}
+
+/// Whether a card belongs to the copy-weighted shoe (`copies >= 1`). A
+/// `copies: 0` challenge prototype does not — the rollover reshuffle must
+/// not reclaim one into a deck's count, since sampling could never deal it
+/// back out (review wave). Unknown ids answer `true`: a version-skewed
+/// discard keeps counting, the same fail-soft lean as `card_fx`.
+pub fn card_in_shoe(id: &str) -> bool {
+    CATALOG
+        .iter()
+        .find(|def| def.id == id)
+        .is_none_or(|d| d.copies > 0)
 }
 
 /// The curated 5-card opening hand for `deck` (F6), in `OPENERS` order.
@@ -359,9 +447,15 @@ mod tests {
 
     #[test]
     fn test_catalog_shape_and_copy_sums() {
-        assert_eq!(CATALOG.len(), 40);
+        assert_eq!(CATALOG.len(), 43);
         for deck in Deck::ALL {
-            assert_eq!(deck_cards(deck).len(), 8, "{deck:?}");
+            // Eight shoe-carrying cards per deck; copies: 0 prototypes sit
+            // outside the shoe and outside this count.
+            let in_shoe = CATALOG
+                .iter()
+                .filter(|d| d.deck == deck && d.copies > 0)
+                .count();
+            assert_eq!(in_shoe, 8, "{deck:?}");
             assert_eq!(deck_copies(deck), LC_DECK_SIZE, "{deck:?}");
             assert_eq!(shoe(deck).len(), LC_DECK_SIZE as usize);
         }
@@ -369,7 +463,13 @@ mod tests {
         assert_eq!(ids.len(), CATALOG.len());
         for def in CATALOG.iter() {
             assert!(def.id.starts_with(def.deck.slug()), "{}", def.id);
-            assert!((1..=6).contains(&def.copies), "{}", def.id);
+            // copies: 0 is reserved for Challenge prototypes until Pack 3
+            // balances them into the shoe.
+            if def.kind == CardKind::Challenge {
+                assert!((0..=6).contains(&def.copies), "{}", def.id);
+            } else {
+                assert!((1..=6).contains(&def.copies), "{}", def.id);
+            }
         }
     }
 
@@ -410,6 +510,7 @@ mod tests {
                     assert_eq!(f.op, EffectOp::PullDrain, "{}", def.id)
                 }
                 (CardKind::Reaction, None) => {}
+                (CardKind::Challenge, None) => {}
                 (kind, fx) => panic!("{}: {kind:?} with fx {fx:?}", def.id),
             }
         }
@@ -417,6 +518,12 @@ mod tests {
             assert_eq!(
                 def.rfx.is_some(),
                 def.kind == CardKind::Reaction,
+                "{}",
+                def.id
+            );
+            assert_eq!(
+                def.chfx.is_some(),
+                def.kind == CardKind::Challenge,
                 "{}",
                 def.id
             );
@@ -441,6 +548,32 @@ mod tests {
     }
 
     #[test]
+    fn test_challenge_fx_table() {
+        // Challenge-cards container, Pack 1 — the chfx column resolves by
+        // id, fail-soft on unknowns, mirroring fx/rfx.
+        assert_eq!(
+            card_chfx("liquor-09"),
+            Some(ChallengeDef {
+                contest: Contest::Duel,
+                penalty: Penalty::Damage(4),
+            })
+        );
+        assert_eq!(
+            card_chfx("soft-09"),
+            Some(ChallengeDef {
+                contest: Contest::Solo,
+                penalty: Penalty::Drink(2),
+            })
+        );
+        assert_eq!(card_chfx("beer-01"), None);
+        assert_eq!(card_chfx("wine-08"), None);
+        assert_eq!(card_chfx("nope"), None);
+        for def in CATALOG.iter().filter(|d| d.kind == CardKind::Challenge) {
+            assert!(def.text.starts_with("Challenge:"), "{}", def.id);
+        }
+    }
+
+    #[test]
     fn test_fx_rounds_match_op() {
         for f in CATALOG.iter().filter_map(|d| d.fx) {
             assert!(f.magnitude >= 1);
@@ -456,7 +589,19 @@ mod tests {
     #[test]
     fn test_targets_are_a_known_class() {
         for def in CATALOG.iter() {
-            assert!(["self", "one", "all"].contains(&def.targets), "{}", def.id);
+            assert!(
+                ["self", "one", "all", "right"].contains(&def.targets),
+                "{}",
+                def.id
+            );
+            // "right" (auto-target: the seat to the instigator's right) is
+            // a Duel-challenge-only class; nothing else may claim it.
+            assert_eq!(
+                def.targets == "right",
+                def.chfx.is_some_and(|c| c.contest == Contest::Duel),
+                "{}",
+                def.id
+            );
         }
     }
 
@@ -536,6 +681,12 @@ mod tests {
             assert_eq!(
                 has("reaction"),
                 def.kind == CardKind::Reaction,
+                "{}",
+                def.id
+            );
+            assert_eq!(
+                has("challenge"),
+                def.kind == CardKind::Challenge,
                 "{}",
                 def.id
             );

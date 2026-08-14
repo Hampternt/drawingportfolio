@@ -561,8 +561,17 @@ fn hand_pane_html(base_path: &str, code: &str, st: &LastCallState, player_id: i6
         }
         _ => String::new(),
     };
+    // Challenge-cards container: the vote section rides the private hand
+    // fetch like the response window — seated viewers only (a spectator
+    // has no vote and the banner already carries the tally).
+    let chal = match seat {
+        Some(s) => challenge_section_html(st, s),
+        None => String::new(),
+    };
     let bar = lc_render::lc_action_bar(&action_bar_view(st, player_id));
-    format!(r#"{pane}{response}{tab_panel}{sheet}{mull}<template data-lc-actions>{bar}</template>"#)
+    format!(
+        r#"{pane}{response}{chal}{tab_panel}{sheet}{mull}<template data-lc-actions>{bar}</template>"#
+    )
 }
 
 /// Plan E Task 4: assembles the viewer's own `ActionBarView` from
@@ -717,8 +726,17 @@ fn scope_legal(
     if card.targets == "self" && !play_subjects(play, num_seats).contains(&seat) {
         return false;
     }
-    if play.target.is_none() && matches!(rfx, Some(crate::lc_cards::ReactionFx::Reflect)) {
-        return false;
+    // Mirror of play_reaction's Reflect guard (review wave): a challenge
+    // play is judged by its contest — a Duel takes the role swap, a Solo
+    // has no roles to swap and offering SEND BACK would sell a dead spend
+    // — while a numeric play keeps the original single-seat requirement.
+    if matches!(rfx, Some(crate::lc_cards::ReactionFx::Reflect)) {
+        match crate::lc_cards::card_chfx(&play.card.id) {
+            Some(c) if c.contest == crate::lc_cards::Contest::Duel => {}
+            Some(_) => return false,
+            None if play.target.is_none() => return false,
+            None => {}
+        }
     }
     true
 }
@@ -777,6 +795,58 @@ fn response_section_html(st: &LastCallState, seat: usize) -> String {
         return String::new();
     }
     format!(r#"<section class="lc-react"><h2>Response window</h2>{blocks}</section>"#)
+}
+
+/// Challenge-cards container (Pack 1, bare loop): the hand pane's vote
+/// section while the game is parked. Eligible viewers get the two verdict
+/// buttons (`data-lc-post` + pre-encoded `data-lc-body`, the pact-button
+/// pattern); contestants, ghosts and already-voted seats get status copy.
+/// Renders nothing when no challenge is active.
+fn challenge_section_html(st: &LastCallState, seat: usize) -> String {
+    let Some(ch) = st.challenges.first() else {
+        return String::new();
+    };
+    let card = crate::lc_cards::card_by_id(&ch.card_id);
+    let title = card
+        .as_ref()
+        .map(|c| crate::render::html_escape(&c.title))
+        .unwrap_or_else(|| crate::render::html_escape(&ch.card_id));
+    let text = card
+        .as_ref()
+        .map(|c| crate::render::html_escape(&c.text))
+        .unwrap_or_default();
+    let head = match ch.opponent {
+        Some(o) => format!("{} VS {}", seat_name(st, ch.instigator), seat_name(st, o)),
+        None => format!("{} PERFORMS", seat_name(st, ch.instigator)),
+    };
+    let body = if seat == ch.instigator || Some(seat) == ch.opponent {
+        r#"<p class="lc-chal-note">THE TABLE IS DECIDING. STATE YOUR CASE.</p>"#.to_string()
+    } else if st.players[seat].status != Status::Alive {
+        r#"<p class="lc-chal-note">GHOSTS WATCH IN SILENCE.</p>"#.to_string()
+    } else if ch.votes.iter().any(|v| v.voter == seat) {
+        r#"<p class="lc-chal-note">VOTE CAST. WAITING ON THE TABLE.</p>"#.to_string()
+    } else if !ch.electorate.contains(&seat) {
+        // Seated after the electorate froze at activation (review wave).
+        r#"<p class="lc-chal-note">YOU ARRIVED MID-ARGUMENT. WATCH THIS ONE.</p>"#.to_string()
+    } else {
+        let (for_label, against_label) = match ch.opponent {
+            Some(o) => (
+                format!("{} WINS", seat_name(st, ch.instigator)),
+                format!("{} WINS", seat_name(st, o)),
+            ),
+            None => (
+                "IMPRESSED — PASS".to_string(),
+                "NOT IMPRESSED — FAIL".to_string(),
+            ),
+        };
+        format!(
+            r#"<button class="lc-btn lc-chal-btn" data-lc-post="challenge-vote" data-lc-body="challenge={key}&amp;for_instigator=true">{for_label}</button><button class="lc-btn lc-chal-btn" data-lc-post="challenge-vote" data-lc-body="challenge={key}&amp;for_instigator=false">{against_label}</button>"#,
+            key = ch.key,
+        )
+    };
+    format!(
+        r#"<section class="lc-chal" data-lc-chal><h2>CHALLENGE — {head}</h2><p class="lc-chal-title">{title}</p><p class="lc-chal-text">{text}</p>{body}</section>"#
+    )
 }
 
 /// A seat's name, uppercased and escaped — the `&LastCallState` analogue
@@ -994,7 +1064,9 @@ pub(crate) fn map_lc(e: LcError) -> axum::response::Response {
         LcError::WrongBeat
         | LcError::AlreadyLocked
         | LcError::MustResolve
-        | LcError::AlreadyHaunted => GameError::OutOfTurn.into_response(),
+        | LcError::AlreadyHaunted
+        | LcError::ChallengePending
+        | LcError::CantVote => GameError::OutOfTurn.into_response(),
         LcError::CantAfford(id) => (
             StatusCode::UNPROCESSABLE_ENTITY,
             format!("Can't afford {id}."),
@@ -1489,6 +1561,12 @@ pub(crate) fn lc_advance_chain(st: &mut LastCallState) {
     if st.players.is_empty() {
         return; // M3: nothing to advance; resolve() no-ops here and would spin
     }
+    if st.challenge_pending() {
+        // Parked in the challenge phase (challenge-cards container): the
+        // vote flow owns the rollover; entering resolve() here would panic
+        // its expect on ChallengePending.
+        return;
+    }
     if st.beat == Beat::Resolve {
         st.resolve()
             .expect("resolve() at Beat::Resolve cannot fail");
@@ -1499,6 +1577,13 @@ pub(crate) fn lc_advance_chain(st: &mut LastCallState) {
     loop {
         if st.outcome().is_some() {
             st.beat_deadline_ms = None; // frozen final tableau (D16)
+            return;
+        }
+        if st.challenge_pending() {
+            // resolve() just parked the round — same freeze shape as the
+            // outcome gate above; without this the Resolve arm below would
+            // re-enter resolve() forever.
+            st.beat_deadline_ms = None;
             return;
         }
         match st.beat {
@@ -1683,9 +1768,111 @@ pub async fn lc_haunt_handler(
     StatusCode::NO_CONTENT.into_response()
 }
 
+#[derive(Deserialize)]
+pub struct ChallengeVoteForm {
+    /// The challenge's identity token (`ChallengeState::key`) — echoed from
+    /// the vote buttons so a stale screen's vote can't land on the next
+    /// queued challenge (review wave; the `ReactForm.play` precedent).
+    pub challenge: u64,
+    pub for_instigator: bool,
+}
+
+/// `POST /room/{code}/lastcall/challenge-vote` (challenge-cards container)
+/// — public (`persist_and_broadcast_lc`): a vote moves the tally every
+/// surface renders, and the settling vote moves everything.
+/// `ctx.st.challenge_vote` carries every guard (seated/alive/active
+/// challenge/contestant/once).
+pub async fn lc_chvote_handler(
+    State(state): State<GameState>,
+    PlayerSession(player): PlayerSession,
+    Path(code): Path<String>,
+    Form(form): Form<ChallengeVoteForm>,
+) -> axum::response::Response {
+    let lock = match lc_lock(&state, &code).await {
+        Ok(l) => l,
+        Err(r) => return r,
+    };
+    let _guard = lock.lock().await;
+    let mut ctx = match load_lc(&state, &code, &player).await {
+        Ok(c) => c,
+        Err(r) => return r,
+    };
+    if let Err(e) = ctx
+        .st
+        .challenge_vote(player.id, form.challenge, form.for_instigator)
+    {
+        return map_lc(e);
+    }
+    persist_and_broadcast_lc(&state, &ctx).await;
+    StatusCode::NO_CONTENT.into_response()
+}
+
+#[derive(Deserialize)]
+pub struct GrantForm {
+    pub card_id: String,
+}
+
+/// `POST /room/{code}/lastcall/test/grant` — test play mode only (404
+/// otherwise, the `test_spawn`/`test_act_as` rule): push any catalog card
+/// into the caller's own hand, so `copies: 0` challenge prototypes are
+/// playable without waiting for Pack 3's shoe balance. Tick-only
+/// broadcast — a hand is private (E5/E6).
+pub async fn lc_test_grant_handler(
+    State(state): State<GameState>,
+    PlayerSession(player): PlayerSession,
+    Path(code): Path<String>,
+    Form(form): Form<GrantForm>,
+) -> axum::response::Response {
+    if !state.test_mode {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    let lock = match lc_lock(&state, &code).await {
+        Ok(l) => l,
+        Err(r) => return r,
+    };
+    let _guard = lock.lock().await;
+    let mut ctx = match load_lc(&state, &code, &player).await {
+        Ok(c) => c,
+        Err(r) => return r,
+    };
+    let Some(card) = crate::lc_cards::card_by_id(&form.card_id) else {
+        return StatusCode::UNPROCESSABLE_ENTITY.into_response();
+    };
+    let Some(seat) = ctx.st.seat_of(player.id) else {
+        return map_lc(LcError::NotSeated);
+    };
+    if ctx.st.players[seat].status != Status::Alive {
+        return map_lc(LcError::NotAlive);
+    }
+    ctx.st.players[seat].hand.push(card);
+    ctx.st.seq += 1;
+    persist_and_tick_lc(&state, &ctx).await;
+    StatusCode::NO_CONTENT.into_response()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Review wave: SEND BACK's button gate mirrors `play_reaction`'s
+    /// carve-out exactly — offered against a target-less DUEL challenge
+    /// (the role swap), refused against a Solo (dead spend) and against a
+    /// target-less numeric play (nothing to send home to).
+    #[test]
+    fn test_scope_legal_offers_reflect_against_duel_challenges_only() {
+        let reflect = Some(crate::lc_cards::ReactionFx::Reflect);
+        let wine08 = crate::lc_cards::card_by_id("wine-08").unwrap();
+        let play = |id: &str| Play {
+            card: crate::lc_cards::card_by_id(id).unwrap(),
+            source_seat: 0,
+            target: None,
+            paid_from: Deck::Liquor,
+            order_key: 1,
+        };
+        assert!(scope_legal(1, 3, &wine08, reflect, &play("liquor-09")));
+        assert!(!scope_legal(1, 3, &wine08, reflect, &play("soft-09")));
+        assert!(!scope_legal(1, 3, &wine08, reflect, &play("beer-05")));
+    }
 
     /// 3 players with vessels, round bumped to 2. Walks the whole chain,
     /// asserting Deal never surfaces as a separate stop (E4: the chain
