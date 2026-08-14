@@ -3210,6 +3210,178 @@ impl LastCallState {
         !self.challenges.is_empty()
     }
 
+    /// Seats eligible to vote on a challenge: Alive non-contestants. Ghosts
+    /// sit challenges out (v1 — haunting is their channel).
+    fn challenge_voters(&self, instigator: usize, opponent: Option<usize>) -> Vec<usize> {
+        self.players
+            .iter()
+            .filter(|p| {
+                p.status == Status::Alive && p.seat != instigator && Some(p.seat) != opponent
+            })
+            .map(|p| p.seat)
+            .collect()
+    }
+
+    /// Cast the caller's vote on the ACTIVE (front) challenge.
+    /// `for_instigator` reads per contest: Duel = "the instigator wins",
+    /// Solo = "the performer passes". Guard order: `NotSeated` ->
+    /// `NotAlive` (ghosts don't vote) -> `WrongBeat` (no active challenge)
+    /// -> `CantVote` (contestant, or already voted). The verdict lands the
+    /// instant the last eligible vote does — the no-clock philosophy: the
+    /// table sets its own pace, advancement is votes-in, never a timer.
+    pub fn challenge_vote(
+        &mut self,
+        player_id: i64,
+        for_instigator: bool,
+    ) -> Result<(), LcError> {
+        let Some(seat) = self.seat_of(player_id) else {
+            return Err(LcError::NotSeated);
+        };
+        if self.players[seat].status != Status::Alive {
+            return Err(LcError::NotAlive);
+        }
+        let Some(ch) = self.challenges.first() else {
+            return Err(LcError::WrongBeat);
+        };
+        if seat == ch.instigator || Some(seat) == ch.opponent {
+            return Err(LcError::CantVote);
+        }
+        if ch.votes.iter().any(|v| v.voter == seat) {
+            return Err(LcError::CantVote);
+        }
+        let voters = self.challenge_voters(ch.instigator, ch.opponent);
+        self.challenges[0].votes.push(ChallengeVote {
+            voter: seat,
+            for_instigator,
+        });
+        self.seq += 1;
+        let votes = &self.challenges[0].votes;
+        if voters
+            .iter()
+            .all(|s| votes.iter().any(|v| v.voter == *s))
+        {
+            self.settle_challenge();
+        }
+        Ok(())
+    }
+
+    /// Settle the front challenge: majority verdict, penalty, pop — then
+    /// either the next challenge takes the floor (skipping any the last
+    /// penalty invalidated), the shared rollover runs, or the game freezes
+    /// on an outcome the penalty produced (D16 wins over everything).
+    ///
+    /// Verdicts: Duel — more `for` votes and the opponent loses, more
+    /// `against` and the instigator loses, tie and BOTH lose. Solo — a
+    /// strict `for` majority passes; anything else (tie included) fails
+    /// the performer.
+    fn settle_challenge(&mut self) {
+        let ch = self.challenges.remove(0);
+        let title = crate::lc_cards::card_by_id(&ch.card_id)
+            .map(|c| c.title)
+            .unwrap_or_else(|| ch.card_id.clone());
+        let for_n = ch.votes.iter().filter(|v| v.for_instigator).count();
+        let against_n = ch.votes.len() - for_n;
+        // A def the catalog no longer recognises settles as a no-loser
+        // verdict rather than panicking (F1 fail-soft).
+        let chfx = crate::lc_cards::card_chfx(&ch.card_id);
+        let losers: Vec<usize> = match (chfx.map(|c| c.contest), ch.opponent) {
+            (Some(crate::lc_cards::Contest::Duel), Some(opp)) => {
+                use std::cmp::Ordering::*;
+                match for_n.cmp(&against_n) {
+                    Greater => vec![opp],
+                    Less => vec![ch.instigator],
+                    Equal => vec![ch.instigator, opp],
+                }
+            }
+            (Some(crate::lc_cards::Contest::Solo), _) => {
+                if for_n > against_n {
+                    Vec::new()
+                } else {
+                    vec![ch.instigator]
+                }
+            }
+            _ => Vec::new(),
+        };
+        self.push_log(LogEntry::ChallengeVerdict {
+            loser: losers.first().copied(),
+            loser2: losers.get(1).copied(),
+            title,
+        });
+        if let Some(chfx) = chfx {
+            for &loser in &losers {
+                if self
+                    .players
+                    .get(loser)
+                    .is_none_or(|p| p.status != Status::Alive)
+                {
+                    continue;
+                }
+                match chfx.penalty {
+                    crate::lc_cards::Penalty::Damage(m) => {
+                        // Deliberately NOT logged as a Hit and NOT credited
+                        // to damage_dealt: the verdict line is the record,
+                        // and stats track card play, not lost arguments.
+                        self.apply_damage(loser, m);
+                    }
+                    crate::lc_cards::Penalty::Drain(m) => {
+                        drain_pulls(&mut self.players[loser], m);
+                    }
+                    // Real-life sips — the engine records nothing beyond
+                    // the verdict; the card's own text names the price.
+                    crate::lc_cards::Penalty::Drink(_) => {}
+                    crate::lc_cards::Penalty::Rule(_, rounds) => {
+                        // Active for `rounds` full rounds after this one:
+                        // round < expires_round, pruned at the rollover.
+                        self.players[loser].rules.push(PlayerRule {
+                            card_id: ch.card_id.clone(),
+                            expires_round: self.round + 1 + rounds,
+                        });
+                    }
+                }
+            }
+        }
+        self.seq += 1;
+        // D16 wins over everything: a penalty that ended the game freezes
+        // the tableau; any still-queued challenges die with it.
+        if let Some(outcome) = self.outcome() {
+            let (winner, winner2) = match outcome {
+                LcOutcome::Winner(s) => (Some(s), None),
+                LcOutcome::Pact(a, b) => (Some(a), Some(b)),
+                LcOutcome::Draw => (None, None),
+            };
+            self.push_log(LogEntry::GameOver { winner, winner2 });
+            self.challenges.clear();
+            return;
+        }
+        // The last penalty may have invalidated a queued challenge —
+        // re-run the activation checks on each new front entry.
+        while let Some(next) = self.challenges.first() {
+            let alive =
+                |s: usize| self.players.get(s).is_some_and(|p| p.status == Status::Alive);
+            let valid = alive(next.instigator)
+                && next.opponent.is_none_or(&alive)
+                && Some(next.instigator) != next.opponent
+                && !self
+                    .challenge_voters(next.instigator, next.opponent)
+                    .is_empty();
+            if valid {
+                return; // the next challenge takes the floor, still parked
+            }
+            let title = crate::lc_cards::card_by_id(&next.card_id)
+                .map(|c| c.title)
+                .unwrap_or_else(|| next.card_id.clone());
+            self.push_log(LogEntry::Fizzle {
+                seat: next.instigator,
+                title,
+            });
+            self.challenges.remove(0);
+        }
+        // Queue empty: the parked round finally rolls over. Breaks from
+        // the resolve that parked us were already visible during the park,
+        // so no re-stamp (pass the current end of the list).
+        self.rollover(self.pact_breaks.len());
+    }
+
     /// Shared by both damage call sites (a live Atk play and a ticking Dot).
     /// Shields on `subject` absorb first, in effect-creation order (`Vec`
     /// insertion order — nothing in this engine reorders `effects`):
@@ -6891,22 +7063,58 @@ mod tests {
 
     // ---- challenge-cards container (2026-08-14), Pack 1 ----
 
-    /// Alice (seat 0) plays Bar Court (`liquor-09`, Duel, right neighbour);
-    /// everyone locks and the round runs to the challenge park at Resolve.
-    fn parked_challenge() -> LastCallState {
+    /// Alice (seat 0) plays `card_id` (a Duel challenge); everyone locks and
+    /// the round runs to the challenge park at Resolve. Alice holds Beer
+    /// (base rig) and Liquor vessels, so both prototype decks are payable.
+    fn parked_challenge_card(card_id: &str) -> LastCallState {
         let mut st = at_lock_with(|st| {
             st.set_vessel(1, Deck::Liquor, "glass").unwrap();
         });
         st.players[0]
             .hand
-            .push(crate::lc_cards::card_by_id("liquor-09").unwrap());
-        st.arm(1, "liquor-09").unwrap();
+            .push(crate::lc_cards::card_by_id(card_id).unwrap());
+        st.arm(1, card_id).unwrap();
         st.lock_in(1).unwrap();
         st.lock_in(2).unwrap();
         st.lock_in(3).unwrap();
         st.advance_beat().unwrap(); // Lock -> Reveal (reveal())
         st.advance_beat().unwrap(); // Reveal -> Resolve
         st.resolve().unwrap();
+        st
+    }
+
+    /// Bar Court parked: contestants alice (0) and cara (2), sole eligible
+    /// voter bob (seat 1, id 2).
+    fn parked_challenge() -> LastCallState {
+        parked_challenge_card("liquor-09")
+    }
+
+    /// A four-seat Bar Court park: contestants alice (0) and dave (3, her
+    /// right neighbour), voters bob (1, id 2) and cara (2, id 3) — an even
+    /// electorate, so ties are constructible.
+    fn four_seat_parked() -> LastCallState {
+        let mut st = LastCallState::new(
+            vec![
+                (1, "alice".to_string()),
+                (2, "bob".to_string()),
+                (3, "cara".to_string()),
+                (4, "dave".to_string()),
+            ],
+            42,
+        );
+        st.set_vessel(1, Deck::Liquor, "glass").unwrap();
+        st.players[0]
+            .hand
+            .push(crate::lc_cards::card_by_id("liquor-09").unwrap());
+        st.beat = Beat::Lock;
+        st.arm(1, "liquor-09").unwrap();
+        for id in 1..=4 {
+            st.lock_in(id).unwrap();
+        }
+        st.advance_beat().unwrap();
+        st.advance_beat().unwrap();
+        st.resolve().unwrap();
+        assert_eq!(st.challenges[0].opponent, Some(3));
         st
     }
 
@@ -7030,6 +7238,180 @@ mod tests {
         assert!(st.log.iter().any(|e| matches!(
             e,
             LogEntry::Fizzle { seat: 0, title } if title == "Bar Court"
+        )));
+    }
+
+    #[test]
+    fn test_duel_vote_majority_applies_damage_and_rolls_over() {
+        let mut st = parked_challenge();
+        // Contestants can't vote; strangers aren't seated; ghosts blocked
+        // elsewhere (NotAlive path shares set_ready's shape).
+        assert_eq!(st.challenge_vote(1, true), Err(LcError::CantVote));
+        assert_eq!(st.challenge_vote(3, true), Err(LcError::CantVote));
+        assert_eq!(st.challenge_vote(999, true), Err(LcError::NotSeated));
+        let hp_before = st.players[2].hp;
+        // Bob is the whole electorate: his vote is the verdict.
+        st.challenge_vote(2, true).unwrap();
+        assert!(!st.challenge_pending());
+        assert_eq!(st.players[2].hp, hp_before - 4, "the loser takes Bar Court's 4");
+        assert_eq!(st.round, 2, "the parked round finally rolls over");
+        assert_eq!(st.beat, Beat::Draw);
+        assert!(st.log.iter().any(|e| matches!(
+            e,
+            LogEntry::ChallengeVerdict { loser: Some(2), loser2: None, .. }
+        )));
+        // A lost argument is not card damage: no Hit line, no stat credit.
+        assert_eq!(st.players[0].damage_dealt, 0);
+        assert!(!st.log.iter().any(|e| matches!(e, LogEntry::Hit { .. })));
+    }
+
+    #[test]
+    fn test_duel_tie_penalizes_both_and_votes_gate_settle() {
+        let mut st = four_seat_parked();
+        let (hp0, hp3) = (st.players[0].hp, st.players[3].hp);
+        st.challenge_vote(2, true).unwrap();
+        assert!(st.challenge_pending(), "one of two votes is not a verdict");
+        assert_eq!(
+            st.challenge_vote(2, false),
+            Err(LcError::CantVote),
+            "one vote per seat"
+        );
+        st.challenge_vote(3, false).unwrap(); // 1-1: both contestants lose
+        assert!(!st.challenge_pending());
+        assert_eq!(st.players[0].hp, hp0 - 4);
+        assert_eq!(st.players[3].hp, hp3 - 4);
+        assert_eq!(st.round, 2);
+        assert!(st.log.iter().any(|e| matches!(
+            e,
+            LogEntry::ChallengeVerdict { loser: Some(0), loser2: Some(3), .. }
+        )));
+    }
+
+    #[test]
+    fn test_solo_pass_and_fail() {
+        // Pass: a strict majority for the performer, nobody pays.
+        let mut st = at_lock();
+        st.players[2]
+            .hand
+            .push(crate::lc_cards::card_by_id("soft-09").unwrap());
+        st.arm(3, "soft-09").unwrap();
+        st.lock_in(1).unwrap();
+        st.lock_in(2).unwrap();
+        st.lock_in(3).unwrap();
+        st.advance_beat().unwrap();
+        st.advance_beat().unwrap();
+        st.resolve().unwrap();
+        // Post-park baseline (resolve's tab settles may have paid rewards).
+        let hp_parked = st.players[2].hp;
+        st.challenge_vote(1, true).unwrap();
+        st.challenge_vote(2, true).unwrap();
+        assert!(!st.challenge_pending());
+        assert_eq!(st.players[2].hp, hp_parked, "a pass costs nothing");
+        assert!(st.log.iter().any(|e| matches!(
+            e,
+            LogEntry::ChallengeVerdict { loser: None, loser2: None, .. }
+        )));
+
+        // Fail: a tie is not a majority — the performer loses. Drink is a
+        // real-life penalty: verdict logged, zero game-state change.
+        let mut st = at_lock();
+        st.players[2]
+            .hand
+            .push(crate::lc_cards::card_by_id("soft-09").unwrap());
+        st.arm(3, "soft-09").unwrap();
+        st.lock_in(1).unwrap();
+        st.lock_in(2).unwrap();
+        st.lock_in(3).unwrap();
+        st.advance_beat().unwrap();
+        st.advance_beat().unwrap();
+        st.resolve().unwrap();
+        let hp_parked = st.players[2].hp;
+        let pulls_before: Vec<u8> = st.players[2].vessels.iter().map(|v| v.pulls_left).collect();
+        st.challenge_vote(1, true).unwrap();
+        st.challenge_vote(2, false).unwrap();
+        assert!(!st.challenge_pending());
+        assert!(st.log.iter().any(|e| matches!(
+            e,
+            LogEntry::ChallengeVerdict { loser: Some(2), loser2: None, .. }
+        )));
+        assert_eq!(st.players[2].hp, hp_parked);
+        let pulls_after: Vec<u8> = st.players[2].vessels.iter().map(|v| v.pulls_left).collect();
+        assert_eq!(pulls_before, pulls_after);
+    }
+
+    #[test]
+    fn test_rule_penalty_attaches_and_expires() {
+        let mut st = parked_challenge_card("beer-09");
+        st.challenge_vote(2, false).unwrap(); // against: alice loses
+        assert_eq!(st.round, 2);
+        assert_eq!(st.players[0].rules.len(), 1);
+        let rule = &st.players[0].rules[0];
+        assert_eq!(rule.card_id, "beer-09");
+        // Settled in round 1, 2 rounds long: active in rounds 2 and 3.
+        assert_eq!(rule.expires_round, 4);
+        st.rollover(st.pact_breaks.len()); // -> round 3: still active
+        assert_eq!(st.players[0].rules.len(), 1);
+        st.rollover(st.pact_breaks.len()); // -> round 4: aged out
+        assert!(st.players[0].rules.is_empty());
+    }
+
+    #[test]
+    fn test_challenge_penalty_outcome_freezes() {
+        // Both contestants at 4 HP; the electorate (bob & cara) is pacted.
+        // A tie kills both contestants, leaving the pact as the last two
+        // standing — D16 freezes the tableau mid-park.
+        let mut st = four_seat_parked();
+        st.players[0].hp = 4;
+        st.players[3].hp = 4;
+        st.pacts.push(Pact {
+            a: 1,
+            b: 2,
+            formed_round: 1,
+        });
+        st.challenge_vote(2, true).unwrap();
+        st.challenge_vote(3, false).unwrap();
+        assert_eq!(st.outcome(), Some(LcOutcome::Pact(1, 2)));
+        assert_eq!(st.beat, Beat::Resolve, "frozen final tableau");
+        assert!(st.challenges.is_empty(), "queued challenges die with the game");
+        assert!(st
+            .log
+            .iter()
+            .any(|e| matches!(e, LogEntry::GameOver { .. })));
+    }
+
+    #[test]
+    fn test_settle_fizzles_a_queued_challenge_its_penalty_invalidated() {
+        // Two challenges in one round: alice's Bar Court (0 vs 2) resolves
+        // first (higher spend); the verdict kills cara, so cara's own Floor
+        // Show fizzles instead of asking a dead performer to perform.
+        let mut st = at_lock_with(|st| {
+            st.set_vessel(1, Deck::Liquor, "glass").unwrap();
+        });
+        st.players[0]
+            .hand
+            .push(crate::lc_cards::card_by_id("liquor-09").unwrap());
+        st.players[2]
+            .hand
+            .push(crate::lc_cards::card_by_id("soft-09").unwrap());
+        st.arm(1, "liquor-09").unwrap();
+        st.arm(3, "soft-09").unwrap();
+        st.lock_in(1).unwrap();
+        st.lock_in(2).unwrap();
+        st.lock_in(3).unwrap();
+        st.advance_beat().unwrap();
+        st.advance_beat().unwrap();
+        st.resolve().unwrap();
+        assert_eq!(st.challenges.len(), 2);
+        // Set during the park so resolve's tab rewards can't pad it back
+        // over the lethal line.
+        st.players[2].hp = 4;
+        st.challenge_vote(2, true).unwrap(); // cara loses 4 -> eliminated
+        assert_eq!(st.players[2].status, Status::Eliminated);
+        assert!(!st.challenge_pending(), "the orphaned solo fizzled");
+        assert_eq!(st.round, 2);
+        assert!(st.log.iter().any(|e| matches!(
+            e,
+            LogEntry::Fizzle { seat: 2, title } if title == "Floor Show"
         )));
     }
 
