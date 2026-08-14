@@ -726,8 +726,17 @@ fn scope_legal(
     if card.targets == "self" && !play_subjects(play, num_seats).contains(&seat) {
         return false;
     }
-    if play.target.is_none() && matches!(rfx, Some(crate::lc_cards::ReactionFx::Reflect)) {
-        return false;
+    // Mirror of play_reaction's Reflect guard (review wave): a challenge
+    // play is judged by its contest — a Duel takes the role swap, a Solo
+    // has no roles to swap and offering SEND BACK would sell a dead spend
+    // — while a numeric play keeps the original single-seat requirement.
+    if matches!(rfx, Some(crate::lc_cards::ReactionFx::Reflect)) {
+        match crate::lc_cards::card_chfx(&play.card.id) {
+            Some(c) if c.contest == crate::lc_cards::Contest::Duel => {}
+            Some(_) => return false,
+            None if play.target.is_none() => return false,
+            None => {}
+        }
     }
     true
 }
@@ -816,6 +825,9 @@ fn challenge_section_html(st: &LastCallState, seat: usize) -> String {
         r#"<p class="lc-chal-note">GHOSTS WATCH IN SILENCE.</p>"#.to_string()
     } else if ch.votes.iter().any(|v| v.voter == seat) {
         r#"<p class="lc-chal-note">VOTE CAST. WAITING ON THE TABLE.</p>"#.to_string()
+    } else if !ch.electorate.contains(&seat) {
+        // Seated after the electorate froze at activation (review wave).
+        r#"<p class="lc-chal-note">YOU ARRIVED MID-ARGUMENT. WATCH THIS ONE.</p>"#.to_string()
     } else {
         let (for_label, against_label) = match ch.opponent {
             Some(o) => (
@@ -828,7 +840,8 @@ fn challenge_section_html(st: &LastCallState, seat: usize) -> String {
             ),
         };
         format!(
-            r#"<button class="lc-btn lc-chal-btn" data-lc-post="challenge-vote" data-lc-body="for_instigator=true">{for_label}</button><button class="lc-btn lc-chal-btn" data-lc-post="challenge-vote" data-lc-body="for_instigator=false">{against_label}</button>"#
+            r#"<button class="lc-btn lc-chal-btn" data-lc-post="challenge-vote" data-lc-body="challenge={key}&amp;for_instigator=true">{for_label}</button><button class="lc-btn lc-chal-btn" data-lc-post="challenge-vote" data-lc-body="challenge={key}&amp;for_instigator=false">{against_label}</button>"#,
+            key = ch.key,
         )
     };
     format!(
@@ -1757,6 +1770,10 @@ pub async fn lc_haunt_handler(
 
 #[derive(Deserialize)]
 pub struct ChallengeVoteForm {
+    /// The challenge's identity token (`ChallengeState::key`) — echoed from
+    /// the vote buttons so a stale screen's vote can't land on the next
+    /// queued challenge (review wave; the `ReactForm.play` precedent).
+    pub challenge: u64,
     pub for_instigator: bool,
 }
 
@@ -1780,7 +1797,10 @@ pub async fn lc_chvote_handler(
         Ok(c) => c,
         Err(r) => return r,
     };
-    if let Err(e) = ctx.st.challenge_vote(player.id, form.for_instigator) {
+    if let Err(e) = ctx
+        .st
+        .challenge_vote(player.id, form.challenge, form.for_instigator)
+    {
         return map_lc(e);
     }
     persist_and_broadcast_lc(&state, &ctx).await;
@@ -1833,6 +1853,26 @@ pub async fn lc_test_grant_handler(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Review wave: SEND BACK's button gate mirrors `play_reaction`'s
+    /// carve-out exactly — offered against a target-less DUEL challenge
+    /// (the role swap), refused against a Solo (dead spend) and against a
+    /// target-less numeric play (nothing to send home to).
+    #[test]
+    fn test_scope_legal_offers_reflect_against_duel_challenges_only() {
+        let reflect = Some(crate::lc_cards::ReactionFx::Reflect);
+        let wine08 = crate::lc_cards::card_by_id("wine-08").unwrap();
+        let play = |id: &str| Play {
+            card: crate::lc_cards::card_by_id(id).unwrap(),
+            source_seat: 0,
+            target: None,
+            paid_from: Deck::Liquor,
+            order_key: 1,
+        };
+        assert!(scope_legal(1, 3, &wine08, reflect, &play("liquor-09")));
+        assert!(!scope_legal(1, 3, &wine08, reflect, &play("soft-09")));
+        assert!(!scope_legal(1, 3, &wine08, reflect, &play("beer-05")));
+    }
 
     /// 3 players with vessels, round bumped to 2. Walks the whole chain,
     /// asserting Deal never surfaces as a separate stop (E4: the chain

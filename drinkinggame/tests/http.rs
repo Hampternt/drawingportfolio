@@ -8523,8 +8523,8 @@ async fn test_lc_parked_round_renders_vote_surfaces() {
     let bob_hand = body_string(get_hand(&app, &bob, &code).await).await;
     assert!(bob_hand.contains("data-lc-chal"), "{bob_hand}");
     assert!(bob_hand.contains(r#"data-lc-post="challenge-vote""#));
-    assert!(bob_hand.contains("for_instigator=true"));
-    assert!(bob_hand.contains("for_instigator=false"));
+    assert!(bob_hand.contains("challenge=0&amp;for_instigator=true"));
+    assert!(bob_hand.contains("challenge=0&amp;for_instigator=false"));
     assert!(bob_hand.contains("ALICE VS CARA"));
 
     let alice_hand = body_string(get_hand(&app, &alice, &code).await).await;
@@ -8547,7 +8547,7 @@ async fn test_lc_challenge_vote_settles_applies_penalty_and_rolls_over() {
         &app,
         &alice,
         &format!("/room/{code}/lastcall/challenge-vote"),
-        "for_instigator=true",
+        "challenge=0&for_instigator=true",
     )
     .await;
     assert_eq!(res.status(), StatusCode::CONFLICT);
@@ -8559,7 +8559,7 @@ async fn test_lc_challenge_vote_settles_applies_penalty_and_rolls_over() {
         &app,
         &bob,
         &format!("/room/{code}/lastcall/challenge-vote"),
-        "for_instigator=true",
+        "challenge=0&for_instigator=true",
     )
     .await;
     assert_eq!(res.status(), StatusCode::NO_CONTENT);
@@ -8574,7 +8574,7 @@ async fn test_lc_challenge_vote_settles_applies_penalty_and_rolls_over() {
         &app,
         &bob,
         &format!("/room/{code}/lastcall/challenge-vote"),
-        "for_instigator=false",
+        "challenge=0&for_instigator=false",
     )
     .await;
     assert_eq!(res.status(), StatusCode::CONFLICT);
@@ -8588,7 +8588,7 @@ async fn test_lc_challenge_vote_is_guarded_against_non_members() {
         &app,
         &carol,
         &format!("/room/{code}/lastcall/challenge-vote"),
-        "for_instigator=true",
+        "challenge=0&for_instigator=true",
     )
     .await;
     assert_eq!(res.status(), StatusCode::FORBIDDEN);

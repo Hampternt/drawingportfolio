@@ -1,6 +1,6 @@
 # LC challenge cards — Pack 1: challenge engine + bare loop
 
-**Status:** ITEMS COMPLETE 2026-08-14 — gates green, pack review pending
+**Status:** COMPLETE 2026-08-14 — review wave applied, merged → `dev`
 **Container:** `2026-08-14-lc-challenge-cards.md`
 **Branch:** `feat/lc-challenge-cards`
 
@@ -115,3 +115,19 @@ vote is in, penalty applies, round rolls over. Minimal styling.
   "YOU → EVERYONE" for a `"right"` card (JS target-class fall-through —
   functional, mislabeled); the ARMED chip likewise shows "ALL"; personal
   rules have no visible badge yet (verdict log + card text only).
+- 2026-08-14 — **pack review** (`/code-review high`, items 3–4 flagged):
+  10 verified findings, all resolved in the review-wave commit.
+  Fixes: SEND BACK now offered against Duel challenges (scope_legal
+  mirror) and refused against Solo ones on both ends (contest-keyed, not
+  target-keyed — a Solo's `"self"` class carries a target and dodged the
+  first guard); electorate FROZEN at activation on `ChallengeState`
+  (late joiners can neither block the settle nor swing it; settle prunes
+  dead electors from queued challenges); votes carry a `challenge=<key>`
+  identity token (`challenge_seq` counter — stale-screen votes 409);
+  settle mirrors the Step-6 dead-partner pact sweep; parked-round pact
+  breaks re-stamped for the landing round (G5); reshuffle no longer
+  reclaims `copies: 0` prototypes; accidental design-handoff zip
+  untracked + gitignored. Rulings, documented in code: challenges are
+  exempt from pact betrayal (auto-target ≠ chosen aim); shields DO
+  absorb challenge penalties (pinned by test). Nine regression tests;
+  792 workspace tests; VERIFY OK.

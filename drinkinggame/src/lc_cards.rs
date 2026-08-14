@@ -395,6 +395,18 @@ pub fn card_chfx(id: &str) -> Option<ChallengeDef> {
     CATALOG.iter().find(|def| def.id == id).and_then(|d| d.chfx)
 }
 
+/// Whether a card belongs to the copy-weighted shoe (`copies >= 1`). A
+/// `copies: 0` challenge prototype does not — the rollover reshuffle must
+/// not reclaim one into a deck's count, since sampling could never deal it
+/// back out (review wave). Unknown ids answer `true`: a version-skewed
+/// discard keeps counting, the same fail-soft lean as `card_fx`.
+pub fn card_in_shoe(id: &str) -> bool {
+    CATALOG
+        .iter()
+        .find(|def| def.id == id)
+        .is_none_or(|d| d.copies > 0)
+}
+
 /// The curated 5-card opening hand for `deck` (F6), in `OPENERS` order.
 pub fn opening_hand(deck: Deck) -> Vec<Card> {
     let (_, ids) = OPENERS
