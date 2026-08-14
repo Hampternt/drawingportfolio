@@ -31,6 +31,11 @@ from this file on 2026-08-12; `git log docs/WORKTREES.md` recovers them.
   (clock removal, beat restructure, test play mode, screen declutter +
   installable app) merged to `master` 2026-08-13; the stream stays open for
   the Reveal/Resolve visual passes and the table-screen card-play design.
+- **`feat/lc-challenge-cards`** (started 2026-08-14, from `dev`, in the
+  main checkout — no separate worktree): challenge-card container — real-
+  life party challenges as Last Call cards (vote-judged duels, solo dares,
+  social penalties, challenge HUD). Three packs; manifest:
+  `docs/manifests/2026-08-14-lc-challenge-cards.md`.
 
 ## Reminders
 

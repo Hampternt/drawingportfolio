@@ -66,6 +66,9 @@ A party platform for phone-based drinking games in shared rooms.
   IN; card swaps happen in a full-screen mulligan overlay; seat chips
   show everyone's per-deck hand counts; a mode badge + pull count ride
   the tab row. Container: `docs/manifests/2026-08-13-lc-mobile-play-flow.md`
+- 🚧 Challenge cards — real-life party challenges as Last Call cards
+  (duels judged by table vote, solo dares, social penalties).
+  Container: `docs/manifests/2026-08-14-lc-challenge-cards.md`
 
 ## Infrastructure
 
