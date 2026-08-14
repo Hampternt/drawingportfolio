@@ -264,6 +264,25 @@ pub struct LcPlayer {
     /// `apply_damage` flips `status` to `Eliminated`, never elsewhere.
     #[serde(default)]
     pub elim_order: Option<u32>,
+    /// Personal rules carried as challenge penalties (challenge-cards
+    /// container, 2026-08-14). Blob stores `(card_id, expires_round)` only —
+    /// the rule TEXT resolves via `lc_cards::card_chfx`, so a reword reaches
+    /// in-flight games. Active while `round < expires_round`; pruned at the
+    /// rollover. Field-level `#[serde(default)]`: the `damage_dealt`
+    /// precedent — pre-challenge blobs backfill empty.
+    #[serde(default)]
+    pub rules: Vec<PlayerRule>,
+}
+
+/// A personal rule a player carries after losing a challenge — identity
+/// only; text lives catalog-side (`Penalty::Rule`). New with the
+/// challenge-cards container: serde strictness is moot, no older blob has
+/// one to be missing a field on (the `TabSettle` precedent).
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct PlayerRule {
+    pub card_id: String,
+    /// Active while `state.round < expires_round`.
+    pub expires_round: u32,
 }
 
 /// A staged card: identity plus its declared target. Never projected —
@@ -586,12 +605,47 @@ pub struct LastCallState {
     /// card, I10) at the end of `resolve()`'s Step 1 fold, alongside the
     /// reaction drain: eligibility refreshes with the round.
     pub haunts: Vec<Haunt>,
+    /// Pending real-life challenges (challenge-cards container, 2026-08-14).
+    /// Non-empty ⇔ the game is parked in the challenge phase: `resolve()`
+    /// populates this and returns before the rollover with `beat` left at
+    /// `Resolve` — the D16 freeze pattern — and the front entry is the
+    /// active one. Public by design (contestants and tallies are the
+    /// spectacle); carries card ids and seats only — contest shape and
+    /// penalty resolve via `lc_cards::card_chfx` at settle time, never from
+    /// the blob. Container-level default backfills empty on older blobs.
+    pub challenges: Vec<ChallengeState>,
     /// J1/J3: the public round log, capped at `LC_LOG_CAP` (oldest evicted
     /// first) — every append goes through `push_log`, never `.push()`
     /// directly. Container-level `#[serde(default)]` (see the comment above)
     /// backfills an empty log for any blob written before this field
     /// existed, same as every other Plan-J-or-later addition here.
     pub log: Vec<LogEntry>,
+}
+
+/// One pending real-life challenge. Created by `resolve()` when a Challenge
+/// play is collected; settled by the vote flow. New with the challenge-cards
+/// container: serde strictness is moot, no older blob has one.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct ChallengeState {
+    pub card_id: String,
+    pub instigator: usize,
+    /// The duel opponent (first Alive seat to the instigator's right,
+    /// computed at activation) — `None` for a Solo contest.
+    pub opponent: Option<usize>,
+    /// Votes cast so far, in arrival order. A seat's presence here IS the
+    /// once-per-challenge rule (the `haunts` pattern — no separate counter).
+    pub votes: Vec<ChallengeVote>,
+    /// The round the challenge was played in.
+    pub round: u32,
+}
+
+/// One table vote on the active challenge. `for_instigator` reads per
+/// contest: in a Duel, "the instigator wins"; in a Solo, "the performer
+/// passes".
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct ChallengeVote {
+    pub voter: usize,
+    pub for_instigator: bool,
 }
 
 /// One settled tab — who, which one, and when. New in Task 3: serde
@@ -836,6 +890,7 @@ impl LastCallState {
                 pulls_spent: 0,
                 cards_played: 0,
                 elim_order: None,
+                rules: Vec::new(),
             })
             .collect();
         let mut state = LastCallState {
@@ -859,6 +914,7 @@ impl LastCallState {
             tab_ledger: Vec::new(),
             reactions: Vec::new(),
             haunts: Vec::new(),
+            challenges: Vec::new(),
             log: Vec::new(),
         };
         state.push_log(LogEntry::Round { round: 1 });
@@ -983,6 +1039,7 @@ impl LastCallState {
             pulls_spent: 0,
             cards_played: 0,
             elim_order: None,
+            rules: Vec::new(),
         });
         self.seq += 1;
         self.push_log(LogEntry::Joined { seat });
@@ -3327,6 +3384,39 @@ mod tests {
     #[test]
     fn test_from_json_backfills_missing_top_level_fields() {
         assert_eq!(LastCallState::from_json("{}"), LastCallState::default());
+    }
+
+    /// A pre-challenge-container blob — no `challenges` on the state, no
+    /// `rules` inside any `LcPlayer` — loads with both backfilled empty
+    /// (container-level default / `damage_dealt`-style field default), and
+    /// populated values survive a round trip.
+    #[test]
+    fn test_challenge_fields_backfill_and_round_trip() {
+        let mut st = seated();
+        st.challenges.push(ChallengeState {
+            card_id: "liquor-09".into(),
+            instigator: 0,
+            opponent: Some(2),
+            votes: vec![ChallengeVote {
+                voter: 1,
+                for_instigator: true,
+            }],
+            round: 3,
+        });
+        st.players[1].rules.push(PlayerRule {
+            card_id: "liquor-09".into(),
+            expires_round: 6,
+        });
+        assert_eq!(LastCallState::from_json(&st.to_json()), st);
+
+        let mut v: serde_json::Value = serde_json::from_str(&st.to_json()).unwrap();
+        v.as_object_mut().unwrap().remove("challenges");
+        for p in v["players"].as_array_mut().unwrap() {
+            p.as_object_mut().unwrap().remove("rules");
+        }
+        let back = LastCallState::from_json(&v.to_string());
+        assert!(back.challenges.is_empty());
+        assert!(back.players.iter().all(|p| p.rules.is_empty()));
     }
 
     #[test]
@@ -5775,6 +5865,7 @@ mod tests {
             pulls_spent: 0,
             cards_played: 0,
             elim_order: None,
+            rules: Vec::new(),
         };
         refill_pulls(&mut player, 2);
         assert_eq!(player.vessels[0].pulls_left, 5);
