@@ -520,6 +520,22 @@ pub enum LogEntry {
         seat: usize,
         target: Option<usize>,
     },
+    /// Challenge-cards container: a challenge activated at Resolve —
+    /// contestants by seat, card by public title (the play was already
+    /// public at reveal). `opponent` is `None` for a Solo contest.
+    ChallengeOpen {
+        instigator: usize,
+        opponent: Option<usize>,
+        title: String,
+    },
+    /// The table's verdict. `loser2` carries the second loser for a tied
+    /// duel only (the `GameOver::winner2` shape); `None, None` means the
+    /// table approved a Solo performance — nobody pays.
+    ChallengeVerdict {
+        loser: Option<usize>,
+        loser2: Option<usize>,
+        title: String,
+    },
 }
 
 /// `#[serde(default)]` at the container level: a slice-3 field addition to
@@ -805,6 +821,13 @@ pub enum LcError {
     /// haunt: this seat already appears in `haunts` this round (9.2, one
     /// vote per round).
     AlreadyHaunted,
+    /// resolve/advance while parked in the challenge phase (challenge-cards
+    /// container): the vote flow owns the rollover — nothing else moves the
+    /// beat until `challenges` is empty.
+    ChallengePending,
+    /// challenge_vote: the caller is a contestant, or has already voted on
+    /// the active challenge.
+    CantVote,
 }
 
 pub const STARTING_HP: i32 = 15; // DDv2 §2.4, TBD-1
@@ -1828,7 +1851,13 @@ impl LastCallState {
                 return Err(LcError::BadTarget);
             }
         }
+        // Reflect needs a single seat to send the play home to — except a
+        // challenge play (challenge-cards container), whose `target` is
+        // structurally `None` ("right" auto-targets) but whose contest has a
+        // perfectly good "against its source" reading: the reflector takes
+        // over as instigator at activation.
         if play.target.is_none()
+            && crate::lc_cards::card_chfx(&play.card.id).is_none()
             && matches!(
                 crate::lc_cards::card_rfx(card_id),
                 Some(crate::lc_cards::ReactionFx::Reflect)
@@ -2371,6 +2400,13 @@ impl LastCallState {
         if self.beat != Beat::Resolve {
             return Err(LcError::WrongBeat);
         }
+        // Challenge-cards container: while parked in the challenge phase
+        // (Step 7.5 below returned early with `challenges` populated) the
+        // vote flow owns the rollover — a second resolve() here would
+        // re-resolve an already-drained round.
+        if !self.challenges.is_empty() {
+            return Err(LcError::ChallengePending);
+        }
 
         // M3 hardening: no engine transition can produce an empty `players`
         // (a fresh room always seats via `add_player`/`new`), but a
@@ -2429,6 +2465,9 @@ impl LastCallState {
         // then ages out on the round after that — loud, not permanent (G5).
         let pact_breaks_start = self.pact_breaks.len();
         let plays = std::mem::take(&mut self.plays);
+        // Challenge plays collected by Step 1 for Step 7.5's activation:
+        // (source seat, card id, reflector seat if the play was reflected).
+        let mut collected_challenges: Vec<(usize, String, Option<usize>)> = Vec::new();
 
         // Step 0 (I11): fold `reactions` before any play resolves, per
         // answered play, in reverse played order (LIFO, §7.3): `Cancel`
@@ -2448,7 +2487,12 @@ impl LastCallState {
         // check (a few lines down) does that, and it checks the *play's*
         // source, never the reaction's.
         let mut cancelled: HashSet<u32> = HashSet::new();
-        let mut reflected: HashSet<u32> = HashSet::new();
+        // order_key -> the reflector's seat. Membership is what the numeric
+        // path reads (unchanged semantics); the seat is for challenge plays,
+        // whose Reflect swaps contestant roles (challenge-cards container).
+        // LIFO precedence (rev() + or_insert): the LAST-played Reflect is
+        // the recorded reflector, matching the §7.3 processing order.
+        let mut reflected: HashMap<u32, usize> = HashMap::new();
         let mut reduce_total: HashMap<(u32, usize), i32> = HashMap::new();
         for rp in self.reactions.iter().rev() {
             match crate::lc_cards::card_rfx(&rp.card.id) {
@@ -2461,7 +2505,7 @@ impl LastCallState {
                         .or_insert(0) += n;
                 }
                 Some(crate::lc_cards::ReactionFx::Reflect) => {
-                    reflected.insert(rp.answers);
+                    reflected.entry(rp.answers).or_insert(rp.source_seat);
                 }
                 None => {} // version skew (F1): an unrecognised id folds inert
             }
@@ -2574,6 +2618,23 @@ impl LastCallState {
                 continue;
             }
 
+            // Challenge-cards container: a challenge play carries no numeric
+            // fx — it is collected here and contested by table vote after
+            // the numeric program below completes (Step 7.5). Cancel (the
+            // gate above) erased it, pulls stay spent; Reflect records the
+            // reflector, who takes over as instigator at activation.
+            // Contestants are NOT derived here: activation derives them
+            // against the post-resolve Alive set.
+            if crate::lc_cards::card_chfx(&play.card.id).is_some() {
+                collected_challenges.push((
+                    play.source_seat,
+                    play.card.id.clone(),
+                    reflected.get(&play.order_key).copied(),
+                ));
+                self.discards.push(play.card);
+                continue;
+            }
+
             // D2 subject resolution. "table" has no card in the current
             // catalog and falls back to no subjects — a Reaction's id maps
             // to `fx: None` regardless (F5), so an empty subject list here
@@ -2581,7 +2642,7 @@ impl LastCallState {
             // arm bounds-checks the target the same way (M3) — an
             // out-of-range seat fizzles exactly like a dead one, instead of
             // panicking.
-            let subjects: Vec<usize> = if reflected.contains(&play.order_key) {
+            let subjects: Vec<usize> = if reflected.contains_key(&play.order_key) {
                 // I11: reflected sends the play home to its own source,
                 // bypassing the normal target/redirect/fizzle derivation
                 // below entirely — `play_reaction`'s BadTarget guard already
@@ -2979,7 +3040,112 @@ impl LastCallState {
             return Ok(());
         }
 
-        // Step 8: rollover (D5).
+        // Step 7.5 (challenge-cards container): activate the challenges
+        // Step 1 collected. Contestants are derived HERE — after every
+        // numeric effect and elimination — so a mid-resolve death is
+        // respected. A challenge fizzles (7.5-style: pulls stay spent, a
+        // Fizzle log line) when its instigator is dead, the duel walk finds
+        // no opponent, roles collapse onto one seat, or nobody is eligible
+        // to vote. Anything that survives parks the game: `beat` stays
+        // `Resolve` (the D16 freeze pattern) and the vote flow owns the
+        // rollover from here.
+        for (source, card_id, reflector) in collected_challenges {
+            let title = crate::lc_cards::card_by_id(&card_id)
+                .map(|c| c.title)
+                .unwrap_or_else(|| card_id.clone());
+            let alive =
+                |s: usize| self.players.get(s).is_some_and(|p| p.status == Status::Alive);
+            // Collected via the same lookup, so this always resolves; the
+            // and_then keeps it fail-soft anyway (F1).
+            let Some(chfx) = crate::lc_cards::card_chfx(&card_id) else {
+                continue;
+            };
+            let roles: Option<(usize, Option<usize>)> = match chfx.contest {
+                crate::lc_cards::Contest::Solo => {
+                    // Reflect has no meaning for a self-performed dare —
+                    // the play already resolves against its source.
+                    alive(source).then_some((source, None))
+                }
+                crate::lc_cards::Contest::Duel => {
+                    // Reflect swaps the roles: the reflector takes over as
+                    // instigator and the play "resolves against its own
+                    // source" — the original instigator becomes the
+                    // challenged party (I11's shape, socially).
+                    let (instigator, opponent) = match reflector {
+                        Some(r) => (r, Some(source)),
+                        None => {
+                            // First Alive seat to the instigator's right —
+                            // the counter-clockwise mirror of the
+                            // HostileRedirect walk above; k stops at n-1 so
+                            // the walk can never land back on the source.
+                            let n = self.players.len();
+                            let mut opp = None;
+                            for k in 1..n {
+                                let candidate = (source + n - k) % n;
+                                if alive(candidate) {
+                                    opp = Some(candidate);
+                                    break;
+                                }
+                            }
+                            (source, opp)
+                        }
+                    };
+                    match opponent {
+                        Some(o) if alive(instigator) && alive(o) && instigator != o => {
+                            Some((instigator, Some(o)))
+                        }
+                        _ => None,
+                    }
+                }
+            };
+            let eligible_voters = |inst: usize, opp: Option<usize>| {
+                self.players
+                    .iter()
+                    .filter(|p| {
+                        p.status == Status::Alive && p.seat != inst && Some(p.seat) != opp
+                    })
+                    .count()
+            };
+            match roles {
+                Some((instigator, opponent)) if eligible_voters(instigator, opponent) > 0 => {
+                    self.push_log(LogEntry::ChallengeOpen {
+                        instigator,
+                        opponent,
+                        title,
+                    });
+                    self.challenges.push(ChallengeState {
+                        card_id,
+                        instigator,
+                        opponent,
+                        votes: Vec::new(),
+                        round: self.round,
+                    });
+                }
+                _ => {
+                    self.push_log(LogEntry::Fizzle {
+                        seat: source,
+                        title,
+                    });
+                }
+            }
+        }
+        if !self.challenges.is_empty() {
+            return Ok(());
+        }
+
+        self.rollover(pact_breaks_start);
+        Ok(())
+    }
+
+    /// Step 8 of the resolution program (D5), extracted so the challenge
+    /// vote flow (challenge-cards container) can run it after the last
+    /// verdict lands — `resolve()` itself calls it directly when no
+    /// challenge parked the round. `pact_breaks_start`: re-stamp this
+    /// resolve's betrayals with the round players actually land on (the G5
+    /// erratum — see the Step 1 comment); a settle-time caller passes
+    /// `self.pact_breaks.len()` since its breaks were already visible
+    /// during the park.
+    fn rollover(&mut self, pact_breaks_start: usize) {
         self.first_seat = (self.first_seat + 1) % self.players.len(); // D13
         self.round += 1;
         self.push_log(LogEntry::Round { round: self.round });
@@ -3002,6 +3168,9 @@ impl LastCallState {
             p.mulliganed = false;
             p.drawing = false;
             p.draws_this_round = 0;
+            // Challenge-cards container: personal rules are active while
+            // `round < expires_round` — prune the ones that just aged out.
+            p.rules.retain(|r| r.expires_round > self.round);
         }
         // Reshuffle (8.4/§12): the shoe is a count, so a deck sitting at 0
         // reclaims every discarded card of that deck straight back into the
@@ -3032,7 +3201,13 @@ impl LastCallState {
                 self.push_log(LogEntry::Reshuffle { deck });
             }
         }
-        Ok(())
+    }
+
+    /// Challenge-cards container: non-empty `challenges` ⇔ the game is
+    /// parked at `Beat::Resolve` waiting on the table's votes — the route
+    /// chain's second freeze gate beside `outcome()`.
+    pub fn challenge_pending(&self) -> bool {
+        !self.challenges.is_empty()
     }
 
     /// Shared by both damage call sites (a live Atk play and a ticking Dot).
@@ -6712,5 +6887,172 @@ mod tests {
         ] {
             assert!(!json.to_lowercase().contains(secret), "{secret} in {json}");
         }
+    }
+
+    // ---- challenge-cards container (2026-08-14), Pack 1 ----
+
+    /// Alice (seat 0) plays Bar Court (`liquor-09`, Duel, right neighbour);
+    /// everyone locks and the round runs to the challenge park at Resolve.
+    fn parked_challenge() -> LastCallState {
+        let mut st = at_lock_with(|st| {
+            st.set_vessel(1, Deck::Liquor, "glass").unwrap();
+        });
+        st.players[0]
+            .hand
+            .push(crate::lc_cards::card_by_id("liquor-09").unwrap());
+        st.arm(1, "liquor-09").unwrap();
+        st.lock_in(1).unwrap();
+        st.lock_in(2).unwrap();
+        st.lock_in(3).unwrap();
+        st.advance_beat().unwrap(); // Lock -> Reveal (reveal())
+        st.advance_beat().unwrap(); // Reveal -> Resolve
+        st.resolve().unwrap();
+        st
+    }
+
+    #[test]
+    fn test_challenge_play_parks_resolve_and_derives_the_right_neighbor() {
+        let st = parked_challenge();
+        assert_eq!(st.beat, Beat::Resolve, "parked, not rolled over");
+        assert_eq!(st.round, 1);
+        assert!(st.challenge_pending());
+        let ch = &st.challenges[0];
+        assert_eq!(ch.card_id, "liquor-09");
+        assert_eq!(ch.instigator, 0);
+        // "Right" is the counter-clockwise mirror of the clockwise idiom:
+        // seat 0's right neighbour at a 3-table is seat 2.
+        assert_eq!(ch.opponent, Some(2));
+        assert!(ch.votes.is_empty());
+        assert_eq!(ch.round, 1);
+        // The card left play like any other resolved play.
+        assert!(st.discards.iter().any(|c| c.id == "liquor-09"));
+        assert!(st.log.iter().any(|e| matches!(
+            e,
+            LogEntry::ChallengeOpen { instigator: 0, opponent: Some(2), .. }
+        )));
+    }
+
+    #[test]
+    fn test_parked_challenge_blocks_resolve_and_advance() {
+        let mut st = parked_challenge();
+        assert_eq!(st.resolve(), Err(LcError::ChallengePending));
+        assert_eq!(st.advance_beat(), Err(LcError::MustResolve));
+    }
+
+    #[test]
+    fn test_reflected_challenge_swaps_roles() {
+        let mut st = at_lock_with(|st| {
+            st.set_vessel(1, Deck::Liquor, "glass").unwrap();
+            st.set_vessel(3, Deck::Wine, "glass").unwrap();
+        });
+        st.players[0]
+            .hand
+            .push(crate::lc_cards::card_by_id("liquor-09").unwrap());
+        st.players[2]
+            .hand
+            .push(crate::lc_cards::card_by_id("wine-08").unwrap());
+        st.arm(1, "liquor-09").unwrap();
+        st.lock_in(1).unwrap();
+        st.lock_in(2).unwrap();
+        st.lock_in(3).unwrap();
+        st.advance_beat().unwrap(); // -> Reveal
+        let key = st
+            .plays
+            .iter()
+            .find(|p| p.card.id == "liquor-09")
+            .unwrap()
+            .order_key;
+        // Send It Back on a target-less challenge play: allowed (carve-out),
+        // and the reflector takes over as instigator.
+        st.play_reaction(3, "wine-08", key).unwrap();
+        st.advance_beat().unwrap(); // -> Resolve
+        st.resolve().unwrap();
+        let ch = &st.challenges[0];
+        assert_eq!(ch.instigator, 2, "the reflector instigates");
+        assert_eq!(ch.opponent, Some(0), "against the original source");
+    }
+
+    #[test]
+    fn test_cancelled_challenge_never_activates() {
+        let mut st = at_lock_with(|st| {
+            st.set_vessel(1, Deck::Liquor, "glass").unwrap();
+        });
+        st.players[0]
+            .hand
+            .push(crate::lc_cards::card_by_id("liquor-09").unwrap());
+        st.players[1]
+            .hand
+            .push(crate::lc_cards::card_by_id("cider-08").unwrap());
+        st.arm(1, "liquor-09").unwrap();
+        st.lock_in(1).unwrap();
+        st.lock_in(2).unwrap();
+        st.lock_in(3).unwrap();
+        st.advance_beat().unwrap(); // -> Reveal
+        let key = st
+            .plays
+            .iter()
+            .find(|p| p.card.id == "liquor-09")
+            .unwrap()
+            .order_key;
+        st.play_reaction(2, "cider-08", key).unwrap();
+        st.advance_beat().unwrap(); // -> Resolve
+        st.resolve().unwrap();
+        assert!(!st.challenge_pending());
+        assert_eq!(st.round, 2, "round rolled over normally");
+        assert_eq!(st.beat, Beat::Draw);
+        assert!(!st
+            .log
+            .iter()
+            .any(|e| matches!(e, LogEntry::ChallengeOpen { .. })));
+    }
+
+    #[test]
+    fn test_challenge_walks_past_a_dead_neighbor_and_fizzles_without_voters() {
+        // Cara (seat 2, alice's right neighbour) is dead before the round:
+        // the walk lands on bob instead — but then nobody is left to vote,
+        // so the whole challenge fizzles and the round rolls over.
+        let mut st = at_lock_with(|st| {
+            st.set_vessel(1, Deck::Liquor, "glass").unwrap();
+        });
+        st.players[2].status = Status::Eliminated;
+        st.players[2].hand.clear();
+        st.players[0]
+            .hand
+            .push(crate::lc_cards::card_by_id("liquor-09").unwrap());
+        st.arm(1, "liquor-09").unwrap();
+        st.lock_in(1).unwrap();
+        st.lock_in(2).unwrap();
+        st.advance_beat().unwrap(); // -> Reveal
+        st.advance_beat().unwrap(); // -> Resolve
+        st.resolve().unwrap();
+        assert!(!st.challenge_pending());
+        assert_eq!(st.round, 2, "fizzle still rolls the round over");
+        assert!(st.log.iter().any(|e| matches!(
+            e,
+            LogEntry::Fizzle { seat: 0, title } if title == "Bar Court"
+        )));
+    }
+
+    #[test]
+    fn test_solo_challenge_activates_without_opponent() {
+        let mut st = at_lock();
+        st.players[2]
+            .hand
+            .push(crate::lc_cards::card_by_id("soft-09").unwrap());
+        st.arm(3, "soft-09").unwrap();
+        st.lock_in(1).unwrap();
+        st.lock_in(2).unwrap();
+        st.lock_in(3).unwrap();
+        st.advance_beat().unwrap(); // -> Reveal
+        st.advance_beat().unwrap(); // -> Resolve
+        st.resolve().unwrap();
+        assert!(st.challenge_pending());
+        let ch = &st.challenges[0];
+        assert_eq!(ch.instigator, 2);
+        assert_eq!(ch.opponent, None);
+        assert!(st.log.iter().any(|e| matches!(
+            e,
+            LogEntry::ChallengeOpen { instigator: 2, opponent: None, .. }
+        )));
     }
 }

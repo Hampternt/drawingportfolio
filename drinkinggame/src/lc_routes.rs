@@ -994,7 +994,9 @@ pub(crate) fn map_lc(e: LcError) -> axum::response::Response {
         LcError::WrongBeat
         | LcError::AlreadyLocked
         | LcError::MustResolve
-        | LcError::AlreadyHaunted => GameError::OutOfTurn.into_response(),
+        | LcError::AlreadyHaunted
+        | LcError::ChallengePending
+        | LcError::CantVote => GameError::OutOfTurn.into_response(),
         LcError::CantAfford(id) => (
             StatusCode::UNPROCESSABLE_ENTITY,
             format!("Can't afford {id}."),
@@ -1489,6 +1491,12 @@ pub(crate) fn lc_advance_chain(st: &mut LastCallState) {
     if st.players.is_empty() {
         return; // M3: nothing to advance; resolve() no-ops here and would spin
     }
+    if st.challenge_pending() {
+        // Parked in the challenge phase (challenge-cards container): the
+        // vote flow owns the rollover; entering resolve() here would panic
+        // its expect on ChallengePending.
+        return;
+    }
     if st.beat == Beat::Resolve {
         st.resolve()
             .expect("resolve() at Beat::Resolve cannot fail");
@@ -1499,6 +1507,13 @@ pub(crate) fn lc_advance_chain(st: &mut LastCallState) {
     loop {
         if st.outcome().is_some() {
             st.beat_deadline_ms = None; // frozen final tableau (D16)
+            return;
+        }
+        if st.challenge_pending() {
+            // resolve() just parked the round — same freeze shape as the
+            // outcome gate above; without this the Resolve arm below would
+            // re-enter resolve() forever.
+            st.beat_deadline_ms = None;
             return;
         }
         match st.beat {

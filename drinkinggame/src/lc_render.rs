@@ -951,6 +951,8 @@ fn log_tag(entry: &LogEntry) -> &'static str {
         LogEntry::TabSettle { .. } => "tab_settle",
         LogEntry::ReactionPlay { .. } => "reaction_play",
         LogEntry::Haunt { .. } => "haunt",
+        LogEntry::ChallengeOpen { .. } => "challenge_open",
+        LogEntry::ChallengeVerdict { .. } => "challenge_verdict",
     }
 }
 
@@ -1053,6 +1055,42 @@ fn log_line(view: &PublicView, entry: &LogEntry) -> String {
                 log_seat_name(view, *t)
             ),
             None => format!("{} HAUNTS THE TABLE", log_seat_name(view, *seat)),
+        },
+        // Challenge-cards container — the challenge phase's two beats.
+        LogEntry::ChallengeOpen {
+            instigator,
+            opponent,
+            title,
+        } => match opponent {
+            Some(o) => format!(
+                "{} CHALLENGES {} — {}",
+                log_seat_name(view, *instigator),
+                log_seat_name(view, *o),
+                html_escape(title)
+            ),
+            None => format!(
+                "{} TAKES ON {}",
+                log_seat_name(view, *instigator),
+                html_escape(title)
+            ),
+        },
+        LogEntry::ChallengeVerdict {
+            loser,
+            loser2,
+            title,
+        } => match (loser, loser2) {
+            (Some(a), Some(b)) => format!(
+                "TIE — {} & {} BOTH LOSE {}",
+                log_seat_name(view, *a),
+                log_seat_name(view, *b),
+                html_escape(title)
+            ),
+            (Some(l), None) => format!(
+                "{} LOSES {}",
+                log_seat_name(view, *l),
+                html_escape(title)
+            ),
+            (None, _) => format!("THE TABLE APPROVES — {}", html_escape(title)),
         },
     }
 }

@@ -168,7 +168,7 @@ const OPENERS: [(Deck, [&str; 5]); 5] = [
     ),
 ];
 
-pub const CATALOG: [CardDef; 41] = [
+pub const CATALOG: [CardDef; 42] = [
     // ---- Beer — Attrition, costs 1-2, 8 pulls. Par 2 dmg/pull, no hit > 4.
     CardDef { id: "beer-01", deck: Deck::Beer, kind: CardKind::Atk, cost: 1,
         targets: "one", title: "Nudge", copies: 6, keywords: &[], fx: dmg(2), rfx: None, chfx: None,
@@ -331,6 +331,11 @@ pub const CATALOG: [CardDef; 41] = [
         keywords: &["challenge", "loud", "public"], fx: None, rfx: None,
         chfx: Some(ChallengeDef { contest: Contest::Duel, penalty: Penalty::Damage(4) }),
         text: "Challenge: state your case against the player on your right — the table votes a winner, and the loser takes 4 damage. Court is now in session." },
+    CardDef { id: "soft-09", deck: Deck::Soft, kind: CardKind::Challenge, cost: 1,
+        targets: "self", title: "Floor Show", copies: 0,
+        keywords: &["challenge", "showy"], fx: None, rfx: None,
+        chfx: Some(ChallengeDef { contest: Contest::Solo, penalty: Penalty::Drink(2) }),
+        text: "Challenge: put on a thirty-second performance of the table's choosing. If they are not impressed, drink 2. No refunds." },
 ];
 
 fn to_card(def: &CardDef) -> Card {
@@ -425,7 +430,7 @@ mod tests {
 
     #[test]
     fn test_catalog_shape_and_copy_sums() {
-        assert_eq!(CATALOG.len(), 41);
+        assert_eq!(CATALOG.len(), 42);
         for deck in Deck::ALL {
             // Eight shoe-carrying cards per deck; copies: 0 prototypes sit
             // outside the shoe and outside this count.
@@ -534,6 +539,13 @@ mod tests {
             Some(ChallengeDef {
                 contest: Contest::Duel,
                 penalty: Penalty::Damage(4),
+            })
+        );
+        assert_eq!(
+            card_chfx("soft-09"),
+            Some(ChallengeDef {
+                contest: Contest::Solo,
+                penalty: Penalty::Drink(2),
             })
         );
         assert_eq!(card_chfx("beer-01"), None);
