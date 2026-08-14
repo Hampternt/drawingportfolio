@@ -6834,6 +6834,10 @@ async fn test_mulligan_overlay_appears_and_spends() {
     assert!(hand.contains("data-lc-mull"), "{hand}");
     assert!(hand.contains("ONCE A ROUND"), "{hand}");
     assert!(hand.contains("data-lc-mull-open"), "{hand}");
+    // review fix: at Draw the inspect sheet offers no PLAY — arming is a
+    // Diplomacy action, and the sheet says so instead of dead-ending.
+    assert!(!hand.contains("data-lc-sheet-tostage"), "{hand}");
+    assert!(hand.contains("ARMING OPENS AT DIPLOMACY"), "{hand}");
 
     // the overlay's confirm: comma-joined ids to the existing route
     let res = post_form(

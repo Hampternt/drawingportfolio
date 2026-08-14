@@ -14,7 +14,8 @@ use crate::auth::PlayerSession;
 use crate::db;
 use crate::error::GameError;
 use crate::last_call::{
-    Beat, Card, CardKind, Deck, EffectOp, LastCallState, LcError, Play, Status, DRAW_PER_VESSEL,
+    Beat, Card, CardKind, Deck, EffectOp, LastCallState, LcError, Play, PublicView, Status,
+    DRAW_PER_VESSEL,
 };
 use crate::lc_render::{self, ActionBarView, HandGroupView};
 use crate::models::{Game, Player, Room};
@@ -439,10 +440,11 @@ pub async fn lc_handicap_handler(
 /// private fetch, seq gate and stale-drop as the target picker above it.
 ///
 /// Plan J Task 3: once `st.outcome()` is `Some`, the pane body switches
-/// wholesale to `lc_end_card` — the register row, targets, response window
-/// and tab card all stop applying to a finished game
-/// (`targets_section_html`'s own `Beat::Lock` gate, for one, is already moot
-/// once the beat is frozen at Resolve). The root id and `data-seq` stay put
+/// wholesale to `lc_end_card` — the register row, response window, tab
+/// drawer, inspect sheet and mulligan overlay all stop applying to a
+/// finished game (their gates — `table_pane_html`'s staging window, the
+/// overlay's Draw window — are already moot once the beat is frozen at
+/// Resolve). The root id and `data-seq` stay put
 /// so `lcApply`'s `querySelector("#lc-hand")` stale-drop gate keeps working
 /// unchanged, and the `<template data-lc-actions>` sibling is still
 /// appended — `lc_action_bar`'s own `outcome.is_some()` branch (REMATCH /
@@ -457,8 +459,11 @@ fn hand_pane_html(base_path: &str, code: &str, st: &LastCallState, player_id: i6
         // `data-seq` alone (see the fn doc above). Hardcoded 0 to keep the
         // §7.8 DOM contract's attribute present rather than to feed a
         // consumer.
+        // Review fix: data-pulls="0" so the tab row's pull count clears on
+        // the finished-game repaint instead of freezing at its last
+        // mid-game value.
         let pane = format!(
-            r#"<div id="lc-hand" data-seq="{seq}" data-count="0">{card}</div>"#,
+            r#"<div id="lc-hand" data-seq="{seq}" data-count="0" data-pulls="0">{card}</div>"#,
             seq = view.seq,
             card = lc_render::lc_end_card(&view, me),
         );
@@ -535,7 +540,12 @@ fn hand_pane_html(base_path: &str, code: &str, st: &LastCallState, player_id: i6
     };
     // Pack 2: the inspect sheet rides the same private fetch as the hand
     // it describes — skeleton + per-card stash, hidden until a wheel tap.
-    let sheet = lc_render::lc_inspect_sheet(hand);
+    // Review fix: PLAY only renders inside the staging window (the same
+    // gate table_pane_html uses for the tray) — outside it the sheet says
+    // when playing opens instead of dead-ending on a tray-less TABLE.
+    let staging = matches!(st.beat, Beat::Diplomacy | Beat::Lock)
+        && seat.is_some_and(|s| st.players[s].status == Status::Alive && !st.players[s].locked);
+    let sheet = lc_render::lc_inspect_sheet(hand, staging);
     // Pack 3: the mulligan overlay — only while the engine would accept
     // the post (Draw beat, alive, holding a hand, round-1 lobby or the
     // round's swap unspent), so the MULLIGAN button and the overlay
@@ -837,7 +847,7 @@ pub async fn lc_page(
         test_bar,
         banner: lc_render::lc_banner(&view),
         hand_pane,
-        table_pane: table_pane_html(&ctx.st, player.id),
+        table_pane: table_pane_html(&ctx.st, &view, player.id),
         actions,
         log_pane: lc_render::lc_log(&view),
     };
@@ -860,8 +870,11 @@ pub async fn lc_page(
 /// seat, so player A's fragment can never carry player B's cards. A
 /// locked viewer keeps the stack (their own `locked_plays`, `data-locked`,
 /// no take-back) but loses the tray and overlay: the queue is committed.
-fn table_pane_html(st: &LastCallState, player_id: i64) -> String {
-    let view = st.public_view();
+/// Review fix: takes the already-built `&PublicView` alongside the state
+/// instead of projecting its own copy — `lc_page` builds one view for the
+/// banner/log and passes it here, so a page render projects once, not
+/// twice. Callers must pass a view built from the SAME `st`.
+fn table_pane_html(st: &LastCallState, view: &PublicView, player_id: i64) -> String {
     let me = st.seat_of(player_id);
     let staging = matches!(st.beat, Beat::Diplomacy | Beat::Lock) && st.outcome().is_none();
     let mut stack = String::new();
@@ -877,20 +890,20 @@ fn table_pane_html(st: &LastCallState, player_id: i64) -> String {
                     .filter(|pl| pl.source_seat == seat)
                     .map(|pl| (&pl.card, pl.target))
                     .collect();
-                stack = lc_render::lc_table_stack(&staged, true, &view, seat);
+                stack = lc_render::lc_table_stack(&staged, true, view, seat);
             } else {
                 let armed: Vec<(&Card, Option<usize>)> =
                     p.armed.iter().map(|a| (&a.card, a.target)).collect();
-                stack = lc_render::lc_table_stack(&armed, false, &view, seat);
+                stack = lc_render::lc_table_stack(&armed, false, view, seat);
                 tray = lc_render::lc_tray(&p.hand);
-                overlay = lc_render::lc_target_overlay(&view, seat);
+                overlay = lc_render::lc_target_overlay(view, seat);
             }
         }
     }
     format!(
         r#"<div id="lc-table" data-seq="{seq}"><div class="lc-tablescene" data-lc-scene-table>{mini}{stack}<svg class="lc-arrowlay" data-lc-arrows aria-hidden="true"></svg></div>{tray}{overlay}</div>"#,
         seq = view.seq,
-        mini = lc_render::lc_mini_table(&view, me),
+        mini = lc_render::lc_mini_table(view, me),
     )
 }
 
@@ -922,7 +935,8 @@ pub async fn lc_table_handler(
         Ok(c) => c,
         Err(r) => return r,
     };
-    Html(table_pane_html(&ctx.st, player.id)).into_response()
+    let view = ctx.st.public_view();
+    Html(table_pane_html(&ctx.st, &view, player.id)).into_response()
 }
 
 /// `GET /room/{code}/lastcall/hand` — PRIVATE.

@@ -124,6 +124,10 @@ function lcApply(html) {
   // property) — guarded so a missing lc_loop.js never breaks the rest of
   // this swap.
   if (window.lcLoopApply) window.lcLoopApply(pane);
+  // Review fix: the repaint rebuilt any open per-hand surface (mulligan
+  // overlay + picks, inspect sheet, drawer) hidden — restore them from
+  // lc_loop.js's module state, same guard rationale as above.
+  if (window.lcHandSync) window.lcHandSync();
 }
 
 // The TABLE pane has no live inputs to preserve, so its apply is the plain

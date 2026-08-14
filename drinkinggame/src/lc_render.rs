@@ -518,8 +518,11 @@ pub fn lc_table_stack(
 /// button (`data-lc-sheet-tostage`) stages the card into the TABLE tab's
 /// targeting overlay; a Reaction gets the reveal-window note instead —
 /// the engine refuses `arm` for reactions, so the sheet never offers it
-/// (recorded deviation from the prototype's "ARM ON THE TABLE →").
-pub fn lc_inspect_sheet(hand: &[Card]) -> String {
+/// (recorded deviation from the prototype's "ARM ON THE TABLE →"). Review
+/// fix: `staging` gates PLAY for every card — outside Diplomacy (or once
+/// the viewer locked) the button would dead-end on a tray-less TABLE, so
+/// the sheet says when playing opens instead of offering it.
+pub fn lc_inspect_sheet(hand: &[Card], staging: bool) -> String {
     let entries: String = hand
         .iter()
         .map(|card| {
@@ -538,6 +541,8 @@ pub fn lc_inspect_sheet(hand: &[Card]) -> String {
             let play = if card.kind == CardKind::Reaction {
                 r#"<p class="lc-sheet-reactnote">A REACTION — THE REVEAL OFFERS IT WHEN A PLAY CAN BE ANSWERED</p>"#
                     .to_string()
+            } else if !staging {
+                r#"<p class="lc-sheet-reactnote">ARMING OPENS AT DIPLOMACY</p>"#.to_string()
             } else {
                 format!(
                     r#"<button type="button" class="lc-btn lc-sheet-play lc-deck-{slug}" data-lc-sheet-tostage data-card-id="{id}">PLAY ON THE TABLE &rarr;</button>"#,
@@ -2206,7 +2211,8 @@ mod tests {
             ),
             lc_table_stack(&[(&cards[0], Some(1))], true, &ring_fixture(3), 0),
             // Pack 2: the inspect sheet (skeleton + stash, PLAY rows).
-            lc_inspect_sheet(&cards),
+            lc_inspect_sheet(&cards, true),
+            lc_inspect_sheet(&cards, false),
             // Pack 3: the mulligan overlay, both copy variants.
             lc_mulligan_overlay(&cards, 1),
             lc_mulligan_overlay(&cards, 2),
@@ -4047,7 +4053,7 @@ mod tests {
             })
             .map(|d| lc_cards::card_by_id(d.id).unwrap())
             .expect("catalog has a reaction card");
-        let html = lc_inspect_sheet(&[one.clone(), dur.clone(), react.clone()]);
+        let html = lc_inspect_sheet(&[one.clone(), dur.clone(), react.clone()], true);
         assert!(
             html.contains(r#"class="lc-sheet" data-lc-sheet hidden"#),
             "{html}"
@@ -4084,6 +4090,12 @@ mod tests {
             "{html}"
         );
         no_hex(&html);
+
+        // review fix: outside the staging window NO card offers PLAY —
+        // the sheet says when playing opens instead.
+        let closed = lc_inspect_sheet(&[one.clone()], false);
+        assert!(!closed.contains("data-lc-sheet-tostage"), "{closed}");
+        assert!(closed.contains("ARMING OPENS AT DIPLOMACY"), "{closed}");
     }
 
     /// Pack 3: the mulligan overlay — hidden skeleton, per-round copy,

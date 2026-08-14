@@ -155,6 +155,23 @@ moves the strip; identity stays private, pinned by
   change), D3 confirmed, D4 keep. Awaiting go on the pack sequence.
 - 2026-08-13: go given (user: run all three packs to completion). Pack 1
   activated; item manifest drafted above.
+- 2026-08-14: pre-merge code review (high effort) found 9 issues; all
+  fixed in one wave. Interaction: MULLIGAN now switches to the HAND tab
+  before opening (the overlay lives in that pane — from TABLE it opened
+  invisible); the tray drag is pointerId-keyed (a second finger could
+  hijack hit-testing or leak the ghost); open per-hand surfaces (mulligan
+  picks, inspect sheet, drawer) survive the SSE repaint via `lcHandSync`
+  + module-state ids; `restingMode`/`lcTableSync` are overlay-aware (no
+  more TARGET badge over the HAND tab, no stuck MULLIGAN); the sheet's
+  PLAY is beat-gated server-side ("ARMING OPENS AT DIPLOMACY" outside
+  the staging window) with a client note for the race. Efficiency:
+  `table_pane_html` takes the caller's `&PublicView` (one projection per
+  page render, not two). Cosmetics: end-game pane emits `data-pulls="0"`
+  so the pull count clears; chip flashes only fire at Reveal/Resolve (a
+  rematch's HP reset repaints silently). Docs: stale
+  `targets_section_html` reference rewritten. verify.sh green;
+  browser-smoked (mulligan-from-TABLE, Draw-beat sheet note, cancel →
+  READ). Merged to dev.
 - 2026-08-13: Pack 3 lands — the container is COMPLETE. verify.sh green
   (759 → 765: +1 engine, +3 render units, +2 http). Browser-smoked: the
   overlay swaps real cards through the engine (same-deck replacements

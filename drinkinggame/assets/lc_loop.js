@@ -166,7 +166,15 @@
       var tableTab = document.querySelector('[data-lc-tab="table"]');
       if (tableTab) tableTab.click();
       window.requestAnimationFrame(function () {
-        openTargeting(stageId);
+        // Review fix: outside the staging window the table carries no
+        // tray — say so instead of dead-ending on a bare TABLE tab. (The
+        // server also gates the button by beat; this covers the race
+        // where the beat moved after the sheet rendered.)
+        if (trayMini(stageId)) {
+          openTargeting(stageId);
+        } else {
+          note("NOT NOW — ARMING OPENS AT DIPLOMACY");
+        }
       });
       return;
     }
@@ -181,11 +189,13 @@
     }
     var mullCard = e.target.closest(".lc-mull-card");
     if (mullCard) {
-      var at = mullPicks.indexOf(mullCard);
-      if (at > -1) mullPicks.splice(at, 1);
-      else mullPicks.push(mullCard);
       var overlay = mullCard.closest("[data-lc-mull]");
-      if (overlay) mullSync(overlay);
+      if (overlay) {
+        var at = mullAssign(overlay).indexOf(mullCard);
+        if (at > -1) mullPicks.splice(at, 1);
+        else mullPicks.push(mullCard.dataset.cardId);
+        mullSync(overlay);
+      }
       return;
     }
     if (e.target.closest("[data-lc-mull-cancel]")) {
@@ -193,22 +203,24 @@
       return;
     }
     if (e.target.closest("[data-lc-mull-confirm]")) {
-      var ids = mullPicks.map(function (card) { return card.dataset.cardId; });
-      if (ids.length) {
-        post("mulligan", "cards=" + encodeURIComponent(ids.join(",")));
+      if (mullPicks.length) {
+        post("mulligan", "cards=" + encodeURIComponent(mullPicks.join(",")));
       }
       closeMulligan();
       return;
     }
     // Pack 2: the side-quest drawer's handle toggles it out and back.
+    // drawerOpen is module state so lcHandSync can restore it across the
+    // hand pane's SSE repaints.
     var handle = e.target.closest("[data-lc-tabdrawer]");
     if (handle) {
       var drawer = handle.closest(".lc-tabcard");
       if (drawer) {
-        if (drawer.hasAttribute("data-open")) {
-          drawer.removeAttribute("data-open");
-        } else {
+        drawerOpen = !drawer.hasAttribute("data-open");
+        if (drawerOpen) {
           drawer.setAttribute("data-open", "");
+        } else {
+          drawer.removeAttribute("data-open");
         }
       }
       return;
@@ -374,8 +386,13 @@
   function onTrayPointerDown(e) {
     var mini = e.target.closest ? e.target.closest(".lc-tray-mini") : null;
     if (!mini) return;
+    // Review fix: one drag at a time, keyed by pointerId — a second touch
+    // must neither hijack the live drag's hit-testing nor replace it and
+    // leak its ghost node.
+    if (trayDrag) return;
     try { mini.setPointerCapture(e.pointerId); } catch (_) {}
     trayDrag = {
+      pointerId: e.pointerId,
       id: mini.dataset.cardId,
       x0: e.clientX,
       y0: e.clientY,
@@ -387,7 +404,7 @@
 
   function onTrayPointerMove(e) {
     var d = trayDrag;
-    if (!d) return;
+    if (!d || e.pointerId !== d.pointerId) return;
     if (!d.moved && Math.hypot(e.clientX - d.x0, e.clientY - d.y0) < 10) return;
     d.moved = true;
     var mini = trayMini(d.id);
@@ -433,8 +450,8 @@
 
   function onTrayPointerUp(e) {
     var d = trayDrag;
+    if (!d || e.pointerId !== d.pointerId) return;
     trayDrag = null;
-    if (!d) return;
     if (d.ghost) d.ghost.remove();
     // Same rule as the wheel (finding 5): only a genuine pointerup commits;
     // a cancelled gesture cleans up without staging or dropping anything.
@@ -459,18 +476,49 @@
   // Re-derive the play surface's visual state after a repaint (lcApplyTable
   // replaces #lc-table wholesale) or a tab switch: redraw the persistent
   // arrows, and either restore or drop the targeting overlay depending on
-  // whether the staged card still sits in the fresh tray.
+  // whether the staged card still sits in the fresh tray. Review fixes:
+  // targeting only re-opens while the TABLE tab is actually showing (the
+  // badge must not read TARGET over the hand), and a staged card that left
+  // the tray tears down through closeTargeting so the badge rests too.
   window.lcTableSync = function () {
     if (window.lcTableArrows) window.lcTableArrows();
     flashChips();
     if (!trayState.staged) return;
-    if (trayMini(trayState.staged)) {
-      openTargeting(trayState.staged);
-    } else {
+    if (!trayMini(trayState.staged)) {
       // the staged card left the tray (armed, or the hand changed under us)
-      trayState.staged = null;
-      var ov = overlayEl();
-      if (ov) ov.hidden = true;
+      closeTargeting();
+    } else if (activeTab() === "table") {
+      openTargeting(trayState.staged);
+    }
+  };
+
+  // Review fix (repaint survival): the private-hand counterpart of
+  // lcTableSync — lcApply replaces the HAND pane's innerHTML on every SSE
+  // event, so any open per-hand surface (mulligan overlay with its picks,
+  // inspect sheet, side-quest drawer) is rebuilt hidden/closed and must be
+  // restored from the module state above. Called by lc_room.html's lcApply
+  // after lcLoopApply.
+  window.lcHandSync = function () {
+    if (mullOpen) {
+      var overlay = mullEl();
+      if (overlay) {
+        mullSync(overlay);
+        overlay.hidden = false;
+      } else {
+        // the window closed server-side (swap spent, beat moved on)
+        mullOpen = false;
+        mullPicks = [];
+        restingMode();
+      }
+    }
+    if (sheetCardId !== null && !openSheet(sheetCardId)) {
+      // the inspected card left the hand
+      closeSheet();
+    }
+    if (drawerOpen) {
+      var pane = document.querySelector('[data-lc-pane="hand"]');
+      var drawer = pane && pane.querySelector(".lc-tabcard");
+      if (drawer) drawer.setAttribute("data-open", "");
     }
   };
 
@@ -495,19 +543,30 @@
     return pane ? pane.querySelector("[data-lc-sheet]") : null;
   }
 
+  // Review fix (repaint survival): the open sheet's card id and the
+  // drawer's open state live here, in module scope, so lcHandSync can
+  // rebuild both after every hand repaint (lcApply replaces the pane's
+  // innerHTML wholesale) instead of letting the SSE churn close them
+  // mid-interaction.
+  var sheetCardId = null;
+  var drawerOpen = false;
+
   // Clone the tapped card's stash entry (expanded face + meta grid +
   // actions, all server-rendered) into the sheet slot and lift the sheet.
   function openSheet(cardId) {
     var sheet = sheetEl();
-    if (!sheet) return;
+    if (!sheet) return false;
     var src = sheet.querySelector('[data-inspect-for="' + cardId + '"]');
     var slot = sheet.querySelector("[data-lc-sheet-slot]");
-    if (!src || !slot) return;
+    if (!src || !slot) return false;
     slot.innerHTML = src.innerHTML;
     sheet.hidden = false;
+    sheetCardId = cardId;
+    return true;
   }
 
   function closeSheet() {
+    sheetCardId = null;
     var sheet = sheetEl();
     if (!sheet) return;
     sheet.hidden = true;
@@ -517,16 +576,46 @@
 
   // ---- Pack 3: the mulligan overlay --------------------------------------
 
-  var mullPicks = []; // picked .lc-mull-card elements, in pick order
+  // Review fix (repaint survival): picks are card IDS in pick order (not
+  // elements — a repaint detaches those), plus an open flag, so lcHandSync
+  // can rebuild the overlay with its picks intact after the SSE churn
+  // replaces the hand pane mid-selection. A hand can hold duplicate ids;
+  // mullAssign maps the picks onto distinct card elements first-match-wise,
+  // which is also how the engine claims them server-side.
+  var mullPicks = []; // picked card ids, in pick order
+  var mullOpen = false;
 
   function mullEl() {
     var pane = document.querySelector('[data-lc-pane="hand"]');
     return pane ? pane.querySelector("[data-lc-mull]") : null;
   }
 
+  // One element per pick, in pick order — each pick claims the first
+  // not-yet-claimed card with its id; a pick whose card left the hand
+  // resolves to null (mullSync prunes those).
+  function mullAssign(overlay) {
+    var used = [];
+    return mullPicks.map(function (id) {
+      var match = null;
+      overlay
+        .querySelectorAll('.lc-mull-card[data-card-id="' + id + '"]')
+        .forEach(function (card) {
+          if (!match && used.indexOf(card) === -1) match = card;
+        });
+      if (match) used.push(match);
+      return match;
+    });
+  }
+
   function mullSync(overlay) {
+    var els = mullAssign(overlay);
+    // prune picks whose card is gone (the hand changed under the overlay)
+    if (els.indexOf(null) > -1) {
+      mullPicks = mullPicks.filter(function (_, i) { return els[i] !== null; });
+      els = els.filter(function (el) { return el !== null; });
+    }
     overlay.querySelectorAll(".lc-mull-card").forEach(function (card) {
-      var i = mullPicks.indexOf(card);
+      var i = els.indexOf(card);
       card.classList.toggle("is-picked", i > -1);
       var badge = card.querySelector(".lc-mull-badge");
       if (badge) {
@@ -547,9 +636,18 @@
   }
 
   function openMulligan() {
+    // Review fix: the overlay lives inside the HAND pane, and a hidden
+    // pane is display: none — opening from the TABLE/LOG tab must switch
+    // to HAND first or nothing renders. restingMode is overlay-aware, so
+    // the tab switch's own rAF keeps the badge on MULLIGAN.
+    var handTab = document.querySelector('[data-lc-tab="hand"]');
+    if (handTab && handTab.getAttribute("aria-selected") !== "true") {
+      handTab.click();
+    }
     var overlay = mullEl();
     if (!overlay) return;
     mullPicks = [];
+    mullOpen = true;
     mullSync(overlay);
     overlay.hidden = false;
     setMode("mulligan");
@@ -559,6 +657,7 @@
     var overlay = mullEl();
     if (overlay) overlay.hidden = true;
     mullPicks = [];
+    mullOpen = false;
     restingMode();
   }
 
@@ -570,7 +669,14 @@
   // the hit shake / heal flash — the phone-chip analogue of fireHits'
   // plaque path. Called from lcTableSync, so every table repaint diffs
   // exactly once; the class rides off on animationend like fireHits'.
+  // Review fix: only FLASH at Reveal/Resolve, where damage and heals
+  // actually land — a rematch's 3 → 15 reset at the fresh lobby repaints
+  // silently instead of celebrating a heal that never happened. The map
+  // still records every repaint, so the baseline stays fresh.
   function flashChips() {
+    var banner = document.getElementById("lc-banner");
+    var beat = banner ? banner.dataset.beat : null;
+    var live = beat === "reveal" || beat === "resolve";
     var next = {};
     document
       .querySelectorAll('.lc-minitable-chip[data-seat]')
@@ -579,7 +685,7 @@
         var hp = Number(chip.dataset.hp);
         next[seat] = hp;
         var was = prevChipHp[seat];
-        if (was === undefined || hp === was) return;
+        if (!live || was === undefined || hp === was) return;
         var cls = hp < was ? "is-hit" : "is-good";
         chip.classList.add(cls);
         chip.addEventListener("animationend", function onEnd(e) {
@@ -606,9 +712,20 @@
     return sel ? sel.dataset.lcTab : "hand";
   }
 
-  // The badge's at-rest state follows the active tab.
+  // The badge's at-rest state follows the active tab — except when an
+  // overlay owns the moment (review fix: a tab switch or repaint must not
+  // knock an open mulligan back to READ, and a staged card keeps TABLE on
+  // TARGET).
   function restingMode() {
+    if (mullOpen) {
+      setMode("mulligan");
+      return;
+    }
     var t = activeTab();
+    if (t === "table" && trayState.staged) {
+      setMode("target");
+      return;
+    }
     setMode(t === "hand" ? "read" : t === "table" ? "play" : "log");
   }
 
