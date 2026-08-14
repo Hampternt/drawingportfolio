@@ -258,6 +258,8 @@ async fn test_lastcall_css_has_every_component_root() {
         ".lc-mull",
         ".lc-mix",
         ".lc-minitable-plays",
+        // Challenge-cards container, Pack 1: the bare vote section.
+        ".lc-chal",
     ] {
         assert!(css.contains(needle), "missing {needle}");
     }
@@ -8439,4 +8441,196 @@ async fn test_play_mode_bar_renders_on_room_and_lc_shell() {
     let html = body_string(res).await;
     assert!(html.contains(r#"class="test-bar""#));
     assert!(html.contains("test/act-as"));
+}
+
+// -------------------------------------------------------------
+// Challenge-cards container, Pack 1 (2026-08-14): the challenge-vote
+// route, the parked round's surfaces, and the test-mode card grant.
+// -------------------------------------------------------------
+
+/// Alice plays Bar Court (`liquor-09`); the round resolves and parks at the
+/// challenge phase — contestants alice (seat 0) and cara (seat 2), sole
+/// eligible voter bob. Same hand-built-state shape as `lc_reveal_rig`.
+#[allow(clippy::type_complexity)]
+async fn lc_parked_rig() -> (
+    Router,
+    sqlx::SqlitePool,
+    String, // code
+    String, // alice cookie
+    String, // bob cookie
+    String, // cara cookie
+) {
+    let (app, pool) = test_app_with_pool().await;
+    let alice = login(&app, "alice", "1234").await;
+    let bob = login(&app, "bob", "5678").await;
+    let cara = login(&app, "cara", "9999").await;
+    let code = create_room(&app, &alice).await;
+    room_page_html(&app, &bob, &code).await;
+    room_page_html(&app, &cara, &code).await;
+    post_form(&app, &alice, &format!("/room/{code}/lastcall/start"), "").await;
+
+    let alice_id = drinkinggame::db::get_player_by_name(&pool, "alice")
+        .await
+        .unwrap()
+        .id;
+    let bob_id = drinkinggame::db::get_player_by_name(&pool, "bob")
+        .await
+        .unwrap()
+        .id;
+    let cara_id = drinkinggame::db::get_player_by_name(&pool, "cara")
+        .await
+        .unwrap()
+        .id;
+
+    let mut st = LastCallState::new(
+        vec![
+            (alice_id, "alice".into()),
+            (bob_id, "bob".into()),
+            (cara_id, "cara".into()),
+        ],
+        7,
+    );
+    st.set_vessel(alice_id, Deck::Liquor, "glass").unwrap();
+    st.set_vessel(bob_id, Deck::Cider, "bottle").unwrap();
+    st.set_vessel(cara_id, Deck::Soft, "glass").unwrap();
+    st.players[0]
+        .hand
+        .push(drinkinggame::lc_cards::card_by_id("liquor-09").unwrap());
+    st.beat = Beat::Lock;
+    st.arm(alice_id, "liquor-09").unwrap();
+    st.lock_in(alice_id).unwrap();
+    st.lock_in(bob_id).unwrap();
+    st.lock_in(cara_id).unwrap();
+    st.advance_beat().unwrap(); // Lock -> Reveal
+    st.advance_beat().unwrap(); // Reveal -> Resolve
+    st.resolve().unwrap();
+    assert!(st.challenge_pending(), "rig must park");
+
+    let game_id = lc_game_id(&pool, &code).await;
+    drinkinggame::db::set_game_state(&pool, game_id, &st.to_json()).await;
+
+    (app, pool, code, alice, bob, cara)
+}
+
+/// The parked round's surfaces: the banner strip carries the public
+/// contestants + tally, the eligible voter's private hand fragment carries
+/// the two vote buttons, a contestant's carries the status copy instead —
+/// and no surface leaks anything that was private before the park.
+#[tokio::test]
+async fn test_lc_parked_round_renders_vote_surfaces() {
+    let (app, _pool, code, alice, bob, _cara) = lc_parked_rig().await;
+
+    let bob_hand = body_string(get_hand(&app, &bob, &code).await).await;
+    assert!(bob_hand.contains("data-lc-chal"), "{bob_hand}");
+    assert!(bob_hand.contains(r#"data-lc-post="challenge-vote""#));
+    assert!(bob_hand.contains("for_instigator=true"));
+    assert!(bob_hand.contains("for_instigator=false"));
+    assert!(bob_hand.contains("ALICE VS CARA"));
+
+    let alice_hand = body_string(get_hand(&app, &alice, &code).await).await;
+    assert!(alice_hand.contains("THE TABLE IS DECIDING"));
+    assert!(!alice_hand.contains(r#"data-lc-post="challenge-vote""#));
+
+    // The public banner (both the room page and the spectator screen render
+    // it) carries the strip and the live tally.
+    let shell = body_string(get_shell(&app, &bob, &code).await).await;
+    assert!(shell.contains("CHALLENGE — ALICE VS CARA"), "{shell}");
+    assert!(shell.contains("VOTES 0/1"));
+}
+
+#[tokio::test]
+async fn test_lc_challenge_vote_settles_applies_penalty_and_rolls_over() {
+    let (app, pool, code, alice, bob, _cara) = lc_parked_rig().await;
+
+    // A contestant's vote is refused before the electorate's counts.
+    let res = post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/lastcall/challenge-vote"),
+        "for_instigator=true",
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::CONFLICT);
+
+    let hp_before = lc_state(&pool, &code).await.players[2].hp;
+    // Bob is the whole electorate: his vote is the verdict. Cara loses
+    // Bar Court's 4 and the parked round finally rolls over.
+    let res = post_form(
+        &app,
+        &bob,
+        &format!("/room/{code}/lastcall/challenge-vote"),
+        "for_instigator=true",
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+    let st = lc_state(&pool, &code).await;
+    assert!(!st.challenge_pending());
+    assert_eq!(st.players[2].hp, hp_before - 4);
+    assert_eq!(st.round, 2);
+    assert_eq!(st.beat, Beat::Draw);
+
+    // Nothing left to vote on: a second vote is out of turn.
+    let res = post_form(
+        &app,
+        &bob,
+        &format!("/room/{code}/lastcall/challenge-vote"),
+        "for_instigator=false",
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::CONFLICT);
+}
+
+#[tokio::test]
+async fn test_lc_challenge_vote_is_guarded_against_non_members() {
+    let (app, _pool, code, _alice, _bob, _cara) = lc_parked_rig().await;
+    let carol = login(&app, "carol", "2222").await; // never joins the room
+    let res = post_form(
+        &app,
+        &carol,
+        &format!("/room/{code}/lastcall/challenge-vote"),
+        "for_instigator=true",
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn test_lc_test_grant_is_gated_and_grants_in_test_mode() {
+    // Flag off: indistinguishable from the route not existing.
+    let (app, _pool, code, alice, _bob, _cara) = lc_parked_rig().await;
+    let res = post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/lastcall/test/grant"),
+        "card_id=liquor-09",
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::NOT_FOUND);
+
+    // Flag on: the caller's own hand gains the prototype.
+    let (app, _pool) = test_app_test_mode().await;
+    let alice = login(&app, "alice", "1234").await;
+    let bob = login(&app, "bob", "5678").await;
+    let code = create_room(&app, &alice).await;
+    room_page_html(&app, &bob, &code).await;
+    post_form(&app, &alice, &format!("/room/{code}/lastcall/start"), "").await;
+    let res = post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/lastcall/test/grant"),
+        "card_id=liquor-09",
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+    let hand = body_string(get_hand(&app, &alice, &code).await).await;
+    assert!(hand.contains("liquor-09"), "{hand}");
+    // Unknown ids stay unprocessable, catalog stays the authority.
+    let res = post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/lastcall/test/grant"),
+        "card_id=nope",
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::UNPROCESSABLE_ENTITY);
 }

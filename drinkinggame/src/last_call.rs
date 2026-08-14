@@ -771,6 +771,11 @@ pub struct PublicView {
     /// `LastCallState::log`. Already capped at `LC_LOG_CAP` at the source
     /// (`push_log`) — this projection does no further trimming.
     pub log: Vec<LogEntry>,
+    /// Challenge-cards container: projected verbatim from
+    /// `LastCallState::challenges` — contestants, tallies and votes are the
+    /// spectacle, public the instant they exist (the `reactions`/`haunts`
+    /// rule). The front entry is the active challenge.
+    pub challenges: Vec<ChallengeState>,
 }
 
 /// DDv2 9.3 — the two solo ways a game ends — plus the pact win (G2, Task 2).
@@ -1474,6 +1479,7 @@ impl LastCallState {
             // site is a public-or-later transition) — no gate, no filter,
             // the same verbatim clone as `reactions`/`haunts`.
             log: self.log.clone(),
+            challenges: self.challenges.clone(),
         }
     }
 

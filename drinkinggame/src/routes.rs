@@ -1085,6 +1085,14 @@ pub fn router() -> Router<GameState> {
             post(crate::lc_routes::lc_react_handler),
         )
         .route(
+            "/room/{code}/lastcall/challenge-vote",
+            post(crate::lc_routes::lc_chvote_handler),
+        )
+        .route(
+            "/room/{code}/lastcall/test/grant",
+            post(crate::lc_routes::lc_test_grant_handler),
+        )
+        .route(
             "/room/{code}/lastcall/haunt",
             post(crate::lc_routes::lc_haunt_handler),
         )
