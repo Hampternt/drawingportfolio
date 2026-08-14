@@ -1,6 +1,6 @@
 # LC challenge cards — Pack 1: challenge engine + bare loop
 
-**Status:** ACTIVE 2026-08-14
+**Status:** ITEMS COMPLETE 2026-08-14 — gates green, pack review pending
 **Container:** `2026-08-14-lc-challenge-cards.md`
 **Branch:** `feat/lc-challenge-cards`
 
@@ -88,3 +88,30 @@ vote is in, penalty applies, round rolls over. Minimal styling.
 ## Ledger
 
 - 2026-08-14 — manifest written after engine survey; items 1–6 scoped.
+- 2026-08-14 — items 1–5 done, one commit each (`7911872` catalog,
+  `d03e9a3` blob state, `9b89104` resolve integration, `4614e00` vote
+  engine, `68ee225` route + bare UI, `a001362` gate housekeeping).
+  Deviations from scope: THREE prototypes shipped, not one — `soft-09`
+  (Solo/Drink) and `beer-09` (Duel/Rule) added so both contest shapes and
+  all four penalty kinds are engine-tested; personal-rule expiry pruning
+  landed with the rollover extraction (item 3) rather than item 4.
+- 2026-08-14 — **pack gate**: `./scripts/verify.sh` → "VERIFY OK — fmt,
+  clippy, tests, JS syntax all clean." Workspace total 783 tests
+  (was 765): +13 engine unit tests, +4 http tests, +1 catalog test.
+  Clippy back to the documented 21 distinct warnings (cleared one
+  `from_ref` warning inherited from a1aff65, pre-container).
+- 2026-08-14 — **item 6 browser walkthrough** (test-mode room FRZU,
+  three seats driven from one browser): granted `liquor-09` via
+  `test/grant`; card rendered in the hand wheel with CHALLENGE chip;
+  tray tap → target overlay showed only the EVERYONE row for the
+  `"right"` class → armed → LOCK IN; all locked → Reveal; all READY →
+  Resolve parked. Banner strip read "CHALLENGE — TEST-3 VS TEST-2 ·
+  Bar Court · VOTES 0/1"; contestant hand showed "THE TABLE IS
+  DECIDING", voter hand showed the two verdict buttons; tapping
+  "TEST-3 WINS" settled: log "TEST-3 CHALLENGES TEST-2 — Bar Court" →
+  "TEST-2 LOSES Bar Court" → "— ROUND 2 —", TEST-2 HP 15→11, beat DRAW.
+  Right-neighbour derivation confirmed (seat 0 → seat 2 at a 3-table).
+- Polish debt handed to Pack 2: the arm flash caption reads
+  "YOU → EVERYONE" for a `"right"` card (JS target-class fall-through —
+  functional, mislabeled); the ARMED chip likewise shows "ALL"; personal
+  rules have no visible badge yet (verdict log + card text only).
