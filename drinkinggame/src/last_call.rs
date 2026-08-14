@@ -173,6 +173,10 @@ pub enum CardKind {
     Curse,
     Util,
     Reaction,
+    /// A real-life contest resolved by table vote, not by numeric fx —
+    /// rules live catalog-side in `lc_cards::card_chfx` (challenge-cards
+    /// container, 2026-08-14).
+    Challenge,
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
