@@ -131,28 +131,49 @@ pub async fn run_migrations(pool: &DbPool) {
         .execute(pool)
         .await;
 
-    // Migration 018: rebuild weights and targets around a user.
+    // Migrations 018-020 rebuild tables rather than adding to them, so each is
+    // guarded rather than `let _ =`.
     //
-    // Guarded, not `let _ =`. A rebuild is create/copy/drop/rename, and a
-    // second pass over an already-migrated table does not *error* — it copies
-    // every user's rows back out as user 1 and drops the original. The
-    // duplicate-column tolerance the ALTER migrations lean on is no protection
-    // here, because there is no duplicate column to trip over. The column check
-    // is what makes this run exactly once.
+    // A rebuild is create/copy/drop/rename. A second pass over an
+    // already-migrated table does not *error* — it copies every user's rows
+    // back out as user 1 and drops the original. The duplicate-column
+    // tolerance the ALTER migrations lean on is no protection, because there
+    // is no duplicate column to trip over. The column check is what makes each
+    // file run exactly once.
+    //
+    // **One guard per table, deliberately.** DDL statements auto-commit
+    // individually — there is no enclosing transaction — so a single file that
+    // renamed `weights` and then failed before renaming `targets` would leave
+    // the next boot skipping the whole file over a half-migrated schema, with
+    // the guard cheerfully reporting "already done" and the targets queries
+    // failing at runtime against a baked `.sqlx` cache. Each guard therefore
+    // checks exactly the table its own file rebuilds.
     if !column_exists(pool, "weights", "user_id").await {
-        sqlx::query(include_str!(
-            "../migrations/018_weights_targets_rebuild.sql"
-        ))
-        .execute(pool)
-        .await
-        .expect("failed to rebuild weights/targets for multi-user");
+        sqlx::query(include_str!("../migrations/018_weights_rebuild.sql"))
+            .execute(pool)
+            .await
+            .expect("failed to rebuild weights for multi-user");
     }
 
-    // Migration 019: per-user food preferences. Same reasoning — the three
+    // The old targets table keys on `id`, the new one on `user_id`, so this is
+    // an exact discriminator between the two schemas.
+    if !column_exists(pool, "targets", "user_id").await {
+        sqlx::query(include_str!("../migrations/019_targets_rebuild.sql"))
+            .execute(pool)
+            .await
+            .expect("failed to rebuild targets for multi-user");
+    }
+
+    // Migration 020: per-user food preferences. Same reasoning — the three
     // DROP COLUMNs are not re-runnable, and the copy would re-attribute
     // everyone's preferences to the owner.
+    //
+    // `DROP COLUMN` requires SQLite 3.35+ (2021); sqlx bundles a far newer one,
+    // so this is not a practical worry. Worth naming anyway: it runs under
+    // `.expect()` on the startup path, so an older SQLite would be a boot
+    // panic rather than a degraded page.
     if column_exists(pool, "food_items", "is_favourite").await {
-        sqlx::query(include_str!("../migrations/019_user_food_prefs.sql"))
+        sqlx::query(include_str!("../migrations/020_user_food_prefs.sql"))
             .execute(pool)
             .await
             .expect("failed to split user food preferences");
@@ -2191,9 +2212,22 @@ mod tests {
             .await
             .is_empty());
 
-        // Deleting someone else's does nothing, and leaves it intact.
+        // Deleting someone else's does nothing, and leaves it *wholly* intact.
+        //
+        // The item_count assertion is the load-bearing one and is here on
+        // purpose: `delete_recipe` deletes the child rows first, gated on the
+        // parent's ownership by an `EXISTS`. Drop that `EXISTS` and the recipe
+        // row survives — so `get_recipes_with_totals(..).len() == 1` still
+        // passes — while its items are silently gone. Checking only the count
+        // would let the subtlest SQL in the pack fail unnoticed.
         assert!(!delete_recipe(&pool, rid, alex).await);
-        assert_eq!(get_recipes_with_totals(&pool, OWNER).await.len(), 1);
+        let survivors = get_recipes_with_totals(&pool, OWNER).await;
+        assert_eq!(survivors.len(), 1);
+        assert_eq!(
+            survivors[0].item_count, 1,
+            "another user's delete stripped the recipe's items"
+        );
+        assert!(survivors[0].total_cal > 0.0);
 
         // The owner's own calls work.
         assert_eq!(

@@ -149,9 +149,10 @@ food catalog.
 
 - [x] **2.1** Migration 017 — `user_id` on `meal_entries` and `recipes`, plus
       two indexes.
-- [x] **2.2** Migration 018 — `weights` re-keyed to `(user_id, date)`,
-      `targets` to `user_id`, both behind a `column_exists` guard.
-- [x] **2.3** Migration 019 — `user_food_prefs`; the three per-user columns
+- [x] **2.2** Migrations 018 and 019 — `weights` re-keyed to
+      `(user_id, date)`, `targets` to `user_id`, **one file and one
+      `column_exists` guard each**.
+- [x] **2.3** Migration 020 — `user_food_prefs`; the three per-user columns
       dropped from `food_items`.
 - [x] **2.4** `UserId` newtype required on all 29 nutrition db functions.
 - [x] **2.5** Ownership in the `WHERE` clause of every id-addressed read and
@@ -160,8 +161,36 @@ food catalog.
       the owner explicitly.
 - [x] **2.7** Isolation tests, `.sqlx/` regen, gate.
 
-**Pack gate:** `VERIFY OK`. Workspace tests **801 → 809**. `SQLX_OFFLINE=true
-cargo check` passes.
+**Pack gate:** `VERIFY OK`. Workspace tests **801 → 809**. Clippy **19**
+distinct diagnostics, re-measured after a full `cargo clean` (down one more
+from pack 1's 20 — `FoodItem`'s per-user fields are now read through the
+join). `SQLX_OFFLINE=true cargo check` passes.
+
+<details>
+<summary><b>The rebuild guard, and why it is one guard per table</b></summary>
+
+018 and 019 were originally a single file rebuilding both `weights` and
+`targets` behind one `column_exists(weights, user_id)` check. That is subtly
+wrong, and it would only ever have bitten in production:
+
+DDL statements auto-commit individually — there is no enclosing transaction
+around a `sqlx::query(include_str!(..))` batch. So a run that renamed
+`weights` and then failed before renaming `targets` would leave the next boot
+seeing `weights.user_id` present, skipping the whole file, and running against
+a `targets` table still on its old `id` primary key — with the guard
+cheerfully reporting "already done" and every targets query failing at runtime
+against a baked `.sqlx` cache.
+
+Split into one file and one guard each, checking exactly the table it
+rebuilds. `targets` is an exact discriminator: the old schema keys on `id`,
+the new one on `user_id`.
+
+Also worth naming for the deploy: 020's `ALTER TABLE ... DROP COLUMN` needs
+SQLite 3.35+ (2021) and runs under `.expect()` on the startup path, so an
+older SQLite would be a boot panic rather than a degraded page. sqlx bundles a
+far newer one, so this is a note, not a risk.
+
+</details>
 
 <details>
 <summary><b>Verification evidence</b></summary>
@@ -205,11 +234,22 @@ The 200s are deliberate: these are HTMX fragment endpoints and the response is
 Alex's *own* unchanged day, so a probe learns nothing and the UI does not go
 stale on a double click. Nothing was mutated.
 
-**Mutation-checked**, as in pack 1: dropping `AND user_id = ?` from
-`update_meal_entry` and `delete_meal_entry` makes
-`test_entry_addressed_by_id_is_not_reachable_by_another_user` fail (230
-passed, 1 failed) — then restored, green again. Both functions would otherwise
-compile, typecheck and pass every single-user test with the filter missing.
+**Mutation-checked**, as in pack 1 — four separate mutations, each restored
+after:
+
+| removed | test that caught it |
+|---|---|
+| `AND user_id = ?` from `update_meal_entry` + `delete_meal_entry` | `test_entry_addressed_by_id_is_not_reachable_by_another_user` |
+| the `EXISTS` ownership gate from `delete_recipe` | `test_recipes_are_private_to_their_owner` — *"another user's delete stripped the recipe's items"* |
+| the ownership `JOIN` from `log_recipe` | `test_recipes_are_private_to_their_owner` — *"another user's recipe must not be loggable"* |
+
+The recipe test originally asserted only that the recipe still *existed* after
+another user's delete attempt. That passes even with the `EXISTS` gone —
+`delete_recipe` removes the child rows first, so a broken guard leaves the
+recipe row standing with its items silently stripped. The `item_count`
+assertion was added for exactly that, and is the assertion mutation 2 trips.
+All four functions would otherwise compile, typecheck and pass every
+single-user test with their ownership filter missing.
 
 </details>
 
