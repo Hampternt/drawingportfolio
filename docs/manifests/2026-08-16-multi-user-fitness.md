@@ -422,6 +422,56 @@ without the database; the owner stops being called "admin".
       `session.is_effective_admin()`.
 - [x] `INVENTORY.md`'s 🚧 placeholder converted to a real entry.
 
+## Container closed — 2026-08-16
+
+**Final gate:** `VERIFY OK`. Workspace tests **792 → 830** (+38). Clippy **19**
+distinct, measured after `cargo clean` — *below* the 21 this container
+started from, because `Session`, `FoodItem` and the user models gained read
+fields along the way.
+
+<details>
+<summary><b>End-to-end, from an empty database</b></summary>
+
+`portfolio.db` deleted, app booted: all 21 migrations ran through
+`run_migrations` (no `_sqlx_migrations` table — that is the CLI's, so this was
+the real deploy path), **zero panics**, owner seeded as `admin`, `weights`
+keyed on `(user_id, date)`, `user_food_prefs` present.
+
+Then, in order: the owner renamed themselves off "admin" to Hampter → created
+an account for Sam → Sam logged in from a clean cookie jar with name and PIN →
+Sam logged 100 g of Porridge and favourited it.
+
+| | Sam | Hampter (owner) |
+|---|---|---|
+| chip | Sam | Hampter |
+| 2026-08-16 | **380 of 2400 cal · 16%** | **0 of 2400 cal · 0%** |
+| entry | Porridge | — |
+| favourite | `fav-btn is-fav` | — |
+| sees "Porridge" in the catalog | yes | **yes** |
+
+The last row is the point of the whole design: the food is common property,
+everything either person thinks or logs about it is not.
+
+</details>
+
+<details>
+<summary><b>What is deliberately still true</b></summary>
+
+- **No public sign-up.** Accounts exist because the owner made one. Opening it
+  up later is a small change; the reason not to is that a public write
+  endpoint on a personal server buys nothing here.
+- **Any signed-in user can delete a food from the shared catalog.** Carried
+  over from single-user, and the one place members can affect each other.
+  Restricting it needs a rule about who owns a catalog entry, which nothing so
+  far has needed.
+- **Post ids remain sequential** (the visibility model's own accepted
+  trade-off, unchanged) and **`/admin` still shows no visibility badge**,
+  because it renders through the legacy `admin_post_card_html` format string.
+- **The owner's seeded name is `admin`** on a fresh database until they rename
+  themselves — which is now a one-click operation rather than a database edit.
+
+</details>
+
 ## Ledger
 
 ### Pack 1 — landed 2026-08-16
