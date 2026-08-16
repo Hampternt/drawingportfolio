@@ -1767,6 +1767,49 @@ mod tests {
         assert!(body_of(resp).await.contains("kept back"));
     }
 
+    /// The other two `OptionalAdmin` handlers — the JSON API and the permalink.
+    ///
+    /// All four feed handlers derive their viewer from the same extractor, so
+    /// the page and fragment tests make this very likely correct already. It is
+    /// asserted rather than assumed because these two carry contracts of their
+    /// own — the API excludes unlisted entirely, and the permalink serves
+    /// unlisted while 404-ing hidden — and a silent visibility leak is not the
+    /// kind of thing to infer from a sibling passing.
+    #[tokio::test]
+    async fn test_member_session_gets_the_visitor_api_and_permalink() {
+        let (app, pool) = app_with_pool().await;
+        let hidden = seed_id(&pool, "kept back", crate::models::Visibility::Hidden).await;
+        let unlisted = seed_id(&pool, "by link only", crate::models::Visibility::Unlisted).await;
+        seed(&pool, "on show", crate::models::Visibility::Public).await;
+        let cookie = member_cookie(&pool).await;
+
+        // JSON API: public only — unlisted is out of the API as well as the feed.
+        let api = body_of(get(&app, "/artportfolio/api/posts", Some(&cookie)).await).await;
+        assert!(api.contains("on show"));
+        assert!(
+            !api.contains("kept back"),
+            "the JSON API must not leak hidden posts to a member"
+        );
+        assert!(
+            !api.contains("by link only"),
+            "the JSON API must not leak unlisted posts to a member"
+        );
+
+        // Permalink: hidden 404s for a member exactly as for a visitor…
+        let resp = get(&app, &format!("/artportfolio/{hidden}"), Some(&cookie)).await;
+        assert_eq!(
+            resp.status(),
+            StatusCode::NOT_FOUND,
+            "a member must get the visitor's 404 on a hidden permalink"
+        );
+        assert!(!body_of(resp).await.contains("kept back"));
+
+        // …while unlisted stays reachable by its link, which is the point of it.
+        let resp = get(&app, &format!("/artportfolio/{unlisted}"), Some(&cookie)).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert!(body_of(resp).await.contains("by link only"));
+    }
+
     /// A hidden post and a missing id must be indistinguishable from outside —
     /// same status *and* same bytes. Anything that differed would confirm the
     /// row exists.

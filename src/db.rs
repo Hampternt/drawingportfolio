@@ -1708,6 +1708,31 @@ mod tests {
         assert!(get_session(&pool, "expired-id").await.is_none());
     }
 
+    /// `run_migrations` runs on every boot, and 015 is one of the few that
+    /// `.expect()`s rather than shrugging its error off. Every other test calls
+    /// it once, so nothing else exercises the second-boot path — and if
+    /// `INSERT OR IGNORE` or the partial index ever misbehaved on re-run, the
+    /// symptom would be the site failing to start after a deploy restart.
+    #[tokio::test]
+    async fn test_migrations_are_idempotent_across_boots() {
+        let pool = test_pool().await; // first boot
+        run_migrations(&pool).await; // second
+        run_migrations(&pool).await; // third, for good measure
+
+        let owners: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users WHERE is_owner = 1")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(
+            owners, 1,
+            "re-running migrations must not duplicate the owner"
+        );
+
+        // And the identity columns still work — not clobbered by a re-ALTER.
+        create_session(&pool, "post-reboot", "2099-01-01T00:00:00", 1).await;
+        assert!(get_session(&pool, "post-reboot").await.is_some());
+    }
+
     /// Migration 015 seeds exactly one owner, and the partial unique index is
     /// what stops a second one existing. Without this the "owner cannot be
     /// demoted" rule would rest on nothing but the management page's UI.

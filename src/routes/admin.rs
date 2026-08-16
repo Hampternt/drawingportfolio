@@ -302,9 +302,11 @@ async fn delete_post(
 
 /// Changes one post's visibility and returns the re-rendered card.
 ///
-/// `AuthSession` is the only gate — the admin router carries no middleware
+/// `RequireAdmin` is the only gate — the admin router carries no middleware
 /// layer, so the extractor on this handler is what stands between a visitor and
-/// unhiding anything.
+/// unhiding anything. It must be `RequireAdmin`, never `AuthSession`: since
+/// multi-user, holding a session only means you are *somebody*, and a
+/// fitness-only member holds one.
 ///
 /// Returning the card rather than a status is what keeps the badge and the
 /// dimming in step with the database without a reload: the button swaps it
@@ -968,9 +970,13 @@ mod tests {
         req.body(Body::empty()).unwrap()
     }
 
-    /// Every new mutation/fragment route is gated by `AuthSession` alone — the
-    /// admin router carries no middleware layer, so this loop is what proves
-    /// none of the seven slipped through ungated.
+    /// Every new mutation/fragment route is gated by its `RequireAdmin`
+    /// extractor alone — the admin router carries no middleware layer, so this
+    /// loop is what proves none of the seven slipped through ungated.
+    ///
+    /// This covers the logged-*out* case only. `AuthSession` would also pass
+    /// this test, and would let every fitness member straight through — see
+    /// `test_member_session_is_refused_every_admin_route` for that half.
     #[tokio::test]
     async fn test_collections_routes_require_session() {
         let (app, pool) = app_with_pool().await;
