@@ -1,6 +1,6 @@
 # Container — Multi-user fitness tracker
 
-**Status:** 🟢 pack 1 complete, gate green — pack 2 not started
+**Status:** 🟢 packs 1–2 complete, gate green — pack 3 not started
 **Stream:** `feat/multi-user-fitness`, worktree
 `~/projects/drawingportfolio.worktrees/multi-user-fitness`, based on `dev`
 **Opened:** 2026-08-16
@@ -125,7 +125,7 @@ auth/session territory — flagged for individual review per the workflow.
 
 </details>
 
-### Pack 2 — Nutrition data scoping 🟡 in progress
+### Pack 2 — Nutrition data scoping 🟢 complete
 
 A `UserId` newtype becomes a required parameter on all 29 nutrition db
 functions, so a missed call site is a compile error rather than another
@@ -144,6 +144,115 @@ food catalog.
 | 2.5 | **Risky — reviewed individually.** Ownership in the `WHERE` clause of every id-addressed read and mutation | `update_meal_entry`, `get_meal_entry`, `delete_meal_entry`, `delete_recipe`, `log_recipe` all take a bare id today. Accepting a `UserId` and not filtering on it is the failure mode: someone else's entry stays editable by guessing a sequential id. Asserted by a test that tries exactly that |
 | 2.6 | Handlers thread `session.user_id` through (~30 sites) | `AuthSession` is bound rather than discarded; no handler invents a user id |
 | 2.7 | Isolation tests, `.sqlx/` regen, pack gate | Two users, same day, zero bleed across entries, weights, targets, recipes and prefs |
+
+### Pack 2 ledger — landed 2026-08-16
+
+- [x] **2.1** Migration 017 — `user_id` on `meal_entries` and `recipes`, plus
+      two indexes.
+- [x] **2.2** Migration 018 — `weights` re-keyed to `(user_id, date)`,
+      `targets` to `user_id`, both behind a `column_exists` guard.
+- [x] **2.3** Migration 019 — `user_food_prefs`; the three per-user columns
+      dropped from `food_items`.
+- [x] **2.4** `UserId` newtype required on all 29 nutrition db functions.
+- [x] **2.5** Ownership in the `WHERE` clause of every id-addressed read and
+      mutation.
+- [x] **2.6** 80 handler call sites thread `session.user()`; `week_for` takes
+      the owner explicitly.
+- [x] **2.7** Isolation tests, `.sqlx/` regen, gate.
+
+**Pack gate:** `VERIFY OK`. Workspace tests **801 → 809**. `SQLX_OFFLINE=true
+cargo check` passes.
+
+<details>
+<summary><b>Verification evidence</b></summary>
+
+**The upgrade path was exercised against a populated database**, not just a
+fresh one: the dev DB was seeded with a food, a favourite, custom portions, a
+weight, a non-default target and a meal entry *before* 017–019 ran. All of it
+survived and was attributed to the owner; `food_items` lost its three personal
+columns; `weights` and `targets` came back re-keyed; and two users could then
+write the same date without collision.
+
+**Live two-account walkthrough.** Owner (`Hampter`) and member (`Alex`) on the
+same date, `2026-08-15`:
+
+| | owner | member |
+|---|---|---|
+| calorie ring | 304 of 2500 · 12% | 0 of 2400 · 0% |
+| protein rail | 10 / 165 g | 0 / 165 g |
+| breakfast slot | Oats, 80.0g, 304.0 | empty |
+| streak | 1 | 0 |
+| weight | logged | no weight |
+| Oats favourite | `fav-btn is-fav` | `fav-btn` |
+| food library | 4 cards | 4 cards |
+
+The last two rows are the pack's actual claim: the **catalog is shared** (both
+see four foods) while the **opinion about it is not** (only the owner's card
+carries `is-fav`). The member's 2400 is the default fallback — pack 2 seeds no
+targets row per user.
+
+**IDOR, end to end against the running server.** Alex, signed in, aims at the
+owner's entry id 1:
+
+- `GET /fitness/htmx/entries/1/edit` → **404**, the same answer an unknown id
+  gets.
+- `PUT /api/nutrition/entries/1` with `grams=9999` → 200, and the owner's
+  entry is still `80.0g / 304.0`.
+- `DELETE /api/nutrition/entries/1` → 200, and the owner's day still has its
+  entry.
+
+The 200s are deliberate: these are HTMX fragment endpoints and the response is
+Alex's *own* unchanged day, so a probe learns nothing and the UI does not go
+stale on a double click. Nothing was mutated.
+
+**Mutation-checked**, as in pack 1: dropping `AND user_id = ?` from
+`update_meal_entry` and `delete_meal_entry` makes
+`test_entry_addressed_by_id_is_not_reachable_by_another_user` fail (230
+passed, 1 failed) — then restored, green again. Both functions would otherwise
+compile, typecheck and pass every single-user test with the filter missing.
+
+</details>
+
+<details>
+<summary><b>Fixed in passing: an empty day rendered "-0"</b></summary>
+
+The member's first screen read `-0 of 2400 cal · -0%` and `-0 / 165 g`, with
+the macro bars at `width:-0%`.
+
+`f64`'s `Sum` identity is **negative** zero — `-0.0 + x == x` holds for every
+`x` including `-0.0` itself, which `0.0` does not satisfy — so summing an
+empty day yields `-0.0`, and `{:.0}` formats that as `-0`. `rail_pct`'s
+`clamp(0.0, 100.0)` is powerless here: `-0.0 >= 0.0` is true, so the clamp
+passes it straight through.
+
+The bug predates multi-user — the owner sees it on any empty date — but pack 2
+is what makes it matter, since an empty day went from "a date you scrolled
+back to" to "the first screen every new member sees". Fixed by summing into
+`+ 0.0`, covered by `test_empty_day_renders_zero_not_negative_zero`, and
+confirmed live.
+
+</details>
+
+<details>
+<summary><b>Deviations and debt</b></summary>
+
+- **`delete_food_item` takes no `UserId`.** There is one shared catalog, so
+  there is one delete, and no per-user variant to get wrong. It now also
+  clears the orphaned `user_food_prefs` rows, which do not cascade (the pool
+  runs with `foreign_keys` off) and would otherwise re-attach to whatever id
+  `AUTOINCREMENT` issued next. That *any* signed-in user can delete a shared
+  food is carried over from single-user and is the one place members can
+  affect each other; restricting it is a pack 4 question.
+- **Nutrition facts are shared, opinions are not.** `update_food_item` writes
+  name/macros/category to the catalog row and favourite/portions to the
+  editor's own prefs row. One person correcting a calorie count fixes it for
+  everyone, which is the intent of a shared catalog.
+- **The `is_admin` misnomer in `nutrition.rs` survives** — still hardcoded
+  `true` by both page handlers, still meaning "logged in". Renaming is pack 4.
+- **The owner is still named `admin`** unless renamed by hand; the local dev
+  DB has them as `Hampter` plus a member `Alex`.
+
+</details>
 
 ### Pack 3 — Accounts: name + PIN login, and the management page ⚪ not started
 

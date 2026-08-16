@@ -319,10 +319,19 @@ pub fn day_section_html(
     targets: &crate::models::Targets,
     is_admin: bool,
 ) -> String {
-    let total_cal: f64 = entries.iter().map(|e| e.calories).sum();
-    let total_protein: f64 = entries.iter().map(|e| e.protein).sum();
-    let total_carbs: f64 = entries.iter().map(|e| e.carbs).sum();
-    let total_fat: f64 = entries.iter().map(|e| e.fat).sum();
+    // The `+ 0.0` is not redundant. `f64`'s `Sum` identity is **negative** zero
+    // — `-0.0 + x == x` holds for every x including `-0.0`, which `0.0` does
+    // not satisfy — so an empty day sums to `-0.0`, `{:.0}` formats that as
+    // "-0", and `rail_pct`'s `clamp(0.0, 100.0)` waves it through because
+    // `-0.0 >= 0.0` is true. `-0.0 + 0.0 == 0.0` collapses it.
+    //
+    // The bug predates multi-user; what changed is who meets it. An empty day
+    // used to be a date you had deliberately scrolled back to. It is now the
+    // first screen every new member sees.
+    let total_cal: f64 = entries.iter().map(|e| e.calories).sum::<f64>() + 0.0;
+    let total_protein: f64 = entries.iter().map(|e| e.protein).sum::<f64>() + 0.0;
+    let total_carbs: f64 = entries.iter().map(|e| e.carbs).sum::<f64>() + 0.0;
+    let total_fat: f64 = entries.iter().map(|e| e.fat).sum::<f64>() + 0.0;
 
     let slots_html: String = SLOTS
         .iter()
@@ -1951,6 +1960,37 @@ async fn set_targets_handler(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// An empty day must render `0`, not `-0`.
+    ///
+    /// `f64`'s `Sum` identity is negative zero, so every total on a day with no
+    /// entries came out as `-0.0` and rendered as "-0 of 2400 cal · -0%" — with
+    /// `rail_pct`'s `clamp(0.0, 100.0)` powerless to catch it, since `-0.0` is
+    /// already inside the range. This is the first screen a new member sees.
+    #[test]
+    fn test_empty_day_renders_zero_not_negative_zero() {
+        let targets = crate::models::Targets {
+            calories: 2400.0,
+            protein: 165.0,
+            carbs: 260.0,
+            fat: 72.0,
+        };
+        let html = day_section_html(&[], "2026-08-16", &[], &targets, true);
+
+        // Checked against the rendered numbers rather than a bare `-0` search:
+        // the ISO date in the markup contains "-0" all by itself.
+        assert!(
+            html.contains("0 of 2400 cal · 0%"),
+            "calorie caption is wrong"
+        );
+        assert!(html.contains("<span>Protein</span><span class=\"rail-nums\">0 / 165 g"));
+        assert!(html.contains("<span>Carbs</span><span class=\"rail-nums\">0 / 260 g"));
+        assert!(html.contains("<span>Fat</span><span class=\"rail-nums\">0 / 72 g"));
+        assert!(
+            !html.contains("width:-0%"),
+            "a rail was rendered with a negative-zero width"
+        );
+    }
 
     #[test]
     fn test_compute_streak() {
