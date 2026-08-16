@@ -239,6 +239,33 @@ pub struct AuthChallengeState {
     pub state_json: String,
 }
 
+/// Whose nutrition data a query touches.
+///
+/// A newtype rather than a bare `i64`, for the same reason [`Viewer`] exists on
+/// the post side: it makes the wrong call a *compile* error rather than a
+/// silent read of someone else's food log. Two properties earn its keep —
+///
+/// 1. **It cannot be omitted.** Every nutrition `db.rs` function takes one, so
+///    a query written without an owner does not compile.
+/// 2. **It cannot be transposed.** These functions take several integers —
+///    `insert_meal_entry` alone has a food id and a user id, `get_recent_foods`
+///    has a user id and a limit. As bare `i64`s the compiler would happily
+///    accept them in the wrong order and the bug would surface as one user's
+///    entries appearing in another's day.
+///
+/// Accepting one is not the same as *using* it: for anything addressed by row
+/// id, the id must appear in the `WHERE` clause beside the row's own id, or a
+/// guessed sequential id still reaches another user's row.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct UserId(pub i64);
+
+impl UserId {
+    /// The raw id, for binding into a query.
+    pub fn get(self) -> i64 {
+        self.0
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct FoodItem {
     pub id: i64,

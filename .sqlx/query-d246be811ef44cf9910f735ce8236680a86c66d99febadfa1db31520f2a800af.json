@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT DISTINCT date as \"date!\" FROM meal_entries WHERE user_id = ? ORDER BY date DESC LIMIT ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "date!",
+        "ordinal": 0,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "d246be811ef44cf9910f735ce8236680a86c66d99febadfa1db31520f2a800af"
+}

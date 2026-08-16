@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE meal_entries SET grams = ?, slot = ? WHERE id = ? AND user_id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": []
+  },
+  "hash": "40c88636554ab496415c452c3d647eb738a14a4bb39e0a165c8a1a645cfea981"
+}

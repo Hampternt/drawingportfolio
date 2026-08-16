@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM user_food_prefs WHERE food_item_id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "1c97a40e0c7d75741a30a710cc4791362f6477c6b6fbac251bf0e3bb2d52c558"
+}

@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT me.date as \"date!\", SUM(me.grams / 100.0 * fi.calories) as \"cal!: f64\"\n        FROM meal_entries me\n        JOIN food_items fi ON fi.id = me.food_item_id\n        WHERE me.date >= ? AND me.date <= ? AND me.user_id = ?\n        GROUP BY me.date\n        ORDER BY me.date ASC",
+  "describe": {
+    "columns": [
+      {
+        "name": "date!",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "cal!: f64",
+        "ordinal": 1,
+        "type_info": "Null"
+      }
+    ],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": [
+      false,
+      null
+    ]
+  },
+  "hash": "fa7c99a812bcb4387a03db357fcf62ddc325a447ca0bb5ed716405eaf15a9418"
+}

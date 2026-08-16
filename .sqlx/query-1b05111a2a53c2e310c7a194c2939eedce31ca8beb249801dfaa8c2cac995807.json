@@ -1,0 +1,44 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT me.food_item_id as \"food_item_id!\", fi.name as \"name!\",\n                  me.grams as \"last_grams!: f64\", me.slot as \"last_slot!\",\n                  MAX(me.created_at || '-' || printf('%012d', me.id)) as \"latest!: String\"\n        FROM meal_entries me\n        JOIN food_items fi ON fi.id = me.food_item_id\n        WHERE me.user_id = ?\n        GROUP BY me.food_item_id\n        ORDER BY 5 DESC\n        LIMIT ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "food_item_id!",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "name!",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "last_grams!: f64",
+        "ordinal": 2,
+        "type_info": "Float"
+      },
+      {
+        "name": "last_slot!",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "latest!: String",
+        "ordinal": 4,
+        "type_info": "Null"
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      null
+    ]
+  },
+  "hash": "1b05111a2a53c2e310c7a194c2939eedce31ca8beb249801dfaa8c2cac995807"
+}

@@ -125,19 +125,25 @@ auth/session territory — flagged for individual review per the workflow.
 
 </details>
 
-### Pack 2 — Nutrition data scoping ⚪ not started
+### Pack 2 — Nutrition data scoping 🟡 in progress
 
-Migration 016: `user_id` on `meal_entries` and `recipes`; rebuild `weights`
-(PK → `(user_id, date)`) and `targets` (PK → `user_id`); new
-`user_food_prefs (user_id, food_item_id, is_favourite, default_portion_g,
-custom_portions)` and drop those three columns from `food_items`. A `UserId`
-newtype becomes a required parameter on every nutrition db function, so a
-missed call site is a compile error rather than another user's data. Backfill
-everything to user 1, regenerate `.sqlx/`, sweep the tests.
+A `UserId` newtype becomes a required parameter on all 29 nutrition db
+functions, so a missed call site is a compile error rather than another
+user's data — the same trick `Viewer` plays for posts.
 
 **Observable:** two users logging the same day on the same server see only
-their own entries, weights, targets and portion preferences — and the same
+their own entries, weights, targets and portion preferences — over the same
 food catalog.
+
+| # | Item | Done when |
+|---|---|---|
+| 2.1 | Migration 017: `user_id` on `meal_entries` and `recipes` (`NOT NULL DEFAULT 1` — the default *is* the backfill) | Existing rows belong to the owner; a fresh entry carries its logger |
+| 2.2 | **Risky.** Migration 018: rebuild `weights` (PK → `(user_id, date)`) and `targets` (PK → `user_id`), each guarded by a `column_exists` check | Two users log the same date without collision. **The guard is the point**: a create/copy/drop/rename that re-runs on the next boot would copy every user's rows back to user 1 and drop the original — `let _ =` tolerance cannot express this, so the guard is explicit and tested by a double-boot |
+| 2.3 | Migration 019: `user_food_prefs (user_id, food_item_id, is_favourite, default_portion_g, custom_portions)`; migrate the owner's values off `food_items` and drop the three columns | The catalog is shared; favourites and portions are not. Two users disagree about a food without overwriting each other |
+| 2.4 | `UserId` newtype, required on all 29 nutrition db functions | Omitting it is a compile error. Catches the aggregates that read like they have no owner: `copy_day_entries`, `get_most_logged_between`, `get_protein_by_date_range`, `get_calories_by_date_range`, `get_logged_dates_desc`, `get_recent_foods`, `get_item_log_history` |
+| 2.5 | **Risky — reviewed individually.** Ownership in the `WHERE` clause of every id-addressed read and mutation | `update_meal_entry`, `get_meal_entry`, `delete_meal_entry`, `delete_recipe`, `log_recipe` all take a bare id today. Accepting a `UserId` and not filtering on it is the failure mode: someone else's entry stays editable by guessing a sequential id. Asserted by a test that tries exactly that |
+| 2.6 | Handlers thread `session.user_id` through (~30 sites) | `AuthSession` is bound rather than discarded; no handler invents a user id |
+| 2.7 | Isolation tests, `.sqlx/` regen, pack gate | Two users, same day, zero bleed across entries, weights, targets, recipes and prefs |
 
 ### Pack 3 — Accounts: name + PIN login, and the management page ⚪ not started
 

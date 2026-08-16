@@ -1,0 +1,38 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT r.id as \"id!\", r.name as \"name!\",\n                  COUNT(ri.id) as \"item_count!: i64\",\n                  COALESCE(SUM(ri.grams / 100.0 * fi.calories), 0) as \"total_cal!: f64\"\n        FROM recipes r\n        LEFT JOIN recipe_items ri ON ri.recipe_id = r.id\n        LEFT JOIN food_items fi ON fi.id = ri.food_item_id\n        WHERE r.user_id = ?\n        GROUP BY r.id ORDER BY r.name ASC",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "name!",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "item_count!: i64",
+        "ordinal": 2,
+        "type_info": "Null"
+      },
+      {
+        "name": "total_cal!: f64",
+        "ordinal": 3,
+        "type_info": "Null"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      true,
+      false,
+      null,
+      null
+    ]
+  },
+  "hash": "8827ee3e7b4ab0cd2b84f97d324fcb1d7a6f99478e0fa610aeacdf923eb737c9"
+}

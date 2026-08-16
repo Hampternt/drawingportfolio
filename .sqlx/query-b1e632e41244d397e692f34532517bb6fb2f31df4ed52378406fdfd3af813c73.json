@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT date as \"date!\", kg as \"kg!: f64\" FROM weights WHERE date >= ? AND user_id = ? ORDER BY date ASC",
+  "describe": {
+    "columns": [
+      {
+        "name": "date!",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "kg!: f64",
+        "ordinal": 1,
+        "type_info": "Float"
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "b1e632e41244d397e692f34532517bb6fb2f31df4ed52378406fdfd3af813c73"
+}

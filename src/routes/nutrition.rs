@@ -234,7 +234,15 @@ fn compute_streak(logged_desc: &[String], today: &str) -> i64 {
 }
 
 /// The Sunday-first week containing `date`, as 7 (iso_date, kcal) pairs.
-async fn week_for(pool: &crate::db::DbPool, date: &str) -> Vec<(String, f64)> {
+///
+/// Takes the owner explicitly rather than reaching for a session: it is called
+/// from several handlers, and a helper that quietly defaulted to "everyone"
+/// would put the household's combined calories in one person's week strip.
+async fn week_for(
+    pool: &crate::db::DbPool,
+    date: &str,
+    user: crate::models::UserId,
+) -> Vec<(String, f64)> {
     use chrono::{Datelike, Duration, NaiveDate};
     let d = NaiveDate::parse_from_str(date, "%Y-%m-%d")
         .unwrap_or_else(|_| chrono::Utc::now().date_naive());
@@ -242,7 +250,7 @@ async fn week_for(pool: &crate::db::DbPool, date: &str) -> Vec<(String, f64)> {
     let days: Vec<String> = (0..7)
         .map(|i| (sunday + Duration::days(i)).format("%Y-%m-%d").to_string())
         .collect();
-    let cals = crate::db::get_calories_by_date_range(pool, &days[0], &days[6]).await;
+    let cals = crate::db::get_calories_by_date_range(pool, &days[0], &days[6], user).await;
     days.into_iter()
         .map(|day| {
             let cal = cals
@@ -611,17 +619,18 @@ async fn fitness_page(
 ) -> impl IntoResponse {
     let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
     let date = sanitize_date(params.get("date"));
-    let entries = crate::db::get_meal_entries_for_date(&state.pool, &date).await;
-    let food_items = crate::db::get_food_items(&state.pool).await;
-    let targets = crate::db::get_targets(&state.pool).await;
-    let week = week_for(&state.pool, &date).await;
+    let entries = crate::db::get_meal_entries_for_date(&state.pool, &date, session.user()).await;
+    let food_items = crate::db::get_food_items(&state.pool, session.user()).await;
+    let targets = crate::db::get_targets(&state.pool, session.user()).await;
+    let week = week_for(&state.pool, &date, session.user()).await;
     let strip = week_strip_html(&week, &date, &today, targets.calories);
     let day_html = day_section_html(&entries, &date, &food_items, &targets, true);
-    let recent_ids: std::collections::HashSet<i64> = crate::db::get_recent_foods(&state.pool, 20)
-        .await
-        .into_iter()
-        .map(|r| r.food_item_id)
-        .collect();
+    let recent_ids: std::collections::HashSet<i64> =
+        crate::db::get_recent_foods(&state.pool, 20, session.user())
+            .await
+            .into_iter()
+            .map(|r| r.food_item_id)
+            .collect();
     let lib_html = library_list_html(&food_items, &recent_ids, true);
     Html(
         FitnessTemplate {
@@ -638,14 +647,14 @@ async fn fitness_page(
 }
 
 async fn htmx_day(
-    _: AuthSession,
+    session: AuthSession,
     State(state): State<Arc<AppState>>,
     Query(params): Query<HashMap<String, String>>,
 ) -> impl IntoResponse {
     let date = sanitize_date(params.get("date"));
-    let entries = crate::db::get_meal_entries_for_date(&state.pool, &date).await;
-    let food_items = crate::db::get_food_items(&state.pool).await;
-    let targets = crate::db::get_targets(&state.pool).await;
+    let entries = crate::db::get_meal_entries_for_date(&state.pool, &date, session.user()).await;
+    let food_items = crate::db::get_food_items(&state.pool, session.user()).await;
+    let targets = crate::db::get_targets(&state.pool, session.user()).await;
     Html(day_section_html(
         &entries,
         &date,
@@ -656,7 +665,7 @@ async fn htmx_day(
 }
 
 async fn add_food_item(
-    _: AuthSession,
+    session: AuthSession,
     State(state): State<Arc<AppState>>,
     mut multipart: Multipart,
 ) -> impl IntoResponse {
@@ -834,13 +843,14 @@ async fn add_food_item(
         package_size,
         &custom_portions,
         &image_url,
+        session.user(),
     )
     .await;
 
-    let all_items = crate::db::get_food_items(&state.pool).await;
+    let all_items = crate::db::get_food_items(&state.pool, session.user()).await;
     {
         let recent_ids: std::collections::HashSet<i64> =
-            crate::db::get_recent_foods(&state.pool, 20)
+            crate::db::get_recent_foods(&state.pool, 20, session.user())
                 .await
                 .into_iter()
                 .map(|r| r.food_item_id)
@@ -850,7 +860,7 @@ async fn add_food_item(
 }
 
 async fn delete_food_item_handler(
-    _: AuthSession,
+    session: AuthSession,
     State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
 ) -> impl IntoResponse {
@@ -859,10 +869,10 @@ async fn delete_food_item_handler(
             let _ = state.storage.delete_by_url(&img_url).await;
         }
     }
-    let items = crate::db::get_food_items(&state.pool).await;
+    let items = crate::db::get_food_items(&state.pool, session.user()).await;
     {
         let recent_ids: std::collections::HashSet<i64> =
-            crate::db::get_recent_foods(&state.pool, 20)
+            crate::db::get_recent_foods(&state.pool, 20, session.user())
                 .await
                 .into_iter()
                 .map(|r| r.food_item_id)
@@ -872,7 +882,7 @@ async fn delete_food_item_handler(
 }
 
 async fn add_meal_entry(
-    _: AuthSession,
+    session: AuthSession,
     State(state): State<Arc<AppState>>,
     axum::Form(form): axum::Form<HashMap<String, String>>,
 ) -> impl IntoResponse {
@@ -896,9 +906,10 @@ async fn add_meal_entry(
     };
 
     if food_item_id == 0 || grams <= 0.0 {
-        let entries = crate::db::get_meal_entries_for_date(&state.pool, &date).await;
-        let food_items = crate::db::get_food_items(&state.pool).await;
-        let targets = crate::db::get_targets(&state.pool).await;
+        let entries =
+            crate::db::get_meal_entries_for_date(&state.pool, &date, session.user()).await;
+        let food_items = crate::db::get_food_items(&state.pool, session.user()).await;
+        let targets = crate::db::get_targets(&state.pool, session.user()).await;
         return Html(day_section_html(
             &entries,
             &date,
@@ -909,10 +920,18 @@ async fn add_meal_entry(
         .into_response();
     }
 
-    let _ = crate::db::insert_meal_entry(&state.pool, food_item_id, &date, grams, &slot).await;
-    let entries = crate::db::get_meal_entries_for_date(&state.pool, &date).await;
-    let food_items = crate::db::get_food_items(&state.pool).await;
-    let targets = crate::db::get_targets(&state.pool).await;
+    let _ = crate::db::insert_meal_entry(
+        &state.pool,
+        food_item_id,
+        &date,
+        grams,
+        &slot,
+        session.user(),
+    )
+    .await;
+    let entries = crate::db::get_meal_entries_for_date(&state.pool, &date, session.user()).await;
+    let food_items = crate::db::get_food_items(&state.pool, session.user()).await;
+    let targets = crate::db::get_targets(&state.pool, session.user()).await;
     Html(day_section_html(
         &entries,
         &date,
@@ -924,16 +943,16 @@ async fn add_meal_entry(
 }
 
 async fn delete_meal_entry_handler(
-    _: AuthSession,
+    session: AuthSession,
     State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
     Query(params): Query<HashMap<String, String>>,
 ) -> impl IntoResponse {
-    crate::db::delete_meal_entry(&state.pool, id).await;
+    crate::db::delete_meal_entry(&state.pool, id, session.user()).await;
     let date = sanitize_date(params.get("date"));
-    let entries = crate::db::get_meal_entries_for_date(&state.pool, &date).await;
-    let food_items = crate::db::get_food_items(&state.pool).await;
-    let targets = crate::db::get_targets(&state.pool).await;
+    let entries = crate::db::get_meal_entries_for_date(&state.pool, &date, session.user()).await;
+    let food_items = crate::db::get_food_items(&state.pool, session.user()).await;
+    let targets = crate::db::get_targets(&state.pool, session.user()).await;
     Html(day_section_html(
         &entries,
         &date,
@@ -944,17 +963,19 @@ async fn delete_meal_entry_handler(
 }
 
 async fn edit_food_form(
-    _: AuthSession,
+    session: AuthSession,
     State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
 ) -> impl IntoResponse {
-    match crate::db::get_food_item(&state.pool, id).await {
+    match crate::db::get_food_item(&state.pool, id, session.user()).await {
         Some(item) => {
             use chrono::Duration;
             let today = chrono::Utc::now().date_naive();
             let start = (today - Duration::days(13)).format("%Y-%m-%d").to_string();
             let end = today.format("%Y-%m-%d").to_string();
-            let logged = crate::db::get_item_log_history(&state.pool, id, &start, &end).await;
+            let logged =
+                crate::db::get_item_log_history(&state.pool, id, &start, &end, session.user())
+                    .await;
             let days: Vec<(String, f64)> = (0..14)
                 .map(|i| {
                     let d = (today - Duration::days(13 - i))
@@ -979,11 +1000,11 @@ async fn edit_food_form(
 }
 
 async fn food_item_card(
-    _: AuthSession,
+    session: AuthSession,
     State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
 ) -> impl IntoResponse {
-    match crate::db::get_food_item(&state.pool, id).await {
+    match crate::db::get_food_item(&state.pool, id, session.user()).await {
         Some(item) => Html(food_item_card_html(&item, false, true)).into_response(),
         None => (
             StatusCode::NOT_FOUND,
@@ -994,7 +1015,7 @@ async fn food_item_card(
 }
 
 async fn update_food_item_handler(
-    _: AuthSession,
+    session: AuthSession,
     State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
     mut multipart: Multipart,
@@ -1176,7 +1197,7 @@ async fn update_food_item_handler(
         && !image_url.starts_with("https://world.openfoodfacts.org/")
     {
         // Keep existing S3 image URL if it was already stored
-        if let Some(existing) = crate::db::get_food_item(&state.pool, id).await {
+        if let Some(existing) = crate::db::get_food_item(&state.pool, id, session.user()).await {
             if image_url == existing.image_url {
                 // URL unchanged, keep it
             } else {
@@ -1207,13 +1228,14 @@ async fn update_food_item_handler(
         &category,
         is_favourite,
         default_portion_g,
+        session.user(),
     )
     .await;
 
-    let all_items = crate::db::get_food_items(&state.pool).await;
+    let all_items = crate::db::get_food_items(&state.pool, session.user()).await;
     {
         let recent_ids: std::collections::HashSet<i64> =
-            crate::db::get_recent_foods(&state.pool, 20)
+            crate::db::get_recent_foods(&state.pool, 20, session.user())
                 .await
                 .into_iter()
                 .map(|r| r.food_item_id)
@@ -1255,15 +1277,15 @@ fn entry_edit_row_html(entry: &crate::models::MealEntry, food_name: &str, date: 
 }
 
 async fn entry_edit_form(
-    _: AuthSession,
+    session: AuthSession,
     State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
     Query(params): Query<HashMap<String, String>>,
 ) -> impl IntoResponse {
     let date = sanitize_date(params.get("date"));
-    match crate::db::get_meal_entry(&state.pool, id).await {
+    match crate::db::get_meal_entry(&state.pool, id, session.user()).await {
         Some(entry) => {
-            let name = crate::db::get_food_item(&state.pool, entry.food_item_id)
+            let name = crate::db::get_food_item(&state.pool, entry.food_item_id, session.user())
                 .await
                 .map(|f| f.name)
                 .unwrap_or_default();
@@ -1278,7 +1300,7 @@ async fn entry_edit_form(
 }
 
 async fn update_meal_entry_handler(
-    _: AuthSession,
+    session: AuthSession,
     State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
     axum::Form(form): axum::Form<HashMap<String, String>>,
@@ -1297,12 +1319,12 @@ async fn update_meal_entry_handler(
         "other".to_string()
     };
     if grams > 0.0 {
-        crate::db::update_meal_entry(&state.pool, id, grams, &slot).await;
+        crate::db::update_meal_entry(&state.pool, id, grams, &slot, session.user()).await;
     }
     let date = sanitize_date(form.get("date"));
-    let targets = crate::db::get_targets(&state.pool).await;
-    let entries = crate::db::get_meal_entries_for_date(&state.pool, &date).await;
-    let food_items = crate::db::get_food_items(&state.pool).await;
+    let targets = crate::db::get_targets(&state.pool, session.user()).await;
+    let entries = crate::db::get_meal_entries_for_date(&state.pool, &date, session.user()).await;
+    let food_items = crate::db::get_food_items(&state.pool, session.user()).await;
     Html(day_section_html(
         &entries,
         &date,
@@ -1391,18 +1413,21 @@ fn match_card_html(item: &crate::models::FoodItem, kicker: &str) -> String {
 }
 
 async fn match_card(
-    _: AuthSession,
+    session: AuthSession,
     State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
 ) -> impl IntoResponse {
-    match crate::db::get_food_item(&state.pool, id).await {
+    match crate::db::get_food_item(&state.pool, id, session.user()).await {
         Some(item) => Html(match_card_html(&item, "From library")).into_response(),
         None => (StatusCode::NOT_FOUND, Html(String::new())).into_response(),
     }
 }
 
-async fn recent_chips(_: AuthSession, State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    let recents = crate::db::get_recent_foods(&state.pool, 8).await;
+async fn recent_chips(
+    session: AuthSession,
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    let recents = crate::db::get_recent_foods(&state.pool, 8, session.user()).await;
     let chips: String = recents
         .iter()
         .map(|r| {
@@ -1423,7 +1448,7 @@ async fn recent_chips(_: AuthSession, State(state): State<Arc<AppState>>) -> imp
 }
 
 async fn food_search(
-    _: AuthSession,
+    session: AuthSession,
     State(state): State<Arc<AppState>>,
     Query(params): Query<HashMap<String, String>>,
 ) -> impl IntoResponse {
@@ -1431,7 +1456,7 @@ async fn food_search(
     if q.trim().is_empty() {
         return Html(String::new());
     }
-    let items = crate::db::search_food_items(&state.pool, q.trim()).await;
+    let items = crate::db::search_food_items(&state.pool, q.trim(), session.user()).await;
     let rows: String = items
         .iter()
         .map(|i| {
@@ -1451,11 +1476,11 @@ async fn food_search(
 }
 
 async fn barcode_match(
-    _: AuthSession,
+    session: AuthSession,
     State(state): State<Arc<AppState>>,
     Path(code): Path<String>,
 ) -> impl IntoResponse {
-    match crate::db::get_food_item_by_barcode(&state.pool, &code).await {
+    match crate::db::get_food_item_by_barcode(&state.pool, &code, session.user()).await {
         Some(item) => {
             let kicker = format!("Matched · {}", code);
             Html(match_card_html(&item, &kicker)).into_response()
@@ -1465,19 +1490,19 @@ async fn barcode_match(
 }
 
 async fn week_strip_fragment(
-    _: AuthSession,
+    session: AuthSession,
     State(state): State<Arc<AppState>>,
     Query(params): Query<HashMap<String, String>>,
 ) -> impl IntoResponse {
     let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
     let date = sanitize_date(params.get("date"));
-    let targets = crate::db::get_targets(&state.pool).await;
-    let week = week_for(&state.pool, &date).await;
+    let targets = crate::db::get_targets(&state.pool, session.user()).await;
+    let week = week_for(&state.pool, &date, session.user()).await;
     Html(week_strip_html(&week, &date, &today, targets.calories))
 }
 
 async fn quick_log_handler(
-    _: AuthSession,
+    session: AuthSession,
     State(state): State<Arc<AppState>>,
     axum::Form(form): axum::Form<HashMap<String, String>>,
 ) -> impl IntoResponse {
@@ -1492,14 +1517,16 @@ async fn quick_log_handler(
         "other".to_string()
     };
     if let Some(id) = form.get("food_item_id").and_then(|v| v.parse::<i64>().ok()) {
-        if let Some(item) = crate::db::get_food_item(&state.pool, id).await {
+        if let Some(item) = crate::db::get_food_item(&state.pool, id, session.user()).await {
             let grams = item.default_portion_g.unwrap_or(100.0);
-            let _ = crate::db::insert_meal_entry(&state.pool, id, &date, grams, &slot).await;
+            let _ =
+                crate::db::insert_meal_entry(&state.pool, id, &date, grams, &slot, session.user())
+                    .await;
         }
     }
-    let targets = crate::db::get_targets(&state.pool).await;
-    let entries = crate::db::get_meal_entries_for_date(&state.pool, &date).await;
-    let food_items = crate::db::get_food_items(&state.pool).await;
+    let targets = crate::db::get_targets(&state.pool, session.user()).await;
+    let entries = crate::db::get_meal_entries_for_date(&state.pool, &date, session.user()).await;
+    let food_items = crate::db::get_food_items(&state.pool, session.user()).await;
     Html(day_section_html(
         &entries,
         &date,
@@ -1583,8 +1610,8 @@ fn weight_card_html(latest: Option<(String, f64)>, series: &[(String, f64)]) -> 
 async fn week_page(session: AuthSession, State(state): State<Arc<AppState>>) -> impl IntoResponse {
     use chrono::{Duration, NaiveDate};
     let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
-    let targets = crate::db::get_targets(&state.pool).await;
-    let week = week_for(&state.pool, &today).await;
+    let targets = crate::db::get_targets(&state.pool, session.user()).await;
+    let week = week_for(&state.pool, &today, session.user()).await;
     let start = week[0].0.clone();
     let end = week[6].0.clone();
 
@@ -1628,7 +1655,8 @@ async fn week_page(session: AuthSession, State(state): State<Arc<AppState>>) -> 
         bars = bars
     );
 
-    let prot = crate::db::get_protein_by_date_range(&state.pool, &start, &end).await;
+    let prot =
+        crate::db::get_protein_by_date_range(&state.pool, &start, &end, session.user()).await;
     let protein_avg = if prot.is_empty() {
         0.0
     } else {
@@ -1637,17 +1665,18 @@ async fn week_page(session: AuthSession, State(state): State<Arc<AppState>>) -> 
     let protein_hits = prot.iter().filter(|(_, p)| *p >= targets.protein).count() as i64;
     let days_logged = logged.len() as i64;
     let streak = compute_streak(
-        &crate::db::get_logged_dates_desc(&state.pool, 400).await,
+        &crate::db::get_logged_dates_desc(&state.pool, 400, session.user()).await,
         &today,
     );
 
     let month_ago = NaiveDate::parse_from_str(&today, "%Y-%m-%d")
         .map(|d| (d - Duration::days(30)).format("%Y-%m-%d").to_string())
         .unwrap_or_default();
-    let weights = crate::db::get_weights_since(&state.pool, &month_ago).await;
-    let latest = crate::db::get_latest_weight(&state.pool).await;
+    let weights = crate::db::get_weights_since(&state.pool, &month_ago, session.user()).await;
+    let latest = crate::db::get_latest_weight(&state.pool, session.user()).await;
 
-    let most = crate::db::get_most_logged_between(&state.pool, &start, &end, 5).await;
+    let most =
+        crate::db::get_most_logged_between(&state.pool, &start, &end, 5, session.user()).await;
     let most_logged_html: String = most
         .iter()
         .map(|(name, n)| {
@@ -1687,7 +1716,7 @@ async fn week_page(session: AuthSession, State(state): State<Arc<AppState>>) -> 
 }
 
 async fn log_weight_handler(
-    _: AuthSession,
+    session: AuthSession,
     State(state): State<Arc<AppState>>,
     axum::Form(form): axum::Form<HashMap<String, String>>,
 ) -> impl IntoResponse {
@@ -1695,19 +1724,19 @@ async fn log_weight_handler(
     let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
     if let Some(kg) = form.get("kg").and_then(|v| v.parse::<f64>().ok()) {
         if (20.0..=400.0).contains(&kg) {
-            crate::db::upsert_weight(&state.pool, &today, kg).await;
+            crate::db::upsert_weight(&state.pool, &today, kg, session.user()).await;
         }
     }
     let month_ago = NaiveDate::parse_from_str(&today, "%Y-%m-%d")
         .map(|d| (d - Duration::days(30)).format("%Y-%m-%d").to_string())
         .unwrap_or_default();
-    let weights = crate::db::get_weights_since(&state.pool, &month_ago).await;
-    let latest = crate::db::get_latest_weight(&state.pool).await;
+    let weights = crate::db::get_weights_since(&state.pool, &month_ago, session.user()).await;
+    let latest = crate::db::get_latest_weight(&state.pool, session.user()).await;
     Html(weight_card_html(latest, &weights))
 }
 
 async fn create_recipe_handler(
-    _: AuthSession,
+    session: AuthSession,
     State(state): State<Arc<AppState>>,
     axum::Form(form): axum::Form<HashMap<String, String>>,
 ) -> impl IntoResponse {
@@ -1715,11 +1744,11 @@ async fn create_recipe_handler(
     let date = sanitize_date(form.get("date"));
     let slot = form.get("slot").cloned().unwrap_or_default();
     if !name.is_empty() {
-        crate::db::create_recipe_from_slot(&state.pool, name, &date, &slot).await;
+        crate::db::create_recipe_from_slot(&state.pool, name, &date, &slot, session.user()).await;
     }
-    let targets = crate::db::get_targets(&state.pool).await;
-    let entries = crate::db::get_meal_entries_for_date(&state.pool, &date).await;
-    let food_items = crate::db::get_food_items(&state.pool).await;
+    let targets = crate::db::get_targets(&state.pool, session.user()).await;
+    let entries = crate::db::get_meal_entries_for_date(&state.pool, &date, session.user()).await;
+    let food_items = crate::db::get_food_items(&state.pool, session.user()).await;
     Html(day_section_html(
         &entries,
         &date,
@@ -1730,7 +1759,7 @@ async fn create_recipe_handler(
 }
 
 async fn log_recipe_handler(
-    _: AuthSession,
+    session: AuthSession,
     State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
     axum::Form(form): axum::Form<HashMap<String, String>>,
@@ -1745,10 +1774,10 @@ async fn log_recipe_handler(
     } else {
         "other".to_string()
     };
-    crate::db::log_recipe(&state.pool, id, &date, &slot).await;
-    let targets = crate::db::get_targets(&state.pool).await;
-    let entries = crate::db::get_meal_entries_for_date(&state.pool, &date).await;
-    let food_items = crate::db::get_food_items(&state.pool).await;
+    crate::db::log_recipe(&state.pool, id, &date, &slot, session.user()).await;
+    let targets = crate::db::get_targets(&state.pool, session.user()).await;
+    let entries = crate::db::get_meal_entries_for_date(&state.pool, &date, session.user()).await;
+    let food_items = crate::db::get_food_items(&state.pool, session.user()).await;
     Html(day_section_html(
         &entries,
         &date,
@@ -1784,38 +1813,42 @@ fn meals_pane_html(recipes: &[crate::models::RecipeWithTotals]) -> String {
     }
 }
 
-async fn meals_pane(_: AuthSession, State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    let recipes = crate::db::get_recipes_with_totals(&state.pool).await;
+async fn meals_pane(session: AuthSession, State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    let recipes = crate::db::get_recipes_with_totals(&state.pool, session.user()).await;
     Html(meals_pane_html(&recipes))
 }
 
 async fn delete_recipe_handler(
-    _: AuthSession,
+    session: AuthSession,
     State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
 ) -> impl IntoResponse {
-    crate::db::delete_recipe(&state.pool, id).await;
-    let recipes = crate::db::get_recipes_with_totals(&state.pool).await;
+    crate::db::delete_recipe(&state.pool, id, session.user()).await;
+    let recipes = crate::db::get_recipes_with_totals(&state.pool, session.user()).await;
     Html(meals_pane_html(&recipes))
 }
 
 async fn toggle_favourite_handler(
-    _: AuthSession,
+    session: AuthSession,
     State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
 ) -> impl IntoResponse {
-    crate::db::toggle_food_favourite(&state.pool, id).await;
-    let items = crate::db::get_food_items(&state.pool).await;
-    let recent_ids: std::collections::HashSet<i64> = crate::db::get_recent_foods(&state.pool, 20)
-        .await
-        .into_iter()
-        .map(|r| r.food_item_id)
-        .collect();
+    crate::db::toggle_food_favourite(&state.pool, id, session.user()).await;
+    let items = crate::db::get_food_items(&state.pool, session.user()).await;
+    let recent_ids: std::collections::HashSet<i64> =
+        crate::db::get_recent_foods(&state.pool, 20, session.user())
+            .await
+            .into_iter()
+            .map(|r| r.food_item_id)
+            .collect();
     Html(library_list_html(&items, &recent_ids, true))
 }
 
-async fn favourite_chips(_: AuthSession, State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    let items = crate::db::get_food_items(&state.pool).await;
+async fn favourite_chips(
+    session: AuthSession,
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    let items = crate::db::get_food_items(&state.pool, session.user()).await;
     let chips: String = items
         .iter()
         .filter(|i| i.is_favourite != 0)
@@ -1836,7 +1869,7 @@ async fn favourite_chips(_: AuthSession, State(state): State<Arc<AppState>>) -> 
 }
 
 async fn copy_day_handler(
-    _: AuthSession,
+    session: AuthSession,
     State(state): State<Arc<AppState>>,
     axum::Form(form): axum::Form<HashMap<String, String>>,
 ) -> impl IntoResponse {
@@ -1849,11 +1882,11 @@ async fn copy_day_handler(
         })
         .unwrap_or_default();
     if !yesterday.is_empty() {
-        crate::db::copy_day_entries(&state.pool, &yesterday, &date).await;
+        crate::db::copy_day_entries(&state.pool, &yesterday, &date, session.user()).await;
     }
-    let targets = crate::db::get_targets(&state.pool).await;
-    let entries = crate::db::get_meal_entries_for_date(&state.pool, &date).await;
-    let food_items = crate::db::get_food_items(&state.pool).await;
+    let targets = crate::db::get_targets(&state.pool, session.user()).await;
+    let entries = crate::db::get_meal_entries_for_date(&state.pool, &date, session.user()).await;
+    let food_items = crate::db::get_food_items(&state.pool, session.user()).await;
     Html(day_section_html(
         &entries,
         &date,
@@ -1864,12 +1897,12 @@ async fn copy_day_handler(
 }
 
 async fn targets_form(
-    _: AuthSession,
+    session: AuthSession,
     State(state): State<Arc<AppState>>,
     Query(params): Query<HashMap<String, String>>,
 ) -> impl IntoResponse {
     let date = sanitize_date(params.get("date"));
-    let t = crate::db::get_targets(&state.pool).await;
+    let t = crate::db::get_targets(&state.pool, session.user()).await;
     Html(format!(
         r##"<form class="targets-form" hx-post="/api/nutrition/targets" hx-target="#day-section" hx-swap="innerHTML">
   <input type="hidden" name="date" value="{date}">
@@ -1888,7 +1921,7 @@ async fn targets_form(
 }
 
 async fn set_targets_handler(
-    _: AuthSession,
+    session: AuthSession,
     State(state): State<Arc<AppState>>,
     axum::Form(form): axum::Form<HashMap<String, String>>,
 ) -> impl IntoResponse {
@@ -1899,12 +1932,13 @@ async fn set_targets_handler(
         g("protein", 165.0),
         g("carbs", 260.0),
         g("fat", 72.0),
+        session.user(),
     )
     .await;
     let date = sanitize_date(form.get("date"));
-    let targets = crate::db::get_targets(&state.pool).await;
-    let entries = crate::db::get_meal_entries_for_date(&state.pool, &date).await;
-    let food_items = crate::db::get_food_items(&state.pool).await;
+    let targets = crate::db::get_targets(&state.pool, session.user()).await;
+    let entries = crate::db::get_meal_entries_for_date(&state.pool, &date, session.user()).await;
+    let food_items = crate::db::get_food_items(&state.pool, session.user()).await;
     Html(day_section_html(
         &entries,
         &date,

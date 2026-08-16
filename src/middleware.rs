@@ -1,4 +1,8 @@
-use crate::{db, models::Session, AppState};
+use crate::{
+    db,
+    models::{Session, UserId},
+    AppState,
+};
 use axum::{
     extract::{ConnectInfo, FromRequestParts},
     http::{request::Parts, StatusCode},
@@ -27,6 +31,15 @@ impl AuthSession {
     /// `is_admin` directly.
     pub fn is_effective_admin(&self) -> bool {
         self.is_owner || self.is_admin
+    }
+
+    /// Whose data this request may touch.
+    ///
+    /// The single source of a [`UserId`] in the nutrition routes: handlers get
+    /// theirs from the session and never from a path, query or form field, so
+    /// there is no request shape that can ask for someone else's log.
+    pub fn user(&self) -> UserId {
+        UserId(self.user_id)
     }
 }
 

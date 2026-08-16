@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO meal_entries (food_item_id, date, grams, slot, user_id)\n         SELECT ri.food_item_id, ?, ri.grams, ?, ?\n         FROM recipe_items ri\n         JOIN recipes r ON r.id = ri.recipe_id\n         WHERE ri.recipe_id = ? AND r.user_id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 5
+    },
+    "nullable": []
+  },
+  "hash": "f1b2fe2c563856a73f555070e13cd96164f78792d216978a7bc118a9510610ad"
+}

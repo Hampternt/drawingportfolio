@@ -1,11 +1,11 @@
 use crate::models::{
     AuthChallengeState, Collection, CollectionWithCount, CreateCollectionError,
     DrawingTaskWithImage, FoodItem, MealEntryWithFood, PasskeyCredential, Post, PostCounts,
-    PostFilter, Session, TagWithCount, Targets, TaskImage, Viewer, Visibility,
+    PostFilter, Session, TagWithCount, Targets, TaskImage, UserId, Viewer, Visibility,
 };
 use sqlx::{
     sqlite::{SqliteConnectOptions, SqlitePoolOptions},
-    SqlitePool,
+    Row, SqlitePool,
 };
 use std::str::FromStr;
 
@@ -125,6 +125,54 @@ pub async fn run_migrations(pool: &DbPool) {
     let _ = sqlx::query(include_str!("../migrations/016_session_identity.sql"))
         .execute(pool)
         .await;
+
+    // Migration 017: meal_entries.user_id + recipes.user_id. ALTER-only.
+    let _ = sqlx::query(include_str!("../migrations/017_nutrition_user_id.sql"))
+        .execute(pool)
+        .await;
+
+    // Migration 018: rebuild weights and targets around a user.
+    //
+    // Guarded, not `let _ =`. A rebuild is create/copy/drop/rename, and a
+    // second pass over an already-migrated table does not *error* — it copies
+    // every user's rows back out as user 1 and drops the original. The
+    // duplicate-column tolerance the ALTER migrations lean on is no protection
+    // here, because there is no duplicate column to trip over. The column check
+    // is what makes this run exactly once.
+    if !column_exists(pool, "weights", "user_id").await {
+        sqlx::query(include_str!(
+            "../migrations/018_weights_targets_rebuild.sql"
+        ))
+        .execute(pool)
+        .await
+        .expect("failed to rebuild weights/targets for multi-user");
+    }
+
+    // Migration 019: per-user food preferences. Same reasoning — the three
+    // DROP COLUMNs are not re-runnable, and the copy would re-attribute
+    // everyone's preferences to the owner.
+    if column_exists(pool, "food_items", "is_favourite").await {
+        sqlx::query(include_str!("../migrations/019_user_food_prefs.sql"))
+            .execute(pool)
+            .await
+            .expect("failed to split user food preferences");
+    }
+}
+
+/// Whether `table` currently has a column named `column`.
+///
+/// The idempotence guard for migrations that rebuild a table rather than add to
+/// it. `PRAGMA table_info` is the only portable way to ask SQLite this, and
+/// asking is cheaper than the alternative — a rebuild that re-runs does not
+/// fail loudly, it quietly re-attributes every row to one user.
+async fn column_exists(pool: &DbPool, table: &str, column: &str) -> bool {
+    let rows = sqlx::query(&format!("PRAGMA table_info({table})"))
+        .fetch_all(pool)
+        .await
+        .unwrap_or_default();
+    rows.iter()
+        .filter_map(|r| r.try_get::<String, _>("name").ok())
+        .any(|name| name == column)
 }
 
 /// Builds the `LIKE` pattern for a caption search.
@@ -927,20 +975,63 @@ pub async fn take_challenge(pool: &DbPool, id: &str) -> Option<AuthChallengeStat
     row
 }
 
-pub async fn get_food_items(pool: &DbPool) -> Vec<FoodItem> {
-    sqlx::query_as!(FoodItem,
-        "SELECT id, name, brand, barcode, calories, protein, carbs, fat, fiber, sugar, sodium, saturated_fat, package_size, custom_portions, image_url, category, is_favourite, default_portion_g, created_at FROM food_items ORDER BY name ASC"
+/// The food catalog is shared; the opinions about it are not.
+///
+/// `food_items` rows are common property — that is the point of one catalog,
+/// and it is what makes a barcode scan by one person useful to everyone. But
+/// "is this a favourite", "what portion do I usually take" and "what custom
+/// portions do I want offered" are personal, so they live in `user_food_prefs`
+/// and arrive by LEFT JOIN.
+///
+/// The join is LEFT and the values are COALESCEd because *no preference row* is
+/// the normal state: a food you have never favourited or sized simply has no
+/// row, and must read as "not a favourite, no custom portions" rather than
+/// vanishing from the catalog — which is exactly what an INNER JOIN would do.
+///
+/// The column list is repeated across the four readers rather than shared in a
+/// constant: `query_as!` checks its SQL against the live schema at compile
+/// time, and it can only do that for a string literal. A shared `const` would
+/// buy tidiness by giving up the check that makes these queries safe to change.
+pub async fn get_food_items(pool: &DbPool, user: UserId) -> Vec<FoodItem> {
+    let uid = user.get();
+    sqlx::query_as!(
+        FoodItem,
+        r#"SELECT
+            fi.id, fi.name, fi.brand, fi.barcode, fi.calories, fi.protein, fi.carbs,
+            fi.fat, fi.fiber, fi.sugar, fi.sodium, fi.saturated_fat, fi.package_size,
+            COALESCE(p.custom_portions, '') as "custom_portions!",
+            fi.image_url, fi.category,
+            COALESCE(p.is_favourite, 0) as "is_favourite!",
+            p.default_portion_g, fi.created_at
+        FROM food_items fi
+        LEFT JOIN user_food_prefs p ON p.food_item_id = fi.id AND p.user_id = ?
+        ORDER BY fi.name ASC"#,
+        uid
     )
     .fetch_all(pool)
     .await
     .unwrap_or_default()
 }
 
-pub async fn search_food_items(pool: &DbPool, q: &str) -> Vec<FoodItem> {
+pub async fn search_food_items(pool: &DbPool, q: &str, user: UserId) -> Vec<FoodItem> {
     let pattern = format!("%{}%", q);
-    sqlx::query_as!(FoodItem,
-        "SELECT id, name, brand, barcode, calories, protein, carbs, fat, fiber, sugar, sodium, saturated_fat, package_size, custom_portions, image_url, category, is_favourite, default_portion_g, created_at FROM food_items WHERE name LIKE ? OR brand LIKE ? ORDER BY name ASC LIMIT 20",
-        pattern, pattern
+    let uid = user.get();
+    sqlx::query_as!(
+        FoodItem,
+        r#"SELECT
+            fi.id, fi.name, fi.brand, fi.barcode, fi.calories, fi.protein, fi.carbs,
+            fi.fat, fi.fiber, fi.sugar, fi.sodium, fi.saturated_fat, fi.package_size,
+            COALESCE(p.custom_portions, '') as "custom_portions!",
+            fi.image_url, fi.category,
+            COALESCE(p.is_favourite, 0) as "is_favourite!",
+            p.default_portion_g, fi.created_at
+        FROM food_items fi
+        LEFT JOIN user_food_prefs p ON p.food_item_id = fi.id AND p.user_id = ?
+        WHERE fi.name LIKE ? OR fi.brand LIKE ?
+        ORDER BY fi.name ASC LIMIT 20"#,
+        uid,
+        pattern,
+        pattern
     )
     .fetch_all(pool)
     .await
@@ -963,24 +1054,47 @@ pub async fn insert_food_item(
     package_size: Option<f64>,
     custom_portions: &str,
     image_url: &str,
+    user: UserId,
 ) -> FoodItem {
+    let uid = user.get();
     let id = sqlx::query!(
-        "INSERT INTO food_items (name, brand, barcode, calories, protein, carbs, fat, fiber, sugar, sodium, saturated_fat, package_size, custom_portions, image_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
-        name, brand, barcode, calories, protein, carbs, fat, fiber, sugar, sodium, saturated_fat, package_size, custom_portions, image_url
+        "INSERT INTO food_items (name, brand, barcode, calories, protein, carbs, fat, fiber, sugar, sodium, saturated_fat, package_size, image_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
+        name, brand, barcode, calories, protein, carbs, fat, fiber, sugar, sodium, saturated_fat, package_size, image_url
     )
     .fetch_one(pool)
     .await
     .expect("failed to insert food item")
     .id;
 
-    sqlx::query_as!(FoodItem,
-        "SELECT id, name, brand, barcode, calories, protein, carbs, fat, fiber, sugar, sodium, saturated_fat, package_size, custom_portions, image_url, category, is_favourite, default_portion_g, created_at FROM food_items WHERE id = ?", id
-    )
-    .fetch_one(pool)
-    .await
-    .expect("failed to fetch inserted food item")
+    // The food joins the shared catalog; the custom portions the adder typed in
+    // are *their* preference and land in their own row. Skipped when empty so
+    // the prefs table only holds actual opinions.
+    if !custom_portions.is_empty() {
+        sqlx::query!(
+            "INSERT INTO user_food_prefs (user_id, food_item_id, custom_portions) VALUES (?, ?, ?)
+             ON CONFLICT(user_id, food_item_id) DO UPDATE SET custom_portions = excluded.custom_portions",
+            uid, id, custom_portions
+        )
+        .execute(pool)
+        .await
+        .ok();
+    }
+
+    get_food_item(pool, id, user)
+        .await
+        .expect("failed to fetch inserted food item")
 }
 
+/// Deletes a food from the **shared** catalog, for everybody.
+///
+/// Deliberately not scoped to a user: there is one catalog, so there is one
+/// delete. It takes no [`UserId`] because there is no per-user variant of this
+/// to get wrong — the entry rows and preference rows it orphans belong to
+/// whoever logged them, and are cleaned regardless of who pressed the button.
+///
+/// That the button is available to any signed-in user is a deliberate carry-
+/// over of the single-user behaviour, and the one place where members can
+/// affect each other's experience. Restricting it is a pack 4 question.
 pub async fn delete_food_item(pool: &DbPool, id: i64) -> Option<String> {
     let mut tx = pool.begin().await.ok()?;
 
@@ -995,6 +1109,13 @@ pub async fn delete_food_item(pool: &DbPool, id: i64) -> Option<String> {
             .execute(&mut *tx)
             .await
             .ok();
+        // Preference rows do not cascade — the pool has foreign_keys off, so
+        // they are cleared here or they linger and re-attach to whatever id
+        // AUTOINCREMENT hands out next.
+        sqlx::query!("DELETE FROM user_food_prefs WHERE food_item_id = ?", id)
+            .execute(&mut *tx)
+            .await
+            .ok();
         tx.commit().await.ok();
         Some(r.image_url)
     } else {
@@ -1003,9 +1124,22 @@ pub async fn delete_food_item(pool: &DbPool, id: i64) -> Option<String> {
     }
 }
 
-pub async fn get_food_item(pool: &DbPool, id: i64) -> Option<FoodItem> {
-    sqlx::query_as!(FoodItem,
-        "SELECT id, name, brand, barcode, calories, protein, carbs, fat, fiber, sugar, sodium, saturated_fat, package_size, custom_portions, image_url, category, is_favourite, default_portion_g, created_at FROM food_items WHERE id = ?", id
+pub async fn get_food_item(pool: &DbPool, id: i64, user: UserId) -> Option<FoodItem> {
+    let uid = user.get();
+    sqlx::query_as!(
+        FoodItem,
+        r#"SELECT
+            fi.id, fi.name, fi.brand, fi.barcode, fi.calories, fi.protein, fi.carbs,
+            fi.fat, fi.fiber, fi.sugar, fi.sodium, fi.saturated_fat, fi.package_size,
+            COALESCE(p.custom_portions, '') as "custom_portions!",
+            fi.image_url, fi.category,
+            COALESCE(p.is_favourite, 0) as "is_favourite!",
+            p.default_portion_g, fi.created_at
+        FROM food_items fi
+        LEFT JOIN user_food_prefs p ON p.food_item_id = fi.id AND p.user_id = ?
+        WHERE fi.id = ?"#,
+        uid,
+        id
     )
     .fetch_optional(pool)
     .await
@@ -1034,20 +1168,45 @@ pub async fn update_food_item(
     category: &str,
     is_favourite: bool,
     default_portion_g: Option<f64>,
+    user: UserId,
 ) {
+    let uid = user.get();
     let fav = if is_favourite { 1i64 } else { 0i64 };
+
+    // The nutrition facts are a property of the food and go to the shared row —
+    // one person correcting a wrong calorie count fixes it for everyone.
     sqlx::query!(
-        "UPDATE food_items SET name = ?, brand = ?, barcode = ?, calories = ?, protein = ?, carbs = ?, fat = ?, fiber = ?, sugar = ?, sodium = ?, saturated_fat = ?, package_size = ?, custom_portions = ?, image_url = ?, category = ?, is_favourite = ?, default_portion_g = ? WHERE id = ?",
-        name, brand, barcode, calories, protein, carbs, fat, fiber, sugar, sodium, saturated_fat, package_size, custom_portions, image_url, category, fav, default_portion_g, id
+        "UPDATE food_items SET name = ?, brand = ?, barcode = ?, calories = ?, protein = ?, carbs = ?, fat = ?, fiber = ?, sugar = ?, sodium = ?, saturated_fat = ?, package_size = ?, image_url = ?, category = ? WHERE id = ?",
+        name, brand, barcode, calories, protein, carbs, fat, fiber, sugar, sodium, saturated_fat, package_size, image_url, category, id
+    )
+    .execute(pool)
+    .await
+    .ok();
+
+    // Favourite, usual portion and custom portions are opinions and go to the
+    // editor's own row. Upsert rather than update: most foods have no
+    // preference row until someone expresses one.
+    sqlx::query!(
+        "INSERT INTO user_food_prefs (user_id, food_item_id, is_favourite, default_portion_g, custom_portions)
+         VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(user_id, food_item_id) DO UPDATE SET
+            is_favourite = excluded.is_favourite,
+            default_portion_g = excluded.default_portion_g,
+            custom_portions = excluded.custom_portions",
+        uid, id, fav, default_portion_g, custom_portions
     )
     .execute(pool)
     .await
     .ok();
 }
 
-pub async fn toggle_food_favourite(pool: &DbPool, id: i64) {
+/// Flips *this user's* favourite flag for a food, leaving everyone else's alone.
+pub async fn toggle_food_favourite(pool: &DbPool, id: i64, user: UserId) {
+    let uid = user.get();
     sqlx::query!(
-        "UPDATE food_items SET is_favourite = 1 - is_favourite WHERE id = ?",
+        "INSERT INTO user_food_prefs (user_id, food_item_id, is_favourite) VALUES (?, ?, 1)
+         ON CONFLICT(user_id, food_item_id) DO UPDATE SET is_favourite = 1 - is_favourite",
+        uid,
         id
     )
     .execute(pool)
@@ -1055,19 +1214,28 @@ pub async fn toggle_food_favourite(pool: &DbPool, id: i64) {
     .ok();
 }
 
+/// This user's logging history for one food — how much of it *they* ate, per day.
+///
+/// Scoped even though it is addressed by food id rather than entry id: the food
+/// is shared, but "when did I last eat this and how much" is not, and an
+/// unscoped `SUM(grams)` would quietly total the whole household's intake into
+/// one person's history chart.
 pub async fn get_item_log_history(
     pool: &DbPool,
     id: i64,
     start: &str,
     end: &str,
+    user: UserId,
 ) -> Vec<(String, f64)> {
+    let uid = user.get();
     sqlx::query!(
         r#"SELECT date as "date!", SUM(grams) as "grams!: f64" FROM meal_entries
-        WHERE food_item_id = ? AND date >= ? AND date <= ?
+        WHERE food_item_id = ? AND date >= ? AND date <= ? AND user_id = ?
         GROUP BY date ORDER BY date ASC"#,
         id,
         start,
-        end
+        end,
+        uid
     )
     .fetch_all(pool)
     .await
@@ -1077,10 +1245,15 @@ pub async fn get_item_log_history(
     .collect()
 }
 
-pub async fn get_meal_entries_for_date(pool: &DbPool, date: &str) -> Vec<MealEntryWithFood> {
+pub async fn get_meal_entries_for_date(
+    pool: &DbPool,
+    date: &str,
+    user: UserId,
+) -> Vec<MealEntryWithFood> {
+    let uid = user.get();
     let rows = sqlx::query!(
         r#"SELECT
-            me.id as entry_id,
+            me.id as "entry_id!",
             me.food_item_id,
             fi.name as food_name,
             me.grams,
@@ -1095,9 +1268,10 @@ pub async fn get_meal_entries_for_date(pool: &DbPool, date: &str) -> Vec<MealEnt
             fi.saturated_fat as base_saturated_fat
         FROM meal_entries me
         JOIN food_items fi ON fi.id = me.food_item_id
-        WHERE me.date = ?
+        WHERE me.date = ? AND me.user_id = ?
         ORDER BY me.created_at ASC"#,
-        date
+        date,
+        uid
     )
     .fetch_all(pool)
     .await
@@ -1125,27 +1299,40 @@ pub async fn get_meal_entries_for_date(pool: &DbPool, date: &str) -> Vec<MealEnt
         .collect()
 }
 
+/// Logs a food to a user's day.
+///
+/// `food_item_id` and the user id are both bare integers on the way in, which
+/// is precisely why [`UserId`] is a newtype — transposing them here would file
+/// the entry under a user id that happens to be a food id.
 pub async fn insert_meal_entry(
     pool: &DbPool,
     food_item_id: i64,
     date: &str,
     grams: f64,
     slot: &str,
+    user: UserId,
 ) -> Result<i64, sqlx::Error> {
+    let uid = user.get();
     let id = sqlx::query!(
-        "INSERT INTO meal_entries (food_item_id, date, grams, slot) VALUES (?, ?, ?, ?) RETURNING id",
+        "INSERT INTO meal_entries (food_item_id, date, grams, slot, user_id) VALUES (?, ?, ?, ?, ?) RETURNING id",
         food_item_id,
         date,
         grams,
-        slot
+        slot,
+        uid
     )
     .fetch_one(pool)
     .await?
     .id;
-    Ok(id.ok_or_else(|| sqlx::Error::RowNotFound)?)
+    id.ok_or(sqlx::Error::RowNotFound)
 }
 
-pub async fn get_recent_foods(pool: &DbPool, limit: i64) -> Vec<crate::models::RecentFood> {
+pub async fn get_recent_foods(
+    pool: &DbPool,
+    limit: i64,
+    user: UserId,
+) -> Vec<crate::models::RecentFood> {
+    let uid = user.get();
     // Bare columns + MAX() in SQLite resolve to the max row's values; the
     // annotated alias can't be referenced by name, so ORDER BY ordinal 5.
     sqlx::query!(
@@ -1154,9 +1341,11 @@ pub async fn get_recent_foods(pool: &DbPool, limit: i64) -> Vec<crate::models::R
                   MAX(me.created_at || '-' || printf('%012d', me.id)) as "latest!: String"
         FROM meal_entries me
         JOIN food_items fi ON fi.id = me.food_item_id
+        WHERE me.user_id = ?
         GROUP BY me.food_item_id
         ORDER BY 5 DESC
         LIMIT ?"#,
+        uid,
         limit
     )
     .fetch_all(pool)
@@ -1172,9 +1361,25 @@ pub async fn get_recent_foods(pool: &DbPool, limit: i64) -> Vec<crate::models::R
     .collect()
 }
 
-pub async fn get_food_item_by_barcode(pool: &DbPool, barcode: &str) -> Option<FoodItem> {
-    sqlx::query_as!(FoodItem,
-        "SELECT id, name, brand, barcode, calories, protein, carbs, fat, fiber, sugar, sodium, saturated_fat, package_size, custom_portions, image_url, category, is_favourite, default_portion_g, created_at FROM food_items WHERE barcode = ?",
+pub async fn get_food_item_by_barcode(
+    pool: &DbPool,
+    barcode: &str,
+    user: UserId,
+) -> Option<FoodItem> {
+    let uid = user.get();
+    sqlx::query_as!(
+        FoodItem,
+        r#"SELECT
+            fi.id, fi.name, fi.brand, fi.barcode, fi.calories, fi.protein, fi.carbs,
+            fi.fat, fi.fiber, fi.sugar, fi.sodium, fi.saturated_fat, fi.package_size,
+            COALESCE(p.custom_portions, '') as "custom_portions!",
+            fi.image_url, fi.category,
+            COALESCE(p.is_favourite, 0) as "is_favourite!",
+            p.default_portion_g, fi.created_at
+        FROM food_items fi
+        LEFT JOIN user_food_prefs p ON p.food_item_id = fi.id AND p.user_id = ?
+        WHERE fi.barcode = ?"#,
+        uid,
         barcode
     )
     .fetch_optional(pool)
@@ -1183,9 +1388,11 @@ pub async fn get_food_item_by_barcode(pool: &DbPool, barcode: &str) -> Option<Fo
     .flatten()
 }
 
-pub async fn upsert_weight(pool: &DbPool, date: &str, kg: f64) {
+pub async fn upsert_weight(pool: &DbPool, date: &str, kg: f64, user: UserId) {
+    let uid = user.get();
     sqlx::query!(
-        "INSERT INTO weights (date, kg) VALUES (?, ?) ON CONFLICT(date) DO UPDATE SET kg = excluded.kg",
+        "INSERT INTO weights (user_id, date, kg) VALUES (?, ?, ?) ON CONFLICT(user_id, date) DO UPDATE SET kg = excluded.kg",
+        uid,
         date,
         kg
     )
@@ -1194,10 +1401,12 @@ pub async fn upsert_weight(pool: &DbPool, date: &str, kg: f64) {
     .ok();
 }
 
-pub async fn get_weights_since(pool: &DbPool, start: &str) -> Vec<(String, f64)> {
+pub async fn get_weights_since(pool: &DbPool, start: &str, user: UserId) -> Vec<(String, f64)> {
+    let uid = user.get();
     sqlx::query!(
-        r#"SELECT date as "date!", kg as "kg!: f64" FROM weights WHERE date >= ? ORDER BY date ASC"#,
-        start
+        r#"SELECT date as "date!", kg as "kg!: f64" FROM weights WHERE date >= ? AND user_id = ? ORDER BY date ASC"#,
+        start,
+        uid
     )
     .fetch_all(pool)
     .await
@@ -1207,9 +1416,11 @@ pub async fn get_weights_since(pool: &DbPool, start: &str) -> Vec<(String, f64)>
     .collect()
 }
 
-pub async fn get_latest_weight(pool: &DbPool) -> Option<(String, f64)> {
+pub async fn get_latest_weight(pool: &DbPool, user: UserId) -> Option<(String, f64)> {
+    let uid = user.get();
     sqlx::query!(
-        r#"SELECT date as "date!", kg as "kg!: f64" FROM weights ORDER BY date DESC LIMIT 1"#
+        r#"SELECT date as "date!", kg as "kg!: f64" FROM weights WHERE user_id = ? ORDER BY date DESC LIMIT 1"#,
+        uid
     )
     .fetch_optional(pool)
     .await
@@ -1218,18 +1429,25 @@ pub async fn get_latest_weight(pool: &DbPool) -> Option<(String, f64)> {
     .map(|r| (r.date, r.kg))
 }
 
+// The five aggregates below are the easiest to get wrong: none of them mentions
+// an entry id, so an unscoped version reads as a perfectly sensible query and
+// silently totals the whole household into one person's charts and streaks.
+
 pub async fn get_protein_by_date_range(
     pool: &DbPool,
     start: &str,
     end: &str,
+    user: UserId,
 ) -> Vec<(String, f64)> {
+    let uid = user.get();
     sqlx::query!(
         r#"SELECT me.date as "date!", SUM(me.grams / 100.0 * fi.protein) as "protein!: f64"
         FROM meal_entries me JOIN food_items fi ON fi.id = me.food_item_id
-        WHERE me.date >= ? AND me.date <= ?
+        WHERE me.date >= ? AND me.date <= ? AND me.user_id = ?
         GROUP BY me.date ORDER BY me.date ASC"#,
         start,
-        end
+        end,
+        uid
     )
     .fetch_all(pool)
     .await
@@ -1239,9 +1457,11 @@ pub async fn get_protein_by_date_range(
     .collect()
 }
 
-pub async fn get_logged_dates_desc(pool: &DbPool, limit: i64) -> Vec<String> {
+pub async fn get_logged_dates_desc(pool: &DbPool, limit: i64, user: UserId) -> Vec<String> {
+    let uid = user.get();
     sqlx::query!(
-        r#"SELECT DISTINCT date as "date!" FROM meal_entries ORDER BY date DESC LIMIT ?"#,
+        r#"SELECT DISTINCT date as "date!" FROM meal_entries WHERE user_id = ? ORDER BY date DESC LIMIT ?"#,
+        uid,
         limit
     )
     .fetch_all(pool)
@@ -1257,15 +1477,18 @@ pub async fn get_most_logged_between(
     start: &str,
     end: &str,
     limit: i64,
+    user: UserId,
 ) -> Vec<(String, i64)> {
+    let uid = user.get();
     // ORDER BY ordinal 2: the annotated count alias can't be named in ORDER BY
     sqlx::query!(
         r#"SELECT fi.name as "name!", COUNT(*) as "n!: i64"
         FROM meal_entries me JOIN food_items fi ON fi.id = me.food_item_id
-        WHERE me.date >= ? AND me.date <= ?
+        WHERE me.date >= ? AND me.date <= ? AND me.user_id = ?
         GROUP BY me.food_item_id ORDER BY 2 DESC, fi.name ASC LIMIT ?"#,
         start,
         end,
+        uid,
         limit
     )
     .fetch_all(pool)
@@ -1281,12 +1504,15 @@ pub async fn create_recipe_from_slot(
     name: &str,
     date: &str,
     slot: &str,
+    user: UserId,
 ) -> Option<i64> {
+    let uid = user.get();
     let mut tx = pool.begin().await.ok()?;
     let rows = sqlx::query!(
-        "SELECT food_item_id, grams FROM meal_entries WHERE date = ? AND slot = ?",
+        "SELECT food_item_id, grams FROM meal_entries WHERE date = ? AND slot = ? AND user_id = ?",
         date,
-        slot
+        slot,
+        uid
     )
     .fetch_all(&mut *tx)
     .await
@@ -1294,11 +1520,15 @@ pub async fn create_recipe_from_slot(
     if rows.is_empty() {
         return None;
     }
-    let rid = sqlx::query!("INSERT INTO recipes (name) VALUES (?) RETURNING id", name)
-        .fetch_one(&mut *tx)
-        .await
-        .ok()?
-        .id;
+    let rid = sqlx::query!(
+        "INSERT INTO recipes (name, user_id) VALUES (?, ?) RETURNING id",
+        name,
+        uid
+    )
+    .fetch_one(&mut *tx)
+    .await
+    .ok()?
+    .id;
     for r in rows {
         sqlx::query!(
             "INSERT INTO recipe_items (recipe_id, food_item_id, grams) VALUES (?, ?, ?)",
@@ -1314,7 +1544,11 @@ pub async fn create_recipe_from_slot(
     Some(rid)
 }
 
-pub async fn get_recipes_with_totals(pool: &DbPool) -> Vec<crate::models::RecipeWithTotals> {
+pub async fn get_recipes_with_totals(
+    pool: &DbPool,
+    user: UserId,
+) -> Vec<crate::models::RecipeWithTotals> {
+    let uid = user.get();
     sqlx::query!(
         r#"SELECT r.id as "id!", r.name as "name!",
                   COUNT(ri.id) as "item_count!: i64",
@@ -1322,7 +1556,9 @@ pub async fn get_recipes_with_totals(pool: &DbPool) -> Vec<crate::models::Recipe
         FROM recipes r
         LEFT JOIN recipe_items ri ON ri.recipe_id = r.id
         LEFT JOIN food_items fi ON fi.id = ri.food_item_id
-        GROUP BY r.id ORDER BY r.name ASC"#
+        WHERE r.user_id = ?
+        GROUP BY r.id ORDER BY r.name ASC"#,
+        uid
     )
     .fetch_all(pool)
     .await
@@ -1337,13 +1573,26 @@ pub async fn get_recipes_with_totals(pool: &DbPool) -> Vec<crate::models::Recipe
     .collect()
 }
 
-pub async fn log_recipe(pool: &DbPool, id: i64, date: &str, slot: &str) -> u64 {
+/// Logs a saved recipe into a day.
+///
+/// The `r.user_id = ?` in the SELECT is the access check: logging a recipe id
+/// belonging to someone else matches no rows and inserts nothing, rather than
+/// copying their meal into your day. The new entries are stamped with the
+/// logger's id, not the recipe owner's — they are the same person here, but
+/// writing it explicitly keeps that true if the ownership rule ever loosens.
+pub async fn log_recipe(pool: &DbPool, id: i64, date: &str, slot: &str, user: UserId) -> u64 {
+    let uid = user.get();
     sqlx::query!(
-        "INSERT INTO meal_entries (food_item_id, date, grams, slot)
-         SELECT food_item_id, ?, grams, ? FROM recipe_items WHERE recipe_id = ?",
+        "INSERT INTO meal_entries (food_item_id, date, grams, slot, user_id)
+         SELECT ri.food_item_id, ?, ri.grams, ?, ?
+         FROM recipe_items ri
+         JOIN recipes r ON r.id = ri.recipe_id
+         WHERE ri.recipe_id = ? AND r.user_id = ?",
         date,
         slot,
-        id
+        uid,
+        id,
+        uid
     )
     .execute(pool)
     .await
@@ -1351,23 +1600,46 @@ pub async fn log_recipe(pool: &DbPool, id: i64, date: &str, slot: &str) -> u64 {
     .unwrap_or(0)
 }
 
-pub async fn delete_recipe(pool: &DbPool, id: i64) {
-    sqlx::query!("DELETE FROM recipe_items WHERE recipe_id = ?", id)
+/// Deletes one of this user's recipes. Someone else's id deletes nothing.
+///
+/// The child rows go first but are gated on the parent's ownership via
+/// `EXISTS` — otherwise passing another user's recipe id would strip its items
+/// while leaving the recipe itself standing, which is worse than either
+/// deleting it or refusing.
+pub async fn delete_recipe(pool: &DbPool, id: i64, user: UserId) -> bool {
+    let uid = user.get();
+    sqlx::query!(
+        "DELETE FROM recipe_items WHERE recipe_id = ?
+         AND EXISTS (SELECT 1 FROM recipes r WHERE r.id = ? AND r.user_id = ?)",
+        id,
+        id,
+        uid
+    )
+    .execute(pool)
+    .await
+    .ok();
+    sqlx::query!("DELETE FROM recipes WHERE id = ? AND user_id = ?", id, uid)
         .execute(pool)
         .await
-        .ok();
-    sqlx::query!("DELETE FROM recipes WHERE id = ?", id)
-        .execute(pool)
-        .await
-        .ok();
+        .map(|r| r.rows_affected() > 0)
+        .unwrap_or(false)
 }
 
-pub async fn copy_day_entries(pool: &DbPool, from_date: &str, to_date: &str) -> u64 {
+/// Copies a day's entries onto another date, within one user's log.
+///
+/// Scoped on both ends: the `WHERE` picks up only the copier's rows, and the
+/// inserted rows carry their id. Unscoped, this was the sharpest of the
+/// aggregate-shaped functions — it would have copied *everyone's* meals for
+/// that date into one person's day.
+pub async fn copy_day_entries(pool: &DbPool, from_date: &str, to_date: &str, user: UserId) -> u64 {
+    let uid = user.get();
     sqlx::query!(
-        "INSERT INTO meal_entries (food_item_id, date, grams, slot)
-         SELECT food_item_id, ?, grams, slot FROM meal_entries WHERE date = ?",
+        "INSERT INTO meal_entries (food_item_id, date, grams, slot, user_id)
+         SELECT food_item_id, ?, grams, slot, ? FROM meal_entries WHERE date = ? AND user_id = ?",
         to_date,
-        from_date
+        uid,
+        from_date,
+        uid
     )
     .execute(pool)
     .await
@@ -1379,16 +1651,19 @@ pub async fn get_calories_by_date_range(
     pool: &DbPool,
     start: &str,
     end: &str,
+    user: UserId,
 ) -> Vec<(String, f64)> {
+    let uid = user.get();
     sqlx::query!(
         r#"SELECT me.date as "date!", SUM(me.grams / 100.0 * fi.calories) as "cal!: f64"
         FROM meal_entries me
         JOIN food_items fi ON fi.id = me.food_item_id
-        WHERE me.date >= ? AND me.date <= ?
+        WHERE me.date >= ? AND me.date <= ? AND me.user_id = ?
         GROUP BY me.date
         ORDER BY me.date ASC"#,
         start,
-        end
+        end,
+        uid
     )
     .fetch_all(pool)
     .await
@@ -1398,23 +1673,52 @@ pub async fn get_calories_by_date_range(
     .collect()
 }
 
-pub async fn update_meal_entry(pool: &DbPool, id: i64, grams: f64, slot: &str) {
+// The three functions below are addressed by entry id, and entry ids are
+// sequential integers. `AND user_id = ?` is not decoration — without it,
+// `PUT /api/nutrition/entries/41` edits whoever's entry 41 happens to be, and
+// the ids worth trying are the ones either side of your own.
+//
+// The two mutations report whether they touched anything. The HTMX handlers
+// deliberately ignore that and re-render the caller's own day either way: on a
+// fragment endpoint a 404 would leave the UI stale after an ordinary double
+// click, and the response is the caller's unchanged day regardless, so a probe
+// learns nothing from it. The bool is what lets the tests assert the no-op
+// actually happened rather than inferring it from a lack of visible change.
+// `get_meal_entry` returns `None`, which `entry_edit_form` turns into the same
+// 404 an unknown id gets.
+
+pub async fn update_meal_entry(
+    pool: &DbPool,
+    id: i64,
+    grams: f64,
+    slot: &str,
+    user: UserId,
+) -> bool {
+    let uid = user.get();
     sqlx::query!(
-        "UPDATE meal_entries SET grams = ?, slot = ? WHERE id = ?",
+        "UPDATE meal_entries SET grams = ?, slot = ? WHERE id = ? AND user_id = ?",
         grams,
         slot,
-        id
+        id,
+        uid
     )
     .execute(pool)
     .await
-    .ok();
+    .map(|r| r.rows_affected() > 0)
+    .unwrap_or(false)
 }
 
-pub async fn get_meal_entry(pool: &DbPool, id: i64) -> Option<crate::models::MealEntry> {
+pub async fn get_meal_entry(
+    pool: &DbPool,
+    id: i64,
+    user: UserId,
+) -> Option<crate::models::MealEntry> {
+    let uid = user.get();
     sqlx::query_as!(
         crate::models::MealEntry,
-        r#"SELECT id, food_item_id, date, grams, slot as "slot!", created_at FROM meal_entries WHERE id = ?"#,
-        id
+        r#"SELECT id, food_item_id, date, grams, slot as "slot!", created_at FROM meal_entries WHERE id = ? AND user_id = ?"#,
+        id,
+        uid
     )
     .fetch_optional(pool)
     .await
@@ -1422,16 +1726,30 @@ pub async fn get_meal_entry(pool: &DbPool, id: i64) -> Option<crate::models::Mea
     .flatten()
 }
 
-pub async fn delete_meal_entry(pool: &DbPool, id: i64) {
-    sqlx::query!("DELETE FROM meal_entries WHERE id = ?", id)
-        .execute(pool)
-        .await
-        .ok();
+pub async fn delete_meal_entry(pool: &DbPool, id: i64, user: UserId) -> bool {
+    let uid = user.get();
+    sqlx::query!(
+        "DELETE FROM meal_entries WHERE id = ? AND user_id = ?",
+        id,
+        uid
+    )
+    .execute(pool)
+    .await
+    .map(|r| r.rows_affected() > 0)
+    .unwrap_or(false)
 }
 
-pub async fn get_targets(pool: &DbPool) -> Targets {
+/// This user's macro targets, or the house defaults if they have not set any.
+///
+/// The fallback is what makes migration 018 safe to ship without seeding a row
+/// per user: a new account has no `targets` row and reads the same defaults the
+/// single-user version shipped with, rather than zeroes that would divide the
+/// progress rings by nothing.
+pub async fn get_targets(pool: &DbPool, user: UserId) -> Targets {
+    let uid = user.get();
     sqlx::query_as!(Targets,
-        r#"SELECT calories as "calories!", protein as "protein!", carbs as "carbs!", fat as "fat!" FROM targets WHERE id = 1"#
+        r#"SELECT calories as "calories!", protein as "protein!", carbs as "carbs!", fat as "fat!" FROM targets WHERE user_id = ?"#,
+        uid
     )
     .fetch_optional(pool)
     .await
@@ -1440,11 +1758,20 @@ pub async fn get_targets(pool: &DbPool) -> Targets {
     .unwrap_or(Targets { calories: 2400.0, protein: 165.0, carbs: 260.0, fat: 72.0 })
 }
 
-pub async fn set_targets(pool: &DbPool, calories: f64, protein: f64, carbs: f64, fat: f64) {
+pub async fn set_targets(
+    pool: &DbPool,
+    calories: f64,
+    protein: f64,
+    carbs: f64,
+    fat: f64,
+    user: UserId,
+) {
+    let uid = user.get();
     sqlx::query!(
-        "INSERT INTO targets (id, calories, protein, carbs, fat) VALUES (1, ?, ?, ?, ?)
-         ON CONFLICT(id) DO UPDATE SET calories = excluded.calories, protein = excluded.protein,
+        "INSERT INTO targets (user_id, calories, protein, carbs, fat) VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(user_id) DO UPDATE SET calories = excluded.calories, protein = excluded.protein,
          carbs = excluded.carbs, fat = excluded.fat",
+        uid,
         calories,
         protein,
         carbs,
@@ -1629,7 +1956,33 @@ pub async fn get_task_types(pool: &DbPool) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
+    /// The seeded owner. Every pre-multi-user test is written from their
+    /// point of view, so they keep asserting exactly what they asserted before.
+    const OWNER: UserId = UserId(1);
+
     use super::*;
+
+    /// Creates a second account and returns its [`UserId`].
+    async fn other_user(pool: &DbPool, name: &str) -> UserId {
+        let id = sqlx::query_scalar::<_, i64>(
+            "INSERT INTO users (name, is_owner, is_admin) VALUES (?, 0, 0) RETURNING id",
+        )
+        .bind(name)
+        .fetch_one(pool)
+        .await
+        .unwrap();
+        UserId(id)
+    }
+
+    /// Adds a food to the shared catalog, returning its id.
+    async fn seed_food(pool: &DbPool, name: &str, cal: f64, protein: f64, by: UserId) -> i64 {
+        insert_food_item(
+            pool, name, "Generic", None, cal, protein, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, None, "", "",
+            by,
+        )
+        .await
+        .id
+    }
 
     async fn test_pool() -> DbPool {
         let pool = SqlitePoolOptions::new()
@@ -1706,6 +2059,315 @@ mod tests {
         let pool = test_pool().await;
         create_session(&pool, "expired-id", "2000-01-01T00:00:00", 1).await;
         assert!(get_session(&pool, "expired-id").await.is_none());
+    }
+
+    // ── Multi-user isolation (pack 2) ────────────────────────────────────────
+
+    /// The pack's headline claim: two people logging the same day see only
+    /// their own food, weight and targets.
+    #[tokio::test]
+    async fn test_two_users_do_not_see_each_others_day() {
+        let pool = test_pool().await;
+        let alex = other_user(&pool, "alex").await;
+        let chicken = seed_food(&pool, "Chicken", 165.0, 31.0, OWNER).await;
+        let oats = seed_food(&pool, "Oats", 380.0, 13.0, OWNER).await;
+
+        insert_meal_entry(&pool, chicken, "2026-08-16", 200.0, "lunch", OWNER)
+            .await
+            .unwrap();
+        insert_meal_entry(&pool, oats, "2026-08-16", 80.0, "breakfast", alex)
+            .await
+            .unwrap();
+
+        let owner_day = get_meal_entries_for_date(&pool, "2026-08-16", OWNER).await;
+        let alex_day = get_meal_entries_for_date(&pool, "2026-08-16", alex).await;
+        assert_eq!(owner_day.len(), 1);
+        assert_eq!(alex_day.len(), 1);
+        assert_eq!(owner_day[0].food_name, "Chicken");
+        assert_eq!(alex_day[0].food_name, "Oats");
+
+        // Weights: the old schema had `date` as the primary key, so this pair
+        // of writes would have been one row before the rebuild.
+        upsert_weight(&pool, "2026-08-16", 82.0, OWNER).await;
+        upsert_weight(&pool, "2026-08-16", 61.5, alex).await;
+        assert_eq!(get_latest_weight(&pool, OWNER).await.unwrap().1, 82.0);
+        assert_eq!(get_latest_weight(&pool, alex).await.unwrap().1, 61.5);
+
+        // Targets: likewise a single `CHECK (id = 1)` row before.
+        set_targets(&pool, 3000.0, 200.0, 300.0, 90.0, OWNER).await;
+        set_targets(&pool, 1800.0, 120.0, 180.0, 60.0, alex).await;
+        assert_eq!(get_targets(&pool, OWNER).await.calories, 3000.0);
+        assert_eq!(get_targets(&pool, alex).await.calories, 1800.0);
+    }
+
+    /// A user with no targets row gets the house defaults, not zeroes.
+    ///
+    /// Migration 018 seeds no row per user, so this is what a brand-new account
+    /// reads on its first visit — zeroes would divide the progress rings by
+    /// nothing and render the day as infinitely over target.
+    #[tokio::test]
+    async fn test_new_user_gets_default_targets() {
+        let pool = test_pool().await;
+        let alex = other_user(&pool, "alex").await;
+        let t = get_targets(&pool, alex).await;
+        assert_eq!(t.calories, 2400.0);
+        assert_eq!(t.protein, 165.0);
+    }
+
+    /// **The IDOR test.** Entry ids are sequential, so the ids worth trying are
+    /// the ones either side of your own.
+    ///
+    /// Accepting a `UserId` is not the same as using it: each of these
+    /// functions would compile, typecheck and pass every single-user test with
+    /// the owner filter missing from its `WHERE` clause. This is the test that
+    /// notices.
+    #[tokio::test]
+    async fn test_entry_addressed_by_id_is_not_reachable_by_another_user() {
+        let pool = test_pool().await;
+        let alex = other_user(&pool, "alex").await;
+        let chicken = seed_food(&pool, "Chicken", 165.0, 31.0, OWNER).await;
+
+        let victim = insert_meal_entry(&pool, chicken, "2026-08-16", 200.0, "lunch", OWNER)
+            .await
+            .unwrap();
+
+        // Read: invisible.
+        assert!(
+            get_meal_entry(&pool, victim, alex).await.is_none(),
+            "another user's entry must not be readable by id"
+        );
+        assert!(get_meal_entry(&pool, victim, OWNER).await.is_some());
+
+        // Update: refused, and genuinely unchanged.
+        assert!(
+            !update_meal_entry(&pool, victim, 999.0, "dinner", alex).await,
+            "another user's entry must not be editable by id"
+        );
+        let after = get_meal_entry(&pool, victim, OWNER).await.unwrap();
+        assert_eq!(after.grams, 200.0, "the victim's entry was modified");
+        assert_eq!(after.slot, "lunch");
+
+        // Delete: refused, and still there.
+        assert!(
+            !delete_meal_entry(&pool, victim, alex).await,
+            "another user's entry must not be deletable by id"
+        );
+        assert!(get_meal_entry(&pool, victim, OWNER).await.is_some());
+
+        // The owner can still do all three — the gate is ownership, not a
+        // blanket refusal.
+        assert!(update_meal_entry(&pool, victim, 250.0, "dinner", OWNER).await);
+        assert!(delete_meal_entry(&pool, victim, OWNER).await);
+        assert!(get_meal_entry(&pool, victim, OWNER).await.is_none());
+    }
+
+    /// Recipes are private; logging or deleting someone else's does nothing.
+    #[tokio::test]
+    async fn test_recipes_are_private_to_their_owner() {
+        let pool = test_pool().await;
+        let alex = other_user(&pool, "alex").await;
+        let chicken = seed_food(&pool, "Chicken", 165.0, 31.0, OWNER).await;
+        insert_meal_entry(&pool, chicken, "2026-08-16", 200.0, "lunch", OWNER)
+            .await
+            .unwrap();
+
+        let rid = create_recipe_from_slot(&pool, "Owner's lunch", "2026-08-16", "lunch", OWNER)
+            .await
+            .expect("recipe created");
+
+        assert_eq!(get_recipes_with_totals(&pool, OWNER).await.len(), 1);
+        assert!(
+            get_recipes_with_totals(&pool, alex).await.is_empty(),
+            "recipes must not be listed to other users"
+        );
+
+        // Logging someone else's recipe inserts nothing.
+        assert_eq!(
+            log_recipe(&pool, rid, "2026-08-17", "dinner", alex).await,
+            0,
+            "another user's recipe must not be loggable"
+        );
+        assert!(get_meal_entries_for_date(&pool, "2026-08-17", alex)
+            .await
+            .is_empty());
+
+        // Deleting someone else's does nothing, and leaves it intact.
+        assert!(!delete_recipe(&pool, rid, alex).await);
+        assert_eq!(get_recipes_with_totals(&pool, OWNER).await.len(), 1);
+
+        // The owner's own calls work.
+        assert_eq!(
+            log_recipe(&pool, rid, "2026-08-17", "dinner", OWNER).await,
+            1
+        );
+        assert!(delete_recipe(&pool, rid, OWNER).await);
+    }
+
+    /// The catalog is shared; the opinions about it are not.
+    #[tokio::test]
+    async fn test_catalog_is_shared_but_preferences_are_not() {
+        let pool = test_pool().await;
+        let alex = other_user(&pool, "alex").await;
+        let oats = seed_food(&pool, "Oats", 380.0, 13.0, OWNER).await;
+
+        // Shared: a food added by one is visible to the other.
+        assert_eq!(get_food_items(&pool, alex).await.len(), 1);
+        assert_eq!(search_food_items(&pool, "Oat", alex).await.len(), 1);
+
+        // Not shared: favouriting is personal.
+        toggle_food_favourite(&pool, oats, OWNER).await;
+        assert_eq!(
+            get_food_item(&pool, oats, OWNER)
+                .await
+                .unwrap()
+                .is_favourite,
+            1
+        );
+        assert_eq!(
+            get_food_item(&pool, oats, alex).await.unwrap().is_favourite,
+            0,
+            "one user's favourite must not become everyone's"
+        );
+
+        // Alex favourites it too; both are true independently, and un-
+        // favouriting one leaves the other alone.
+        toggle_food_favourite(&pool, oats, alex).await;
+        assert_eq!(
+            get_food_item(&pool, oats, alex).await.unwrap().is_favourite,
+            1
+        );
+        toggle_food_favourite(&pool, oats, alex).await;
+        assert_eq!(
+            get_food_item(&pool, oats, alex).await.unwrap().is_favourite,
+            0
+        );
+        assert_eq!(
+            get_food_item(&pool, oats, OWNER)
+                .await
+                .unwrap()
+                .is_favourite,
+            1,
+            "the owner's favourite survived another user toggling theirs"
+        );
+
+        // A food with no preference row at all reads as "no opinion" rather
+        // than dropping out of the catalog — the LEFT JOIN, not an INNER one.
+        let fresh = seed_food(&pool, "Rice", 130.0, 2.7, OWNER).await;
+        let seen = get_food_item(&pool, fresh, alex)
+            .await
+            .expect("still listed");
+        assert_eq!(seen.is_favourite, 0);
+        assert_eq!(seen.custom_portions, "");
+        assert_eq!(seen.default_portion_g, None);
+    }
+
+    /// Editing a food writes shared facts to the catalog and personal ones to
+    /// the editor's own preference row.
+    #[tokio::test]
+    async fn test_food_edit_splits_shared_facts_from_personal_opinions() {
+        let pool = test_pool().await;
+        let alex = other_user(&pool, "alex").await;
+        let oats = seed_food(&pool, "Oats", 380.0, 13.0, OWNER).await;
+
+        update_food_item(
+            &pool,
+            oats,
+            "Rolled Oats",
+            "Quaker",
+            None,
+            370.0,
+            13.5,
+            60.0,
+            7.0,
+            10.0,
+            1.0,
+            5.0,
+            2.0,
+            None,
+            "40,80",
+            "",
+            "grains",
+            true,
+            Some(80.0),
+            OWNER,
+        )
+        .await;
+
+        // Shared: Alex sees the corrected nutrition facts and the new name.
+        let as_alex = get_food_item(&pool, oats, alex).await.unwrap();
+        assert_eq!(as_alex.name, "Rolled Oats");
+        assert_eq!(as_alex.calories, 370.0);
+        assert_eq!(as_alex.category, "grains");
+
+        // Personal: the favourite flag and portions stayed with the owner.
+        assert_eq!(as_alex.is_favourite, 0);
+        assert_eq!(as_alex.custom_portions, "");
+        assert_eq!(as_alex.default_portion_g, None);
+
+        let as_owner = get_food_item(&pool, oats, OWNER).await.unwrap();
+        assert_eq!(as_owner.is_favourite, 1);
+        assert_eq!(as_owner.custom_portions, "40,80");
+        assert_eq!(as_owner.default_portion_g, Some(80.0));
+    }
+
+    /// The aggregates — the ones with no entry id in sight, which read as
+    /// perfectly sensible queries while silently totalling the household.
+    #[tokio::test]
+    async fn test_aggregates_and_copy_day_are_scoped() {
+        let pool = test_pool().await;
+        let alex = other_user(&pool, "alex").await;
+        let chicken = seed_food(&pool, "Chicken", 165.0, 31.0, OWNER).await;
+        let oats = seed_food(&pool, "Oats", 380.0, 13.0, OWNER).await;
+
+        insert_meal_entry(&pool, chicken, "2026-08-16", 100.0, "lunch", OWNER)
+            .await
+            .unwrap();
+        for d in ["2026-08-14", "2026-08-15", "2026-08-16"] {
+            insert_meal_entry(&pool, oats, d, 100.0, "breakfast", alex)
+                .await
+                .unwrap();
+        }
+
+        // Calories and protein by range: each sees only their own totals.
+        let owner_cal = get_calories_by_date_range(&pool, "2026-08-10", "2026-08-20", OWNER).await;
+        assert_eq!(owner_cal.len(), 1);
+        assert_eq!(owner_cal[0].1, 165.0);
+        let alex_cal = get_calories_by_date_range(&pool, "2026-08-10", "2026-08-20", alex).await;
+        assert_eq!(alex_cal.len(), 3);
+        assert_eq!(alex_cal[0].1, 380.0);
+
+        let owner_protein =
+            get_protein_by_date_range(&pool, "2026-08-10", "2026-08-20", OWNER).await;
+        assert_eq!(owner_protein.len(), 1);
+        assert_eq!(owner_protein[0].1, 31.0);
+
+        // Logged dates drive the streak: the owner logged one day, not three.
+        assert_eq!(get_logged_dates_desc(&pool, 10, OWNER).await.len(), 1);
+        assert_eq!(get_logged_dates_desc(&pool, 10, alex).await.len(), 3);
+
+        // Most-logged and recents.
+        let top = get_most_logged_between(&pool, "2026-08-10", "2026-08-20", 5, OWNER).await;
+        assert_eq!(top, vec![("Chicken".to_string(), 1)]);
+        let alex_recent = get_recent_foods(&pool, 10, alex).await;
+        assert_eq!(alex_recent.len(), 1);
+        assert_eq!(alex_recent[0].name, "Oats");
+
+        // Per-food history is personal even though the food is shared.
+        let hist = get_item_log_history(&pool, oats, "2026-08-10", "2026-08-20", OWNER).await;
+        assert!(
+            hist.is_empty(),
+            "the owner never ate Oats — Alex's grams must not appear in their history"
+        );
+
+        // Copy-day copies only the copier's own rows.
+        let copied = copy_day_entries(&pool, "2026-08-16", "2026-08-20", OWNER).await;
+        assert_eq!(copied, 1, "copy-day must not sweep up other users' entries");
+        let dest = get_meal_entries_for_date(&pool, "2026-08-20", OWNER).await;
+        assert_eq!(dest.len(), 1);
+        assert_eq!(dest[0].food_name, "Chicken");
+        assert!(get_meal_entries_for_date(&pool, "2026-08-20", alex)
+            .await
+            .is_empty());
     }
 
     /// `run_migrations` runs on every boot, and 015 is one of the few that
@@ -2173,12 +2835,13 @@ mod tests {
             None,
             "",
             "",
+            OWNER,
         )
         .await;
         assert_eq!(item.name, "Chicken Breast");
         assert_eq!(item.calories, 165.0);
         assert!(item.barcode.is_none());
-        let items = get_food_items(&pool).await;
+        let items = get_food_items(&pool, OWNER).await;
         assert_eq!(items.len(), 1);
     }
 
@@ -2201,6 +2864,7 @@ mod tests {
             None,
             "",
             "",
+            OWNER,
         )
         .await;
         insert_food_item(
@@ -2219,9 +2883,10 @@ mod tests {
             None,
             "",
             "",
+            OWNER,
         )
         .await;
-        let results = search_food_items(&pool, "chicken").await;
+        let results = search_food_items(&pool, "chicken", OWNER).await;
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].name, "Chicken Breast");
     }
@@ -2245,11 +2910,12 @@ mod tests {
             None,
             "",
             "https://example.com/img.jpg",
+            OWNER,
         )
         .await;
         let url = delete_food_item(&pool, item.id).await;
         assert_eq!(url, Some("https://example.com/img.jpg".to_string()));
-        assert!(get_food_items(&pool).await.is_empty());
+        assert!(get_food_items(&pool, OWNER).await.is_empty());
     }
 
     #[tokio::test]
@@ -2271,12 +2937,13 @@ mod tests {
             None,
             "",
             "",
+            OWNER,
         )
         .await;
-        insert_meal_entry(&pool, item.id, "2026-04-09", 200.0, "other")
+        insert_meal_entry(&pool, item.id, "2026-04-09", 200.0, "other", OWNER)
             .await
             .unwrap();
-        let entries = get_meal_entries_for_date(&pool, "2026-04-09").await;
+        let entries = get_meal_entries_for_date(&pool, "2026-04-09", OWNER).await;
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].food_name, "White Rice");
         assert_eq!(entries[0].grams, 200.0);
@@ -2288,13 +2955,14 @@ mod tests {
         let pool = test_pool().await;
         let item = insert_food_item(
             &pool, "Apple", "", None, 52.0, 0.3, 14.0, 0.2, 2.4, 10.0, 1.0, 0.0, None, "", "",
+            OWNER,
         )
         .await;
-        let entry_id = insert_meal_entry(&pool, item.id, "2026-04-09", 150.0, "other")
+        let entry_id = insert_meal_entry(&pool, item.id, "2026-04-09", 150.0, "other", OWNER)
             .await
             .unwrap();
-        delete_meal_entry(&pool, entry_id).await;
-        assert!(get_meal_entries_for_date(&pool, "2026-04-09")
+        delete_meal_entry(&pool, entry_id, OWNER).await;
+        assert!(get_meal_entries_for_date(&pool, "2026-04-09", OWNER)
             .await
             .is_empty());
     }
@@ -2484,11 +3152,11 @@ mod tests {
     #[tokio::test]
     async fn test_targets_default_and_set() {
         let pool = test_pool().await;
-        let t = get_targets(&pool).await;
+        let t = get_targets(&pool, OWNER).await;
         assert_eq!(t.calories, 2400.0);
         assert_eq!(t.protein, 165.0);
-        set_targets(&pool, 2200.0, 170.0, 240.0, 70.0).await;
-        let t = get_targets(&pool).await;
+        set_targets(&pool, 2200.0, 170.0, 240.0, 70.0, OWNER).await;
+        let t = get_targets(&pool, OWNER).await;
         assert_eq!(t.calories, 2200.0);
         assert_eq!(t.fat, 70.0);
     }
@@ -2512,12 +3180,19 @@ mod tests {
             Some(450.0),
             "",
             "",
+            OWNER,
         )
         .await;
         assert_eq!(item.category, "");
         assert_eq!(item.is_favourite, 0);
-        toggle_food_favourite(&pool, item.id).await;
-        assert_eq!(get_food_item(&pool, item.id).await.unwrap().is_favourite, 1);
+        toggle_food_favourite(&pool, item.id, OWNER).await;
+        assert_eq!(
+            get_food_item(&pool, item.id, OWNER)
+                .await
+                .unwrap()
+                .is_favourite,
+            1
+        );
         update_food_item(
             &pool,
             item.id,
@@ -2538,14 +3213,21 @@ mod tests {
             "Dairy & eggs",
             true,
             Some(170.0),
+            OWNER,
         )
         .await;
-        let item = get_food_item(&pool, item.id).await.unwrap();
+        let item = get_food_item(&pool, item.id, OWNER).await.unwrap();
         assert_eq!(item.category, "Dairy & eggs");
         assert_eq!(item.is_favourite, 1);
         assert_eq!(item.default_portion_g, Some(170.0));
-        toggle_food_favourite(&pool, item.id).await;
-        assert_eq!(get_food_item(&pool, item.id).await.unwrap().is_favourite, 0);
+        toggle_food_favourite(&pool, item.id, OWNER).await;
+        assert_eq!(
+            get_food_item(&pool, item.id, OWNER)
+                .await
+                .unwrap()
+                .is_favourite,
+            0
+        );
     }
 
     #[tokio::test]
@@ -2553,18 +3235,19 @@ mod tests {
         let pool = test_pool().await;
         let item = insert_food_item(
             &pool, "Oats", "", None, 379.0, 13.0, 60.0, 6.5, 0.0, 0.0, 0.0, 0.0, None, "", "",
+            OWNER,
         )
         .await;
-        insert_meal_entry(&pool, item.id, "2026-07-30", 80.0, "breakfast")
+        insert_meal_entry(&pool, item.id, "2026-07-30", 80.0, "breakfast", OWNER)
             .await
             .unwrap();
-        insert_meal_entry(&pool, item.id, "2026-07-30", 40.0, "snack")
+        insert_meal_entry(&pool, item.id, "2026-07-30", 40.0, "snack", OWNER)
             .await
             .unwrap();
-        insert_meal_entry(&pool, item.id, "2026-07-31", 80.0, "breakfast")
+        insert_meal_entry(&pool, item.id, "2026-07-31", 80.0, "breakfast", OWNER)
             .await
             .unwrap();
-        let hist = get_item_log_history(&pool, item.id, "2026-07-18", "2026-07-31").await;
+        let hist = get_item_log_history(&pool, item.id, "2026-07-18", "2026-07-31", OWNER).await;
         assert_eq!(hist.len(), 2);
         assert_eq!(hist[0], ("2026-07-30".to_string(), 120.0));
     }
@@ -2573,23 +3256,24 @@ mod tests {
     async fn test_recent_foods_dedup_and_order() {
         let pool = test_pool().await;
         let a = insert_food_item(
-            &pool, "Skyr", "", None, 63.0, 11.0, 4.0, 0.2, 0.0, 0.0, 0.0, 0.0, None, "", "",
+            &pool, "Skyr", "", None, 63.0, 11.0, 4.0, 0.2, 0.0, 0.0, 0.0, 0.0, None, "", "", OWNER,
         )
         .await;
         let b = insert_food_item(
             &pool, "Oats", "", None, 379.0, 13.2, 60.1, 6.5, 0.0, 0.0, 0.0, 0.0, None, "", "",
+            OWNER,
         )
         .await;
-        insert_meal_entry(&pool, a.id, "2026-07-30", 250.0, "breakfast")
+        insert_meal_entry(&pool, a.id, "2026-07-30", 250.0, "breakfast", OWNER)
             .await
             .unwrap();
-        insert_meal_entry(&pool, b.id, "2026-07-31", 80.0, "breakfast")
+        insert_meal_entry(&pool, b.id, "2026-07-31", 80.0, "breakfast", OWNER)
             .await
             .unwrap();
-        insert_meal_entry(&pool, a.id, "2026-08-01", 300.0, "snack")
+        insert_meal_entry(&pool, a.id, "2026-08-01", 300.0, "snack", OWNER)
             .await
             .unwrap();
-        let recent = get_recent_foods(&pool, 8).await;
+        let recent = get_recent_foods(&pool, 8, OWNER).await;
         assert_eq!(recent.len(), 2);
         assert_eq!(recent[0].name, "Skyr"); // most recently logged first
         assert_eq!(recent[0].last_grams, 300.0); // grams of the latest log
@@ -2615,12 +3299,13 @@ mod tests {
             Some(55.0),
             "",
             "",
+            OWNER,
         )
         .await;
-        assert!(get_food_item_by_barcode(&pool, "5060123456789")
+        assert!(get_food_item_by_barcode(&pool, "5060123456789", OWNER)
             .await
             .is_some());
-        assert!(get_food_item_by_barcode(&pool, "0000000000000")
+        assert!(get_food_item_by_barcode(&pool, "0000000000000", OWNER)
             .await
             .is_none());
     }
@@ -2628,14 +3313,14 @@ mod tests {
     #[tokio::test]
     async fn test_weight_upsert_and_range() {
         let pool = test_pool().await;
-        upsert_weight(&pool, "2026-07-30", 82.7).await;
-        upsert_weight(&pool, "2026-07-31", 82.4).await;
-        upsert_weight(&pool, "2026-07-31", 82.5).await; // same-day overwrite
-        let all = get_weights_since(&pool, "2026-07-01").await;
+        upsert_weight(&pool, "2026-07-30", 82.7, OWNER).await;
+        upsert_weight(&pool, "2026-07-31", 82.4, OWNER).await;
+        upsert_weight(&pool, "2026-07-31", 82.5, OWNER).await; // same-day overwrite
+        let all = get_weights_since(&pool, "2026-07-01", OWNER).await;
         assert_eq!(all.len(), 2);
         assert_eq!(all[1], ("2026-07-31".to_string(), 82.5));
         assert_eq!(
-            get_latest_weight(&pool).await,
+            get_latest_weight(&pool, OWNER).await,
             Some(("2026-07-31".to_string(), 82.5))
         );
     }
@@ -2645,36 +3330,38 @@ mod tests {
         let pool = test_pool().await;
         let a = insert_food_item(
             &pool, "Oats", "", None, 379.0, 13.0, 60.0, 6.5, 0.0, 0.0, 0.0, 0.0, None, "", "",
+            OWNER,
         )
         .await;
         let b = insert_food_item(
-            &pool, "Skyr", "", None, 63.0, 11.0, 4.0, 0.2, 0.0, 0.0, 0.0, 0.0, None, "", "",
+            &pool, "Skyr", "", None, 63.0, 11.0, 4.0, 0.2, 0.0, 0.0, 0.0, 0.0, None, "", "", OWNER,
         )
         .await;
-        insert_meal_entry(&pool, a.id, "2026-07-31", 80.0, "breakfast")
+        insert_meal_entry(&pool, a.id, "2026-07-31", 80.0, "breakfast", OWNER)
             .await
             .unwrap();
-        insert_meal_entry(&pool, b.id, "2026-07-31", 250.0, "breakfast")
+        insert_meal_entry(&pool, b.id, "2026-07-31", 250.0, "breakfast", OWNER)
             .await
             .unwrap();
         assert!(
-            create_recipe_from_slot(&pool, "Overnight oats", "2026-07-31", "dinner")
+            create_recipe_from_slot(&pool, "Overnight oats", "2026-07-31", "dinner", OWNER)
                 .await
                 .is_none()
         ); // empty slot
-        let rid = create_recipe_from_slot(&pool, "Overnight oats", "2026-07-31", "breakfast")
-            .await
-            .unwrap();
-        let recipes = get_recipes_with_totals(&pool).await;
+        let rid =
+            create_recipe_from_slot(&pool, "Overnight oats", "2026-07-31", "breakfast", OWNER)
+                .await
+                .unwrap();
+        let recipes = get_recipes_with_totals(&pool, OWNER).await;
         assert_eq!(recipes.len(), 1);
         assert_eq!(recipes[0].item_count, 2);
         assert!((recipes[0].total_cal - (379.0 * 0.8 + 63.0 * 2.5)).abs() < 0.1);
-        let inserted = log_recipe(&pool, rid, "2026-08-01", "snack").await;
+        let inserted = log_recipe(&pool, rid, "2026-08-01", "snack", OWNER).await;
         assert_eq!(inserted, 2);
-        let entries = get_meal_entries_for_date(&pool, "2026-08-01").await;
+        let entries = get_meal_entries_for_date(&pool, "2026-08-01", OWNER).await;
         assert!(entries.iter().all(|e| e.slot == "snack"));
-        delete_recipe(&pool, rid).await;
-        assert!(get_recipes_with_totals(&pool).await.is_empty());
+        delete_recipe(&pool, rid, OWNER).await;
+        assert!(get_recipes_with_totals(&pool, OWNER).await.is_empty());
     }
 
     #[tokio::test]
@@ -2682,22 +3369,23 @@ mod tests {
         let pool = test_pool().await;
         let a = insert_food_item(
             &pool, "Chicken", "", None, 165.0, 31.0, 0.0, 3.6, 0.0, 0.0, 0.0, 0.0, None, "", "",
+            OWNER,
         )
         .await;
-        insert_meal_entry(&pool, a.id, "2026-07-30", 200.0, "lunch")
+        insert_meal_entry(&pool, a.id, "2026-07-30", 200.0, "lunch", OWNER)
             .await
             .unwrap();
-        insert_meal_entry(&pool, a.id, "2026-07-31", 100.0, "lunch")
+        insert_meal_entry(&pool, a.id, "2026-07-31", 100.0, "lunch", OWNER)
             .await
             .unwrap();
-        let prot = get_protein_by_date_range(&pool, "2026-07-30", "2026-07-31").await;
+        let prot = get_protein_by_date_range(&pool, "2026-07-30", "2026-07-31", OWNER).await;
         assert_eq!(prot.len(), 2);
         assert!((prot[0].1 - 62.0).abs() < 0.01);
         assert_eq!(
-            get_logged_dates_desc(&pool, 10).await,
+            get_logged_dates_desc(&pool, 10, OWNER).await,
             vec!["2026-07-31", "2026-07-30"]
         );
-        let most = get_most_logged_between(&pool, "2026-07-27", "2026-08-02", 5).await;
+        let most = get_most_logged_between(&pool, "2026-07-27", "2026-08-02", 5, OWNER).await;
         assert_eq!(most[0], ("Chicken".to_string(), 2));
     }
 
@@ -2706,17 +3394,18 @@ mod tests {
         let pool = test_pool().await;
         let item = insert_food_item(
             &pool, "Oats", "", None, 379.0, 13.2, 60.1, 6.5, 0.0, 0.0, 0.0, 0.0, None, "", "",
+            OWNER,
         )
         .await;
-        insert_meal_entry(&pool, item.id, "2026-07-31", 80.0, "breakfast")
+        insert_meal_entry(&pool, item.id, "2026-07-31", 80.0, "breakfast", OWNER)
             .await
             .unwrap();
-        insert_meal_entry(&pool, item.id, "2026-07-31", 120.0, "lunch")
+        insert_meal_entry(&pool, item.id, "2026-07-31", 120.0, "lunch", OWNER)
             .await
             .unwrap();
-        let copied = copy_day_entries(&pool, "2026-07-31", "2026-08-01").await;
+        let copied = copy_day_entries(&pool, "2026-07-31", "2026-08-01", OWNER).await;
         assert_eq!(copied, 2);
-        let entries = get_meal_entries_for_date(&pool, "2026-08-01").await;
+        let entries = get_meal_entries_for_date(&pool, "2026-08-01", OWNER).await;
         assert_eq!(entries.len(), 2);
         assert_eq!(entries[0].slot, "breakfast");
         assert_eq!(entries[1].grams, 120.0);
@@ -2726,22 +3415,22 @@ mod tests {
     async fn test_calories_by_date_range() {
         let pool = test_pool().await;
         let item = insert_food_item(
-            &pool, "Rice", "", None, 100.0, 2.0, 20.0, 1.0, 0.0, 0.0, 0.0, 0.0, None, "", "",
+            &pool, "Rice", "", None, 100.0, 2.0, 20.0, 1.0, 0.0, 0.0, 0.0, 0.0, None, "", "", OWNER,
         )
         .await;
-        insert_meal_entry(&pool, item.id, "2026-07-27", 100.0, "lunch")
+        insert_meal_entry(&pool, item.id, "2026-07-27", 100.0, "lunch", OWNER)
             .await
             .unwrap();
-        insert_meal_entry(&pool, item.id, "2026-07-27", 50.0, "dinner")
+        insert_meal_entry(&pool, item.id, "2026-07-27", 50.0, "dinner", OWNER)
             .await
             .unwrap();
-        insert_meal_entry(&pool, item.id, "2026-07-29", 200.0, "lunch")
+        insert_meal_entry(&pool, item.id, "2026-07-29", 200.0, "lunch", OWNER)
             .await
             .unwrap();
-        insert_meal_entry(&pool, item.id, "2026-08-05", 100.0, "lunch")
+        insert_meal_entry(&pool, item.id, "2026-08-05", 100.0, "lunch", OWNER)
             .await
             .unwrap(); // outside range
-        let rows = get_calories_by_date_range(&pool, "2026-07-26", "2026-08-01").await;
+        let rows = get_calories_by_date_range(&pool, "2026-07-26", "2026-08-01", OWNER).await;
         assert_eq!(rows.len(), 2);
         assert_eq!(rows[0].0, "2026-07-27");
         assert!((rows[0].1 - 150.0).abs() < 0.01);
@@ -2752,20 +3441,20 @@ mod tests {
     async fn test_meal_entry_slot_roundtrip() {
         let pool = test_pool().await;
         let item = insert_food_item(
-            &pool, "Skyr", "", None, 63.0, 11.0, 4.0, 0.2, 0.0, 4.0, 45.0, 0.1, None, "", "",
+            &pool, "Skyr", "", None, 63.0, 11.0, 4.0, 0.2, 0.0, 4.0, 45.0, 0.1, None, "", "", OWNER,
         )
         .await;
-        let id = insert_meal_entry(&pool, item.id, "2026-08-01", 250.0, "breakfast")
+        let id = insert_meal_entry(&pool, item.id, "2026-08-01", 250.0, "breakfast", OWNER)
             .await
             .unwrap();
-        let entries = get_meal_entries_for_date(&pool, "2026-08-01").await;
+        let entries = get_meal_entries_for_date(&pool, "2026-08-01", OWNER).await;
         assert_eq!(entries[0].slot, "breakfast");
         assert_eq!(entries[0].food_item_id, item.id);
-        update_meal_entry(&pool, id, 300.0, "lunch").await;
-        let entries = get_meal_entries_for_date(&pool, "2026-08-01").await;
+        update_meal_entry(&pool, id, 300.0, "lunch", OWNER).await;
+        let entries = get_meal_entries_for_date(&pool, "2026-08-01", OWNER).await;
         assert_eq!(entries[0].grams, 300.0);
         assert_eq!(entries[0].slot, "lunch");
-        let raw = get_meal_entry(&pool, id).await.unwrap();
+        let raw = get_meal_entry(&pool, id, OWNER).await.unwrap();
         assert_eq!(raw.slot, "lunch");
     }
 
@@ -2774,12 +3463,13 @@ mod tests {
         let pool = test_pool().await;
         let item = insert_food_item(
             &pool, "Banana", "", None, 89.0, 1.1, 23.0, 0.3, 2.6, 12.0, 1.0, 0.0, None, "", "",
+            OWNER,
         )
         .await;
-        insert_meal_entry(&pool, item.id, "2026-04-08", 100.0, "other")
+        insert_meal_entry(&pool, item.id, "2026-04-08", 100.0, "other", OWNER)
             .await
             .unwrap();
-        let entries = get_meal_entries_for_date(&pool, "2026-04-09").await;
+        let entries = get_meal_entries_for_date(&pool, "2026-04-09", OWNER).await;
         assert!(entries.is_empty());
     }
 

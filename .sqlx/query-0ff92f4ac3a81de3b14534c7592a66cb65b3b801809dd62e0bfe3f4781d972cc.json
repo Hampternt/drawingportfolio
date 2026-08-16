@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO user_food_prefs (user_id, food_item_id, is_favourite) VALUES (?, ?, 1)\n         ON CONFLICT(user_id, food_item_id) DO UPDATE SET is_favourite = 1 - is_favourite",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "0ff92f4ac3a81de3b14534c7592a66cb65b3b801809dd62e0bfe3f4781d972cc"
+}

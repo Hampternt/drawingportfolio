@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM recipe_items WHERE recipe_id = ?\n         AND EXISTS (SELECT 1 FROM recipes r WHERE r.id = ? AND r.user_id = ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "9d7855feab1202cc3143ddacf0dc8ff2c04b56ac196ec6c5b338cdd90df89d89"
+}

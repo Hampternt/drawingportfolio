@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT fi.name as \"name!\", COUNT(*) as \"n!: i64\"\n        FROM meal_entries me JOIN food_items fi ON fi.id = me.food_item_id\n        WHERE me.date >= ? AND me.date <= ? AND me.user_id = ?\n        GROUP BY me.food_item_id ORDER BY 2 DESC, fi.name ASC LIMIT ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "name!",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "n!: i64",
+        "ordinal": 1,
+        "type_info": "Null"
+      }
+    ],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": [
+      false,
+      null
+    ]
+  },
+  "hash": "795b0bff9d7a211f9c77a101c3e22fd2aef198f0da34a4b1eff337d00e98309f"
+}

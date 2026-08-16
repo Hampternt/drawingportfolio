@@ -1,0 +1,128 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT\n            fi.id, fi.name, fi.brand, fi.barcode, fi.calories, fi.protein, fi.carbs,\n            fi.fat, fi.fiber, fi.sugar, fi.sodium, fi.saturated_fat, fi.package_size,\n            COALESCE(p.custom_portions, '') as \"custom_portions!\",\n            fi.image_url, fi.category,\n            COALESCE(p.is_favourite, 0) as \"is_favourite!\",\n            p.default_portion_g, fi.created_at\n        FROM food_items fi\n        LEFT JOIN user_food_prefs p ON p.food_item_id = fi.id AND p.user_id = ?\n        WHERE fi.barcode = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "id",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "name",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "brand",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "barcode",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "calories",
+        "ordinal": 4,
+        "type_info": "Float"
+      },
+      {
+        "name": "protein",
+        "ordinal": 5,
+        "type_info": "Float"
+      },
+      {
+        "name": "carbs",
+        "ordinal": 6,
+        "type_info": "Float"
+      },
+      {
+        "name": "fat",
+        "ordinal": 7,
+        "type_info": "Float"
+      },
+      {
+        "name": "fiber",
+        "ordinal": 8,
+        "type_info": "Float"
+      },
+      {
+        "name": "sugar",
+        "ordinal": 9,
+        "type_info": "Float"
+      },
+      {
+        "name": "sodium",
+        "ordinal": 10,
+        "type_info": "Float"
+      },
+      {
+        "name": "saturated_fat",
+        "ordinal": 11,
+        "type_info": "Float"
+      },
+      {
+        "name": "package_size",
+        "ordinal": 12,
+        "type_info": "Float"
+      },
+      {
+        "name": "custom_portions!",
+        "ordinal": 13,
+        "type_info": "Text"
+      },
+      {
+        "name": "image_url",
+        "ordinal": 14,
+        "type_info": "Text"
+      },
+      {
+        "name": "category",
+        "ordinal": 15,
+        "type_info": "Text"
+      },
+      {
+        "name": "is_favourite!",
+        "ordinal": 16,
+        "type_info": "Integer"
+      },
+      {
+        "name": "default_portion_g",
+        "ordinal": 17,
+        "type_info": "Float"
+      },
+      {
+        "name": "created_at",
+        "ordinal": 18,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "e8cf830d9d47e30aab00e56db58709df1ff9e71af4aff0f6bca4d43e8d2f8e0e"
+}

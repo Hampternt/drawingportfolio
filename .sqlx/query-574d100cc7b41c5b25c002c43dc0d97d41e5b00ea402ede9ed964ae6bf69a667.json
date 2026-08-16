@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO meal_entries (food_item_id, date, grams, slot, user_id)\n         SELECT food_item_id, ?, grams, slot, ? FROM meal_entries WHERE date = ? AND user_id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": []
+  },
+  "hash": "574d100cc7b41c5b25c002c43dc0d97d41e5b00ea402ede9ed964ae6bf69a667"
+}
