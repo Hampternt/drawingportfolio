@@ -143,6 +143,71 @@ async fn set_admin(
     }
 }
 
+#[derive(Deserialize)]
+struct NameForm {
+    name: String,
+}
+
+/// Renames any account, the owner's own included.
+///
+/// Deliberately *not* guarded by `is_owner = 0`, unlike demotion and deletion.
+/// Migration 015 seeds the owner as "admin", and giving themselves a human name
+/// is the first thing they will want. A rename is not a privilege change — the
+/// row keeps its id and its flags — so the guard that protects the other two
+/// operations would only get in the way here.
+async fn rename_any_user(
+    _: RequireOwner,
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<i64>,
+    Form(form): Form<NameForm>,
+) -> impl IntoResponse {
+    let name = match pin::validate_name(&form.name) {
+        Ok(n) => n,
+        Err(e) => return render(&state, e.message(), "").await,
+    };
+    match crate::db::rename_user(&state.pool, id, &name).await {
+        Ok(()) => render(&state, "", &format!("Renamed to {name}.")).await,
+        Err(_) => render(&state, pin::CredentialError::NameTaken.message(), "").await,
+    }
+}
+
+/// A member renaming themselves.
+///
+/// The session is the credential — no PIN asked for, matching the drinking
+/// game's `rename_player`. `users.name` is UNIQUE COLLATE NOCASE, so correcting
+/// your own capitalisation succeeds (it is the same row) while taking someone
+/// else's name is refused.
+async fn rename_self(
+    session: crate::middleware::AuthSession,
+    State(state): State<Arc<AppState>>,
+    Form(form): Form<NameForm>,
+) -> impl IntoResponse {
+    let name = match pin::validate_name(&form.name) {
+        Ok(n) => n,
+        Err(e) => return account_render(&state, &session, e.message(), "").await,
+    };
+    match crate::db::rename_user(&state.pool, session.user_id, &name).await {
+        Ok(()) => {
+            tracing::info!("user {} renamed themselves to {name}", session.user_id);
+            // Re-read rather than reusing the session's stale copy: the chip on
+            // the page it renders must show the new name, not the one the
+            // extractor loaded before the update.
+            let mut fresh = session;
+            fresh.user_name = name;
+            account_render(&state, &fresh, "", "Name changed.").await
+        }
+        Err(_) => {
+            account_render(
+                &state,
+                &session,
+                pin::CredentialError::NameTaken.message(),
+                "",
+            )
+            .await
+        }
+    }
+}
+
 async fn delete_user(
     _: RequireOwner,
     State(state): State<Arc<AppState>>,
@@ -246,10 +311,12 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/admin/users", get(users_page).post(create_user))
         .route("/api/admin/users/{id}/pin", post(reset_pin))
         .route("/api/admin/users/{id}/admin", post(set_admin))
+        .route("/api/admin/users/{id}/name", post(rename_any_user))
         .route("/api/admin/users/{id}/delete", post(delete_user))
         // Any signed-in user, for their own account.
         .route("/fitness/account", get(account_page))
         .route("/api/account/pin", post(change_own_pin))
+        .route("/api/account/name", post(rename_self))
 }
 
 #[cfg(test)]
@@ -405,6 +472,83 @@ mod tests {
             .unwrap();
         assert_eq!(resp.status(), HttpStatus::OK);
         assert!(crate::db::get_user_by_name(&pool, "alex").await.is_none());
+    }
+
+    /// The owner can rename themselves — migration 015 seeds them as "admin",
+    /// and renaming is not a privilege change, so it is not behind the guard
+    /// that protects demotion and deletion.
+    #[tokio::test]
+    async fn test_owner_can_be_renamed_but_not_demoted() {
+        let (app, pool) = app_with_pool().await;
+        let cookie = owner_cookie(&pool).await;
+
+        let resp = app
+            .clone()
+            .oneshot(
+                req(
+                    "POST",
+                    "/api/admin/users/1/name",
+                    Some(&cookie),
+                    "name=Hampter",
+                )
+                .await,
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), HttpStatus::OK);
+
+        let users = crate::db::list_users(&pool).await;
+        let owner = users.iter().find(|u| u.id == 1).unwrap();
+        assert_eq!(owner.name, "Hampter");
+        assert!(owner.is_owner, "renaming must not touch the owner flag");
+        assert!(owner.is_admin);
+    }
+
+    /// A member renames themselves; taking someone else's name is refused.
+    #[tokio::test]
+    async fn test_member_renames_self_but_cannot_take_a_taken_name() {
+        let (app, pool) = app_with_pool().await;
+        let alex = member_cookie(&pool, "alex", false).await;
+        member_cookie(&pool, "sam", false).await;
+
+        let resp = app
+            .clone()
+            .oneshot(req("POST", "/api/account/name", Some(&alex), "name=Alexandra").await)
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), HttpStatus::OK);
+        assert!(crate::db::get_user_by_name(&pool, "Alexandra")
+            .await
+            .is_some());
+
+        // "sam" is taken — and the UNIQUE index is case-insensitive, so neither
+        // spelling gets through.
+        for attempt in ["sam", "SAM"] {
+            let resp = app
+                .clone()
+                .oneshot(
+                    req(
+                        "POST",
+                        "/api/account/name",
+                        Some(&alex),
+                        &format!("name={attempt}"),
+                    )
+                    .await,
+                )
+                .await
+                .unwrap();
+            assert_eq!(resp.status(), HttpStatus::OK);
+        }
+        assert!(crate::db::get_user_by_name(&pool, "Alexandra")
+            .await
+            .is_some());
+        let sam = crate::db::get_user_by_name(&pool, "sam").await.unwrap();
+        let sam_row = crate::db::list_users(&pool)
+            .await
+            .into_iter()
+            .find(|u| u.id == sam.id)
+            .unwrap();
+        assert_eq!(sam_row.name, "sam", "sam's row was renamed by someone else");
     }
 
     /// The owner's own row renders with no destructive controls.

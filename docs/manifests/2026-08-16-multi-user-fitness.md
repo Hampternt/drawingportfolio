@@ -1,6 +1,6 @@
 # Container — Multi-user fitness tracker
 
-**Status:** 🟢 packs 1–2 complete, gate green — pack 3 not started
+**Status:** 🟢 **complete** — all four packs landed, gate green
 **Stream:** `feat/multi-user-fitness`, worktree
 `~/projects/drawingportfolio.worktrees/multi-user-fitness`, based on `dev`
 **Opened:** 2026-08-16
@@ -294,7 +294,7 @@ confirmed live.
 
 </details>
 
-### Pack 3 — Accounts: name + PIN login, and the management page ⚪ not started
+### Pack 3 — Accounts: name + PIN login, and the management page 🟢 complete
 
 Port `drinkinggame/src/auth.rs` (argon2, `spawn_blocking`, PIN verify, PIN
 change) into the portfolio crate — `argon2 = "0.5"` moves into the root
@@ -316,14 +316,111 @@ name and PIN, and that person logs in on their own phone to their own empty
 `/fitness`. Grant them admin and `/admin` opens for them; revoke it and it
 closes.
 
-### Pack 4 — Multi-user polish ⚪ not started
+### Pack 3 ledger — landed 2026-08-16
 
-Member-facing account page (change your own PIN, rename), sign-out that
-returns to the right login screen, and whatever per-user surfacing packs
-1–3 deferred.
+- [x] `src/pin.rs` — Argon2 hash/verify through `spawn_blocking`, name and PIN
+      validation, lockout constants. Ported from `drinkinggame/src/auth.rs`.
+- [x] Migration 021 — `failed_pin_attempts` and `locked_until` on `users`.
+- [x] `POST /api/auth/login/pin` + the login page's second path.
+- [x] `RequireOwner` (deferred from pack 1 for want of a caller) and
+      `/admin/users`: list, create, reset PIN, grant/revoke admin, delete.
+- [x] `/fitness/account` — a member's own page.
+
+<details>
+<summary><b>What carries the security weight, and why</b></summary>
+
+**The lockout is the control, not Argon2.** A 4-digit PIN is 10,000 guesses;
+Argon2 only decides how long that takes. Five wrong PINs lock the account for
+15 minutes, and the counter lives **in the database** — an in-memory one would
+reset on the restart that every deploy performs, handing an attacker a fresh
+budget for the price of waiting.
+
+**The change-PIN form goes through the same lockout path**, so it cannot be
+used as an unmetered oracle for guessing a PIN the session's owner does not
+know — the case where someone picks up an unlocked phone.
+
+**A wrong name and a wrong PIN give the same answer.** Distinguishing them
+hands over a list of valid account names. The lockout message is the one
+deliberate exception: by the time it fires the attacker already knows the
+account exists, and without it a member has no way to understand why a PIN
+they know is correct has stopped working.
+
+**An absent hash never verifies.** The owner authenticates with a passkey and
+may have `pin_hash` NULL forever; `get_user_by_name` collapses that to `""`.
+If a malformed hash returned `true`, an empty PIN would log in as the owner.
+Asserted directly in `test_absent_or_malformed_hash_never_verifies`.
+
+**`RequireOwner`, not `RequireAdmin`, on user management.** This is the
+distinction the pack exists for and the one most likely to be assumed away:
+an admin who could reach these routes could grant admin to anyone and delete
+accounts. Mutation-checked — swapping the extractor fails
+`test_admin_is_still_refused_user_management`.
+
+**The owner invariants are SQL, not template logic.** `AND is_owner = 0` sits
+on every destructive statement. The hidden buttons are a courtesy; the SQL is
+what holds against a hand-made request. Renaming is deliberately *not* behind
+that guard — it is not a privilege change, and migration 015 seeds the owner
+as "admin", so they need it.
+
+**`delete_user` clears eight tables by hand.** Nothing cascades (the pool runs
+with `foreign_keys` off). A missed table would leave rows keyed to an id
+`AUTOINCREMENT` eventually reissues, and the next member created would open
+their tracker onto a stranger's food log — so the test asserts emptiness table
+by table rather than trusting the delete.
+
+</details>
+
+<details>
+<summary><b>Live walkthrough — the whole flow, on a running server</b></summary>
+
+1. Owner creates an account: *"Created Alex. Give them that PIN — it is not
+   shown again."*
+2. Alex logs in from a **fresh cookie jar** with name + PIN → `{"ok":true}`,
+   one session cookie issued.
+3. Alex's `/fitness` renders `Signed in as Alex` and `0 of 2400 cal · 0%` —
+   their own empty day, not the owner's.
+4. `/admin` → 404, `/admin/users` → 404, `/fitness/account` → 200.
+5. Five wrong PINs → five identical `Wrong name or PIN`; the sixth →
+   `Too many wrong PINs`. The **correct** PIN is then refused too, so the
+   lockout is real rather than cosmetic. An unknown account name gives the
+   identical message throughout.
+6. Owner resets the PIN → lockout cleared, login works again.
+7. Owner grants admin → Alex's `/admin` becomes **200** while `/admin/users`
+   stays **404**. Revoked → back to 404. This is the acyclic privilege graph,
+   demonstrated rather than asserted.
+8. Owner aims demote and delete at their own row → *"cannot be changed"*,
+   *"cannot be deleted"*, and `/admin` still 200 for them.
+9. Alex changes their own PIN: wrong current → refused; right current →
+   changed; new PIN logs in; old PIN no longer does.
+
+</details>
+
+### Pack 4 — Multi-user polish 🟢 complete
+
+Renaming (self-service and owner-side), a way to *reach* the account page, and
+the `is_admin` misnomer.
 
 **Observable:** a member manages their own account without the owner and
-without the database.
+without the database; the owner stops being called "admin".
+
+### Pack 4 ledger — landed 2026-08-16
+
+- [x] `POST /api/account/name` (self) and `/api/admin/users/{id}/name`
+      (owner, including their own row — migration 015 seeds them as "admin").
+- [x] The signed-in-as chip is now a link to `/fitness/account`, which
+      otherwise had no route into it from the UI.
+- [x] `nutrition.rs`'s `is_admin` renamed to `can_edit` — it never meant admin,
+      it meant "may edit the shared food library", which every signed-in user
+      may.
+- [x] **A real bug that rename uncovered:** both fitness page handlers passed
+      `is_admin: true` to `base.html`, which sets the `IS_ADMIN` constant that
+      gates the command palette's admin-only entries. Every fitness member's
+      palette therefore offered admin commands. They 404 thanks to pack 1, so
+      this was cosmetic rather than an access hole — but it is precisely the
+      "logged in means admin" conflation this container set out to remove, and
+      it survived three packs by hiding behind a name. Both now pass
+      `session.is_effective_admin()`.
+- [x] `INVENTORY.md`'s 🚧 placeholder converted to a real entry.
 
 ## Ledger
 

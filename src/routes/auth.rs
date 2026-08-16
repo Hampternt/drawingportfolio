@@ -335,7 +335,14 @@ async fn pin_login(
 
     if !crate::pin::verify_pin_async(&body.pin, &user.pin_hash).await {
         db::record_failed_pin(&state.pool, user.id).await;
-        tracing::warn!("pin login: wrong PIN for user {}", user.id);
+        // Logging the running count makes a brute-force attempt legible in the
+        // log as a climb toward the lockout, rather than N identical lines.
+        tracing::warn!(
+            "pin login: wrong PIN for user {} (attempt {} of {})",
+            user.id,
+            user.failed_pin_attempts + 1,
+            crate::pin::MAX_PIN_ATTEMPTS
+        );
         return fail(CredentialError::WrongPin);
     }
 

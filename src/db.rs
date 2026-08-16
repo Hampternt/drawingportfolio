@@ -934,7 +934,7 @@ pub async fn list_users(pool: &DbPool) -> Vec<crate::models::UserRow> {
 pub async fn get_user_by_name(pool: &DbPool, name: &str) -> Option<crate::models::UserAuth> {
     sqlx::query_as!(
         crate::models::UserAuth,
-        r#"SELECT id as "id!", name as "name!",
+        r#"SELECT id as "id!",
                   COALESCE(pin_hash, '') as "pin_hash!: String",
                   failed_pin_attempts as "failed_pin_attempts!",
                   (locked_until IS NOT NULL AND locked_until > datetime('now')) as "is_locked!: bool"

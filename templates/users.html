@@ -15,7 +15,7 @@
 
   <table class="users-table">
     <thead>
-      <tr><th>Name</th><th>Role</th><th>PIN</th><th>Actions</th></tr>
+      <tr><th>Name</th><th>Role</th><th>PIN</th><th>Added</th><th>Actions</th></tr>
     </thead>
     <tbody>
       {% for u in users %}
@@ -30,11 +30,19 @@
           {% if u.has_pin %}set{% else %}<span class="user-muted">none</span>{% endif %}
           {% if u.is_locked %} <span class="user-tag user-tag-locked">locked</span>{% endif %}
         </td>
+        <td class="user-muted">{{ u.created_at }}</td>
         <td class="user-actions">
+          {# Renaming is offered for everyone, the owner included — migration
+             015 seeds them as "admin". It is not a privilege change, so it is
+             not behind the `is_owner = 0` guard that protects the two below. #}
+          <form method="post" action="/api/admin/users/{{ u.id }}/name">
+            <input type="text" name="name" value="{{ u.name }}" maxlength="20"
+                   autocapitalize="none" spellcheck="false" required>
+            <button type="submit">Rename</button>
+          </form>
           {% if u.is_owner %}
-            {# The owner has no controls at all. This is the courtesy; the rule
-               is `AND is_owner = 0` on every destructive statement in db.rs. #}
-            <span class="user-muted">—</span>
+            {# No demote, no delete. This is the courtesy; the rule is
+               `AND is_owner = 0` on those statements in db.rs. #}
           {% else %}
             <form method="post" action="/api/admin/users/{{ u.id }}/admin">
               <input type="hidden" name="grant" value="{% if u.is_admin %}0{% else %}1{% endif %}">

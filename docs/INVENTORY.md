@@ -30,9 +30,10 @@ A LeetCode-style practice board for drawing: reference images carrying any
 number of task prompts, filterable by subject, difficulty, and task type.
 Public to browse; admins manage images and tasks in place.
 
-## Fitness — `/fitness` (private)
+## Fitness — `/fitness` (private, multi-user)
 
-A personal nutrition and weight tracker, session-gated, dark-themed.
+A nutrition and weight tracker for several people, session-gated, dark-themed.
+Each person has their own log; the food catalog is shared.
 
 - Today view: calorie/macro targets ring, week strip, meals by slot
   (breakfast/lunch/dinner/snack/other).
@@ -41,10 +42,14 @@ A personal nutrition and weight tracker, session-gated, dark-themed.
 - Food database with favourites, custom portions, and recipes; quick-log,
   copy-day, and barcode scanning that matches known products or prefills
   new ones from OpenFoodFacts.
-- 🚧 **Multi-user in flight** — several people, each with their own log over
-  a shared food catalog, signing in by name + PIN alongside the owner's
-  passkeys; art-portfolio admin becomes a grantable permission.
-  `docs/manifests/2026-08-16-multi-user-fitness.md`.
+- Accounts: the owner signs in with a passkey; everyone else with a name and
+  a PIN, created for them at `/admin/users`. There is no public sign-up.
+  Entries, weights, targets and recipes are private to each person; the food
+  database, favourites and portions aside, is common.
+- Art-portfolio admin is a permission the owner grants and revokes per
+  account — a fitness account reaches `/fitness` and nothing else. Only the
+  owner manages accounts, and the owner cannot be demoted or deleted.
+- Everyone manages their own name and PIN at `/fitness/account`.
 
 ## Drinks — `/drinks`
 

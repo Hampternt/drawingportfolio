@@ -1,0 +1,38 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT id as \"id!\",\n                  COALESCE(pin_hash, '') as \"pin_hash!: String\",\n                  failed_pin_attempts as \"failed_pin_attempts!\",\n                  (locked_until IS NOT NULL AND locked_until > datetime('now')) as \"is_locked!: bool\"\n           FROM users WHERE name = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "pin_hash!: String",
+        "ordinal": 1,
+        "type_info": "Null"
+      },
+      {
+        "name": "failed_pin_attempts!",
+        "ordinal": 2,
+        "type_info": "Integer"
+      },
+      {
+        "name": "is_locked!: bool",
+        "ordinal": 3,
+        "type_info": "Null"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      true,
+      null,
+      false,
+      null
+    ]
+  },
+  "hash": "82af67c3dcd0c2c9b7c6ce406172b6812502bf1c990318b0859b3d6fe3aca251"
+}

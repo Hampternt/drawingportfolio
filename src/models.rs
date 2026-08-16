@@ -247,7 +247,6 @@ pub struct UserRow {
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct UserAuth {
     pub id: i64,
-    pub name: String,
     /// Empty when the user has no PIN — `verify_pin` rejects that, so a
     /// passkey-only account cannot be reached by supplying an empty PIN.
     pub pin_hash: String,

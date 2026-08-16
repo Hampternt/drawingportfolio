@@ -14,6 +14,16 @@
   {% if error != "" %}<p class="users-error">{{ error }}</p>{% endif %}
   {% if notice != "" %}<p class="users-notice">{{ notice }}</p>{% endif %}
 
+  <div class="noc-card account-card">
+    <h2>Your name</h2>
+    <p class="account-hint">This is the name you log in with, and the one shown on your tracker.</p>
+    <form class="account-form" method="post" action="/api/account/name">
+      <input type="text" name="name" value="{{ user_name }}" maxlength="20"
+             autocapitalize="none" spellcheck="false" required>
+      <button type="submit" class="noc-btn">Change name</button>
+    </form>
+  </div>
+
   {% if has_pin %}
   <div class="noc-card account-card">
     <h2>Change your PIN</h2>

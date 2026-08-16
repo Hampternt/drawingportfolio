@@ -136,7 +136,11 @@ impl FromRequestParts<Arc<AppState>> for RequireAdmin {
 ///
 /// Rejects exactly as `RequireAdmin` does — 404 for a valid non-owner session,
 /// redirect only when there is no session at all.
-pub struct RequireOwner(pub AuthSession);
+/// A unit struct for the same reason [`RequireAdmin`] is: the management
+/// handlers act on a user id from the path, never on the requester's own
+/// identity, so none of them needs to know *which* owner is asking — and there
+/// is only ever one.
+pub struct RequireOwner;
 
 impl FromRequestParts<Arc<AppState>> for RequireOwner {
     type Rejection = axum::response::Response;
@@ -149,7 +153,7 @@ impl FromRequestParts<Arc<AppState>> for RequireOwner {
             Some(session) => {
                 let auth: AuthSession = session.into();
                 if auth.is_owner {
-                    Ok(RequireOwner(auth))
+                    Ok(RequireOwner)
                 } else {
                     tracing::warn!(
                         "non-owner user {} ({}) refused an owner-only route",

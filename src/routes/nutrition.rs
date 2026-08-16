@@ -40,7 +40,7 @@ fn fmt_nutrient(v: f64) -> String {
 pub fn food_item_card_html(
     item: &crate::models::FoodItem,
     is_recent: bool,
-    is_admin: bool,
+    can_edit: bool,
 ) -> String {
     let img_html = if item.image_url.is_empty() {
         r#"<div class="food-thumb food-thumb-empty"></div>"#.to_string()
@@ -67,7 +67,7 @@ pub fn food_item_card_html(
     } else {
         String::new()
     };
-    let admin_btns = if is_admin {
+    let admin_btns = if can_edit {
         format!(
             "<div class=\"food-admin-btns\">\
              <button class=\"fav-btn{fav_cls}\" hx-post=\"/api/nutrition/food-items/{id}/favourite\" \
@@ -121,9 +121,9 @@ const SLOTS: [(&str, &str); 5] = [
 pub fn meal_entry_row_html(
     entry: &crate::models::MealEntryWithFood,
     date: &str,
-    is_admin: bool,
+    can_edit: bool,
 ) -> String {
-    let delete_btn = if is_admin {
+    let delete_btn = if can_edit {
         format!(
             "<button class=\"food-delete-btn\" hx-delete=\"/api/nutrition/entries/{}?date={}\" \
              hx-target=\"#day-section\" hx-swap=\"innerHTML\">×</button>",
@@ -317,7 +317,7 @@ pub fn day_section_html(
     date: &str,
     food_items: &[crate::models::FoodItem],
     targets: &crate::models::Targets,
-    is_admin: bool,
+    can_edit: bool,
 ) -> String {
     // The `+ 0.0` is not redundant. `f64`'s `Sum` identity is **negative** zero
     // — `-0.0 + x == x` holds for every x including `-0.0`, which `0.0` does
@@ -355,7 +355,7 @@ pub fn day_section_html(
             } else {
                 let rows: String = slot_entries
                     .iter()
-                    .map(|e| meal_entry_row_html(e, date, is_admin))
+                    .map(|e| meal_entry_row_html(e, date, can_edit))
                     .collect::<Vec<_>>()
                     .join("\n");
                 format!(
@@ -487,7 +487,7 @@ pub fn day_section_html(
 pub fn library_list_html(
     items: &[crate::models::FoodItem],
     recent_ids: &std::collections::HashSet<i64>,
-    is_admin: bool,
+    can_edit: bool,
 ) -> String {
     use std::collections::BTreeMap;
     let mut groups: BTreeMap<String, Vec<&crate::models::FoodItem>> = BTreeMap::new();
@@ -506,7 +506,7 @@ pub fn library_list_html(
             let label = key.strip_prefix("zzz_").unwrap_or(key);
             let cards: String = group
                 .iter()
-                .map(|i| food_item_card_html(i, recent_ids.contains(&i.id), is_admin))
+                .map(|i| food_item_card_html(i, recent_ids.contains(&i.id), can_edit))
                 .collect::<Vec<_>>()
                 .join("\n");
             format!(
@@ -611,6 +611,10 @@ fn edit_food_form_html(item: &crate::models::FoodItem, history_html: &str) -> St
 #[derive(Template)]
 #[template(path = "fitness/feed.html")]
 struct FitnessTemplate {
+    /// `base.html` reads this for its `IS_ADMIN` constant, which gates the
+    /// command palette's admin-only entries. It is the *art-admin* question,
+    /// not the "can I edit the food library" one — every signed-in user can do
+    /// the latter, which is what `can_edit` means everywhere else in this file.
     is_admin: bool,
     user_name: String,
     date: String,
@@ -643,7 +647,7 @@ async fn fitness_page(
     let lib_html = library_list_html(&food_items, &recent_ids, true);
     Html(
         FitnessTemplate {
-            is_admin: true,
+            is_admin: session.is_effective_admin(),
             user_name: session.user_name,
             date,
             week_strip_html: strip,
@@ -1548,6 +1552,8 @@ async fn quick_log_handler(
 #[derive(Template)]
 #[template(path = "fitness/week.html")]
 struct WeekTemplate {
+    /// See `FitnessTemplate::is_admin` — the art-admin question, for the
+    /// command palette.
     is_admin: bool,
     user_name: String,
     range_label: String,
@@ -1705,7 +1711,7 @@ async fn week_page(session: AuthSession, State(state): State<Arc<AppState>>) -> 
 
     Html(
         WeekTemplate {
-            is_admin: true,
+            is_admin: session.is_effective_admin(),
             user_name: session.user_name,
             range_label,
             target_cal: format!("{:.0}", targets.calories),
