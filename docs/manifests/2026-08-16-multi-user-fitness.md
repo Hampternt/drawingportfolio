@@ -192,10 +192,18 @@ without the database.
       `INVENTORY.md` §Fitness.
 
 **Pack gate:** `./scripts/verify.sh` → `VERIFY OK — fmt, clippy, tests, JS
-syntax all clean.` Workspace tests **792 → 799** (+7). Clippy **22** total
-`warning:` lines against a documented baseline of 23 — one *fewer*, because
-four of `Session`'s fields are now read. `SQLX_OFFLINE=true cargo check`
+syntax all clean.` Workspace tests **792 → 801** (+9). Clippy **20** distinct
+diagnostics against a documented baseline of 21 — one *fewer*, because four
+of `Session`'s fields are now read, collapsing two dead-code warnings into
+one. Measured after a full `cargo clean`: clippy does not re-emit diagnostics
+for crates it did not recompile, and incremental runs during this pack
+reported 24, 26, 24 and 22 for the same tree. `SQLX_OFFLINE=true cargo check`
 passes; `.sqlx/` regenerated (5 added, 3 removed).
+
+CLAUDE.md was corrected in the same pack — it is loaded into every session,
+and its stale lines ("all seven behind `AuthSession`", the middleware
+description, migration count, test count, clippy baseline) would have told
+the next contributor to reintroduce exactly this leak.
 
 <details>
 <summary><b>Deviations from the plan</b></summary>
@@ -220,10 +228,16 @@ passes; `.sqlx/` regenerated (5 added, 3 removed).
 <details>
 <summary><b>Verification evidence</b></summary>
 
-Seven tests added. The three that carry the security claims:
+Nine tests added. The four that carry the security claims:
 
 - `test_member_session_sees_the_visitor_feed` — a signed-in member sees
   neither hidden nor unlisted posts, on the page **and** the htmx fragment.
+- `test_member_session_gets_the_visitor_api_and_permalink` — the other two
+  `OptionalAdmin` handlers, which carry contracts of their own: the JSON API
+  excludes unlisted entirely, the permalink 404s hidden but serves unlisted.
+  All four handlers share the extractor, so this was very likely already
+  right — asserted anyway, because a visibility leak is not something to
+  infer from a sibling passing.
 - `test_member_session_is_refused_every_admin_route` — all 11 admin routes
   return exactly 404, and neither a collection nor a visibility change
   survives the attempt.
@@ -233,8 +247,11 @@ Seven tests added. The three that carry the security claims:
 Plus `test_single_owner_invariant` (a second `is_owner = 1` insert is
 rejected by the database), `test_session_carries_user_flags`,
 `test_orphaned_session_reads_as_logged_out` (deleting a user logs its
-sessions out, via the INNER JOIN) and
-`test_credential_resolves_to_its_user`.
+sessions out, via the INNER JOIN), `test_credential_resolves_to_its_user`,
+and `test_migrations_are_idempotent_across_boots` — 015 `.expect()`s rather
+than shrugging, and `run_migrations` runs on every boot, so a non-idempotent
+re-run would show up as the site failing to start after a deploy restart.
+Every other test builds its pool once and never exercises that path.
 
 **Live server, two real accounts** (owner `Hampter` id 1, member `Alex`
 id 2, sessions inserted directly into the dev DB):
@@ -246,7 +263,11 @@ id 2, sessions inserted directly into the dev DB):
 | `/htmx/admin/posts` | **404** | 200 |
 | `/fitness` (no session) | 303 → `/admin/login` | — |
 
-Each account's `/fitness` renders its *own* name in the chip.
+Each account's `/fitness` renders its *own* name in the chip — **and nothing
+else about it is its own.** Alex's `/fitness` shows the owner's entries,
+targets and weights, because no nutrition query filters by user yet. That is
+correct for pack 1 and it is exactly what pack 2 fixes; it is called out here
+so this table is not misread as data isolation.
 
 **Browser check done** (the workflow's rule for user-visible changes):
 `/fitness` in a real browser gives `.fitness-whoami` present,
