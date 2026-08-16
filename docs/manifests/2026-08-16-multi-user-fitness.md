@@ -236,6 +236,26 @@ rejected by the database), `test_session_carries_user_flags`,
 sessions out, via the INNER JOIN) and
 `test_credential_resolves_to_its_user`.
 
+**Live server, two real accounts** (owner `Hampter` id 1, member `Alex`
+id 2, sessions inserted directly into the dev DB):
+
+| Path | as member | as owner |
+|---|---|---|
+| `/fitness` | 200 | 200 |
+| `/admin` | **404** | 200 |
+| `/htmx/admin/posts` | **404** | 200 |
+| `/fitness` (no session) | 303 → `/admin/login` | — |
+
+Each account's `/fitness` renders its *own* name in the chip.
+
+**Browser check done** (the workflow's rule for user-visible changes):
+`/fitness` in a real browser gives `.fitness-whoami` present,
+`display: flex`, text "SIGNED IN AS Hampter", name colour
+`rgb(233, 233, 237)` (`--noc-text`), `body.fitness-dark` applied. Screenshots
+are unavailable in this environment — the pane does not composite frames when
+backgrounded — so this was read off the live DOM and computed styles rather
+than by eye.
+
 **Mutation-checked.** The leak test was verified to actually catch the bug:
 reverting `OptionalAdmin`'s impl to the old `load_session(..).is_some()` and
 re-running gave `test_member_session_sees_the_visitor_feed ... FAILED` at
@@ -255,8 +275,9 @@ semantics inside `middleware.rs` do, and this is the proof.
   session-gated); rename it in pack 4.
 - **The owner's seeded name is `admin`.** Renaming arrives with the account
   page in pack 4; until then the chip reads "Signed in as admin".
-- **Browser check owed** before the pack is called merged: open `/fitness`
-  and confirm the chip renders, per the workflow's rule that user-visible
-  changes are checked in a real browser.
+- **Local dev DB carries two seeded accounts** — `Hampter` (owner) and `Alex`
+  (member), plus the sessions `devsession` / `membersession`. `portfolio.db`
+  is gitignored, so this is worktree-local; useful for pack 2, and worth
+  knowing about before reading anything into a two-user query result.
 
 </details>
