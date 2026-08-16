@@ -281,6 +281,81 @@ async fn login_finish(
     }
 }
 
+// Name + PIN login
+//
+// The passkey ceremony above is strictly stronger, but it only works on a
+// device holding the credential. This path exists so someone can log their
+// lunch from their own phone without one.
+
+#[derive(Deserialize)]
+struct PinLoginBody {
+    name: String,
+    pin: String,
+}
+
+/// Logs in with a name and PIN.
+///
+/// Every failure answers with the same message and the same status. The only
+/// exception is the lockout, which has to be distinguishable or the user has no
+/// way to understand why a PIN they know is correct stops working — and by the
+/// time it fires, the attacker has already learned the account exists.
+async fn pin_login(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<PinLoginBody>,
+) -> impl IntoResponse {
+    use crate::pin::CredentialError;
+
+    let fail = |e: CredentialError| {
+        (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({ "ok": false, "error": e.message() })),
+        )
+            .into_response()
+    };
+
+    let name = match crate::pin::validate_name(&body.name) {
+        Ok(n) => n,
+        // A malformed name is answered as a wrong credential, not as a
+        // validation error: "that name is too long" is still a fact about the
+        // shape of names that exist.
+        Err(_) => return fail(CredentialError::WrongPin),
+    };
+
+    let Some(user) = db::get_user_by_name(&state.pool, &name).await else {
+        // No such account. Verify nothing and answer exactly as a wrong PIN
+        // does — but note the timing difference this leaves; see below.
+        tracing::warn!("pin login: no account named {name:?}");
+        return fail(CredentialError::WrongPin);
+    };
+
+    if user.is_locked {
+        tracing::warn!("pin login: account {} is locked", user.id);
+        return fail(CredentialError::Locked);
+    }
+
+    if !crate::pin::verify_pin_async(&body.pin, &user.pin_hash).await {
+        db::record_failed_pin(&state.pool, user.id).await;
+        tracing::warn!("pin login: wrong PIN for user {}", user.id);
+        return fail(CredentialError::WrongPin);
+    }
+
+    db::clear_failed_pins(&state.pool, user.id).await;
+
+    let session_id = Uuid::new_v4().to_string();
+    let expires = chrono::Utc::now()
+        .checked_add_signed(chrono::Duration::days(30))
+        .unwrap()
+        .format("%Y-%m-%dT%H:%M:%S")
+        .to_string();
+    db::create_session(&state.pool, &session_id, &expires, user.id).await;
+    tracing::info!("pin login successful for user {}", user.id);
+
+    let cookie = middleware::make_session_cookie(&session_id);
+    let mut headers = axum::http::HeaderMap::new();
+    headers.insert(axum::http::header::SET_COOKIE, cookie.parse().unwrap());
+    (headers, Json(serde_json::json!({ "ok": true }))).into_response()
+}
+
 async fn logout(State(state): State<Arc<AppState>>, headers: HeaderMap) -> impl IntoResponse {
     if let Some(cookies) = headers.get("cookie").and_then(|v| v.to_str().ok()) {
         for cookie in cookies.split(';') {
@@ -310,6 +385,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/admin/register", get(register_page))
         .route("/api/auth/login/start", post(login_start))
         .route("/api/auth/login/finish", post(login_finish))
+        .route("/api/auth/login/pin", post(pin_login))
         .route("/api/auth/logout", post(logout))
         .route("/api/auth/register/start", post(register_start))
         .route("/api/auth/register/finish", post(register_finish))

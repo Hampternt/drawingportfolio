@@ -178,6 +178,11 @@ pub async fn run_migrations(pool: &DbPool) {
             .await
             .expect("failed to split user food preferences");
     }
+
+    // Migration 021: PIN lockout counters. ALTER-only, so `let _ =`.
+    let _ = sqlx::query(include_str!("../migrations/021_pin_lockout.sql"))
+        .execute(pool)
+        .await;
 }
 
 /// Whether `table` currently has a column named `column`.
@@ -895,6 +900,170 @@ pub async fn get_owner_user_id(pool: &DbPool) -> Option<i64> {
         .await
         .ok()
         .flatten()
+}
+
+// ── Users ─────────────────────────────────────────────────────────────────────
+//
+// The owner invariants live here, in SQL, not in the management template. A
+// hidden button is a UI convenience; `AND is_owner = 0` is the rule. Every
+// destructive user operation carries it, so the owner cannot be deleted or
+// demoted even by a hand-made request.
+
+/// Every account, owner first then alphabetical — the management list.
+pub async fn list_users(pool: &DbPool) -> Vec<crate::models::UserRow> {
+    sqlx::query_as!(
+        crate::models::UserRow,
+        r#"SELECT id as "id!", name as "name!",
+                  is_owner as "is_owner!: bool", is_admin as "is_admin!: bool",
+                  (pin_hash IS NOT NULL) as "has_pin!: bool",
+                  (locked_until IS NOT NULL AND locked_until > datetime('now')) as "is_locked!: bool",
+                  created_at as "created_at!"
+           FROM users ORDER BY is_owner DESC, name COLLATE NOCASE ASC"#
+    )
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default()
+}
+
+/// Looks a user up by name for the PIN login path.
+///
+/// `users.name` is `UNIQUE COLLATE NOCASE`, so this matches case-insensitively
+/// and someone who typed "Alex" logs in as "alex". `pin_hash` collapses to an
+/// empty string when unset, which `verify_pin` rejects — an account with no PIN
+/// (the owner, on a passkey) must not be reachable with an empty one.
+pub async fn get_user_by_name(pool: &DbPool, name: &str) -> Option<crate::models::UserAuth> {
+    sqlx::query_as!(
+        crate::models::UserAuth,
+        r#"SELECT id as "id!", name as "name!",
+                  COALESCE(pin_hash, '') as "pin_hash!: String",
+                  failed_pin_attempts as "failed_pin_attempts!",
+                  (locked_until IS NOT NULL AND locked_until > datetime('now')) as "is_locked!: bool"
+           FROM users WHERE name = ?"#,
+        name
+    )
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten()
+}
+
+/// Creates a member account. Never an owner and never an admin — the owner is
+/// seeded by migration 015 and admin is granted separately and deliberately.
+pub async fn create_user(pool: &DbPool, name: &str, pin_hash: &str) -> Result<i64, sqlx::Error> {
+    sqlx::query_scalar!(
+        r#"INSERT INTO users (name, pin_hash, is_owner, is_admin) VALUES (?, ?, 0, 0) RETURNING id as "id!""#,
+        name,
+        pin_hash
+    )
+    .fetch_one(pool)
+    .await
+}
+
+/// Sets a user's PIN and clears any lockout — used both for the owner
+/// resetting a forgotten PIN and for a member changing their own.
+pub async fn set_user_pin(pool: &DbPool, id: i64, pin_hash: &str) -> bool {
+    sqlx::query!(
+        "UPDATE users SET pin_hash = ?, failed_pin_attempts = 0, locked_until = NULL WHERE id = ?",
+        pin_hash,
+        id
+    )
+    .execute(pool)
+    .await
+    .map(|r| r.rows_affected() > 0)
+    .unwrap_or(false)
+}
+
+/// Records a wrong PIN, locking the account once the budget is spent.
+///
+/// The lock is written as an absolute timestamp rather than a countdown so it
+/// survives restarts — an attacker who can bounce the process must not be able
+/// to reset their own budget.
+pub async fn record_failed_pin(pool: &DbPool, id: i64) {
+    let max = crate::pin::MAX_PIN_ATTEMPTS;
+    let mins = format!("+{} minutes", crate::pin::LOCKOUT_MINUTES);
+    sqlx::query!(
+        "UPDATE users
+         SET failed_pin_attempts = failed_pin_attempts + 1,
+             locked_until = CASE WHEN failed_pin_attempts + 1 >= ?
+                                 THEN datetime('now', ?) ELSE locked_until END
+         WHERE id = ?",
+        max,
+        mins,
+        id
+    )
+    .execute(pool)
+    .await
+    .ok();
+}
+
+/// Clears the failure budget after a successful login.
+pub async fn clear_failed_pins(pool: &DbPool, id: i64) {
+    sqlx::query!(
+        "UPDATE users SET failed_pin_attempts = 0, locked_until = NULL WHERE id = ?",
+        id
+    )
+    .execute(pool)
+    .await
+    .ok();
+}
+
+/// Grants or revokes art-portfolio admin. Refuses to touch the owner.
+///
+/// The owner already reads as an effective admin without the flag, so writing
+/// it would be a no-op at best; refusing outright means "revoke admin" can
+/// never be aimed at the one account that must keep it.
+pub async fn set_user_admin(pool: &DbPool, id: i64, is_admin: bool) -> bool {
+    let flag = i64::from(is_admin);
+    sqlx::query!(
+        "UPDATE users SET is_admin = ? WHERE id = ? AND is_owner = 0",
+        flag,
+        id
+    )
+    .execute(pool)
+    .await
+    .map(|r| r.rows_affected() > 0)
+    .unwrap_or(false)
+}
+
+pub async fn rename_user(pool: &DbPool, id: i64, name: &str) -> Result<(), sqlx::Error> {
+    sqlx::query!("UPDATE users SET name = ? WHERE id = ?", name, id)
+        .execute(pool)
+        .await
+        .map(|_| ())
+}
+
+/// Deletes a member and everything of theirs. Refuses the owner.
+///
+/// The deletes are explicit because the pool runs with `foreign_keys` off, so
+/// nothing cascades on its own. Order matters only for readability — none of
+/// these constrain each other — but *completeness* matters a great deal: a
+/// missed table leaves rows keyed to an id that `AUTOINCREMENT` will eventually
+/// hand to somebody else, and the next member to be created would inherit a
+/// stranger's food log.
+pub async fn delete_user(pool: &DbPool, id: i64) -> bool {
+    // Guard first: if this is the owner, touch nothing at all.
+    let deleted = sqlx::query!("DELETE FROM users WHERE id = ? AND is_owner = 0", id)
+        .execute(pool)
+        .await
+        .map(|r| r.rows_affected() > 0)
+        .unwrap_or(false);
+    if !deleted {
+        return false;
+    }
+
+    for stmt in [
+        "DELETE FROM sessions WHERE user_id = ?",
+        "DELETE FROM passkey_credentials WHERE user_id = ?",
+        "DELETE FROM meal_entries WHERE user_id = ?",
+        "DELETE FROM weights WHERE user_id = ?",
+        "DELETE FROM targets WHERE user_id = ?",
+        "DELETE FROM user_food_prefs WHERE user_id = ?",
+        "DELETE FROM recipe_items WHERE recipe_id IN (SELECT id FROM recipes WHERE user_id = ?)",
+        "DELETE FROM recipes WHERE user_id = ?",
+    ] {
+        sqlx::query(stmt).bind(id).execute(pool).await.ok();
+    }
+    true
 }
 
 /// Resolves a passkey credential id to the user that registered it.
@@ -2080,6 +2249,206 @@ mod tests {
         let pool = test_pool().await;
         create_session(&pool, "expired-id", "2000-01-01T00:00:00", 1).await;
         assert!(get_session(&pool, "expired-id").await.is_none());
+    }
+
+    // ── Accounts (pack 3) ────────────────────────────────────────────────────
+
+    /// The owner cannot be demoted or deleted — by the management page, or by
+    /// anything else.
+    ///
+    /// The template hides the controls, but that is a courtesy. The rule is
+    /// `AND is_owner = 0` on every destructive statement, which is what still
+    /// holds when the request is hand-made. Losing this means losing the only
+    /// account that can grant admin.
+    #[tokio::test]
+    async fn test_owner_cannot_be_demoted_or_deleted() {
+        let pool = test_pool().await;
+        let owner = get_owner_user_id(&pool).await.unwrap();
+
+        assert!(
+            !set_user_admin(&pool, owner, false).await,
+            "the owner's admin flag must not be revocable"
+        );
+        assert!(
+            !delete_user(&pool, owner).await,
+            "the owner must not be deletable"
+        );
+
+        // Still there, still an owner, still an admin.
+        create_session(&pool, "s", "2099-01-01T00:00:00", owner).await;
+        let s = get_session(&pool, "s").await.unwrap();
+        assert!(s.is_owner);
+        assert!(s.is_effective_admin());
+    }
+
+    /// Granting and revoking admin works on a member, and is exactly what
+    /// `is_effective_admin` reports.
+    #[tokio::test]
+    async fn test_grant_and_revoke_admin_on_a_member() {
+        let pool = test_pool().await;
+        let id = create_user(&pool, "alex", "hash").await.unwrap();
+        create_session(&pool, "s", "2099-01-01T00:00:00", id).await;
+
+        assert!(!get_session(&pool, "s").await.unwrap().is_effective_admin());
+        assert!(set_user_admin(&pool, id, true).await);
+        assert!(get_session(&pool, "s").await.unwrap().is_effective_admin());
+        assert!(set_user_admin(&pool, id, false).await);
+        assert!(!get_session(&pool, "s").await.unwrap().is_effective_admin());
+    }
+
+    /// A created account is a member — never an owner, never an admin.
+    #[tokio::test]
+    async fn test_created_users_are_plain_members() {
+        let pool = test_pool().await;
+        let id = create_user(&pool, "alex", "hash").await.unwrap();
+        let row = list_users(&pool)
+            .await
+            .into_iter()
+            .find(|u| u.id == id)
+            .unwrap();
+        assert!(!row.is_owner);
+        assert!(!row.is_admin);
+        assert!(row.has_pin);
+
+        // Names are unique case-insensitively, so "Alex" cannot shadow "alex".
+        assert!(create_user(&pool, "ALEX", "hash").await.is_err());
+    }
+
+    /// Deleting a member takes every trace of them with it.
+    ///
+    /// Nothing cascades — the pool runs with `foreign_keys` off — so each table
+    /// is cleared by hand, and a missed one would leave rows keyed to an id
+    /// that `AUTOINCREMENT` eventually reissues. The next member created would
+    /// open their tracker onto a stranger's food log.
+    #[tokio::test]
+    async fn test_deleting_a_member_removes_all_their_data() {
+        let pool = test_pool().await;
+        let alex = UserId(create_user(&pool, "alex", "hash").await.unwrap());
+        let food = seed_food(&pool, "Oats", 380.0, 13.0, OWNER).await;
+
+        insert_meal_entry(&pool, food, "2026-08-16", 80.0, "breakfast", alex)
+            .await
+            .unwrap();
+        upsert_weight(&pool, "2026-08-16", 61.0, alex).await;
+        set_targets(&pool, 1800.0, 120.0, 180.0, 60.0, alex).await;
+        toggle_food_favourite(&pool, food, alex).await;
+        create_recipe_from_slot(&pool, "Alex's breakfast", "2026-08-16", "breakfast", alex)
+            .await
+            .unwrap();
+        create_session(&pool, "alex-session", "2099-01-01T00:00:00", alex.get()).await;
+        save_credential(&pool, "alex-cred", "{}", alex.get()).await;
+
+        assert!(delete_user(&pool, alex.get()).await);
+
+        for (table, n) in [
+            ("meal_entries", 0),
+            ("weights", 0),
+            ("targets", 0),
+            ("user_food_prefs", 0),
+            ("recipes", 0),
+            ("recipe_items", 0),
+            ("sessions", 0),
+            ("passkey_credentials", 0),
+        ] {
+            let count: i64 =
+                sqlx::query_scalar(&format!("SELECT COUNT(*) FROM {table} WHERE user_id = ?"))
+                    .bind(alex.get())
+                    .fetch_one(&pool)
+                    .await
+                    .unwrap_or(0);
+            // recipe_items has no user_id; checked separately below.
+            if table != "recipe_items" {
+                assert_eq!(count, n, "{table} still holds rows for the deleted user");
+            }
+        }
+        let orphan_items: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM recipe_items")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(orphan_items, 0, "recipe_items orphaned by the delete");
+
+        // The session is gone, so the cookie no longer authenticates.
+        assert!(get_session(&pool, "alex-session").await.is_none());
+
+        // And the shared catalog is untouched — deleting a person must not
+        // delete the food everybody uses.
+        assert_eq!(get_food_items(&pool, OWNER).await.len(), 1);
+    }
+
+    /// Wrong PINs lock the account, and the lock is absolute-timestamped so a
+    /// restart cannot reset an attacker's budget.
+    #[tokio::test]
+    async fn test_pin_lockout_after_repeated_failures() {
+        let pool = test_pool().await;
+        let id = create_user(&pool, "alex", "hash").await.unwrap();
+
+        for i in 1..crate::pin::MAX_PIN_ATTEMPTS {
+            record_failed_pin(&pool, id).await;
+            let u = get_user_by_name(&pool, "alex").await.unwrap();
+            assert_eq!(u.failed_pin_attempts, i);
+            assert!(!u.is_locked, "locked early, after {i} attempts");
+        }
+
+        record_failed_pin(&pool, id).await;
+        let u = get_user_by_name(&pool, "alex").await.unwrap();
+        assert!(
+            u.is_locked,
+            "not locked after {} attempts",
+            crate::pin::MAX_PIN_ATTEMPTS
+        );
+
+        // Setting a PIN clears the lock — this is how the owner rescues someone
+        // who locked themselves out.
+        assert!(set_user_pin(&pool, id, "newhash").await);
+        let u = get_user_by_name(&pool, "alex").await.unwrap();
+        assert!(!u.is_locked);
+        assert_eq!(u.failed_pin_attempts, 0);
+    }
+
+    /// A successful login clears the failure budget.
+    #[tokio::test]
+    async fn test_successful_login_clears_failed_attempts() {
+        let pool = test_pool().await;
+        let id = create_user(&pool, "alex", "hash").await.unwrap();
+        record_failed_pin(&pool, id).await;
+        record_failed_pin(&pool, id).await;
+        assert_eq!(
+            get_user_by_name(&pool, "alex")
+                .await
+                .unwrap()
+                .failed_pin_attempts,
+            2
+        );
+        clear_failed_pins(&pool, id).await;
+        assert_eq!(
+            get_user_by_name(&pool, "alex")
+                .await
+                .unwrap()
+                .failed_pin_attempts,
+            0
+        );
+    }
+
+    /// Lookup by name is case-insensitive, matching the UNIQUE COLLATE NOCASE
+    /// index — someone who typed "Alex" logs in as "alex".
+    #[tokio::test]
+    async fn test_user_lookup_is_case_insensitive() {
+        let pool = test_pool().await;
+        create_user(&pool, "alex", "hash").await.unwrap();
+        assert!(get_user_by_name(&pool, "ALEX").await.is_some());
+        assert!(get_user_by_name(&pool, "Alex").await.is_some());
+        assert!(get_user_by_name(&pool, "alexx").await.is_none());
+    }
+
+    /// The seeded owner has no PIN, and their empty hash must never verify —
+    /// otherwise an empty PIN would log in as the owner.
+    #[tokio::test]
+    async fn test_owner_without_pin_cannot_be_reached_by_an_empty_pin() {
+        let pool = test_pool().await;
+        let owner = get_user_by_name(&pool, "admin").await.expect("owner row");
+        assert_eq!(owner.pin_hash, "", "the seeded owner has no PIN");
+        assert!(!crate::pin::verify_pin("", &owner.pin_hash));
+        assert!(!crate::pin::verify_pin("1234", &owner.pin_hash));
     }
 
     // ── Multi-user isolation (pack 2) ────────────────────────────────────────

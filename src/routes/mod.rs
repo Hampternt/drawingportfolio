@@ -4,3 +4,4 @@ pub mod feed;
 pub mod hub;
 pub mod nutrition;
 pub mod tasks;
+pub mod users;

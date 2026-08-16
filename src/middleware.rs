@@ -126,6 +126,47 @@ impl FromRequestParts<Arc<AppState>> for RequireAdmin {
     }
 }
 
+/// Extractor: requires *the* owner — the single account migration 015 seeds and
+/// its partial unique index protects.
+///
+/// Stricter than [`RequireAdmin`] on purpose, and used only for user
+/// management. An admin manages art; they cannot mint more admins, reset
+/// someone's PIN or delete an account. That keeps the privilege graph acyclic:
+/// no grant a member receives can ever be turned back on the owner.
+///
+/// Rejects exactly as `RequireAdmin` does — 404 for a valid non-owner session,
+/// redirect only when there is no session at all.
+pub struct RequireOwner(pub AuthSession);
+
+impl FromRequestParts<Arc<AppState>> for RequireOwner {
+    type Rejection = axum::response::Response;
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &Arc<AppState>,
+    ) -> Result<Self, Self::Rejection> {
+        match load_session(parts, state).await {
+            Some(session) => {
+                let auth: AuthSession = session.into();
+                if auth.is_owner {
+                    Ok(RequireOwner(auth))
+                } else {
+                    tracing::warn!(
+                        "non-owner user {} ({}) refused an owner-only route",
+                        auth.user_id,
+                        auth.user_name
+                    );
+                    Err(StatusCode::NOT_FOUND.into_response())
+                }
+            }
+            None => {
+                tracing::warn!("rejected owner-only request with no valid session");
+                Err(Redirect::to("/admin/login").into_response())
+            }
+        }
+    }
+}
+
 /// Extractor: checks admin status without ever rejecting. `true` means the
 /// requester is an **effective admin**, not merely that they are logged in.
 ///

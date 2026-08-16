@@ -1,0 +1,56 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT id as \"id!\", name as \"name!\",\n                  is_owner as \"is_owner!: bool\", is_admin as \"is_admin!: bool\",\n                  (pin_hash IS NOT NULL) as \"has_pin!: bool\",\n                  (locked_until IS NOT NULL AND locked_until > datetime('now')) as \"is_locked!: bool\",\n                  created_at as \"created_at!\"\n           FROM users ORDER BY is_owner DESC, name COLLATE NOCASE ASC",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "name!",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "is_owner!: bool",
+        "ordinal": 2,
+        "type_info": "Integer"
+      },
+      {
+        "name": "is_admin!: bool",
+        "ordinal": 3,
+        "type_info": "Integer"
+      },
+      {
+        "name": "has_pin!: bool",
+        "ordinal": 4,
+        "type_info": "Integer"
+      },
+      {
+        "name": "is_locked!: bool",
+        "ordinal": 5,
+        "type_info": "Integer"
+      },
+      {
+        "name": "created_at!",
+        "ordinal": 6,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "56b9e7d8180412662684c3c56f26c280b6d515b528a044093ee581f8c0c6d874"
+}

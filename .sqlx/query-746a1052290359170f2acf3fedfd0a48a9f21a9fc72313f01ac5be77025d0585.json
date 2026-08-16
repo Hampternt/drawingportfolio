@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE users SET failed_pin_attempts = 0, locked_until = NULL WHERE id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "746a1052290359170f2acf3fedfd0a48a9f21a9fc72313f01ac5be77025d0585"
+}

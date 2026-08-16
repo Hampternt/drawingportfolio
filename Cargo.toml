@@ -26,6 +26,7 @@ rgb = "0.8"
 tracing = "0.1"
 tracing-subscriber = "0.3"
 chrono = { version = "0.4.34", features = ["serde"] }  # pinned: 0.4.35+ renames Duration to TimeDelta
+argon2 = "0.5"  # PIN hashing for name+PIN fitness accounts; same version drinkinggame uses
 drinkinggame = { path = "drinkinggame" }
 
 [workspace]

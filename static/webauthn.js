@@ -107,3 +107,46 @@ async function startRegister() {
     status.textContent = err.message || 'Registration failed';
   }
 }
+
+// ── Name + PIN login ─────────────────────────────────────────────────────────
+//
+// The alternative to the passkey ceremony above, for fitness accounts on a
+// device that holds no credential. Lives in this file rather than its own
+// because the login page loads exactly one script and both paths write to the
+// same #status element.
+async function startPinLogin(event) {
+  event.preventDefault();
+  const status = document.getElementById('status');
+  const btn = document.getElementById('pin-btn');
+  const name = document.getElementById('pin-name').value;
+  const pin = document.getElementById('pin-pin').value;
+
+  status.style.color = '';
+  status.textContent = 'Checking…';
+  // Argon2 verification is deliberately slow, so the button has to stop
+  // accepting clicks or an impatient double-tap spends two of the five
+  // attempts before the first answer arrives.
+  btn.disabled = true;
+
+  try {
+    const resp = await fetch('/api/auth/login/pin', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, pin }),
+    });
+    const result = await resp.json();
+    if (result.ok) {
+      status.style.color = 'green';
+      status.textContent = 'Logged in — redirecting…';
+      window.location.href = '/fitness';
+    } else {
+      status.textContent = result.error || 'Login failed';
+      document.getElementById('pin-pin').value = '';
+    }
+  } catch (err) {
+    status.textContent = err.message || 'Login failed';
+  } finally {
+    btn.disabled = false;
+  }
+  return false;
+}

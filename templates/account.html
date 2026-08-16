@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}Account — Fitness{% endblock %}
+{% block body_class %}fitness-dark{% endblock %}
+
+{% block content %}
+<section class="fitness-page account-page">
+  <div class="fitness-whoami">
+    <span class="noc-kicker">Signed in as</span>
+    <span class="fitness-whoami-name">{{ user_name }}</span>
+  </div>
+
+  <h1 class="account-title">Your account</h1>
+
+  {% if error != "" %}<p class="users-error">{{ error }}</p>{% endif %}
+  {% if notice != "" %}<p class="users-notice">{{ notice }}</p>{% endif %}
+
+  {% if has_pin %}
+  <div class="noc-card account-card">
+    <h2>Change your PIN</h2>
+    <p class="account-hint">
+      Your current PIN is required — the session on this device is not enough,
+      because it is the PIN that logs you in everywhere else.
+    </p>
+    <form class="account-form" method="post" action="/api/account/pin">
+      <input type="password" name="current_pin" placeholder="Current PIN"
+             inputmode="numeric" minlength="4" maxlength="12" required>
+      <input type="password" name="new_pin" placeholder="New PIN (4–12 digits)"
+             inputmode="numeric" minlength="4" maxlength="12" required>
+      <button type="submit" class="noc-btn">Change PIN</button>
+    </form>
+  </div>
+  {% else %}
+  <div class="noc-card account-card">
+    <h2>No PIN set</h2>
+    <p class="account-hint">
+      You sign in with a passkey. Ask the site owner if you want a PIN as well.
+    </p>
+  </div>
+  {% endif %}
+
+  <div class="account-links">
+    <a class="noc-btn noc-btn-ghost" href="/fitness">Back to today</a>
+    <form method="post" action="/api/auth/logout">
+      <button type="submit" class="noc-btn noc-btn-ghost">Sign out</button>
+    </form>
+  </div>
+</section>
+{% endblock %}

@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}Users — Portfolio{% endblock %}
+
+{% block content %}
+<section class="users-page">
+  <h1>Accounts</h1>
+  <p class="users-intro">
+    Accounts are created here — there is no public sign-up. Give the person
+    their name and the PIN you set; they log in at
+    <a href="/admin/login">/admin/login</a>.
+  </p>
+
+  {% if error != "" %}<p class="users-error">{{ error }}</p>{% endif %}
+  {% if notice != "" %}<p class="users-notice">{{ notice }}</p>{% endif %}
+
+  <table class="users-table">
+    <thead>
+      <tr><th>Name</th><th>Role</th><th>PIN</th><th>Actions</th></tr>
+    </thead>
+    <tbody>
+      {% for u in users %}
+      <tr>
+        <td class="user-name">{{ u.name }}</td>
+        <td>
+          {% if u.is_owner %}<span class="user-tag user-tag-owner">Owner</span>
+          {% else if u.is_admin %}<span class="user-tag user-tag-admin">Admin</span>
+          {% else %}<span class="user-tag">Member</span>{% endif %}
+        </td>
+        <td>
+          {% if u.has_pin %}set{% else %}<span class="user-muted">none</span>{% endif %}
+          {% if u.is_locked %} <span class="user-tag user-tag-locked">locked</span>{% endif %}
+        </td>
+        <td class="user-actions">
+          {% if u.is_owner %}
+            {# The owner has no controls at all. This is the courtesy; the rule
+               is `AND is_owner = 0` on every destructive statement in db.rs. #}
+            <span class="user-muted">—</span>
+          {% else %}
+            <form method="post" action="/api/admin/users/{{ u.id }}/admin">
+              <input type="hidden" name="grant" value="{% if u.is_admin %}0{% else %}1{% endif %}">
+              <button type="submit">{% if u.is_admin %}Revoke admin{% else %}Grant admin{% endif %}</button>
+            </form>
+            <form method="post" action="/api/admin/users/{{ u.id }}/pin">
+              <input type="password" name="pin" placeholder="New PIN" inputmode="numeric"
+                     minlength="4" maxlength="12" required>
+              <button type="submit">Reset PIN</button>
+            </form>
+            <form method="post" action="/api/admin/users/{{ u.id }}/delete"
+                  onsubmit="return confirm('Delete {{ u.name }} and all of their entries, weights, targets and recipes? This cannot be undone.')">
+              <button type="submit" class="user-danger">Delete</button>
+            </form>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <h2>Add an account</h2>
+  <form class="users-create" method="post" action="/admin/users">
+    <input type="text" name="name" placeholder="Name" maxlength="20"
+           autocapitalize="none" spellcheck="false" required>
+    <input type="password" name="pin" placeholder="Initial PIN (4–12 digits)"
+           inputmode="numeric" minlength="4" maxlength="12" required>
+    <button type="submit">Create account</button>
+  </form>
+</section>
+{% endblock %}

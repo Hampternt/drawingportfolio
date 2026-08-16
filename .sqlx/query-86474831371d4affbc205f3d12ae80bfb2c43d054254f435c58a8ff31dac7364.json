@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM users WHERE id = ? AND is_owner = 0",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "86474831371d4affbc205f3d12ae80bfb2c43d054254f435c58a8ff31dac7364"
+}

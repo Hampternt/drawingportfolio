@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO users (name, pin_hash, is_owner, is_admin) VALUES (?, ?, 0, 0) RETURNING id as \"id!\"",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!",
+        "ordinal": 0,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "2a6afe5451e2f9c3ec30d95bf373da0ca06c218c8eb1210fa06152f0bcba0758"
+}

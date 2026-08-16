@@ -227,6 +227,34 @@ impl Session {
     }
 }
 
+/// A user as the management page lists them.
+///
+/// `has_pin` and `is_locked` are derived in SQL rather than exposing the hash
+/// or the timestamp: the page needs to say "PIN set" and "locked", and nothing
+/// that renders a template should be holding a credential.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct UserRow {
+    pub id: i64,
+    pub name: String,
+    pub is_owner: bool,
+    pub is_admin: bool,
+    pub has_pin: bool,
+    pub is_locked: bool,
+    pub created_at: String,
+}
+
+/// What the PIN login path needs, and nothing more.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct UserAuth {
+    pub id: i64,
+    pub name: String,
+    /// Empty when the user has no PIN — `verify_pin` rejects that, so a
+    /// passkey-only account cannot be reached by supplying an empty PIN.
+    pub pin_hash: String,
+    pub failed_pin_attempts: i64,
+    pub is_locked: bool,
+}
+
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct PasskeyCredential {
     pub id: String,
