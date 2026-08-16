@@ -36,6 +36,13 @@ from this file on 2026-08-12; `git log docs/WORKTREES.md` recovers them.
   life party challenges as Last Call cards (vote-judged duels, solo dares,
   social penalties, challenge HUD). Three packs; manifest:
   `docs/manifests/2026-08-14-lc-challenge-cards.md`.
+- **`feat/multi-user-fitness`** (started 2026-08-16, from `dev`, worktree
+  `~/projects/drawingportfolio.worktrees/multi-user-fitness`): multi-user
+  container — several people each with their own fitness log over a shared
+  food catalog, logging in by name + PIN alongside the owner's passkeys.
+  Art-portfolio admin becomes a grantable permission rather than a synonym
+  for "logged in". Four packs; manifest:
+  `docs/manifests/2026-08-16-multi-user-fitness.md`.
 
 ## Reminders
 

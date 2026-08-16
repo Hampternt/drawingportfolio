@@ -12,6 +12,14 @@
 {% block content %}
 <section class="fitness-page">
 
+  <!-- Whose log this is. /fitness renders the signed-in user's own day, so the
+       page has to say whose — otherwise two people sharing a screen cannot tell
+       which account they are logging into. -->
+  <div class="fitness-whoami">
+    <span class="noc-kicker">Signed in as</span>
+    <span class="fitness-whoami-name">{{ user_name }}</span>
+  </div>
+
   <!-- Date navigator: week strip + step arrows -->
   <div class="fitness-date-nav">
     <button id="prev-day" class="btn-secondary" aria-label="Previous day">←</button>

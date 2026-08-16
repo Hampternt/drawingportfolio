@@ -41,6 +41,10 @@ A personal nutrition and weight tracker, session-gated, dark-themed.
 - Food database with favourites, custom portions, and recipes; quick-log,
   copy-day, and barcode scanning that matches known products or prefills
   new ones from OpenFoodFacts.
+- 🚧 **Multi-user in flight** — several people, each with their own log over
+  a shared food catalog, signing in by name + PIN alongside the owner's
+  passkeys; art-portfolio admin becomes a grantable permission.
+  `docs/manifests/2026-08-16-multi-user-fitness.md`.
 
 ## Drinks — `/drinks`
 

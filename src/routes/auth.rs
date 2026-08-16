@@ -40,6 +40,23 @@ struct FinishBody {
     credential: serde_json::Value,
 }
 
+/// The storage key for a credential id, derived identically at registration and
+/// at login.
+///
+/// `CredentialID` serialises to a base64url JSON string. Registration stores
+/// that string as `passkey_credentials.id`; login re-derives it from the
+/// ceremony result to find out *who* just authenticated. The two must agree
+/// exactly — hence one function rather than two call sites repeating the same
+/// three steps, and a `None` on failure rather than the random UUID this used
+/// to substitute, which would have stored a credential under a key login could
+/// never derive.
+fn cred_id_key(cred_id: &CredentialID) -> Option<String> {
+    serde_json::to_value(cred_id)
+        .ok()?
+        .as_str()
+        .map(str::to_owned)
+}
+
 // Registration (localhost only)
 
 async fn register_start(
@@ -117,12 +134,31 @@ async fn register_finish(
         .finish_passkey_registration(&reg_response, &reg_state)
     {
         Ok(passkey) => {
-            let cred_id = serde_json::to_value(passkey.cred_id())
-                .ok()
-                .and_then(|v| v.as_str().map(str::to_owned))
-                .unwrap_or_else(|| Uuid::new_v4().to_string());
+            let cred_id = match cred_id_key(passkey.cred_id()) {
+                Some(k) => k,
+                None => {
+                    tracing::error!("could not derive credential key; refusing to store passkey");
+                    return Json(
+                        serde_json::json!({ "ok": false, "error": "credential id not serialisable" }),
+                    )
+                    .into_response();
+                }
+            };
+            // Registration is localhost-only, so the person at the keyboard is
+            // the owner. Members get their passkey through the management page
+            // in pack 3, which supplies its own target user.
+            let owner_id = match db::get_owner_user_id(&state.pool).await {
+                Some(id) => id,
+                None => {
+                    tracing::error!("no owner row — migration 015 did not run");
+                    return Json(
+                        serde_json::json!({ "ok": false, "error": "no owner configured" }),
+                    )
+                    .into_response();
+                }
+            };
             let passkey_json = serde_json::to_string(&passkey).unwrap();
-            db::save_credential(&state.pool, &cred_id, &passkey_json).await;
+            db::save_credential(&state.pool, &cred_id, &passkey_json, owner_id).await;
             tracing::info!("passkey registered successfully, cred_id={cred_id}");
             Json(serde_json::json!({ "ok": true })).into_response()
         }
@@ -201,15 +237,37 @@ async fn login_finish(
         .webauthn
         .finish_passkey_authentication(&auth_response, &auth_state)
     {
-        Ok(_result) => {
+        Ok(result) => {
+            // Which passkey answered the challenge decides *who* is logged in.
+            // `login_start` offers every registered credential, so without this
+            // lookup a session could only ever mean "somebody valid".
+            let cred_id = match cred_id_key(result.cred_id()) {
+                Some(k) => k,
+                None => {
+                    tracing::warn!("login: could not derive credential key");
+                    return Json(serde_json::json!({ "ok": false, "error": "unknown credential" }))
+                        .into_response();
+                }
+            };
+            let user_id = match db::get_credential_user_id(&state.pool, &cred_id).await {
+                Some(id) => id,
+                None => {
+                    // The ceremony passed but the credential has no user. Fail
+                    // closed rather than defaulting to the owner.
+                    tracing::warn!("login: credential {cred_id} is not bound to a user");
+                    return Json(serde_json::json!({ "ok": false, "error": "unknown credential" }))
+                        .into_response();
+                }
+            };
+
             let session_id = Uuid::new_v4().to_string();
             let expires = chrono::Utc::now()
                 .checked_add_signed(chrono::Duration::days(30))
                 .unwrap()
                 .format("%Y-%m-%dT%H:%M:%S")
                 .to_string();
-            db::create_session(&state.pool, &session_id, &expires).await;
-            tracing::info!("login successful, session created");
+            db::create_session(&state.pool, &session_id, &expires, user_id).await;
+            tracing::info!("login successful, session created for user {user_id}");
 
             let cookie = middleware::make_session_cookie(&session_id);
             let mut headers = axum::http::HeaderMap::new();

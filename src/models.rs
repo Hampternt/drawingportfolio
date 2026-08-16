@@ -118,7 +118,7 @@ impl Default for Visibility {
 
 /// Who is asking.
 ///
-/// Built once at the handler edge from `OptionalAuth` and the `?visitor=1`
+/// Built once at the handler edge from `OptionalAdmin` and the `?visitor=1`
 /// preview flag, then used for **both** the db call and the template flags.
 /// Deriving those two separately is how a preview ends up rendering a visitor's
 /// post set with admin badges and controls over it — getting wrong precisely the
@@ -200,10 +200,31 @@ pub enum CreateCollectionError {
     DuplicateSlug(String), // payload: existing name
 }
 
+/// A live session joined to the user it belongs to.
+///
+/// The user's flags ride along because `get_session` joins `users` — the auth
+/// extractors run on every request, including each HTMX fragment swap on the
+/// fitness page, and a second round-trip per swap to answer "is this person an
+/// admin?" would be paid on every interaction.
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct Session {
     pub id: String,
     pub expires_at: String,
+    pub user_id: i64,
+    pub user_name: String,
+    pub is_owner: bool,
+    pub is_admin: bool,
+}
+
+impl Session {
+    /// The only admin question anything should ask.
+    ///
+    /// The owner is an admin without carrying the grant flag, so nothing reads
+    /// `is_admin` directly — reading the raw column is how the owner ends up
+    /// locked out of their own portfolio the first time someone revokes a grant.
+    pub fn is_effective_admin(&self) -> bool {
+        self.is_owner || self.is_admin
+    }
 }
 
 #[derive(Debug, Clone, sqlx::FromRow)]

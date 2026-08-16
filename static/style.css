@@ -404,6 +404,12 @@ body.fitness-dark .noc-kicker {
 /* ── Fitness Tracker ─────────────────────────────────── */
 .fitness-page { max-width: 640px; margin: 0 auto; padding: 0 16px 90px; }
 
+/* signed-in-as chip — /fitness shows one user's own log, so it names them */
+.fitness-whoami { display: flex; align-items: baseline; gap: 6px; padding-top: 14px; }
+body.fitness-dark .fitness-whoami-name {
+  font-size: 13px; font-weight: 600; color: var(--noc-text);
+}
+
 /* date header */
 .fitness-date-nav { display: flex; align-items: center; gap: 8px; margin: 14px 0; }
 

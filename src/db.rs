@@ -110,6 +110,21 @@ pub async fn run_migrations(pool: &DbPool) {
     let _ = sqlx::query(include_str!("../migrations/014_collections_tags.sql"))
         .execute(pool)
         .await;
+
+    // Migration 015: users. Creates the table, the one-owner index and the
+    // seeded owner row. CREATE ... IF NOT EXISTS and INSERT OR IGNORE make the
+    // whole file re-runnable, so this one gets `.expect()` — a failure here is
+    // real, not the duplicate-column noise the ALTER migrations shrug off.
+    sqlx::query(include_str!("../migrations/015_users.sql"))
+        .execute(pool)
+        .await
+        .expect("failed to run users migration");
+
+    // Migration 016: sessions.user_id + passkey_credentials.user_id.
+    // ALTER-only, so `let _ =` for the duplicate-column error on re-run.
+    let _ = sqlx::query(include_str!("../migrations/016_session_identity.sql"))
+        .execute(pool)
+        .await;
 }
 
 /// Builds the `LIKE` pattern for a caption search.
@@ -768,21 +783,59 @@ pub async fn delete_post_and_get_urls(pool: &DbPool, id: i64) -> Option<PostUrls
     }
 }
 
-pub async fn create_session(pool: &DbPool, id: &str, expires_at: &str) {
+pub async fn create_session(pool: &DbPool, id: &str, expires_at: &str, user_id: i64) {
     sqlx::query!(
-        "INSERT INTO sessions (id, expires_at) VALUES (?, ?)",
+        "INSERT INTO sessions (id, expires_at, user_id) VALUES (?, ?, ?)",
         id,
-        expires_at
+        expires_at,
+        user_id
     )
     .execute(pool)
     .await
     .expect("failed to create session");
 }
 
+/// Loads a live session together with its user's identity and flags.
+///
+/// The `JOIN` is deliberate: this runs on every authenticated request, and the
+/// admin flags have to be answered in the same round-trip. An INNER JOIN also
+/// makes an orphaned session — one whose user was deleted — read as logged out
+/// rather than as a session with no permissions, which is the safe direction.
 pub async fn get_session(pool: &DbPool, id: &str) -> Option<Session> {
     sqlx::query_as!(Session,
-        r#"SELECT id as "id!", expires_at as "expires_at!" FROM sessions WHERE id = ? AND expires_at > datetime('now')"#,
+        r#"SELECT s.id as "id!", s.expires_at as "expires_at!", s.user_id as "user_id!",
+                  u.name as "user_name!", u.is_owner as "is_owner!: bool", u.is_admin as "is_admin!: bool"
+           FROM sessions s
+           JOIN users u ON u.id = s.user_id
+           WHERE s.id = ? AND s.expires_at > datetime('now')"#,
         id
+    )
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten()
+}
+
+/// The id of the single owner row.
+///
+/// Looked up rather than hardcoded to 1: migration 015 seeds it there, but the
+/// one-owner index — not the literal id — is what the invariant rests on.
+pub async fn get_owner_user_id(pool: &DbPool) -> Option<i64> {
+    sqlx::query_scalar!(r#"SELECT id as "id!" FROM users WHERE is_owner = 1"#)
+        .fetch_optional(pool)
+        .await
+        .ok()
+        .flatten()
+}
+
+/// Resolves a passkey credential id to the user that registered it.
+///
+/// This is what makes a passkey login mean "you are this person" rather than
+/// "someone with a valid passkey".
+pub async fn get_credential_user_id(pool: &DbPool, cred_id: &str) -> Option<i64> {
+    sqlx::query_scalar!(
+        r#"SELECT user_id as "user_id!" FROM passkey_credentials WHERE id = ?"#,
+        cred_id
     )
     .fetch_optional(pool)
     .await
@@ -825,11 +878,12 @@ pub async fn get_all_credentials(pool: &DbPool) -> Vec<PasskeyCredential> {
     .unwrap_or_default()
 }
 
-pub async fn save_credential(pool: &DbPool, id: &str, passkey_json: &str) {
+pub async fn save_credential(pool: &DbPool, id: &str, passkey_json: &str, user_id: i64) {
     sqlx::query!(
-        "INSERT OR REPLACE INTO passkey_credentials (id, passkey_json) VALUES (?, ?)",
+        "INSERT OR REPLACE INTO passkey_credentials (id, passkey_json, user_id) VALUES (?, ?, ?)",
         id,
-        passkey_json
+        passkey_json,
+        user_id
     )
     .execute(pool)
     .await
@@ -1641,7 +1695,7 @@ mod tests {
     async fn test_session_lifecycle() {
         let pool = test_pool().await;
         let id = "test-session-id";
-        create_session(&pool, id, "2099-01-01T00:00:00").await;
+        create_session(&pool, id, "2099-01-01T00:00:00", 1).await;
         assert!(get_session(&pool, id).await.is_some());
         delete_session(&pool, id).await;
         assert!(get_session(&pool, id).await.is_none());
@@ -1650,14 +1704,116 @@ mod tests {
     #[tokio::test]
     async fn test_expired_session_rejected() {
         let pool = test_pool().await;
-        create_session(&pool, "expired-id", "2000-01-01T00:00:00").await;
+        create_session(&pool, "expired-id", "2000-01-01T00:00:00", 1).await;
         assert!(get_session(&pool, "expired-id").await.is_none());
+    }
+
+    /// Migration 015 seeds exactly one owner, and the partial unique index is
+    /// what stops a second one existing. Without this the "owner cannot be
+    /// demoted" rule would rest on nothing but the management page's UI.
+    #[tokio::test]
+    async fn test_single_owner_invariant() {
+        let pool = test_pool().await;
+
+        let owner_id = get_owner_user_id(&pool)
+            .await
+            .expect("owner must be seeded");
+        assert_eq!(owner_id, 1);
+
+        let second_owner = sqlx::query("INSERT INTO users (name, is_owner) VALUES ('impostor', 1)")
+            .execute(&pool)
+            .await;
+        assert!(second_owner.is_err(), "a second owner must be rejected");
+
+        // Non-owners are unconstrained — the index is on `is_owner = 1` only.
+        for name in ["member-a", "member-b"] {
+            sqlx::query("INSERT INTO users (name, is_owner) VALUES (?, 0)")
+                .bind(name)
+                .execute(&pool)
+                .await
+                .expect("non-owner insert must succeed");
+        }
+    }
+
+    /// The session carries its user's flags because `get_session` joins
+    /// `users`. A member's session must not report admin.
+    #[tokio::test]
+    async fn test_session_carries_user_flags() {
+        let pool = test_pool().await;
+
+        create_session(&pool, "owner-sess", "2099-01-01T00:00:00", 1).await;
+        let owner = get_session(&pool, "owner-sess")
+            .await
+            .expect("owner session");
+        assert!(owner.is_owner);
+        assert!(owner.is_effective_admin());
+
+        let member_id = sqlx::query_scalar::<_, i64>(
+            "INSERT INTO users (name, is_owner, is_admin) VALUES ('member', 0, 0) RETURNING id",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        create_session(&pool, "member-sess", "2099-01-01T00:00:00", member_id).await;
+        let member = get_session(&pool, "member-sess")
+            .await
+            .expect("member session");
+        assert!(!member.is_owner);
+        assert!(
+            !member.is_effective_admin(),
+            "a plain member must never read as admin"
+        );
+
+        // A granted admin is an effective admin without being the owner.
+        sqlx::query("UPDATE users SET is_admin = 1 WHERE id = ?")
+            .bind(member_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        let granted = get_session(&pool, "member-sess")
+            .await
+            .expect("granted session");
+        assert!(!granted.is_owner);
+        assert!(granted.is_effective_admin());
+    }
+
+    /// An orphaned session — user deleted out from under it — must read as
+    /// logged out rather than as a session with no permissions. The INNER JOIN
+    /// in `get_session` is what makes that the default.
+    #[tokio::test]
+    async fn test_orphaned_session_reads_as_logged_out() {
+        let pool = test_pool().await;
+        let member_id = sqlx::query_scalar::<_, i64>(
+            "INSERT INTO users (name, is_owner) VALUES ('doomed', 0) RETURNING id",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        create_session(&pool, "orphan", "2099-01-01T00:00:00", member_id).await;
+        assert!(get_session(&pool, "orphan").await.is_some());
+
+        sqlx::query("DELETE FROM users WHERE id = ?")
+            .bind(member_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert!(get_session(&pool, "orphan").await.is_none());
+    }
+
+    /// A passkey resolves to the user that registered it — the fact that turns
+    /// "somebody valid authenticated" into "this person is logged in".
+    #[tokio::test]
+    async fn test_credential_resolves_to_its_user() {
+        let pool = test_pool().await;
+        save_credential(&pool, "cred-owner", "{}", 1).await;
+        assert_eq!(get_credential_user_id(&pool, "cred-owner").await, Some(1));
+        assert_eq!(get_credential_user_id(&pool, "no-such-cred").await, None);
     }
 
     #[tokio::test]
     async fn test_cleanup_removes_expired() {
         let pool = test_pool().await;
-        create_session(&pool, "old-session", "2000-01-01T00:00:00").await;
+        create_session(&pool, "old-session", "2000-01-01T00:00:00", 1).await;
         save_challenge(&pool, "old-challenge", "{}", "2000-01-01T00:00:00").await;
         cleanup_expired(&pool).await;
         assert!(get_session(&pool, "old-session").await.is_none());

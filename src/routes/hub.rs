@@ -1,4 +1,4 @@
-use crate::{middleware::OptionalAuth, AppState};
+use crate::{middleware::OptionalAdmin, AppState};
 use askama::Template;
 use axum::{
     response::{Html, IntoResponse},
@@ -13,7 +13,7 @@ struct HubTemplate {
     is_admin: bool,
 }
 
-async fn hub_page(OptionalAuth(is_admin): OptionalAuth) -> impl IntoResponse {
+async fn hub_page(OptionalAdmin(is_admin): OptionalAdmin) -> impl IntoResponse {
     Html(HubTemplate { is_admin }.render().unwrap())
 }
 

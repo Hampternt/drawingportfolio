@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO sessions (id, expires_at, user_id) VALUES (?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "8f90e541361d3af96cada1ec622a73731283a491d738c58240a491f8598e8ca0"
+}

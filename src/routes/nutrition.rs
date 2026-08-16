@@ -595,6 +595,7 @@ fn edit_food_form_html(item: &crate::models::FoodItem, history_html: &str) -> St
 #[template(path = "fitness/feed.html")]
 struct FitnessTemplate {
     is_admin: bool,
+    user_name: String,
     date: String,
     week_strip_html: String,
     day_section_html: String,
@@ -604,7 +605,7 @@ struct FitnessTemplate {
 // ── Route handlers ────────────────────────────────────────────────────────────
 
 async fn fitness_page(
-    AuthSession(_): AuthSession,
+    session: AuthSession,
     State(state): State<Arc<AppState>>,
     Query(params): Query<HashMap<String, String>>,
 ) -> impl IntoResponse {
@@ -625,6 +626,7 @@ async fn fitness_page(
     Html(
         FitnessTemplate {
             is_admin: true,
+            user_name: session.user_name,
             date,
             week_strip_html: strip,
             day_section_html: day_html,
@@ -636,7 +638,7 @@ async fn fitness_page(
 }
 
 async fn htmx_day(
-    AuthSession(_): AuthSession,
+    _: AuthSession,
     State(state): State<Arc<AppState>>,
     Query(params): Query<HashMap<String, String>>,
 ) -> impl IntoResponse {
@@ -654,7 +656,7 @@ async fn htmx_day(
 }
 
 async fn add_food_item(
-    AuthSession(_): AuthSession,
+    _: AuthSession,
     State(state): State<Arc<AppState>>,
     mut multipart: Multipart,
 ) -> impl IntoResponse {
@@ -848,7 +850,7 @@ async fn add_food_item(
 }
 
 async fn delete_food_item_handler(
-    AuthSession(_): AuthSession,
+    _: AuthSession,
     State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
 ) -> impl IntoResponse {
@@ -870,7 +872,7 @@ async fn delete_food_item_handler(
 }
 
 async fn add_meal_entry(
-    AuthSession(_): AuthSession,
+    _: AuthSession,
     State(state): State<Arc<AppState>>,
     axum::Form(form): axum::Form<HashMap<String, String>>,
 ) -> impl IntoResponse {
@@ -922,7 +924,7 @@ async fn add_meal_entry(
 }
 
 async fn delete_meal_entry_handler(
-    AuthSession(_): AuthSession,
+    _: AuthSession,
     State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
     Query(params): Query<HashMap<String, String>>,
@@ -942,7 +944,7 @@ async fn delete_meal_entry_handler(
 }
 
 async fn edit_food_form(
-    AuthSession(_): AuthSession,
+    _: AuthSession,
     State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
 ) -> impl IntoResponse {
@@ -977,7 +979,7 @@ async fn edit_food_form(
 }
 
 async fn food_item_card(
-    AuthSession(_): AuthSession,
+    _: AuthSession,
     State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
 ) -> impl IntoResponse {
@@ -992,7 +994,7 @@ async fn food_item_card(
 }
 
 async fn update_food_item_handler(
-    AuthSession(_): AuthSession,
+    _: AuthSession,
     State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
     mut multipart: Multipart,
@@ -1253,7 +1255,7 @@ fn entry_edit_row_html(entry: &crate::models::MealEntry, food_name: &str, date: 
 }
 
 async fn entry_edit_form(
-    AuthSession(_): AuthSession,
+    _: AuthSession,
     State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
     Query(params): Query<HashMap<String, String>>,
@@ -1276,7 +1278,7 @@ async fn entry_edit_form(
 }
 
 async fn update_meal_entry_handler(
-    AuthSession(_): AuthSession,
+    _: AuthSession,
     State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
     axum::Form(form): axum::Form<HashMap<String, String>>,
@@ -1389,7 +1391,7 @@ fn match_card_html(item: &crate::models::FoodItem, kicker: &str) -> String {
 }
 
 async fn match_card(
-    AuthSession(_): AuthSession,
+    _: AuthSession,
     State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
 ) -> impl IntoResponse {
@@ -1399,10 +1401,7 @@ async fn match_card(
     }
 }
 
-async fn recent_chips(
-    AuthSession(_): AuthSession,
-    State(state): State<Arc<AppState>>,
-) -> impl IntoResponse {
+async fn recent_chips(_: AuthSession, State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let recents = crate::db::get_recent_foods(&state.pool, 8).await;
     let chips: String = recents
         .iter()
@@ -1424,7 +1423,7 @@ async fn recent_chips(
 }
 
 async fn food_search(
-    AuthSession(_): AuthSession,
+    _: AuthSession,
     State(state): State<Arc<AppState>>,
     Query(params): Query<HashMap<String, String>>,
 ) -> impl IntoResponse {
@@ -1452,7 +1451,7 @@ async fn food_search(
 }
 
 async fn barcode_match(
-    AuthSession(_): AuthSession,
+    _: AuthSession,
     State(state): State<Arc<AppState>>,
     Path(code): Path<String>,
 ) -> impl IntoResponse {
@@ -1466,7 +1465,7 @@ async fn barcode_match(
 }
 
 async fn week_strip_fragment(
-    AuthSession(_): AuthSession,
+    _: AuthSession,
     State(state): State<Arc<AppState>>,
     Query(params): Query<HashMap<String, String>>,
 ) -> impl IntoResponse {
@@ -1478,7 +1477,7 @@ async fn week_strip_fragment(
 }
 
 async fn quick_log_handler(
-    AuthSession(_): AuthSession,
+    _: AuthSession,
     State(state): State<Arc<AppState>>,
     axum::Form(form): axum::Form<HashMap<String, String>>,
 ) -> impl IntoResponse {
@@ -1514,6 +1513,7 @@ async fn quick_log_handler(
 #[template(path = "fitness/week.html")]
 struct WeekTemplate {
     is_admin: bool,
+    user_name: String,
     range_label: String,
     target_cal: String,
     avg_cal: String,
@@ -1580,10 +1580,7 @@ fn weight_card_html(latest: Option<(String, f64)>, series: &[(String, f64)]) -> 
     )
 }
 
-async fn week_page(
-    AuthSession(_): AuthSession,
-    State(state): State<Arc<AppState>>,
-) -> impl IntoResponse {
+async fn week_page(session: AuthSession, State(state): State<Arc<AppState>>) -> impl IntoResponse {
     use chrono::{Duration, NaiveDate};
     let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
     let targets = crate::db::get_targets(&state.pool).await;
@@ -1671,6 +1668,7 @@ async fn week_page(
     Html(
         WeekTemplate {
             is_admin: true,
+            user_name: session.user_name,
             range_label,
             target_cal: format!("{:.0}", targets.calories),
             avg_cal: format!("{:.0}", avg_cal),
@@ -1689,7 +1687,7 @@ async fn week_page(
 }
 
 async fn log_weight_handler(
-    AuthSession(_): AuthSession,
+    _: AuthSession,
     State(state): State<Arc<AppState>>,
     axum::Form(form): axum::Form<HashMap<String, String>>,
 ) -> impl IntoResponse {
@@ -1709,7 +1707,7 @@ async fn log_weight_handler(
 }
 
 async fn create_recipe_handler(
-    AuthSession(_): AuthSession,
+    _: AuthSession,
     State(state): State<Arc<AppState>>,
     axum::Form(form): axum::Form<HashMap<String, String>>,
 ) -> impl IntoResponse {
@@ -1732,7 +1730,7 @@ async fn create_recipe_handler(
 }
 
 async fn log_recipe_handler(
-    AuthSession(_): AuthSession,
+    _: AuthSession,
     State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
     axum::Form(form): axum::Form<HashMap<String, String>>,
@@ -1786,16 +1784,13 @@ fn meals_pane_html(recipes: &[crate::models::RecipeWithTotals]) -> String {
     }
 }
 
-async fn meals_pane(
-    AuthSession(_): AuthSession,
-    State(state): State<Arc<AppState>>,
-) -> impl IntoResponse {
+async fn meals_pane(_: AuthSession, State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let recipes = crate::db::get_recipes_with_totals(&state.pool).await;
     Html(meals_pane_html(&recipes))
 }
 
 async fn delete_recipe_handler(
-    AuthSession(_): AuthSession,
+    _: AuthSession,
     State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
 ) -> impl IntoResponse {
@@ -1805,7 +1800,7 @@ async fn delete_recipe_handler(
 }
 
 async fn toggle_favourite_handler(
-    AuthSession(_): AuthSession,
+    _: AuthSession,
     State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
 ) -> impl IntoResponse {
@@ -1819,10 +1814,7 @@ async fn toggle_favourite_handler(
     Html(library_list_html(&items, &recent_ids, true))
 }
 
-async fn favourite_chips(
-    AuthSession(_): AuthSession,
-    State(state): State<Arc<AppState>>,
-) -> impl IntoResponse {
+async fn favourite_chips(_: AuthSession, State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let items = crate::db::get_food_items(&state.pool).await;
     let chips: String = items
         .iter()
@@ -1844,7 +1836,7 @@ async fn favourite_chips(
 }
 
 async fn copy_day_handler(
-    AuthSession(_): AuthSession,
+    _: AuthSession,
     State(state): State<Arc<AppState>>,
     axum::Form(form): axum::Form<HashMap<String, String>>,
 ) -> impl IntoResponse {
@@ -1872,7 +1864,7 @@ async fn copy_day_handler(
 }
 
 async fn targets_form(
-    AuthSession(_): AuthSession,
+    _: AuthSession,
     State(state): State<Arc<AppState>>,
     Query(params): Query<HashMap<String, String>>,
 ) -> impl IntoResponse {
@@ -1896,7 +1888,7 @@ async fn targets_form(
 }
 
 async fn set_targets_handler(
-    AuthSession(_): AuthSession,
+    _: AuthSession,
     State(state): State<Arc<AppState>>,
     axum::Form(form): axum::Form<HashMap<String, String>>,
 ) -> impl IntoResponse {

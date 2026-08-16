@@ -1,5 +1,5 @@
 use crate::{
-    middleware::OptionalAuth,
+    middleware::OptionalAdmin,
     models::{CollectionWithCount, MonthGroup, Post, PostCounts, PostFilter, TagWithCount, Viewer},
     AppState,
 };
@@ -707,7 +707,7 @@ async fn render_grid(
 }
 
 async fn feed_page(
-    OptionalAuth(session_is_admin): OptionalAuth,
+    OptionalAdmin(session_is_admin): OptionalAdmin,
     State(state): State<Arc<AppState>>,
     Query(query): Query<PageQuery>,
 ) -> impl IntoResponse {
@@ -770,7 +770,7 @@ async fn feed_page(
 }
 
 async fn htmx_posts(
-    OptionalAuth(session_is_admin): OptionalAuth,
+    OptionalAdmin(session_is_admin): OptionalAdmin,
     State(state): State<Arc<AppState>>,
     Query(query): Query<PageQuery>,
 ) -> Response {
@@ -852,7 +852,7 @@ struct NotFoundTemplate {
 /// distinguishable response — a 403, or a different message — would confirm the
 /// row exists, which is precisely what hiding it is meant to withhold.
 async fn post_permalink(
-    OptionalAuth(session_is_admin): OptionalAuth,
+    OptionalAdmin(session_is_admin): OptionalAdmin,
     State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
     Query(query): Query<PageQuery>,
@@ -886,7 +886,7 @@ struct PostsResponse {
 }
 
 async fn api_posts(
-    OptionalAuth(session_is_admin): OptionalAuth,
+    OptionalAdmin(session_is_admin): OptionalAdmin,
     State(state): State<Arc<AppState>>,
     Query(query): Query<PageQuery>,
 ) -> impl IntoResponse {
@@ -1517,8 +1517,20 @@ mod tests {
 
     /// A session row plus the cookie header that presents it.
     async fn admin_cookie(pool: &crate::db::DbPool) -> String {
-        crate::db::create_session(pool, "test-session", "2099-01-01 00:00:00").await;
+        crate::db::create_session(pool, "test-session", "2099-01-01 00:00:00", 1).await;
         "session=test-session".to_string()
+    }
+
+    /// A signed-in fitness-only member: valid session, no admin.
+    async fn member_cookie(pool: &crate::db::DbPool) -> String {
+        let member_id = sqlx::query_scalar::<_, i64>(
+            "INSERT INTO users (name, is_owner, is_admin) VALUES ('member', 0, 0) RETURNING id",
+        )
+        .fetch_one(pool)
+        .await
+        .unwrap();
+        crate::db::create_session(pool, "member-session", "2099-01-01 00:00:00", member_id).await;
+        "session=member-session".to_string()
     }
 
     async fn body_of(resp: axum::response::Response) -> String {
@@ -1562,6 +1574,44 @@ mod tests {
         assert!(body.contains("kept back"));
     }
 
+    /// The leak this pack exists to close.
+    ///
+    /// `OptionalAdmin` used to be `OptionalAuth` and meant "holds a valid
+    /// session", which `page()` converts directly into `Viewer::Admin`. The
+    /// moment a fitness-only member could hold a session, that member would
+    /// have been served every unlisted and hidden post on the site — on the
+    /// public art feed, with no admin route involved and nothing to click.
+    ///
+    /// A member must see exactly what a logged-out visitor sees.
+    #[tokio::test]
+    async fn test_member_session_sees_the_visitor_feed() {
+        let (app, pool) = app_with_pool().await;
+        seed(&pool, "on show", crate::models::Visibility::Public).await;
+        seed(&pool, "kept back", crate::models::Visibility::Hidden).await;
+        seed(&pool, "by link only", crate::models::Visibility::Unlisted).await;
+        let cookie = member_cookie(&pool).await;
+
+        let body = body_of(get(&app, "/artportfolio", Some(&cookie)).await).await;
+        assert!(body.contains("on show"));
+        assert!(
+            !body.contains("kept back"),
+            "a signed-in member must not see hidden posts"
+        );
+        assert!(
+            !body.contains("by link only"),
+            "a signed-in member must not see unlisted posts"
+        );
+
+        // Same for the paginated fragment — page 0 and Load more have to agree,
+        // and the fragment route derives its viewer separately.
+        let frag = body_of(get(&app, "/artportfolio/htmx/posts?page=0", Some(&cookie)).await).await;
+        assert!(frag.contains("on show"));
+        assert!(
+            !frag.contains("kept back"),
+            "the htmx fragment must not leak hidden posts to a member either"
+        );
+    }
+
     #[tokio::test]
     async fn test_htmx_posts_visitor_omits_hidden_page_0() {
         let (app, pool) = app_with_pool().await;
@@ -1573,7 +1623,7 @@ mod tests {
     }
 
     /// The leak this task exists to close. `htmx_posts` never extracted
-    /// `OptionalAuth`, so page 0 could render filtered while the first Load more
+    /// `OptionalAdmin`, so page 0 could render filtered while the first Load more
     /// handed back everything — a page-0-only test would pass throughout.
     #[tokio::test]
     async fn test_htmx_posts_visitor_omits_hidden_page_1() {

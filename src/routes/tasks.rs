@@ -9,7 +9,7 @@
 use crate::db::TaskFilters;
 use crate::models::{DrawingTaskWithImage, TaskImage};
 use crate::{
-    middleware::{AuthSession, OptionalAuth},
+    middleware::{OptionalAdmin, RequireAdmin},
     AppState,
 };
 use askama::Template;
@@ -339,7 +339,7 @@ struct TasksTemplate {
 // ── Route handlers ────────────────────────────────────────────────────────────
 
 async fn tasks_page(
-    OptionalAuth(is_admin): OptionalAuth,
+    OptionalAdmin(is_admin): OptionalAdmin,
     State(state): State<Arc<AppState>>,
 ) -> impl IntoResponse {
     let f = filters_from_params(&HashMap::new());
@@ -361,7 +361,7 @@ async fn tasks_page(
 }
 
 async fn htmx_board(
-    OptionalAuth(is_admin): OptionalAuth,
+    OptionalAdmin(is_admin): OptionalAdmin,
     State(state): State<Arc<AppState>>,
     Query(params): Query<HashMap<String, String>>,
 ) -> impl IntoResponse {
@@ -370,7 +370,7 @@ async fn htmx_board(
 }
 
 async fn add_task_image(
-    AuthSession(_): AuthSession,
+    _: RequireAdmin,
     State(state): State<Arc<AppState>>,
     mut multipart: Multipart,
 ) -> impl IntoResponse {
@@ -434,7 +434,7 @@ async fn add_task_image(
 }
 
 async fn delete_task_image_handler(
-    AuthSession(_): AuthSession,
+    _: RequireAdmin,
     State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
 ) -> impl IntoResponse {
@@ -450,7 +450,7 @@ async fn delete_task_image_handler(
 }
 
 async fn add_task(
-    AuthSession(_): AuthSession,
+    _: RequireAdmin,
     State(state): State<Arc<AppState>>,
     axum::Form(form): axum::Form<HashMap<String, String>>,
 ) -> impl IntoResponse {
@@ -513,7 +513,7 @@ async fn add_task(
 }
 
 async fn delete_task_handler(
-    AuthSession(_): AuthSession,
+    _: RequireAdmin,
     State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
     Query(params): Query<HashMap<String, String>>,
@@ -524,7 +524,7 @@ async fn delete_task_handler(
 }
 
 async fn toggle_task_handler(
-    AuthSession(_): AuthSession,
+    _: RequireAdmin,
     State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
     // htmx 2.x sends hx-include'd params in the body for POST requests

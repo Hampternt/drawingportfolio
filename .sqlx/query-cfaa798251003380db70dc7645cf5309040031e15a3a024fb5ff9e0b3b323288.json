@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT user_id as \"user_id!\" FROM passkey_credentials WHERE id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "user_id!",
+        "ordinal": 0,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "cfaa798251003380db70dc7645cf5309040031e15a3a024fb5ff9e0b3b323288"
+}

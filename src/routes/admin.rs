@@ -40,13 +40,13 @@ async fn encode_as_avif(bytes: Vec<u8>) -> Result<Vec<u8>, String> {
 #[template(path = "admin.html")]
 struct AdminTemplate;
 
-async fn admin_page(_session: crate::middleware::AuthSession) -> impl IntoResponse {
+async fn admin_page(_: crate::middleware::RequireAdmin) -> impl IntoResponse {
     Html(AdminTemplate.render().unwrap())
 }
 
 // HTMX partial — list of posts for admin view
 async fn htmx_admin_posts(
-    _session: crate::middleware::AuthSession,
+    _: crate::middleware::RequireAdmin,
     State(state): State<Arc<AppState>>,
 ) -> impl IntoResponse {
     // `Viewer::Admin`, and this is the call site that fails quietly if it is
@@ -70,7 +70,7 @@ async fn htmx_admin_posts(
 }
 
 async fn upload_post(
-    _session: crate::middleware::AuthSession,
+    _: crate::middleware::RequireAdmin,
     State(state): State<Arc<AppState>>,
     mut multipart: Multipart,
 ) -> impl IntoResponse {
@@ -280,7 +280,7 @@ async fn upload_post(
 }
 
 async fn delete_post(
-    _session: crate::middleware::AuthSession,
+    _: crate::middleware::RequireAdmin,
     State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
 ) -> impl IntoResponse {
@@ -315,7 +315,7 @@ pub struct VisibilityForm {
 }
 
 async fn patch_visibility(
-    _session: crate::middleware::AuthSession,
+    _: crate::middleware::RequireAdmin,
     State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
     // `Form`, not `Multipart`: this is what HTMX sends for an `hx-patch` with
@@ -430,7 +430,7 @@ pub struct CollectionNameForm {
 /// admin typed a name expecting it to exist as typed, and needs to know it
 /// already does under someone else's capitalization.
 async fn create_collection_route(
-    _session: crate::middleware::AuthSession,
+    _: crate::middleware::RequireAdmin,
     State(state): State<Arc<AppState>>,
     Form(form): Form<CollectionNameForm>,
 ) -> impl IntoResponse {
@@ -474,7 +474,7 @@ async fn create_collection_route(
 /// contract — an unknown id still renders the (unchanged) fragment rather
 /// than 404ing, since the caller's next view is the same rail either way.
 async fn delete_collection_route(
-    _session: crate::middleware::AuthSession,
+    _: crate::middleware::RequireAdmin,
     State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
 ) -> impl IntoResponse {
@@ -507,7 +507,7 @@ pub struct PatchPostForm {
 /// same swap contract as `patch_visibility`: `hx-target="closest .hm-post"
 /// hx-swap="outerHTML"`.
 async fn patch_post(
-    _session: crate::middleware::AuthSession,
+    _: crate::middleware::RequireAdmin,
     State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
     Form(form): Form<PatchPostForm>,
@@ -537,7 +537,7 @@ async fn patch_post(
 /// missing — `add_post_to_collection` is the function that actually checks
 /// existence, unlike its `remove` counterpart below.
 async fn add_post_collection(
-    _session: crate::middleware::AuthSession,
+    _: crate::middleware::RequireAdmin,
     State(state): State<Arc<AppState>>,
     Path((id, cid)): Path<(i64, i64)>,
 ) -> impl IntoResponse {
@@ -555,7 +555,7 @@ async fn add_post_collection(
 /// idempotent by contract (always `true`) — a stale checklist toggle for a
 /// row that is already gone still re-renders 200, never a 404.
 async fn remove_post_collection(
-    _session: crate::middleware::AuthSession,
+    _: crate::middleware::RequireAdmin,
     State(state): State<Arc<AppState>>,
     Path((id, cid)): Path<(i64, i64)>,
 ) -> impl IntoResponse {
@@ -574,7 +574,7 @@ async fn remove_post_collection(
 /// paired with the PATCH's replace-all semantics would silently wipe a
 /// post's tags on the first Save nobody meant to touch.
 async fn edit_post_fragment(
-    _session: crate::middleware::AuthSession,
+    _: crate::middleware::RequireAdmin,
     State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
 ) -> impl IntoResponse {
@@ -599,7 +599,7 @@ async fn edit_post_fragment(
 /// The membership checklist for one post, fetched fresh — used to (re)open
 /// the checklist popover, not just to refresh it after a toggle.
 async fn collections_checklist_fragment(
-    _session: crate::middleware::AuthSession,
+    _: crate::middleware::RequireAdmin,
     State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
 ) -> impl IntoResponse {
@@ -814,9 +814,25 @@ mod tests {
         .id
     }
 
+    /// A session for the seeded owner — an effective admin.
     async fn admin_cookie(pool: &crate::db::DbPool) -> String {
-        crate::db::create_session(pool, "test-session", "2099-01-01 00:00:00").await;
+        crate::db::create_session(pool, "test-session", "2099-01-01 00:00:00", 1).await;
         "session=test-session".to_string()
+    }
+
+    /// A session for a fitness-only member: valid, signed in, and not an admin.
+    ///
+    /// This is the account shape that did not exist before multi-user, and the
+    /// one every admin route now has to refuse.
+    async fn member_cookie(pool: &crate::db::DbPool) -> String {
+        let member_id = sqlx::query_scalar::<_, i64>(
+            "INSERT INTO users (name, is_owner, is_admin) VALUES ('member', 0, 0) RETURNING id",
+        )
+        .fetch_one(pool)
+        .await
+        .unwrap();
+        crate::db::create_session(pool, "member-session", "2099-01-01 00:00:00", member_id).await;
+        "session=member-session".to_string()
     }
 
     async fn patch_visibility_req(
@@ -1021,6 +1037,122 @@ mod tests {
                 .await
                 .is_empty(),
             "an unauthenticated request must not add the post to a collection"
+        );
+    }
+
+    /// The multi-user gate: a **signed-in** member is refused every admin
+    /// route, and refused with a 404.
+    ///
+    /// The previous test covers "no session"; this one covers the account shape
+    /// that only exists now — a valid session belonging to someone who is not
+    /// an admin. Before this pack the two were indistinguishable, because
+    /// holding any session *was* being the admin.
+    ///
+    /// 404 rather than 303 or 403 is deliberate. A redirect would bounce a
+    /// signed-in member to a login screen they are already past; a 403 confirms
+    /// the route is there. Asserting the exact status is what stops a future
+    /// handler quietly reverting to `AuthSession` — that would still "not 200"
+    /// for a logged-out visitor while letting every member straight through.
+    #[tokio::test]
+    async fn test_member_session_is_refused_every_admin_route() {
+        let (app, pool) = app_with_pool().await;
+        let post_id = seed_post(&pool, "guarded").await;
+        let cookie = member_cookie(&pool).await;
+        let c = Some(cookie.as_str());
+
+        let reqs = vec![
+            empty_req("GET", "/admin", c).await,
+            empty_req("GET", "/htmx/admin/posts", c).await,
+            empty_req("DELETE", &format!("/api/admin/posts/{post_id}"), c).await,
+            form_req(
+                "PATCH",
+                &format!("/api/admin/posts/{post_id}"),
+                "caption=x&tags=y",
+                c,
+            )
+            .await,
+            form_req(
+                "PATCH",
+                &format!("/api/admin/posts/{post_id}/visibility"),
+                "visibility=hidden",
+                c,
+            )
+            .await,
+            form_req("POST", "/api/admin/collections", "name=Nope", c).await,
+            empty_req("DELETE", "/api/admin/collections/1", c).await,
+            empty_req("GET", &format!("/api/admin/posts/{post_id}/collections"), c).await,
+            empty_req(
+                "POST",
+                &format!("/api/admin/posts/{post_id}/collections/1"),
+                c,
+            )
+            .await,
+            empty_req(
+                "DELETE",
+                &format!("/api/admin/posts/{post_id}/collections/1"),
+                c,
+            )
+            .await,
+            empty_req("GET", &format!("/api/admin/posts/{post_id}/edit"), c).await,
+        ];
+
+        for req in reqs {
+            let method = req.method().clone();
+            let uri = req.uri().clone();
+            let resp = app.clone().oneshot(req).await.unwrap();
+            assert_eq!(
+                resp.status(),
+                HttpStatus::NOT_FOUND,
+                "{method} {uri} must 404 for a signed-in non-admin"
+            );
+        }
+
+        // And nothing was mutated on the way through.
+        assert!(
+            crate::db::list_collections_with_counts(&pool, crate::models::Viewer::Admin)
+                .await
+                .is_empty(),
+            "a member must not create a collection"
+        );
+        assert_eq!(
+            crate::db::get_post_by_id(&pool, post_id, crate::models::Viewer::Admin)
+                .await
+                .map(|p| p.visibility),
+            Some(crate::models::Visibility::Public.as_str().to_string()),
+            "a member must not change a post's visibility"
+        );
+    }
+
+    /// The owner keeps working, and a *granted* admin works too — the gate is
+    /// the effective-admin question, not the owner flag.
+    #[tokio::test]
+    async fn test_granted_admin_reaches_admin_routes() {
+        let (app, pool) = app_with_pool().await;
+        let cookie = member_cookie(&pool).await;
+
+        // As a plain member: refused.
+        let resp = app
+            .clone()
+            .oneshot(empty_req("GET", "/admin", Some(&cookie)).await)
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), HttpStatus::NOT_FOUND);
+
+        // Grant the flag — nothing else changes.
+        sqlx::query("UPDATE users SET is_admin = 1 WHERE name = 'member'")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let resp = app
+            .clone()
+            .oneshot(empty_req("GET", "/admin", Some(&cookie)).await)
+            .await
+            .unwrap();
+        assert_eq!(
+            resp.status(),
+            HttpStatus::OK,
+            "a granted admin must reach /admin"
         );
     }
 
