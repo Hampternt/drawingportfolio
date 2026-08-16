@@ -493,6 +493,99 @@ everything either person thinks or logs about it is not.
 
 </details>
 
+## Before this merges — the upgrade path
+
+Everything above was verified against a **fresh** database. Production is not
+fresh, and migration 020 is the only one in this container that *moves user
+data*: it copies the owner's `is_favourite` / `default_portion_g` /
+`custom_portions` into `user_food_prefs` and then drops those three columns.
+On an empty `food_items` that `INSERT … SELECT` copies **zero rows**, so no
+test run in this container — including the empty-database walkthrough — had
+ever executed the copy on real input. It also destroys its own source.
+
+<details>
+<summary><b>The populated-upgrade test</b></summary>
+
+A database was built at the **pre-multi-user schema** (migrations 001–014
+only) and seeded the way the server's actually is: three foods covering all
+three shapes of the values being moved (favourite with a portion and custom
+portions; favourite with a different portion; **not** favourite, `NULL`
+portion, empty portions), a `targets` row, two `weights` rows, meal entries,
+a recipe with items, a live session and a passkey credential. Then the real
+binary was booted against it, so 015–021 ran through `run_migrations()` with
+its guards — not through a CLI.
+
+| | before | after |
+|---|---|---|
+| Porridge prefs | `1, 170.0, [{"label":"bowl",…}]` | `user_food_prefs(1, 1, 1, 170.0, [{"label":"bowl",…}])` |
+| Chicken prefs | `1, 250.5, [{"label":"breast",…}]` | `user_food_prefs(1, 3, 1, 250.5, [{"label":"breast",…}])` |
+| Eggs prefs | `0, NULL, ''` | no row — nothing to carry |
+| `targets` | `(1, 2400, 180, 250, 70)` | `(user_id 1, 2400, 180, 250, 70)` |
+| `weights` | `2026-08-10 → 82.4`, `-15 → 81.9` | both, under `user_id 1` |
+| entries / recipes | 2 / 1 | 2 / 1, `user_id 1` |
+| session + passkey | `live-session-abc`, `cred-xyz` | both `user_id 1` |
+
+The Eggs row is the load-bearing case: a food with nothing personal attached
+gets **no** prefs row, so it only survives if the readers `LEFT JOIN` with the
+user predicate in the `ON` clause rather than the `WHERE`. They do (four
+readers in `db.rs`), and serving that migrated database proves it end to end
+— `/fitness?date=2026-08-15` returned 200 showing **925 of 2400 cal · 39%**
+(Porridge 170 g + Chicken 200 g, arithmetically right), the catalog listed all
+three foods **including Eggs**, and the favourites fragment listed exactly
+Porridge and Chicken. `/fitness/week` showed 81.9 kg; `/admin` and
+`/admin/users` both returned 200.
+
+The session row is the operational half: **the owner does not get logged out
+by this deploy**, and their existing passkey still resolves, because 016's
+`DEFAULT 1` backfills both.
+
+</details>
+
+<details>
+<summary><b>The CI path, which is not the boot path</b></summary>
+
+`deploy.yml` builds its sqlx database with a python loop that applies every
+migration raw, split on `;`, wrapped in `try/except: pass` — a different
+application path from `run_migrations()`, and one that **swallows failures
+silently**. Simulated exactly: **0 swallowed failures** across all 21 files,
+and the resulting schema is correct. `cargo sqlx prepare --check` against that
+CI-built database exits **0**, so the committed `.sqlx` cache matches the
+queries under both the live-DATABASE_URL build CI does and the
+`SQLX_OFFLINE=true` build the server does.
+
+`.env.example` is unchanged versus `dev` — this deploy needs **no new
+server-side environment variables**.
+
+</details>
+
+<details>
+<summary><b>There is no rollback, and the deploy is not a separate step</b></summary>
+
+Pushing `master` fires the workflow, which scps the binary and
+`systemctl restart`s — migrations run on that restart. There is **no window**
+between "binary lands" and "schema changes", so anything precautionary has to
+happen *before the push*.
+
+Reverting the binary alone does not work. `dev`'s `db.rs` selects
+`is_favourite`, `default_portion_g` and `custom_portions` from `food_items`
+in four places; 020 removes all three, so the old binary 500s on every food
+read against the new schema. Recovery is **restore the database first, then
+redeploy the old binary** — in that order.
+
+The pipeline takes no backup (`deploy.yml` scps and restarts; the `deploying`
+skill says nothing about the database either). So the one manual step this
+deploy needs, run before pushing `master`:
+
+```
+ssh root@<server> "cp /opt/portfolio/portfolio.db /opt/portfolio/portfolio.db.pre-multiuser"
+```
+
+Adding that to `deploy.yml` as a standing step is the right fix for the gap —
+it is a change to deploy behaviour, so it goes through the `deploying` skill
+as its own item rather than riding along inside this container.
+
+</details>
+
 ## Ledger
 
 ### Pack 1 — landed 2026-08-16
