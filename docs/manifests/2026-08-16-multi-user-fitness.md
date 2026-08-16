@@ -335,9 +335,14 @@ Argon2 only decides how long that takes. Five wrong PINs lock the account for
 reset on the restart that every deploy performs, handing an attacker a fresh
 budget for the price of waiting.
 
-**The change-PIN form goes through the same lockout path**, so it cannot be
-used as an unmetered oracle for guessing a PIN the session's owner does not
-know — the case where someone picks up an unlocked phone.
+**The change-PIN form counts failures against the same lockout**, so it cannot
+be used as an unmetered oracle for guessing a PIN the session holder does not
+know — the case where someone picks up an unlocked phone. The consequence is
+worth knowing before it turns up as a support request: a member who guesses
+wrong five times on *this* form locks themselves out of logging in from
+anywhere else, and the only way back is the owner resetting their PIN. That is
+the right trade — the alternative is an unmetered guessing oracle behind a
+borrowed session — but it is a trade, not a free win.
 
 **A wrong name and a wrong PIN give the same answer.** Distinguishing them
 hands over a list of valid account names. The lockout message is the one
@@ -437,6 +442,13 @@ fields along the way.
 the real deploy path), **zero panics**, owner seeded as `admin`, `weights`
 keyed on `(user_id, date)`, `user_food_prefs` present.
 
+`SQLX_OFFLINE=true cargo build --release` — the actual deploy command, not
+`check` — succeeds **with no database file present at all**, so the `.sqlx`
+cache covers every query this container added. Worth confirming rather than
+assuming: `record_failed_pin` binds a runtime-built `'+15 minutes'` string
+into `datetime('now', ?)`, and a mistyped parameter there would have compiled
+locally against the live DB and failed only on the server.
+
 Then, in order: the owner renamed themselves off "admin" to Hampter → created
 an account for Sam → Sam logged in from a clean cookie jar with name and PIN →
 Sam logged 100 g of Porridge and favourited it.
@@ -460,6 +472,15 @@ everything either person thinks or logs about it is not.
 - **No public sign-up.** Accounts exist because the owner made one. Opening it
   up later is a small change; the reason not to is that a public write
   endpoint on a personal server buys nothing here.
+- **`POST /api/auth/login/pin` is the site's first public, unauthenticated
+  write endpoint**, and it has to be — nginx denies `/api/auth/register/`
+  externally precisely because passkey registration is localhost-only, whereas
+  PIN login is the whole point of PIN login. The lockout it triggers is
+  **per-account, not per-IP**, so someone who can guess account names can lock
+  every account out at six requests each: denial of service against the
+  household, not a breach, and self-healing after 15 minutes or one owner
+  reset. `limit_req` on that path in nginx is the fix if it ever stops being
+  theoretical.
 - **Any signed-in user can delete a food from the shared catalog.** Carried
   over from single-user, and the one place members can affect each other.
   Restricting it needs a rule about who owns a catalog entry, which nothing so
