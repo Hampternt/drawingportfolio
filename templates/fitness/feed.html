@@ -282,6 +282,11 @@ function effectiveSlot() {
   return window.currentSlot || defaultSlot();
 }
 
+// The slot the "usual at <slot>" card was last told about. Seeded from the
+// clock so the first paint matches what the card's own `load` trigger fetches,
+// leaving the event for genuine changes only.
+let lastUsualSlot = defaultSlot();
+
 function paintSlotChips() {
   const val = effectiveSlot();
   document.querySelectorAll('.fit-log__slots [data-slot]').forEach(b => {
@@ -303,10 +308,19 @@ function paintSlotChips() {
     }
   }
   updateCheckCount();
-  // Tell the "usual at <slot>" card to follow. Fired unconditionally rather
-  // than only on change: paintSlotChips is also what runs after a swap, and the
-  // card is re-rendered by that same swap, so it has to be told either way.
-  document.body.dispatchEvent(new Event('slot-changed'));
+
+  // Tell the "usual at <slot>" card to follow — but ONLY on a real change.
+  //
+  // Dispatching unconditionally built an unbounded request loop, and it needed
+  // no user action to start: this function runs from the body's htmx:afterSwap
+  // handler, the event makes #fit-usual-slot fetch, its response is a swap, and
+  // that swap re-enters this function. An idle page issued 1384 requests in
+  // three seconds. Seeding lastUsualSlot from the clock also keeps the first
+  // paint quiet, since the element's own `load` trigger already fetches once.
+  if (val !== lastUsualSlot) {
+    lastUsualSlot = val;
+    document.body.dispatchEvent(new Event('slot-changed'));
+  }
 }
 
 function snapSlotToClock() {
@@ -519,14 +533,27 @@ function updateCheckCount() {
 // created until Save, and abandoning the panel should leave nothing behind.
 
 window.mealItems = [];
+window.mealBuilderOpen = false;
 
-function toggleMealBuilder() {
+// The panel lives inside the day fragment, so every log destroys and re-creates
+// it while window.mealItems survives. That left the builder showing an empty
+// list with items still staged — and Save would write foods the user could not
+// see. The DOM is therefore rebuilt from the JS state after every swap rather
+// than being trusted to still hold it; see the #fit-meals hook below.
+function applyMealBuilderState() {
   const panel = document.getElementById('fit-builder');
   const btn = document.getElementById('fit-meal-toggle');
   if (!panel) return;
-  panel.hidden = !panel.hidden;
-  if (btn) btn.textContent = panel.hidden ? 'New meal' : 'Close';
-  if (panel.hidden) { window.mealItems = []; renderMealItems(); }
+  panel.hidden = !window.mealBuilderOpen;
+  if (btn) btn.textContent = window.mealBuilderOpen ? 'Close' : 'New meal';
+  renderMealItems();
+}
+
+function toggleMealBuilder() {
+  window.mealBuilderOpen = !window.mealBuilderOpen;
+  // Closing abandons the draft — nothing was created, so nothing is kept.
+  if (!window.mealBuilderOpen) window.mealItems = [];
+  applyMealBuilderState();
 }
 
 function addMealItem(id, name, grams) {
@@ -573,8 +600,8 @@ function saveMeal() {
     values: { name: name, items: items }
   }).then(() => {
     window.mealItems = [];
-    const n = document.getElementById('fit-meal-name');
-    if (n) n.value = '';
+    window.mealBuilderOpen = false;
+    applyMealBuilderState();
     showToast('Saved meal · ' + name, null);
   });
 }
@@ -660,6 +687,10 @@ if (!window.__fitnessBound) {
     }, 0);
   });
   document.body.addEventListener('htmx:afterSwap', e => {
+    // The meals section is re-fetched whenever the day re-renders, so the
+    // builder's panel and picked list have to be restored from JS state — the
+    // incoming markup always arrives closed and empty.
+    if (e.target && e.target.id === 'fit-meals') applyMealBuilderState();
     initSlotDefault();
     initSheetForms();
     initQuickAdd();
