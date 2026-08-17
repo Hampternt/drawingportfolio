@@ -1,7 +1,9 @@
 # Container: Fitness "Today" overhaul
 
 **Status:** planned — awaiting go. No pack started.
-**Base:** `master` @ 49c56cd (multi-user fitness landed).
+**Where:** `~/projects/drawingportfolio.worktrees/fitness-today-overhaul` on
+`feat/fitness-today-overhaul`, branched from `dev` @ 49c56cd (multi-user fitness
+landed; `dev` and `master` are level).
 **Spec:** `docs/design/fitness-today-overhaul/` — the README is the spec; the
 `design-system/tokens/*.css` files are authoritative where they disagree with it.
 **Scope:** the `/fitness` Today screen only. The Add sheet, the week view and the
@@ -157,8 +159,9 @@ Server-side in Rust; these are the prototype's own, not paraphrases.
   sheet are `--noc-*` consumers, so Pack 1 changes their appearance: accent
   `#9184d9` → `#B48EF7`, radii 4/8/14 → 5/8/12, and the 1px ring "shadow" becomes a
   real border. The spec says those surfaces keep their *behaviour*; it says nothing
-  about appearance. They are in the walkthrough even though they are out of design
-  scope. **Needs the user's ruling before Pack 1 starts.**
+  about appearance. **Ruled 2026-08-17: let them repaint** — one palette across
+  `/fitness`, no forked token set. Both surfaces join the Pack 1 walkthrough even
+  though they are out of design scope.
 - **`fresh` has no server-side home.** The spec calls it session-scoped and
   explicitly non-persistent, and there is no per-session store to put it in.
   Planned: the insert returns the new row id, the client marks that row fresh and

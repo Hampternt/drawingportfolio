@@ -36,6 +36,15 @@ from this file on 2026-08-12; `git log docs/WORKTREES.md` recovers them.
   life party challenges as Last Call cards (vote-judged duels, solo dares,
   social penalties, challenge HUD). Three packs; manifest:
   `docs/manifests/2026-08-14-lc-challenge-cards.md`.
+- **`feat/fitness-today-overhaul`** (started 2026-08-17, from `dev`, worktree
+  `~/projects/drawingportfolio.worktrees/fitness-today-overhaul`): rebuilding the
+  `/fitness` Today screen from the design handoff in
+  `docs/design/fitness-today-overhaul/` — quantity moves onto the logged row,
+  one-tap re-logging and batch meals, day-level macro composition, and a phone
+  layout. Five packs; manifest:
+  `docs/manifests/2026-08-17-fitness-today-overhaul.md`. Touches the same files as
+  the landed multi-user work (`src/routes/nutrition.rs`, `templates/fitness/`,
+  `static/style.css`) — nothing else is in flight there.
 - **`feat/multi-user-fitness`** — **LANDED 2026-08-17**, merged `dev → master`
   and deployed. Multi-user container: several people each with their own
   fitness log over a shared food catalog, logging in by name + PIN alongside
