@@ -289,7 +289,7 @@ takes **JSON**, not form encoding.
 
 All three were regressions this pack introduced by sharing artportfolio's CSS,
 and all three were confirmed in the running app rather than argued from the
-diff. Fixed in `9f22dc8`.
+diff. Fixed in `43b3f5e`.
 
 1. **`/fitness/week` widened 760px → 1180px.** The shell was keyed on
    `.fitness-page`, which the week template also carries
