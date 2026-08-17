@@ -1248,14 +1248,16 @@ pub async fn insert_food_item(
     sodium: f64,
     saturated_fat: f64,
     package_size: Option<f64>,
+    // Sits next to package_size because it names it: the pair is "pack" + 500 g.
+    base_name: &str,
     custom_portions: &str,
     image_url: &str,
     user: UserId,
 ) -> FoodItem {
     let uid = user.get();
     let id = sqlx::query!(
-        "INSERT INTO food_items (name, brand, barcode, calories, protein, carbs, fat, fiber, sugar, sodium, saturated_fat, package_size, image_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
-        name, brand, barcode, calories, protein, carbs, fat, fiber, sugar, sodium, saturated_fat, package_size, image_url
+        "INSERT INTO food_items (name, brand, barcode, calories, protein, carbs, fat, fiber, sugar, sodium, saturated_fat, package_size, base_name, image_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
+        name, brand, barcode, calories, protein, carbs, fat, fiber, sugar, sodium, saturated_fat, package_size, base_name, image_url
     )
     .fetch_one(pool)
     .await
@@ -1359,6 +1361,8 @@ pub async fn update_food_item(
     sodium: f64,
     saturated_fat: f64,
     package_size: Option<f64>,
+    // Sits next to package_size because it names it: the pair is "pack" + 500 g.
+    base_name: &str,
     custom_portions: &str,
     image_url: &str,
     category: &str,
@@ -1372,8 +1376,8 @@ pub async fn update_food_item(
     // The nutrition facts are a property of the food and go to the shared row —
     // one person correcting a wrong calorie count fixes it for everyone.
     sqlx::query!(
-        "UPDATE food_items SET name = ?, brand = ?, barcode = ?, calories = ?, protein = ?, carbs = ?, fat = ?, fiber = ?, sugar = ?, sodium = ?, saturated_fat = ?, package_size = ?, image_url = ?, category = ? WHERE id = ?",
-        name, brand, barcode, calories, protein, carbs, fat, fiber, sugar, sodium, saturated_fat, package_size, image_url, category, id
+        "UPDATE food_items SET name = ?, brand = ?, barcode = ?, calories = ?, protein = ?, carbs = ?, fat = ?, fiber = ?, sugar = ?, sodium = ?, saturated_fat = ?, package_size = ?, base_name = ?, image_url = ?, category = ? WHERE id = ?",
+        name, brand, barcode, calories, protein, carbs, fat, fiber, sugar, sodium, saturated_fat, package_size, base_name, image_url, category, id
     )
     .execute(pool)
     .await
@@ -2322,7 +2326,7 @@ mod tests {
     async fn seed_food(pool: &DbPool, name: &str, cal: f64, protein: f64, by: UserId) -> i64 {
         insert_food_item(
             pool, name, "Generic", None, cal, protein, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, None, "", "",
-            by,
+            "", by,
         )
         .await
         .id
@@ -2844,6 +2848,7 @@ mod tests {
             5.0,
             2.0,
             None,
+            "",
             "40,80",
             "",
             "grains",
@@ -3395,6 +3400,7 @@ mod tests {
             None,
             "",
             "",
+            "",
             OWNER,
         )
         .await;
@@ -3403,6 +3409,66 @@ mod tests {
         assert!(item.barcode.is_none());
         let items = get_food_items(&pool, OWNER).await;
         assert_eq!(items.len(), 1);
+    }
+
+    /// `base_name` shipped as a readable column a whole pack before any form
+    /// wrote it, so the write path is the part worth pinning. It also sits
+    /// between two other `&str` parameters, where a transposed argument is a
+    /// silent bug rather than a compile error — hence the neighbour asserts.
+    #[tokio::test]
+    async fn test_base_name_survives_insert_and_update() {
+        let pool = test_pool().await;
+        let item = insert_food_item(
+            &pool,
+            "Tinned tuna",
+            "Generic",
+            None,
+            120.0,
+            26.0,
+            0.0,
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            Some(400.0),
+            "tin",
+            "125,250",
+            "https://example.com/tuna.jpg",
+            OWNER,
+        )
+        .await;
+        assert_eq!(item.base_name, "tin");
+        assert_eq!(item.custom_portions, "125,250");
+        assert_eq!(item.image_url, "https://example.com/tuna.jpg");
+
+        update_food_item(
+            &pool,
+            item.id,
+            "Tinned tuna",
+            "Generic",
+            None,
+            120.0,
+            26.0,
+            0.0,
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            Some(400.0),
+            "can",
+            "125,250",
+            "https://example.com/tuna.jpg",
+            "",
+            false,
+            None,
+            OWNER,
+        )
+        .await;
+        let again = get_food_item(&pool, item.id, OWNER).await.unwrap();
+        assert_eq!(again.base_name, "can");
+        assert_eq!(again.image_url, "https://example.com/tuna.jpg");
     }
 
     #[tokio::test]
@@ -3424,6 +3490,7 @@ mod tests {
             None,
             "",
             "",
+            "",
             OWNER,
         )
         .await;
@@ -3441,6 +3508,7 @@ mod tests {
             5.0,
             0.2,
             None,
+            "",
             "",
             "",
             OWNER,
@@ -3468,6 +3536,7 @@ mod tests {
             0.0,
             0.0,
             None,
+            "",
             "",
             "https://example.com/img.jpg",
             OWNER,
@@ -3497,6 +3566,7 @@ mod tests {
             None,
             "",
             "",
+            "",
             OWNER,
         )
         .await;
@@ -3514,7 +3584,7 @@ mod tests {
     async fn test_delete_meal_entry() {
         let pool = test_pool().await;
         let item = insert_food_item(
-            &pool, "Apple", "", None, 52.0, 0.3, 14.0, 0.2, 2.4, 10.0, 1.0, 0.0, None, "", "",
+            &pool, "Apple", "", None, 52.0, 0.3, 14.0, 0.2, 2.4, 10.0, 1.0, 0.0, None, "", "", "",
             OWNER,
         )
         .await;
@@ -3740,6 +3810,7 @@ mod tests {
             Some(450.0),
             "",
             "",
+            "",
             OWNER,
         )
         .await;
@@ -3770,6 +3841,7 @@ mod tests {
             Some(450.0),
             "",
             "",
+            "",
             "Dairy & eggs",
             true,
             Some(170.0),
@@ -3794,7 +3866,7 @@ mod tests {
     async fn test_item_log_history() {
         let pool = test_pool().await;
         let item = insert_food_item(
-            &pool, "Oats", "", None, 379.0, 13.0, 60.0, 6.5, 0.0, 0.0, 0.0, 0.0, None, "", "",
+            &pool, "Oats", "", None, 379.0, 13.0, 60.0, 6.5, 0.0, 0.0, 0.0, 0.0, None, "", "", "",
             OWNER,
         )
         .await;
@@ -3816,11 +3888,12 @@ mod tests {
     async fn test_recent_foods_dedup_and_order() {
         let pool = test_pool().await;
         let a = insert_food_item(
-            &pool, "Skyr", "", None, 63.0, 11.0, 4.0, 0.2, 0.0, 0.0, 0.0, 0.0, None, "", "", OWNER,
+            &pool, "Skyr", "", None, 63.0, 11.0, 4.0, 0.2, 0.0, 0.0, 0.0, 0.0, None, "", "", "",
+            OWNER,
         )
         .await;
         let b = insert_food_item(
-            &pool, "Oats", "", None, 379.0, 13.2, 60.1, 6.5, 0.0, 0.0, 0.0, 0.0, None, "", "",
+            &pool, "Oats", "", None, 379.0, 13.2, 60.1, 6.5, 0.0, 0.0, 0.0, 0.0, None, "", "", "",
             OWNER,
         )
         .await;
@@ -3859,6 +3932,7 @@ mod tests {
             Some(55.0),
             "",
             "",
+            "",
             OWNER,
         )
         .await;
@@ -3889,12 +3963,13 @@ mod tests {
     async fn test_recipe_create_and_log() {
         let pool = test_pool().await;
         let a = insert_food_item(
-            &pool, "Oats", "", None, 379.0, 13.0, 60.0, 6.5, 0.0, 0.0, 0.0, 0.0, None, "", "",
+            &pool, "Oats", "", None, 379.0, 13.0, 60.0, 6.5, 0.0, 0.0, 0.0, 0.0, None, "", "", "",
             OWNER,
         )
         .await;
         let b = insert_food_item(
-            &pool, "Skyr", "", None, 63.0, 11.0, 4.0, 0.2, 0.0, 0.0, 0.0, 0.0, None, "", "", OWNER,
+            &pool, "Skyr", "", None, 63.0, 11.0, 4.0, 0.2, 0.0, 0.0, 0.0, 0.0, None, "", "", "",
+            OWNER,
         )
         .await;
         insert_meal_entry(&pool, a.id, "2026-07-31", 80.0, "breakfast", OWNER)
@@ -3940,7 +4015,7 @@ mod tests {
         let pool = test_pool().await;
         let a = insert_food_item(
             &pool, "Chicken", "", None, 165.0, 31.0, 0.0, 3.6, 0.0, 0.0, 0.0, 0.0, None, "", "",
-            OWNER,
+            "", OWNER,
         )
         .await;
         insert_meal_entry(&pool, a.id, "2026-07-30", 200.0, "lunch", OWNER)
@@ -3964,7 +4039,7 @@ mod tests {
     async fn test_copy_day_entries() {
         let pool = test_pool().await;
         let item = insert_food_item(
-            &pool, "Oats", "", None, 379.0, 13.2, 60.1, 6.5, 0.0, 0.0, 0.0, 0.0, None, "", "",
+            &pool, "Oats", "", None, 379.0, 13.2, 60.1, 6.5, 0.0, 0.0, 0.0, 0.0, None, "", "", "",
             OWNER,
         )
         .await;
@@ -3986,7 +4061,8 @@ mod tests {
     async fn test_calories_by_date_range() {
         let pool = test_pool().await;
         let item = insert_food_item(
-            &pool, "Rice", "", None, 100.0, 2.0, 20.0, 1.0, 0.0, 0.0, 0.0, 0.0, None, "", "", OWNER,
+            &pool, "Rice", "", None, 100.0, 2.0, 20.0, 1.0, 0.0, 0.0, 0.0, 0.0, None, "", "", "",
+            OWNER,
         )
         .await;
         insert_meal_entry(&pool, item.id, "2026-07-27", 100.0, "lunch", OWNER)
@@ -4012,7 +4088,8 @@ mod tests {
     async fn test_meal_entry_slot_roundtrip() {
         let pool = test_pool().await;
         let item = insert_food_item(
-            &pool, "Skyr", "", None, 63.0, 11.0, 4.0, 0.2, 0.0, 4.0, 45.0, 0.1, None, "", "", OWNER,
+            &pool, "Skyr", "", None, 63.0, 11.0, 4.0, 0.2, 0.0, 4.0, 45.0, 0.1, None, "", "", "",
+            OWNER,
         )
         .await;
         let id = insert_meal_entry(&pool, item.id, "2026-08-01", 250.0, "breakfast", OWNER)
@@ -4033,7 +4110,7 @@ mod tests {
     async fn test_meal_entry_wrong_date_not_returned() {
         let pool = test_pool().await;
         let item = insert_food_item(
-            &pool, "Banana", "", None, 89.0, 1.1, 23.0, 0.3, 2.6, 12.0, 1.0, 0.0, None, "", "",
+            &pool, "Banana", "", None, 89.0, 1.1, 23.0, 0.3, 2.6, 12.0, 1.0, 0.0, None, "", "", "",
             OWNER,
         )
         .await;

@@ -1157,6 +1157,7 @@ fn edit_food_form_html(item: &crate::models::FoodItem, history_html: &str) -> St
     <label>Sat. fat/100g<input type="number" name="saturated_fat" step="0.1" min="0" value="{sat_fat}"></label>
   </div>
   <label class="package-size-label">Package / total size (g)<input type="number" name="package_size" step="0.1" min="0" value="{pkg}" placeholder="e.g. 565"></label>
+  <label class="package-size-label">What that size is called<input type="text" name="base_name" value="{base_name}" placeholder="e.g. pack, tin, slice"></label>
   <label class="package-size-label">Custom portions (g, comma-separated)<input type="text" name="custom_portions" value="{custom_portions}" placeholder="e.g. 125, 250, 375"></label>
   <label class="package-size-label">Category<input type="text" name="category" value="{category}" placeholder="e.g. Dairy &amp; eggs"></label>
   <label class="package-size-label">Default portion (g)<input type="number" name="default_portion_g" step="0.1" min="0" value="{default_portion}" placeholder="usual amount"></label>
@@ -1186,6 +1187,7 @@ fn edit_food_form_html(item: &crate::models::FoodItem, history_html: &str) -> St
         sodium = fmt_nutrient(item.sodium),
         sat_fat = fmt_nutrient(item.saturated_fat),
         pkg = pkg_val,
+        base_name = html_escape(&item.base_name),
         custom_portions = html_escape(&item.custom_portions),
         image_url = html_escape(&item.image_url),
         category = html_escape(&item.category),
@@ -1293,6 +1295,7 @@ async fn add_food_item(
     let mut saturated_fat = 0f64;
     let mut package_size: Option<f64> = None;
     let mut custom_portions = String::new();
+    let mut base_name = String::new();
     let mut image_url = String::new();
     let mut image_bytes: Option<Vec<u8>> = None;
 
@@ -1394,6 +1397,9 @@ async fn add_food_item(
             Some("custom_portions") => {
                 custom_portions = field.text().await.unwrap_or_default().trim().to_string()
             }
+            Some("base_name") => {
+                base_name = field.text().await.unwrap_or_default().trim().to_string()
+            }
             Some("image_url") => {
                 image_url = field.text().await.unwrap_or_default().trim().to_string()
             }
@@ -1452,6 +1458,7 @@ async fn add_food_item(
         sodium,
         saturated_fat,
         package_size,
+        &base_name,
         &custom_portions,
         &image_url,
         session.user(),
@@ -1845,9 +1852,10 @@ async fn create_and_log(
         0.0,
         0.0,
         0.0,
-        None,
-        "",
-        "",
+        None, // package_size
+        "",   // base_name
+        "",   // custom_portions
+        "",   // image_url
         session.user(),
     )
     .await;
@@ -2046,6 +2054,7 @@ async fn update_food_item_handler(
     let mut saturated_fat = 0f64;
     let mut package_size: Option<f64> = None;
     let mut custom_portions = String::new();
+    let mut base_name = String::new();
     let mut image_url = String::new();
     let mut image_bytes: Option<Vec<u8>> = None;
 
@@ -2147,6 +2156,9 @@ async fn update_food_item_handler(
             Some("custom_portions") => {
                 custom_portions = field.text().await.unwrap_or_default().trim().to_string()
             }
+            Some("base_name") => {
+                base_name = field.text().await.unwrap_or_default().trim().to_string()
+            }
             Some("category") => {
                 category = field.text().await.unwrap_or_default().trim().to_string()
             }
@@ -2233,6 +2245,7 @@ async fn update_food_item_handler(
         sodium,
         saturated_fat,
         package_size,
+        &base_name,
         &custom_portions,
         &image_url,
         &category,
