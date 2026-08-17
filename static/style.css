@@ -642,6 +642,16 @@ body.fitness-dark .fit-row__amounts {
      above it rather than as a new block. */
   padding-left: 46px;
 }
+/* Giving either panel a `display` puts an author rule (0,2,1) against the UA's
+   `[hidden] { display: none }` (0,1,0) — the author rule wins, the attribute
+   stops meaning anything, and every row renders permanently expanded. That is
+   how this shipped for one commit: the toggles flipped an attribute with no
+   visual effect at all. Restate the hiding at author level.
+
+   Same trap as `.art-pop` further down this file. Any collapsible that gains a
+   `display` needs the matching `[hidden]` rule in the same breath. */
+body.fitness-dark .fit-row__amounts[hidden],
+body.fitness-dark .fit-row__nudge[hidden] { display: none; }
 body.fitness-dark .fit-amt {
   display: flex;
   flex-direction: column;

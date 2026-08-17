@@ -316,9 +316,18 @@ function nudgeGrams(id, delta) {
   const nudge = document.getElementById('nudge-' + id);
   const input = nudge && nudge.querySelector('input');
   if (!input) return;
+  const row = document.getElementById('entry-' + id);
+  // An emptied field parses as NaN, and NaN survives both the arithmetic and
+  // Math.max. Assigning it to a number input makes the browser drop the value,
+  // so the box went blank and the request that followed was rejected with
+  // nothing to show for it. Fall back to what the row actually holds — which
+  // is what `data-grams` on the <li> is for.
+  let base = parseFloat(input.value);
+  if (!Number.isFinite(base)) base = parseFloat(row && row.dataset.grams);
+  if (!Number.isFinite(base)) base = 1;
   // Floor at 1g and round to 0.1 — the server enforces the same bounds, this
   // just keeps the field from displaying something it would reject.
-  const next = Math.max(1, Math.round((parseFloat(input.value) + delta) * 10) / 10);
+  const next = Math.max(1, Math.round((base + delta) * 10) / 10);
   input.value = next;
   // `change` does not fire for a scripted value assignment, so the hx-trigger
   // listens for this custom event too.
@@ -327,6 +336,10 @@ function nudgeGrams(id, delta) {
 
 function addToSlot(slot) {
   const form = document.querySelector('.log-entry-form');
+  // Same standing choice setSlot records. Without this the slot survives until
+  // the next swap and then reverts to the clock — the picker-reset bug, reached
+  // through the slot header instead of the picker.
+  window.currentSlot = slot;
   form.querySelector('[name="slot"]').value = slot;
   paintSlotChips(form);
   form.querySelector('[name="food_item_id"]').focus();
