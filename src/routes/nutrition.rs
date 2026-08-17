@@ -1355,7 +1355,7 @@ async fn add_meal_entry(
         return Html(render_day(&state.pool, &date, session.user(), true).await).into_response();
     }
 
-    let new_id = crate::db::insert_meal_entry(
+    let (ids, text) = log_one(
         &state.pool,
         food_item_id,
         &date,
@@ -1365,12 +1365,59 @@ async fn add_meal_entry(
     )
     .await;
     let body = render_day(&state.pool, &date, session.user(), true).await;
-    match new_id {
-        Ok(id) => fresh_row_response(body, id),
-        // The entry did not land, so there is no row to flag. The day still
-        // re-renders — it is the honest picture either way.
-        Err(_) => Html(body).into_response(),
+    log_batch_response(body, &ids, &text)
+}
+
+/// Logs one food and reports what to flag and what to say.
+///
+/// Every one-tap path funnels through here — the log form, a recent chip, a
+/// "usual at" button — so a food logged from any of them flags its row and
+/// names itself in the toast the same way. Returns an empty batch when the food
+/// does not exist or the insert fails, which `log_batch_response` renders as a
+/// plain day with no toast: nothing landed, so nothing is claimed.
+async fn log_one(
+    pool: &crate::db::DbPool,
+    food_item_id: i64,
+    date: &str,
+    grams: f64,
+    slot: &str,
+    user: crate::models::UserId,
+) -> (Vec<i64>, String) {
+    let Some(item) = crate::db::get_food_item(pool, food_item_id, user).await else {
+        return (Vec::new(), String::new());
+    };
+    match crate::db::insert_meal_entry(pool, food_item_id, date, grams, slot, user).await {
+        Ok(id) => (
+            vec![id],
+            format!("Logged {} · {} g", item.name, fmt_grams(grams)),
+        ),
+        Err(_) => (Vec::new(), String::new()),
     }
+}
+
+/// Removes a batch of entries — the toast's Undo.
+///
+/// Takes ids rather than "the last N entries" because the two disagree the
+/// moment a second tab, or the user themselves, logs something else in the five
+/// seconds the toast is up. Each delete is user-scoped, so a forged id belonging
+/// to another member deletes nothing rather than someone else's dinner.
+async fn undo_log_batch(
+    session: AuthSession,
+    State(state): State<Arc<AppState>>,
+    axum::Form(form): axum::Form<HashMap<String, String>>,
+) -> impl IntoResponse {
+    let date = sanitize_date(form.get("date"));
+    let ids: Vec<i64> = form
+        .get("ids")
+        .map(|s| s.split(',').filter_map(|p| p.trim().parse().ok()).collect())
+        .unwrap_or_default();
+    // A cap, not a guard: undo covers one action, and the largest single action
+    // this screen offers is a saved meal. An unbounded list would let one
+    // request issue arbitrarily many deletes.
+    for id in ids.into_iter().take(64) {
+        crate::db::delete_meal_entry(&state.pool, id, session.user()).await;
+    }
+    Html(render_day(&state.pool, &date, session.user(), true).await)
 }
 
 /// A day fragment plus the id of the row that was just logged.
@@ -1379,12 +1426,51 @@ async fn add_meal_entry(
 /// a nudge to check an amount, not a property of the entry. The server's part
 /// is only to say *which* row is new; the client owns the flag from there, so a
 /// reload clears it, which is the intended lifetime.
-fn fresh_row_response(body: String, id: i64) -> axum::response::Response {
+fn log_batch_response(body: String, ids: &[i64], text: &str) -> axum::response::Response {
+    if ids.is_empty() {
+        return Html(body).into_response();
+    }
+    let list = ids
+        .iter()
+        .map(|i| i.to_string())
+        .collect::<Vec<_>>()
+        .join(",");
+    // Hand-built rather than serde: the payload is two fields, and the only
+    // free text in it is a food name. It reaches the DOM through textContent on
+    // the client, never innerHTML.
     (
-        [("HX-Trigger", format!(r#"{{"row-logged":{{"id":{id}}}}}"#))],
+        [(
+            "HX-Trigger",
+            format!(
+                r#"{{"row-logged":{{"ids":[{list}],"text":"{text}"}}}}"#,
+                list = list,
+                text = json_escape(text)
+            ),
+        )],
         Html(body),
     )
         .into_response()
+}
+
+/// Escapes a string for the `HX-Trigger` JSON payload.
+///
+/// A food called `12" pizza` would otherwise close the JSON string and produce
+/// a header htmx cannot parse — losing the toast and the fresh flags with no
+/// error anywhere. Control characters are dropped rather than escaped: a header
+/// value containing a newline is a response-splitting vector, and axum refuses
+/// to send it, which would turn a successfully logged meal into a 500.
+fn json_escape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' | '\r' | '\t' => out.push(' '),
+            c if (c as u32) < 0x20 => {}
+            c => out.push(c),
+        }
+    }
+    out
 }
 
 async fn delete_meal_entry_handler(
@@ -2389,6 +2475,21 @@ mod tests {
     // ── Row maths ─────────────────────────────────────────────────────────
 
     #[test]
+    fn test_json_escape_keeps_the_trigger_payload_parseable() {
+        // A quote in a food name would otherwise close the JSON string, leaving
+        // htmx a header it cannot parse — no toast, no fresh flags, no error.
+        assert_eq!(json_escape(r#"12" pizza"#), r#"12\" pizza"#);
+        assert_eq!(json_escape(r"back\slash"), r"back\\slash");
+        // Newlines are dropped, not escaped: axum refuses to send a header
+        // containing one, which would turn a logged meal into a 500.
+        assert_eq!(json_escape("two\nlines"), "two lines");
+        assert_eq!(json_escape("tab\there"), "tab here");
+        assert_eq!(json_escape("bell\u{7}here"), "bellhere");
+        // Non-ASCII is left alone — the header is UTF-8 and these are common.
+        assert_eq!(json_escape("Æbleskiver · Ålborg"), "Æbleskiver · Ålborg");
+    }
+
+    #[test]
     fn test_fmt_grams_drops_a_trailing_zero_but_keeps_a_real_tenth() {
         assert_eq!(fmt_grams(250.0), "250");
         assert_eq!(fmt_grams(167.0), "167");
@@ -2650,6 +2751,7 @@ pub fn router() -> Router<Arc<AppState>> {
             "/api/nutrition/entries/{id}/grams",
             axum::routing::put(update_entry_grams),
         )
+        .route("/api/nutrition/entries/undo", post(undo_log_batch))
         .route("/fitness/htmx/entries/{id}/edit", get(entry_edit_form))
         .route("/fitness/copy-day", post(copy_day_handler))
         .route("/fitness/htmx/recent", get(recent_chips))

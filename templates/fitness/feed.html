@@ -133,6 +133,13 @@
     </button>
   </div>
 
+  <!-- Toast. Text is set via textContent, never innerHTML — it carries a food
+       name, which is user input. -->
+  <div id="fit-toast" hidden>
+    <span id="fit-toast-text"></span>
+    <button type="button" id="fit-toast-undo" onclick="undoLastBatch()">Undo</button>
+  </div>
+
   <div id="add-sheet" hidden>
     <div class="sheet-head">
       <span class="noc-kicker">Add food</span>
@@ -300,6 +307,7 @@ function toggleAmounts(id) {
   if (btn) btn.setAttribute('aria-expanded', String(open));
   // Touching the amount is the acknowledgement the fresh flag waits for.
   if (row) row.classList.remove('fit-row--fresh');
+  updateCheckCount();
 }
 
 function toggleCustom(id) {
@@ -464,6 +472,54 @@ document.addEventListener('DOMContentLoaded', initQuickAdd);
 // one thing worth checking — did it log the amount you meant? — is already in
 // front of you. The server names the row via an HX-Trigger header; the flag
 // itself is client-side and dies with the page, which is the intended life.
+// How many freshly logged rows still have an unchecked amount. Derived from the
+// DOM rather than counted separately — the flag lives on the rows, so there is
+// nothing to keep in step.
+function updateCheckCount() {
+  const el = document.getElementById('fit-check-count');
+  if (!el) return;
+  const n = document.querySelectorAll('.fit-row--fresh').length;
+  el.textContent = n ? (n + ' to check') : 'all amounts checked';
+  el.classList.toggle('fit-log__check--pending', n > 0);
+}
+
+// ── Toast ──────────────────────────────────────────────────────────────────
+// Names what just landed and offers to take it back. The batch is a list of
+// entry ids rather than "the last N rows": those two disagree the moment
+// anything else is logged inside the five seconds the toast is up.
+
+window.lastBatch = null;
+let toastTimer = null;
+
+function showToast(text, ids) {
+  const toast = document.getElementById('fit-toast');
+  if (!toast) return;
+  window.lastBatch = (ids && ids.length) ? ids : null;
+  // textContent, not innerHTML: `text` contains a food name the user typed.
+  document.getElementById('fit-toast-text').textContent = text;
+  document.getElementById('fit-toast-undo').hidden = !window.lastBatch;
+  toast.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(hideToast, 5000);
+}
+
+function hideToast() {
+  const toast = document.getElementById('fit-toast');
+  if (toast) toast.hidden = true;
+  clearTimeout(toastTimer);
+}
+
+function undoLastBatch() {
+  if (!window.lastBatch) return;
+  const ids = window.lastBatch.join(',');
+  window.lastBatch = null;   // one undo per batch; a second tap must not re-fire
+  hideToast();
+  htmx.ajax('POST', '/api/nutrition/entries/undo', {
+    target: '#day-section', swap: 'innerHTML',
+    values: { ids: ids, date: window.currentDate }
+  });
+}
+
 function flagFreshRow(id) {
   const row = document.getElementById('entry-' + id);
   if (!row) return;
@@ -497,8 +553,15 @@ if (!window.__fitnessBound) {
   // settles, so the flag is deferred a tick — otherwise it looks for a row
   // that the incoming fragment has not put in the DOM yet.
   document.body.addEventListener('row-logged', e => {
-    const id = e.detail && e.detail.id;
-    if (id) setTimeout(() => flagFreshRow(id), 0);
+    const ids = (e.detail && e.detail.ids) || [];
+    const text = (e.detail && e.detail.text) || '';
+    // Deferred a tick: the trigger arrives before the swap settles, so the rows
+    // it names are not in the DOM yet.
+    setTimeout(() => {
+      ids.forEach(flagFreshRow);
+      if (text) showToast(text, ids);
+      updateCheckCount();
+    }, 0);
   });
   document.body.addEventListener('htmx:afterSwap', e => {
     initSlotDefault();

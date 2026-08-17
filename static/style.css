@@ -718,6 +718,44 @@ body.fitness-dark .fit-nudge__input {
   text-align: center;
 }
 
+/* Toast. Bottom-right on desktop; on phones it clears the sticky action bar
+   rather than sitting under it. */
+body.fitness-dark #fit-toast {
+  position: fixed;
+  right: var(--gutter);
+  bottom: 96px;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: 10px 12px;
+  background: var(--surface-overlay);
+  border: var(--border-width) solid var(--border-default);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-3);
+  font: var(--type-body-sm);
+  color: var(--text-body);
+}
+/* The pairing this file keeps re-learning: an author `display` outweighs the
+   UA's `[hidden] { display: none }`, so every element given one needs this. */
+body.fitness-dark #fit-toast[hidden],
+body.fitness-dark #fit-toast-undo[hidden] { display: none; }
+body.fitness-dark #fit-toast-undo {
+  height: var(--control-height-sm);
+  padding: 0 var(--space-5);
+  border: var(--border-width) solid transparent;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-accent);
+  font: var(--type-ui);
+  cursor: pointer;
+  transition: var(--transition-control);
+}
+body.fitness-dark #fit-toast-undo:hover { background: var(--surface-hover); }
+@media (min-width: 900px) {
+  body.fitness-dark #fit-toast { bottom: var(--gutter); }
+}
+
 /* Freshly logged: an amber edge and dot until the amount is acknowledged.
    Shares the amber with protein deliberately — the brief notes the flag and a
    macro mark never appear on the same element. */

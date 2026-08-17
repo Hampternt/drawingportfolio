@@ -232,11 +232,47 @@ comes off.
 </details>
 
 <details>
-<summary><b>Packs 3–5 — scope only</b></summary>
+<summary><b>Pack 3 — One-tap logging</b> (in progress)</summary>
 
-**Pack 3 — One-tap logging.** `Log again` chips, `usual at <slot>`, create-and-log
-from the search field, saved-meal batch logging, the meal builder, and the toast
-with Undo. Deletes the food dropdown and with it bug 2.
+**Done when:** logging a familiar food is one tap — from a recent chip, from
+"usual at this slot", or a whole saved meal at once — and anything you log can be
+undone from the toast that says you logged it.
+
+- [ ] **3.1 The Log card.** Replace the log form with the designed card: a
+      `LOG TO` slot row (selected slot `primary`, the rest `ghost`), the
+      `staying on lunch` / `now: dinner` snap-back when the choice differs from
+      the clock, the `N to check` count of fresh rows, and the search field with
+      its `/` keycap and Scan button. **Deletes the `<option>` dropdown, and
+      with it bug 2** — a new food is no longer absent from a baked-in list
+      because there is no list.
+      *Done: the log card matches the design and the dropdown is gone.*
+- [ ] **3.2 Toast and Undo.** A logging action reports the entry ids it created;
+      the toast names what landed and Undo removes exactly that batch. 5s
+      auto-dismiss. Batch ids ride the existing `HX-Trigger` channel — no schema.
+      *Done: log a food, the toast says so, Undo takes it back.*
+- [ ] **3.3 Log again / Matches, and create-and-log.** With an empty query, up to
+      six recents at their last-logged grams; while typing, matches. Tapping one
+      logs it into the selected slot. When nothing matches, a primary
+      `+ Add "<query>" and log 100 g` that creates the food and logs it in one
+      request, flagged `no macros yet` for later.
+      *Done: type nothing and re-log in one tap; type junk and create-and-log.*
+- [ ] **3.4 usual at &lt;slot&gt;.** A left-rail card offering this user's three
+      most-*frequent* foods for the selected slot — a different question from
+      `get_recent_foods`'s most-*recent*, so it needs its own query.
+      *Done: the card tracks the slot picker and one tap logs.*
+- [ ] **3.5 Saved meals and the builder.** Meal chips logging every item into the
+      selected slot as one undoable batch, and a builder that composes a meal
+      from any foods rather than only from an already-logged slot.
+      *Done: one tap logs a three-item meal; a new meal can be built and saved.*
+
+**Item gate:** `./scripts/check.sh` + `cargo test --bin drawingportfolio nutrition::`.
+**Pack gate:** `./scripts/verify.sh` + a walkthrough of every logging path,
+including Undo on a multi-item batch.
+
+</details>
+
+<details>
+<summary><b>Packs 4–5 — scope only</b></summary>
 
 **Pack 4 — Day at a glance.** Summary card (132px ring, three macro rails, week
 strip, day macro pie + "where the calories came from" legend), the "left to hit
