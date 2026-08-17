@@ -875,8 +875,12 @@ body.fitness-dark .lib-row__nomacros { color: var(--text-faint); }
 /* Management cluster. Quiet by default — the row is for reading and logging —
    but always present: create-and-log makes macro-less foods on purpose, and
    something has to be able to finish them. */
-body.fitness-dark .lib-row__manage { display: flex; gap: var(--space-2); flex: none; }
+/* 8px, not 4px: the icons carry a 34px hit area on a 26px box, so a 4px gap
+   left the expanded areas overlapping by 4px — and the icon they overlapped
+   into is Delete. At 8px the areas tile edge to edge instead. */
+body.fitness-dark .lib-row__manage { display: flex; gap: var(--space-4); flex: none; }
 body.fitness-dark .lib-row__icon {
+  position: relative;
   width: 26px;
   height: 26px;
   border: var(--border-width) solid transparent;
@@ -886,6 +890,20 @@ body.fitness-dark .lib-row__icon {
   cursor: pointer;
   transition: var(--transition-control);
 }
+/* A 34px tap target on a 26px button. Growing the button itself is what item
+   5.5 tried first, and it pushed the row 61px past a 360px viewport: three
+   icons at 34px plus their gaps is 110px of a 328px content width. The hit
+   area is what had to reach 34px, not the ink — so the hit area is what grew.
+
+   -5px, not -4px: `inset` resolves against the padding box and the button's
+   1px transparent border sits outside that, so -4px measures 32px. It probed
+   as a pass upwards and a miss downwards, which is what sub-pixel rounding on
+   a boundary looks like. */
+body.fitness-dark .lib-row__icon::after {
+  content: "";
+  position: absolute;
+  inset: -5px;
+}
 body.fitness-dark .lib-row__icon:hover { color: var(--text-strong); background: var(--surface-hover); }
 body.fitness-dark .lib-row__icon.is-fav { color: var(--accent-warm); }
 body.fitness-dark .lib-row__icon--danger:hover { color: var(--status-danger); }
@@ -893,7 +911,83 @@ body.fitness-dark .lib-row__icon--danger:hover { color: var(--status-danger); }
    name and the Log button are what the row is for. */
 @media (max-width: 899px) {
   body.fitness-dark .lib-row__kcal,
-  body.fitness-dark .lib-row__basis { display: none; }
+  body.fitness-dark .lib-row__basis,
+  /* The macro strip joins them. It is `white-space: nowrap` and ~90px wide, so
+     it cannot shrink to make room; with the management cluster restored beside
+     it the row had nowhere to put either. Same call as the other two — the
+     name and the Log button are what the row is for. */
+  body.fitness-dark .lib-row__macros { display: none; }
+}
+
+/* ── The library card (overhaul, pack 5) ─────────────────────────────────
+   The library kept its pre-overhaul header, search box and add-food form
+   through four packs while everything around it was redrawn. This is that
+   section joining the rest of the page.
+
+   The design collapses the card by default and this does not. Collapsed, the
+   only way to finish or delete a food is behind a disclosure — and worst for
+   exactly the macro-less rows create-and-log makes on purpose, which is the
+   regression pack 4's review had to undo. It opens by default and remembers
+   the choice instead, so the design's compact Today screen is one click away
+   and permanent for anyone who wants it. */
+body.fitness-dark .fit-lib { padding: 14px 16px; }
+body.fitness-dark .fit-lib__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+body.fitness-dark .fit-lib__titles { display: flex; align-items: baseline; gap: var(--space-4); }
+body.fitness-dark .fit-lib__count { font: var(--type-mono); color: var(--text-faint); }
+body.fitness-dark .fit-lib__actions { display: flex; gap: var(--space-3); }
+body.fitness-dark #library-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  margin-top: var(--space-5);
+}
+/* The pairing this file keeps re-learning: giving an element an author
+   `display` outranks the UA's `[hidden] { display: none }`, so the toggle
+   above would set the attribute and change nothing on screen. */
+body.fitness-dark #library-body[hidden] { display: none; }
+body.fitness-dark .fit-lib .lib-chips { margin-bottom: 0; }
+
+/* The add/edit food form, in design-system dress. Only the surface and the
+   type change — the 44px inputs stay 44px on phones, because shrinking tap
+   targets is the thing item 5.5 exists to prevent. */
+body.fitness-dark .fit-lib .nutrient-form {
+  gap: var(--space-4);
+  padding: 12px;
+  margin-bottom: 0;
+  background: var(--surface-inset);
+  border: var(--border-width) solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  box-shadow: none;
+}
+body.fitness-dark .fit-lib .nutrient-form input {
+  min-height: var(--control-height-md);
+  padding: 0 var(--space-5);
+  background: var(--surface-page);
+  border: var(--border-width) solid var(--border-default);
+  border-radius: var(--radius-xs);
+  color: var(--text-strong);
+  font: var(--type-body-sm);
+}
+body.fitness-dark .fit-lib .nutrient-form input:focus {
+  outline: none;
+  border-color: var(--border-accent);
+}
+body.fitness-dark .fit-lib .nutrient-grid label,
+body.fitness-dark .fit-lib .package-size-label,
+body.fitness-dark .fit-lib .file-label {
+  font: var(--type-label);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+@media (max-width: 899px) {
+  body.fitness-dark .fit-lib .nutrient-form input { min-height: 44px; }
 }
 
 /* Where the calories came from — the day pie and its legend. */
@@ -1179,7 +1273,6 @@ body.fitness-dark .fit-log__slots .hm-btn { min-height: 34px; }
 @media (max-width: 899px) {
   body.fitness-dark .fit-row__amount { min-height: 34px; }
   body.fitness-dark .fit-row__remove { min-height: 34px; min-width: 34px; }
-  body.fitness-dark .lib-row .lib-row__icon { width: 34px; height: 34px; }
   body.fitness-dark .lib-row .hm-btn { min-height: 34px; }
   body.fitness-dark .lib-chips .noc-tag { min-height: 34px; }
 }

@@ -114,13 +114,28 @@
         {{ day_slots_html|safe }}
       </div>
 
-      <!-- Food library section -->
-      <section class="food-library-section">
-        <div class="library-header">
-          <h2>Food Library</h2>
-          <div class="library-actions">
-            <input type="text" id="library-search" placeholder="Search…" oninput="filterLibrary(this.value)">
-            <button class="btn-secondary" onclick="toggleAddForm()">+ Add food</button>
+      <!-- Food library. The design collapses this card by default; here it
+           opens by default and remembers whichever the user picked — see the
+           CSS for why. -->
+      <section class="noc-card fit-lib">
+        <div class="fit-lib__head">
+          <div class="fit-lib__titles">
+            <span class="fit-log__kicker">FOOD LIBRARY</span>
+            <span class="fit-lib__count" id="library-count"></span>
+          </div>
+          <div class="fit-lib__actions">
+            <button type="button" class="hm-btn hm-btn--sm hm-btn--ghost" onclick="toggleAddForm()">+ Add food</button>
+            <button type="button" class="hm-btn hm-btn--sm hm-btn--ghost" id="library-toggle"
+                    aria-expanded="true" aria-controls="library-body" onclick="toggleLibrary()">Hide</button>
+          </div>
+        </div>
+
+        <div id="library-body">
+
+        <div class="fit-lib__search">
+          <div class="fit-field">
+            <span class="hm-icon hm-icon--search" aria-hidden="true"></span>
+            <input type="search" id="library-search" placeholder="Search your library…" oninput="filterLibrary(this.value)">
           </div>
         </div>
 
@@ -153,8 +168,8 @@
           <label class="file-label">Image <input type="file" name="image" accept="image/jpeg,image/png,image/webp"></label>
           <input type="hidden" name="image_url" id="image-url-field" value="">
           <div class="form-actions">
-            <button type="submit" class="btn-primary">Save food</button>
-            <button type="button" class="btn-secondary" onclick="toggleAddForm()">Cancel</button>
+            <button type="submit" class="hm-btn hm-btn--md hm-btn--primary">Save food</button>
+            <button type="button" class="hm-btn hm-btn--md hm-btn--secondary" onclick="toggleAddForm()">Cancel</button>
           </div>
         </form>
 
@@ -169,6 +184,8 @@
         <div id="food-library">
           {{ library_html|safe }}
         </div>
+
+        </div><!-- /#library-body -->
       </section>
 
     </div><!-- /.fit-col--right -->
@@ -462,7 +479,11 @@ function addToSlot(slot) {
 function initSlotDefault() {
   paintSlotChips();
 }
-document.addEventListener('DOMContentLoaded', initSlotDefault);
+document.addEventListener('DOMContentLoaded', () => {
+  initSlotDefault();
+  applyLibraryState();
+  updateLibraryCount();
+});
 
 // Add sheet (Task 7)
 function openAddSheet(tab) {
@@ -706,6 +727,9 @@ if (!window.__fitnessBound) {
     if (e.target && e.target.id === 'fit-meals') applyMealBuilderState();
     initSlotDefault();
     initSheetForms();
+    // Every add, delete and edit re-renders #food-library, so the tally is
+    // recomputed from whatever came back.
+    if (e.target && e.target.id === 'food-library') updateLibraryCount();
     // Keep the week strip's bar in sync after any day mutation.
     //
     // This used to test `e.target.id === 'day-section'`, which was sound while
@@ -783,11 +807,54 @@ function fitnessKeydown(e) {
   }
 }
 
+// ── Food library ───────────────────────────────────────────────────────────
+// The design collapses this card by default. It opens by default here, and the
+// reason is the pack-4 review: collapsed, it buries the edit/delete/favourite
+// cluster that is the only way to finish or remove a food — worst of all for
+// the macro-less rows create-and-log produces on purpose. The choice is
+// remembered, so one click gets the design's compact Today screen for good.
+
+function libraryIsOpen() {
+  return localStorage.getItem('fitLibraryOpen') !== '0';
+}
+
+function applyLibraryState() {
+  const body = document.getElementById('library-body');
+  const btn = document.getElementById('library-toggle');
+  if (!body || !btn) return;
+  const open = libraryIsOpen();
+  body.hidden = !open;
+  btn.textContent = open ? 'Hide' : 'Open';
+  btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+}
+
+// `force` is for callers that need it open regardless of the stored choice.
+function toggleLibrary(force) {
+  const open = force === undefined ? !libraryIsOpen() : !!force;
+  localStorage.setItem('fitLibraryOpen', open ? '1' : '0');
+  applyLibraryState();
+}
+
+// Counted off the rendered rows rather than tracked separately — same reason as
+// updateCheckCount: the rows are the state, so an add or a delete cannot leave
+// a tally behind to drift.
+function updateLibraryCount() {
+  const el = document.getElementById('library-count');
+  if (!el) return;
+  const n = document.querySelectorAll('#food-library .lib-row').length;
+  el.textContent = n === 1 ? '1 food' : n + ' foods';
+}
+
 // Add food form toggle
 function toggleAddForm() {
   const form = document.getElementById('add-food-form');
   form.hidden = !form.hidden;
-  if (!form.hidden) form.querySelector('[name="name"]').focus();
+  if (!form.hidden) {
+    // The form lives inside the collapsible body, so opening it while the
+    // library is closed would look like the button did nothing.
+    toggleLibrary(true);
+    form.querySelector('[name="name"]').focus();
+  }
 }
 
 </script>

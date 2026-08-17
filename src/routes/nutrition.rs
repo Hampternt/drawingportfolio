@@ -1166,8 +1166,8 @@ fn edit_food_form_html(item: &crate::models::FoodItem, history_html: &str) -> St
   <input type="hidden" name="image_url" value="{image_url}">
   {history_html}
   <div class="form-actions">
-    <button type="submit" class="btn-primary">Save</button>
-    <button type="button" class="btn-secondary"
+    <button type="submit" class="hm-btn hm-btn--md hm-btn--primary">Save</button>
+    <button type="button" class="hm-btn hm-btn--md hm-btn--secondary"
             hx-get="/api/nutrition/food-items/{id}/card"
             hx-target="#food-item-{id}"
             hx-swap="outerHTML">Cancel</button>
