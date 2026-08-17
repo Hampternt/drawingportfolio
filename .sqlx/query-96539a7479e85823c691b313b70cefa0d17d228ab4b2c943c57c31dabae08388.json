@@ -1,0 +1,32 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT food_item_id as \"food_item_id!\", grams as \"grams!: f64\",\n                  MAX(created_at || '-' || printf('%012d', id)) as \"latest!: String\"\n           FROM meal_entries\n           WHERE user_id = ?\n           GROUP BY food_item_id",
+  "describe": {
+    "columns": [
+      {
+        "name": "food_item_id!",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "grams!: f64",
+        "ordinal": 1,
+        "type_info": "Float"
+      },
+      {
+        "name": "latest!: String",
+        "ordinal": 2,
+        "type_info": "Null"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      null
+    ]
+  },
+  "hash": "96539a7479e85823c691b313b70cefa0d17d228ab4b2c943c57c31dabae08388"
+}

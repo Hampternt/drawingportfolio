@@ -382,6 +382,16 @@ pub struct MealEntryWithFood {
     pub entry_id: i64,
     pub food_item_id: i64,
     pub food_name: String,
+    /// Rendered after the name as `Skyr natural · Arla`; empty for own-brand.
+    pub brand: String,
+    /// The row's thumbnail when the food has one. Empty falls back to the
+    /// letter tile — a real state, not a placeholder, since most catalog rows
+    /// are typed in rather than scanned.
+    pub image_url: String,
+    /// Grams the food is packaged or served in, and what to call that unit.
+    /// The row's fraction buttons are computed from these.
+    pub base_grams: f64,
+    pub base_name: String,
     pub slot: String,
     pub grams: f64,
     pub calories: f64,

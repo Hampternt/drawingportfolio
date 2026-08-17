@@ -1,0 +1,21 @@
+-- Migration 022: name the unit a food comes in.
+--
+-- The Today redesign puts quantity on the logged row as one-tap fractions of
+-- the food's own basis — "½ pack", "¼ breast". `food_items.package_size` (005)
+-- already holds *how many grams* that basis is; nothing holds what to call it,
+-- so the buttons could only ever say "½" with no unit to hang it on.
+--
+-- This is the single column the whole design adds. Everything else it asks for
+-- already exists: the per-user "usual" is `user_food_prefs.default_portion_g`
+-- (020) and last-logged grams is derivable from the entry log itself, so
+-- neither needs a field.
+--
+-- It belongs on the shared catalog rather than on `user_food_prefs` because it
+-- describes the food, not the eater — a chicken breast is a breast for
+-- everyone. The mirror of migration 020's rule, which moved the three personal
+-- opinions off this table for exactly the same reason.
+--
+-- Empty string, not NULL: readers fall back through package_size →
+-- default_portion_g → 100 g anyway, and '' keeps the column non-nullable so
+-- every read is a plain String rather than an Option the callers must unwrap.
+ALTER TABLE food_items ADD COLUMN base_name TEXT NOT NULL DEFAULT '';

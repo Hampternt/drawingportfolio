@@ -66,6 +66,174 @@ fn fmt_nutrient(v: f64) -> String {
     }
 }
 
+// ── Row maths ─────────────────────────────────────────────────────────────────
+//
+// Ported from the design prototype's own implementation
+// (`docs/design/fitness-today-overhaul/Fitness Today (overhaul).dc.html`), not
+// paraphrased from its README — where the two disagree the running prototype is
+// what the design was signed off against. Every rule here has a test.
+
+/// Each macro's share of a row's calories, as percentages summing to 100.
+///
+/// Protein and carbs are 4 kcal/g, fat 9. The denominator is guarded because a
+/// food with no macros yet — created from search, macros filled in later — is a
+/// normal state on this screen, not a bad row.
+fn macro_shares(protein: f64, carbs: f64, fat: f64) -> (f64, f64, f64) {
+    let (pk, ck, fk) = (protein * 4.0, carbs * 4.0, fat * 9.0);
+    let total = pk + ck + fk;
+    if total <= 0.0 {
+        return (0.0, 0.0, 0.0);
+    }
+    (
+        pk / total * 100.0,
+        ck / total * 100.0,
+        fk / total * 100.0,
+    )
+}
+
+/// What a food is mostly made of — drives its thumbnail ring, its meta label
+/// and (in Pack 4) its library grouping.
+///
+/// Shares are scale-invariant, so this reads the same from a row's absolute
+/// grams as from the food's per-100g figures.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+enum Dominance {
+    Protein,
+    Carbs,
+    Fat,
+    Balanced,
+    Unknown,
+}
+
+impl Dominance {
+    /// The design's colour for this class. Protein shares the amber with
+    /// `--accent-warm`; that is deliberate and safe because the fresh-row flag
+    /// and a macro mark never sit on the same element.
+    fn color(self) -> &'static str {
+        match self {
+            Dominance::Protein => "var(--status-warning)",
+            Dominance::Carbs => "var(--status-info)",
+            Dominance::Fat => "var(--status-danger)",
+            Dominance::Balanced => "var(--text-muted)",
+            Dominance::Unknown => "var(--text-faint)",
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Dominance::Protein => "protein",
+            Dominance::Carbs => "carbs",
+            Dominance::Fat => "fat",
+            Dominance::Balanced => "balanced",
+            Dominance::Unknown => "no macros",
+        }
+    }
+}
+
+fn dominance(protein: f64, carbs: f64, fat: f64) -> Dominance {
+    let (p, c, f) = macro_shares(protein, carbs, fat);
+    if p + c + f <= 0.0 {
+        return Dominance::Unknown;
+    }
+    let max = p.max(c).max(f);
+    // Under 45% no macro really characterises the food, so it reads as balanced
+    // rather than as a weak win for whichever edged ahead.
+    if max < 45.0 {
+        return Dominance::Balanced;
+    }
+    if max == p {
+        Dominance::Protein
+    } else if max == c {
+        Dominance::Carbs
+    } else {
+        Dominance::Fat
+    }
+}
+
+/// The unit a food is taken in: how many grams, and what to call it.
+///
+/// `package_size` is the pack it comes in (shared across users); the per-user
+/// `default_portion_g` is the amount this person usually takes; 100 g is the
+/// floor every nutrition figure is quoted against anyway. `base_name` is
+/// cosmetic — an unnamed basis still produces working fraction buttons.
+fn basis(package_size: Option<f64>, usual: Option<f64>, base_name: &str) -> (f64, String) {
+    let grams = package_size
+        .filter(|g| *g > 0.0)
+        .or_else(|| usual.filter(|g| *g > 0.0))
+        .unwrap_or(100.0);
+    (grams, base_name.trim().to_string())
+}
+
+/// A single button in a row's amount grid.
+struct AmountOption {
+    label: String,
+    grams: f64,
+    /// Whether this is the amount the row currently holds.
+    selected: bool,
+}
+
+/// Round the way the prototype does: whole grams once an amount is big enough
+/// for a tenth to be noise, a tenth below that.
+fn round_grams(g: f64) -> f64 {
+    if g >= 20.0 {
+        g.round()
+    } else {
+        (g * 10.0).round() / 10.0
+    }
+}
+
+/// The fraction buttons for a row: `full`, `½`, `⅓`, `¼` of the basis, plus
+/// `last` when the previously logged amount is not already among them.
+///
+/// Two filters keep the grid honest on small or oddly-sized foods: anything
+/// under 3 g is not a portion anyone taps, and two buttons within 0.5 g of each
+/// other are the same button wearing different labels.
+fn amount_options(base: f64, last: Option<f64>, current: f64) -> Vec<AmountOption> {
+    let mut out: Vec<AmountOption> = Vec::new();
+    for (label, frac) in [
+        ("full", 1.0),
+        ("½", 0.5),
+        ("⅓", 1.0 / 3.0),
+        ("¼", 0.25),
+    ] {
+        let grams = round_grams(base * frac);
+        if grams < 3.0 {
+            continue;
+        }
+        if out.iter().any(|o| (o.grams - grams).abs() < 0.5) {
+            continue;
+        }
+        out.push(AmountOption {
+            label: label.to_string(),
+            grams,
+            selected: false,
+        });
+    }
+    if let Some(last) = last.filter(|g| *g > 0.0) {
+        if !out.iter().any(|o| (o.grams - last).abs() < 0.5) {
+            out.push(AmountOption {
+                label: "last".to_string(),
+                grams: last,
+                selected: false,
+            });
+        }
+    }
+    for o in out.iter_mut() {
+        o.selected = (o.grams - current).abs() < 0.5;
+    }
+    out
+}
+
+/// Nudge size for the `custom` row: gentler below 50 g, where 10 g is a large
+/// fraction of the whole amount.
+fn nudge_step(grams: f64) -> f64 {
+    if grams < 50.0 {
+        5.0
+    } else {
+        10.0
+    }
+}
+
 pub fn food_item_card_html(
     item: &crate::models::FoodItem,
     is_recent: bool,
@@ -2001,6 +2169,136 @@ async fn set_targets_handler(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── Row maths ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_macro_shares_weight_fat_at_nine_kcal() {
+        // 10 g of each: protein 40, carbs 40, fat 90 kcal of 170.
+        let (p, c, f) = macro_shares(10.0, 10.0, 10.0);
+        assert!((p - 23.529).abs() < 0.01, "protein share {p}");
+        assert!((c - 23.529).abs() < 0.01, "carbs share {c}");
+        assert!((f - 52.941).abs() < 0.01, "fat share {f}");
+        assert!((p + c + f - 100.0).abs() < 0.001, "shares must total 100");
+    }
+
+    #[test]
+    fn test_macro_shares_of_a_macroless_food_is_zeros_not_nan() {
+        // A food created from the search field has no macros yet. Dividing by
+        // its zero total would put NaN into a conic-gradient and paint nothing.
+        assert_eq!(macro_shares(0.0, 0.0, 0.0), (0.0, 0.0, 0.0));
+    }
+
+    #[test]
+    fn test_dominance_classes() {
+        assert_eq!(dominance(0.0, 0.0, 0.0), Dominance::Unknown);
+        // Chicken breast: overwhelmingly protein.
+        assert_eq!(dominance(31.0, 0.0, 3.6), Dominance::Protein);
+        // White rice: nearly all carbs.
+        assert_eq!(dominance(2.7, 28.0, 0.3), Dominance::Carbs);
+        // Olive oil: pure fat.
+        assert_eq!(dominance(0.0, 0.0, 100.0), Dominance::Fat);
+        // Equal *grams* is not equal *calories* — 10 g of each is 40/40/90
+        // kcal, so fat takes 53% and the row reads as fat, not balanced. This
+        // is the whole reason dominance weights before it compares.
+        assert_eq!(dominance(10.0, 10.0, 10.0), Dominance::Fat);
+        // Balanced needs an even split by calorie, not by gram: 40/35/25.
+        assert_eq!(dominance(10.0, 8.75, 2.78), Dominance::Balanced);
+    }
+
+    #[test]
+    fn test_dominance_boundary_sits_at_45_percent() {
+        // Protein at 46% of calories — over the line, so it characterises.
+        assert_eq!(dominance(11.5, 7.5, 24.0 / 9.0), Dominance::Protein);
+        // The same shape at 44% falls back to balanced.
+        assert_eq!(dominance(11.0, 7.75, 25.0 / 9.0), Dominance::Balanced);
+    }
+
+    #[test]
+    fn test_basis_falls_through_package_then_usual_then_100g() {
+        assert_eq!(basis(Some(500.0), Some(125.0), "pack"), (500.0, "pack".into()));
+        assert_eq!(basis(None, Some(125.0), ""), (125.0, String::new()));
+        assert_eq!(basis(None, None, "scoop"), (100.0, "scoop".into()));
+        // A zero or negative package size is missing data, not a 0 g pack.
+        assert_eq!(basis(Some(0.0), Some(30.0), ""), (30.0, String::new()));
+        assert_eq!(basis(Some(0.0), None, ""), (100.0, String::new()));
+    }
+
+    #[test]
+    fn test_amount_options_for_a_500g_pack() {
+        let opts = amount_options(500.0, None, 250.0);
+        let got: Vec<_> = opts.iter().map(|o| (o.label.as_str(), o.grams)).collect();
+        assert_eq!(
+            got,
+            vec![("full", 500.0), ("½", 250.0), ("⅓", 167.0), ("¼", 125.0)]
+        );
+        // ½ is the current amount, so it is the primary button.
+        assert!(opts[1].selected, "½ should be selected at 250 g");
+        assert_eq!(opts.iter().filter(|o| o.selected).count(), 1);
+    }
+
+    #[test]
+    fn test_amount_options_drop_fractions_under_three_grams() {
+        // A 10 g basis: ⅓ is 3.3 g and ¼ is 2.5 g, so only the latter goes.
+        let got: Vec<_> = amount_options(10.0, None, 10.0)
+            .iter()
+            .map(|o| (o.label.clone(), o.grams))
+            .collect();
+        assert_eq!(
+            got,
+            vec![
+                ("full".to_string(), 10.0),
+                ("½".to_string(), 5.0),
+                ("⅓".to_string(), 3.3),
+            ]
+        );
+        // An 8 g basis leaves only full and half.
+        assert_eq!(amount_options(8.0, None, 8.0).len(), 2);
+    }
+
+    #[test]
+    fn test_amount_options_dedupe_within_half_a_gram() {
+        // A 4 g basis: full 4, ½ 2 (dropped, under 3). Nothing collides.
+        // A 6 g basis: full 6, ½ 3, ⅓ 2 (dropped), ¼ 1.5 (dropped).
+        assert_eq!(amount_options(6.0, None, 6.0).len(), 2);
+        // Rounding can collapse two fractions onto the same whole gram: with a
+        // basis of 24, ⅓ = 8 and ¼ = 6, distinct — but `last` at 8.2 g is
+        // within 0.5 g of ⅓ and must not appear twice.
+        let opts = amount_options(24.0, Some(8.2), 24.0);
+        assert_eq!(opts.iter().filter(|o| o.label == "last").count(), 0);
+    }
+
+    #[test]
+    fn test_amount_options_append_last_when_it_is_a_new_amount() {
+        let opts = amount_options(500.0, Some(180.0), 180.0);
+        let last = opts.last().expect("options are non-empty");
+        assert_eq!(last.label, "last");
+        assert_eq!(last.grams, 180.0);
+        assert!(last.selected, "the row is at 180 g, so `last` is current");
+    }
+
+    #[test]
+    fn test_amount_options_ignore_a_zero_last() {
+        // No history for this food yet.
+        let opts = amount_options(500.0, Some(0.0), 500.0);
+        assert!(opts.iter().all(|o| o.label != "last"));
+    }
+
+    #[test]
+    fn test_round_grams_switches_precision_at_twenty() {
+        assert_eq!(round_grams(166.666), 167.0);
+        assert_eq!(round_grams(20.4), 20.0);
+        assert_eq!(round_grams(19.44), 19.4);
+        assert_eq!(round_grams(3.333), 3.3);
+    }
+
+    #[test]
+    fn test_nudge_step_is_gentler_under_fifty_grams() {
+        assert_eq!(nudge_step(250.0), 10.0);
+        assert_eq!(nudge_step(50.0), 10.0);
+        assert_eq!(nudge_step(49.9), 5.0);
+        assert_eq!(nudge_step(4.0), 5.0);
+    }
 
     #[test]
     fn test_head_date_label_shape() {

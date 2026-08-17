@@ -183,6 +183,12 @@ pub async fn run_migrations(pool: &DbPool) {
     let _ = sqlx::query(include_str!("../migrations/021_pin_lockout.sql"))
         .execute(pool)
         .await;
+
+    // Migration 022: food_items.base_name. ALTER-only, so `let _ =` — a second
+    // run fails on the duplicate column and that failure is the idempotence.
+    let _ = sqlx::query(include_str!("../migrations/022_food_base_name.sql"))
+        .execute(pool)
+        .await;
 }
 
 /// Whether `table` currently has a column named `column`.
@@ -1441,11 +1447,20 @@ pub async fn get_meal_entries_for_date(
     user: UserId,
 ) -> Vec<MealEntryWithFood> {
     let uid = user.get();
+    // The LEFT JOIN carries the *viewer's* portion preference, not the food's:
+    // `default_portion_g` moved to user_food_prefs in migration 020 precisely
+    // so two people could disagree about what a usual serving is. A missing
+    // row reads as "no opinion", which the basis fallback handles.
     let rows = sqlx::query!(
         r#"SELECT
             me.id as "entry_id!",
             me.food_item_id,
             fi.name as food_name,
+            fi.brand as "brand!",
+            fi.image_url as "image_url!",
+            fi.package_size,
+            fi.base_name as "base_name!",
+            p.default_portion_g,
             me.grams,
             me.slot as "slot!",
             fi.calories as base_calories,
@@ -1458,8 +1473,11 @@ pub async fn get_meal_entries_for_date(
             fi.saturated_fat as base_saturated_fat
         FROM meal_entries me
         JOIN food_items fi ON fi.id = me.food_item_id
+        LEFT JOIN user_food_prefs p
+               ON p.food_item_id = fi.id AND p.user_id = ?
         WHERE me.date = ? AND me.user_id = ?
         ORDER BY me.created_at ASC"#,
+        uid,
         date,
         uid
     )
@@ -1470,10 +1488,22 @@ pub async fn get_meal_entries_for_date(
     rows.into_iter()
         .map(|r| {
             let factor = r.grams / 100.0;
+            // Same fallback the row buttons use: the pack it comes in, else
+            // the amount this user usually takes, else the 100 g every
+            // nutrition figure is quoted against.
+            let base_grams = r
+                .package_size
+                .filter(|g| *g > 0.0)
+                .or(r.default_portion_g.filter(|g| *g > 0.0))
+                .unwrap_or(100.0);
             MealEntryWithFood {
                 entry_id: r.entry_id,
                 food_item_id: r.food_item_id,
                 food_name: r.food_name,
+                brand: r.brand,
+                image_url: r.image_url,
+                base_grams,
+                base_name: r.base_name,
                 slot: r.slot,
                 grams: r.grams,
                 calories: r.base_calories * factor,
@@ -1487,6 +1517,40 @@ pub async fn get_meal_entries_for_date(
             }
         })
         .collect()
+}
+
+/// Every food this user has logged, mapped to the grams they last used.
+///
+/// This is the whole of the design's `last_grams[food_id]`. It is deliberately
+/// *not* a column: the entry log already records every amount ever chosen, so a
+/// stored copy would be a second source of truth that drifts the first time an
+/// entry is edited or deleted.
+///
+/// One query per render rather than one per row — the Today screen asks about
+/// every row it draws, and the day's rows can easily be a dozen foods.
+pub async fn get_last_grams_map(
+    pool: &DbPool,
+    user: UserId,
+) -> std::collections::HashMap<i64, f64> {
+    let uid = user.get();
+    // Bare columns beside MAX() resolve to the max row's values in SQLite, so
+    // this picks each food's most recent entry. The tiebreak on id matters:
+    // created_at has one-second resolution and logging a saved meal writes
+    // several rows inside the same second.
+    sqlx::query!(
+        r#"SELECT food_item_id as "food_item_id!", grams as "grams!: f64",
+                  MAX(created_at || '-' || printf('%012d', id)) as "latest!: String"
+           FROM meal_entries
+           WHERE user_id = ?
+           GROUP BY food_item_id"#,
+        uid
+    )
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default()
+    .into_iter()
+    .map(|r| (r.food_item_id, r.grams))
+    .collect()
 }
 
 /// Logs a food to a user's day.

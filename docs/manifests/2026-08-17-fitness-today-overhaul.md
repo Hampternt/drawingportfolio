@@ -91,15 +91,55 @@ comment block silently drops the next rule).
 </details>
 
 <details>
-<summary><b>Packs 2–5 — scope only</b></summary>
+<summary><b>Pack 2 — The logged row</b> (in progress)</summary>
 
-**Pack 2 — The logged row.** The core of the redesign. Quantity moves onto the row:
-`full / ½ / ⅓ / ¼` of the food's basis, `last`, and a `custom` nudge row. Row macro
-pie, per-macro colour coding, dominance label and basis line. Fresh-row amber edge.
-Fixes the slot-reset bug. Changes fragment boundaries to per-row swaps — which
-**breaks the week-strip refresh** at `feed.html:380` (it keys on
-`e.target.id === 'day-section'`, which will no longer fire); that is an item in this
-pack, not a discovery for the gate. Carries the one schema change (see below).
+**Done when:** you log a food and set its amount from the row itself — one tap for
+a fraction of its pack, `last`, or a nudge — without the slot picker snapping back
+under you.
+
+- [ ] **2.1 Basis and amount maths.** Migration 022 adds
+      `food_items.base_name TEXT NOT NULL DEFAULT ''` — the one field the design
+      needs and the catalog lacks. `MealEntryWithFood` gains `brand`, `image_url`,
+      `base_grams`, `base_name` and `last_grams`; last-grams comes from a new
+      `get_last_grams_map()` (one query per render, not one per row). Pure
+      functions ported from the prototype and tested against its exact rules:
+      `macro_shares` (×4/×4/×9, zero-guarded), `dominance` (<45% ⇒ balanced),
+      `basis` (`package_size` → `default_portion_g` → 100 g), `amount_options`
+      (drop <3 g, dedupe within 0.5 g, whole grams ≥20 g else 0.1) and
+      `nudge_step` (5 g under 50 g, else 10 g).
+      *Done: tests green; nothing visual changes yet.*
+      ⚠ Schema ritual: migrate the dev DB, `cargo sqlx prepare`, commit `.sqlx/`.
+- [ ] **2.2 The row renders.** Rewrite `meal_entry_row_html` to the full anatomy —
+      34px thumbnail (real `image_url` where there is one, else the letter tile with
+      its dominance ring), name with brand appended, and the meta row: 22px macro
+      pie, `P`/`C`/`F` in their macro colours, dominance label, basis. Slot headers
+      get their kcal, `+ add`, and the `> nothing logged` empty state.
+      *Done: `/fitness` shows the designed rows — still inert.*
+- [ ] **2.3 Amount controls.** The `auto-fit, minmax(76px, 1fr)` grid of two-line
+      buttons, the `custom` nudge row, and a route that sets one entry's grams and
+      returns **just that row**. Selected button = within 0.5 g of current.
+      *Done: tap a row's grams, tap ½, the row updates in place.*
+- [ ] **2.4 Fresh flag.** A newly logged row carries the amber inset edge and dot
+      and opens its controls; touching the amount clears it. Client-side, per the
+      ruling — the insert returns the new row id.
+      *Done: log a food and its row is flagged and open.* (The `N to check` counter
+      belongs to the Log card, so it lands in Pack 3.)
+- [ ] **2.5 Slot sticks; fragments narrow.** The picker keeps the slot you chose —
+      the clock seeds it on first render only. Row mutations stop swapping
+      `#day-section` wholesale, which **breaks the week-strip refresh** at
+      `feed.html:380` (it keys on `e.target.id === 'day-section'`); re-point it.
+      *Done: log twice into lunch without the picker snapping back, and the week
+      strip still tracks.*
+
+**Item gate:** `./scripts/check.sh` + `cargo test --bin drawingportfolio nutrition::`
+— this pack is nearly all logic, so the targeted suite runs every time.
+**Pack gate:** `./scripts/verify.sh` + a browser walkthrough of the log → adjust →
+remove cycle.
+
+</details>
+
+<details>
+<summary><b>Packs 3–5 — scope only</b></summary>
 
 **Pack 3 — One-tap logging.** `Log again` chips, `usual at <slot>`, create-and-log
 from the search field, saved-meal batch logging, the meal builder, and the toast
