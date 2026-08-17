@@ -283,3 +283,41 @@ takes **JSON**, not form encoding.
   preview tooling.
 
 </details>
+
+<details>
+<summary><b>Review wave — 3 findings, all fixed</b> (<code>high</code>, 2026-08-17)</summary>
+
+All three were regressions this pack introduced by sharing artportfolio's CSS,
+and all three were confirmed in the running app rather than argued from the
+diff. Fixed in `9f22dc8`.
+
+1. **`/fitness/week` widened 760px → 1180px.** The shell was keyed on
+   `.fitness-page`, which the week template also carries
+   (`<section class="fitness-page week-page">`), and the item-1.4 commit had
+   deleted the 760px clamp that used to hold it. The week view was ruled in for
+   a *repaint*, not a re-layout. Fixed by giving the Today page its own
+   `.fitness-today` hook and restoring the clamp scoped to `.week-page`.
+   `.fitness-page` stays on both — `syncBodyTheme()` keys the theme off it.
+2. **`/fitness` gained a horizontal scrollbar on phones** — 423px of content in
+   a 371px viewport, the overflowing element being base.html's Ctrl/K button
+   pushed out of the now-unwrappable 56px header. Fixed with the brief's own
+   phone rule, hiding the nav links below 900px.
+3. **Anchor-styled buttons underlined on hover.** `a:hover` is (0,2,1) and
+   `.hm-btn` only (0,1,1), so the reset's underline beat the button's
+   `text-decoration: none`. Fixed by restating it at `:hover` parity, which
+   covers every variant.
+
+**Worth carrying forward — the fix for 2 failed on the first attempt**, in a way
+that looked like it had worked. Written into the fitness section,
+`body.fitness-dark header nav` ties the chrome's `:is(...) header nav` at
+(0,1,3); a media query contributes no specificity; and the chrome rule sits
+~800 lines later, so it won and the overflow survived. An override of a shared
+primitive has to sit **after** the rule it overrides, not in the section that
+conceptually owns it. Re-measuring rather than trusting the edit is what caught
+it.
+
+`/artportfolio` still overflows at 390px. That predates this work and fixing it
+would mean deleting its mobile navigation — not a fitness pack's call. Left
+recorded here rather than silently changed.
+
+</details>

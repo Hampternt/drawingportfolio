@@ -4,11 +4,13 @@
 {% block body_class %}fitness-dark{% endblock %}
 
 {% block content %}
-<section class="fitness-page">
+<section class="fitness-page fitness-today">
 
-  <!-- Page head. `.fitness-page` must stay the outermost element inside this
-       block: base.html's syncBodyTheme() looks for it to re-derive the
-       fitness-dark body class after a boosted navigation. -->
+  <!-- Two classes, two jobs. `.fitness-page` must stay the outermost element
+       inside this block: base.html's syncBodyTheme() looks for it to re-derive
+       the fitness-dark body class after a boosted navigation. `.fitness-today`
+       is what the shell's width and layout hang off — /fitness/week is also a
+       `.fitness-page`, and keying the 1180px shell on that name widened it too. -->
   <div class="fit-head">
     <div class="fit-head__titles">
       <div class="fit-head__label">{{ date_label }}</div>
