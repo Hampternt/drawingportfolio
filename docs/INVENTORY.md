@@ -50,6 +50,9 @@ Each person has their own log; the food catalog is shared.
   account — a fitness account reaches `/fitness` and nothing else. Only the
   owner manages accounts, and the owner cannot be demoted or deleted.
 - Everyone manages their own name and PIN at `/fitness/account`.
+- 🚧 **Today-screen overhaul** — logging rebuilt around one-tap amounts on the
+  logged row, re-logging and batch meals, plus day-level macro composition.
+  Manifest: `docs/manifests/2026-08-17-fitness-today-overhaul.md`.
 
 ## Drinks — `/drinks`
 
