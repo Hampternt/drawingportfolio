@@ -66,6 +66,18 @@ fn fmt_nutrient(v: f64) -> String {
     }
 }
 
+/// A meal slot from user input, or `other`.
+///
+/// An unrecognised slot must not reach the database: `SLOTS` drives the day's
+/// grouping, so a row filed under anything else would be invisible on the very
+/// screen that created it.
+fn sanitize_slot(input: Option<&String>) -> String {
+    input
+        .filter(|s| SLOTS.iter().any(|(k, _)| *k == s.as_str()))
+        .cloned()
+        .unwrap_or_else(|| "other".to_string())
+}
+
 /// Grams for display: `250 g`, not `250.0 g`, but `27.5` keeps its tenth.
 ///
 /// `fmt_nutrient` always prints one decimal, which is right for a macro figure
@@ -715,16 +727,16 @@ async fn render_day(
     can_edit: bool,
 ) -> String {
     let entries = crate::db::get_meal_entries_for_date(pool, date, user).await;
-    let food_items = crate::db::get_food_items(pool, user).await;
     let targets = crate::db::get_targets(pool, user).await;
     let last_grams = crate::db::get_last_grams_map(pool, user).await;
-    day_section_html(&entries, date, &food_items, &targets, can_edit, &last_grams)
+    // The food catalog used to be fetched here too, purely to bake an <option>
+    // list into the log form. That form is gone, and so is the query.
+    day_section_html(&entries, date, &targets, can_edit, &last_grams)
 }
 
 pub fn day_section_html(
     entries: &[crate::models::MealEntryWithFood],
     date: &str,
-    food_items: &[crate::models::FoodItem],
     targets: &crate::models::Targets,
     can_edit: bool,
     // Each food's last-logged amount for this user, feeding every row's `last`
@@ -819,38 +831,6 @@ pub fn day_section_html(
         .collect::<Vec<_>>()
         .join("\n");
 
-    let options_html: String = food_items
-        .iter()
-        .map(|fi| {
-            let pkg_attr = if let Some(pkg) = fi.package_size {
-                format!(" data-package-size=\"{}\"", pkg)
-            } else {
-                String::new()
-            };
-            let cp_attr = if fi.custom_portions.is_empty() {
-                String::new()
-            } else {
-                format!(
-                    " data-custom-portions=\"{}\"",
-                    html_escape(&fi.custom_portions)
-                )
-            };
-            format!(
-                "<option value=\"{}\"{}{}>{} {}</option>",
-                fi.id,
-                pkg_attr,
-                cp_attr,
-                html_escape(&fi.name),
-                if fi.brand.is_empty() {
-                    String::new()
-                } else {
-                    format!("({})", html_escape(&fi.brand))
-                }
-            )
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
-
     let pct_of_target = if targets.calories > 0.0 {
         (total_cal / targets.calories * 100.0).round()
     } else {
@@ -879,40 +859,35 @@ pub fn day_section_html(
     );
 
     format!(
-        r##"{}
-{}
-<form class="log-entry-form"
-      hx-post="/api/nutrition/entries"
-      hx-target="#day-section"
-      hx-swap="innerHTML"
-      hx-on::after-request="this.reset(); onFoodSelect(this.querySelector('[name=food_item_id]'))">
-  <input type="hidden" name="date" value="{}">
-  <select name="food_item_id" required onchange="onFoodSelect(this)">
-    <option value="">— pick food —</option>
-{}
-  </select>
-  <select name="portion" class="portion-select" onchange="onPortionChange(this)" disabled>
-    <option value="custom">Custom</option>
-    <option value="1">Full</option>
-    <option value="0.5">Half</option>
-    <option value="0.25">Quarter</option>
-    <option value="0.125">Eighth</option>
-  </select>
-  <input type="number" name="grams" value="100" min="1" max="5000" step="0.1" required>
-  <span class="grams-label">g</span>
-  <input type="hidden" name="slot" value="other">
-  <div class="slot-chips" data-role="slot-chips">
-    <button type="button" class="noc-tag noc-tag-outline" data-slot="breakfast" onclick="setSlot(this)">Breakfast</button>
-    <button type="button" class="noc-tag noc-tag-outline" data-slot="lunch" onclick="setSlot(this)">Lunch</button>
-    <button type="button" class="noc-tag noc-tag-outline" data-slot="dinner" onclick="setSlot(this)">Dinner</button>
-    <button type="button" class="noc-tag noc-tag-outline" data-slot="snack" onclick="setSlot(this)">Snack</button>
+        r##"{summary}
+<div class="noc-card fit-log">
+  <div class="fit-log__slots">
+    <span class="fit-log__kicker">LOG TO</span>
+    <button type="button" class="hm-btn hm-btn--sm hm-btn--ghost" data-slot="breakfast" onclick="setSlot(this)">breakfast</button>
+    <button type="button" class="hm-btn hm-btn--sm hm-btn--ghost" data-slot="lunch" onclick="setSlot(this)">lunch</button>
+    <button type="button" class="hm-btn hm-btn--sm hm-btn--ghost" data-slot="dinner" onclick="setSlot(this)">dinner</button>
+    <button type="button" class="hm-btn hm-btn--sm hm-btn--ghost" data-slot="snack" onclick="setSlot(this)">snack</button>
+    <span class="fit-log__note" id="fit-slot-note" hidden></span>
+    <button type="button" class="hm-btn hm-btn--sm hm-btn--ghost fit-log__now" id="fit-slot-now" hidden onclick="snapSlotToClock()"></button>
+    <span class="fit-log__check" id="fit-check-count">all amounts checked</span>
   </div>
-  <button type="submit" class="btn-primary">Log</button>
-</form>"##,
-        summary,
-        slots_html,
-        html_escape(date),
-        options_html
+  <div class="fit-log__search">
+    <div class="fit-field">
+      <span class="hm-icon hm-icon--search" aria-hidden="true"></span>
+      <input type="search" id="log-search" name="q" autocomplete="off"
+             placeholder="Type a food, &#8629; logs your usual portion"
+             hx-get="/fitness/htmx/log-options" hx-trigger="input changed delay:200ms, load"
+             hx-target="#log-options" hx-swap="innerHTML"
+             hx-vals='js:{{date: window.currentDate}}'>
+      <kbd class="fit-field__kbd">/</kbd>
+    </div>
+    <button type="button" class="hm-btn hm-btn--md hm-btn--secondary" onclick="openAddSheet('scan')">Scan</button>
+  </div>
+  <div id="log-options"></div>
+</div>
+{slots}"##,
+        summary = summary,
+        slots = slots_html
     )
 }
 
@@ -1077,7 +1052,7 @@ async fn fitness_page(
     // `targets` for the library and the week strip, and re-fetching them would
     // trade three queries for tidier-looking code.
     let last_grams = crate::db::get_last_grams_map(&state.pool, session.user()).await;
-    let day_html = day_section_html(&entries, &date, &food_items, &targets, true, &last_grams);
+    let day_html = day_section_html(&entries, &date, &targets, true, &last_grams);
     let recent_ids: std::collections::HashSet<i64> =
         crate::db::get_recent_foods(&state.pool, 20, session.user())
             .await
@@ -1341,15 +1316,7 @@ async fn add_meal_entry(
         .get("grams")
         .and_then(|v| v.parse().ok())
         .unwrap_or(100.0);
-    let slot = form
-        .get("slot")
-        .cloned()
-        .unwrap_or_else(|| "other".to_string());
-    let slot = if SLOTS.iter().any(|(k, _)| *k == slot) {
-        slot
-    } else {
-        "other".to_string()
-    };
+    let slot = sanitize_slot(form.get("slot"));
 
     if food_item_id == 0 || grams <= 0.0 {
         return Html(render_day(&state.pool, &date, session.user(), true).await).into_response();
@@ -1393,6 +1360,142 @@ async fn log_one(
         ),
         Err(_) => (Vec::new(), String::new()),
     }
+}
+
+/// The chips under the log card's search field.
+///
+/// With no query these are the foods logged most recently, at the grams last
+/// used — the "log again" case, which is most of what this screen is for. While
+/// typing they become matches. When nothing matches, the only button offered is
+/// the one that creates the food and logs it in the same tap, because being
+/// stuck with a food you cannot name is the failure this redesign exists to fix.
+fn log_options_html(matches: &[(i64, String, f64)], query: &str, is_search: bool) -> String {
+    if matches.is_empty() {
+        if !is_search {
+            return r#"<p class="fit-log__hint">Nothing logged yet — search for a food above.</p>"#
+                .to_string();
+        }
+        return format!(
+            r##"<div class="fit-log__kicker">Nothing matches</div>
+<button type="button" class="hm-btn hm-btn--md hm-btn--primary fit-log__create"
+        hx-post="/api/nutrition/foods/create-and-log"
+        hx-vals='js:{{name: document.getElementById("log-search").value, slot: effectiveSlot(), date: window.currentDate}}'
+        hx-target="#day-section" hx-swap="innerHTML">+ Add &ldquo;{q}&rdquo; and log 100 g</button>"##,
+            q = html_escape(query)
+        );
+    }
+
+    let heading = if is_search {
+        "Matches — tap to log"
+    } else {
+        "Log again"
+    };
+    let chips: String = matches
+        .iter()
+        .map(|(id, name, grams)| {
+            format!(
+                r##"<button type="button" class="hm-btn hm-btn--md hm-btn--secondary fit-chip"
+          hx-post="/fitness/quick-log"
+          hx-vals='js:{{food_item_id: {id}, grams: {grams}, slot: effectiveSlot(), date: window.currentDate}}'
+          hx-target="#day-section" hx-swap="innerHTML">
+    <span class="fit-chip__name">{name}</span>
+    <span class="fit-chip__grams">{grams_fmt} g</span>
+  </button>"##,
+                id = id,
+                grams = grams,
+                grams_fmt = fmt_grams(*grams),
+                name = html_escape(name)
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n  ");
+
+    format!(
+        r##"<div class="fit-log__kicker">{heading}</div>
+<div class="fit-chips">
+  {chips}
+</div>"##
+    )
+}
+
+async fn log_options(
+    session: AuthSession,
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<HashMap<String, String>>,
+) -> impl IntoResponse {
+    let q = params.get("q").cloned().unwrap_or_default();
+    let q = q.trim().to_string();
+    let last = crate::db::get_last_grams_map(&state.pool, session.user()).await;
+
+    // Both branches answer the same question — what would I log, and how much
+    // of it — and differ only in where the candidates come from.
+    let matches: Vec<(i64, String, f64)> = if q.is_empty() {
+        crate::db::get_recent_foods(&state.pool, 6, session.user())
+            .await
+            .into_iter()
+            .map(|r| (r.food_item_id, r.name, r.last_grams))
+            .collect()
+    } else {
+        crate::db::search_food_items(&state.pool, &q, session.user())
+            .await
+            .into_iter()
+            .take(6)
+            .map(|i| {
+                let grams = last
+                    .get(&i.id)
+                    .copied()
+                    .or(i.default_portion_g)
+                    .unwrap_or(100.0);
+                (i.id, i.name, grams)
+            })
+            .collect()
+    };
+
+    Html(log_options_html(&matches, &q, !q.is_empty()))
+}
+
+/// Creates a food from whatever was typed and logs 100 g of it in one request.
+///
+/// The macros are left at zero deliberately: the point is to unblock the log
+/// now and fill them in later. The row renders `no macros` rather than
+/// pretending the food is calorie-free.
+async fn create_and_log(
+    session: AuthSession,
+    State(state): State<Arc<AppState>>,
+    axum::Form(form): axum::Form<HashMap<String, String>>,
+) -> impl IntoResponse {
+    let date = sanitize_date(form.get("date"));
+    let slot = sanitize_slot(form.get("slot"));
+    let name = form.get("name").map(|s| s.trim()).unwrap_or_default();
+
+    // An empty or absurd name is a broken client, not a food.
+    if name.is_empty() || name.chars().count() > 80 {
+        return Html(render_day(&state.pool, &date, session.user(), true).await).into_response();
+    }
+
+    let item = crate::db::insert_food_item(
+        &state.pool,
+        name,
+        "",
+        None,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        None,
+        "",
+        "",
+        session.user(),
+    )
+    .await;
+
+    let (ids, text) = log_one(&state.pool, item.id, &date, 100.0, &slot, session.user()).await;
+    let body = render_day(&state.pool, &date, session.user(), true).await;
+    log_batch_response(body, &ids, &text)
 }
 
 /// Removes a batch of entries — the toast's Undo.
@@ -1452,13 +1555,22 @@ fn log_batch_response(body: String, ids: &[i64], text: &str) -> axum::response::
         .into_response()
 }
 
-/// Escapes a string for the `HX-Trigger` JSON payload.
+/// Escapes a string for the `HX-Trigger` JSON payload, ASCII-only.
 ///
-/// A food called `12" pizza` would otherwise close the JSON string and produce
-/// a header htmx cannot parse — losing the toast and the fresh flags with no
-/// error anywhere. Control characters are dropped rather than escaped: a header
-/// value containing a newline is a response-splitting vector, and axum refuses
-/// to send it, which would turn a successfully logged meal into a 500.
+/// Three separate hazards, all of which produce a wrong page rather than an
+/// error:
+///
+/// - A food called `12" pizza` would close the JSON string, handing htmx a
+///   header it cannot parse — no toast, no fresh flags, nothing in the console.
+/// - Control characters are dropped rather than escaped: a header value
+///   containing a newline is a response-splitting vector, and axum refuses to
+///   send it, turning a successfully logged meal into a 500.
+/// - **Non-ASCII must be `\u`-escaped, not passed through.** HTTP header values
+///   are read as Latin-1, so a UTF-8 `·` (C2 B7) arrives as `Â·` and
+///   `Æbleskiver` as `Ã†bleskiver`. Emitting `·` keeps the header pure
+///   ASCII and lets the client's JSON parse rebuild the character. Found by
+///   reading the rendered toast — the first version of this function shipped
+///   the mojibake, and the test I wrote asserted it was fine.
 fn json_escape(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for c in s.chars() {
@@ -1467,7 +1579,15 @@ fn json_escape(s: &str) -> String {
             '\\' => out.push_str("\\\\"),
             '\n' | '\r' | '\t' => out.push(' '),
             c if (c as u32) < 0x20 => {}
-            c => out.push(c),
+            c if c.is_ascii() => out.push(c),
+            // encode_utf16 yields a surrogate pair for astral characters, which
+            // is exactly the pair JSON wants.
+            c => {
+                let mut buf = [0u16; 2];
+                for unit in c.encode_utf16(&mut buf) {
+                    out.push_str(&format!("\\u{unit:04x}"));
+                }
+            }
         }
     }
     out
@@ -1831,15 +1951,7 @@ async fn update_meal_entry_handler(
         .get("grams")
         .and_then(|v| v.parse().ok())
         .unwrap_or(0.0);
-    let slot = form
-        .get("slot")
-        .cloned()
-        .unwrap_or_else(|| "other".to_string());
-    let slot = if SLOTS.iter().any(|(k, _)| *k == slot) {
-        slot
-    } else {
-        "other".to_string()
-    };
+    let slot = sanitize_slot(form.get("slot"));
     if grams > 0.0 {
         crate::db::update_meal_entry(&state.pool, id, grams, &slot, session.user()).await;
     }
@@ -2070,24 +2182,33 @@ async fn quick_log_handler(
     axum::Form(form): axum::Form<HashMap<String, String>>,
 ) -> impl IntoResponse {
     let date = sanitize_date(form.get("date"));
-    let slot = form
-        .get("slot")
-        .cloned()
-        .unwrap_or_else(|| "other".to_string());
-    let slot = if SLOTS.iter().any(|(k, _)| *k == slot) {
-        slot
-    } else {
-        "other".to_string()
-    };
+    let slot = sanitize_slot(form.get("slot"));
+    let mut ids = Vec::new();
+    let mut text = String::new();
+
     if let Some(id) = form.get("food_item_id").and_then(|v| v.parse::<i64>().ok()) {
-        if let Some(item) = crate::db::get_food_item(&state.pool, id, session.user()).await {
-            let grams = item.default_portion_g.unwrap_or(100.0);
-            let _ =
-                crate::db::insert_meal_entry(&state.pool, id, &date, grams, &slot, session.user())
-                    .await;
+        // A chip already knows its amount — it is rendered with the grams this
+        // user last logged for that food, which is what makes re-logging one
+        // tap. Callers that send none (the add sheet) keep the old behaviour.
+        let explicit = form
+            .get("grams")
+            .and_then(|v| v.parse::<f64>().ok())
+            .filter(|g| (1.0..=5000.0).contains(g));
+        let grams = match explicit {
+            Some(g) => Some(g),
+            None => crate::db::get_food_item(&state.pool, id, session.user())
+                .await
+                .map(|i| i.default_portion_g.unwrap_or(100.0)),
+        };
+        if let Some(grams) = grams {
+            let (batch, msg) = log_one(&state.pool, id, &date, grams, &slot, session.user()).await;
+            ids = batch;
+            text = msg;
         }
     }
-    Html(render_day(&state.pool, &date, session.user(), true).await)
+
+    let body = render_day(&state.pool, &date, session.user(), true).await;
+    log_batch_response(body, &ids, &text)
 }
 
 #[derive(Template)]
@@ -2312,15 +2433,7 @@ async fn log_recipe_handler(
     axum::Form(form): axum::Form<HashMap<String, String>>,
 ) -> impl IntoResponse {
     let date = sanitize_date(form.get("date"));
-    let slot = form
-        .get("slot")
-        .cloned()
-        .unwrap_or_else(|| "other".to_string());
-    let slot = if SLOTS.iter().any(|(k, _)| *k == slot) {
-        slot
-    } else {
-        "other".to_string()
-    };
+    let slot = sanitize_slot(form.get("slot"));
     crate::db::log_recipe(&state.pool, id, &date, &slot, session.user()).await;
     Html(render_day(&state.pool, &date, session.user(), true).await)
 }
@@ -2485,8 +2598,21 @@ mod tests {
         assert_eq!(json_escape("two\nlines"), "two lines");
         assert_eq!(json_escape("tab\there"), "tab here");
         assert_eq!(json_escape("bell\u{7}here"), "bellhere");
-        // Non-ASCII is left alone — the header is UTF-8 and these are common.
-        assert_eq!(json_escape("Æbleskiver · Ålborg"), "Æbleskiver · Ålborg");
+    }
+
+    #[test]
+    fn test_json_escape_makes_non_ascii_pure_ascii() {
+        // Header values are read as Latin-1, so passing UTF-8 through renders
+        // `·` as `Â·` and `Æbleskiver` as `Ã†bleskiver`. This shipped once —
+        // the toast said "Logged 12\" test pizza Â· 100 g" in the browser.
+        assert_eq!(json_escape("a \u{b7} b"), "a \\u00b7 b");
+        assert_eq!(json_escape("\u{c6}bleskiver"), "\\u00c6bleskiver");
+        // Astral plane: one char, one surrogate pair, which is what JSON wants.
+        assert_eq!(json_escape("\u{1F355}"), "\\ud83c\\udf55");
+        // And the result must contain no byte a Latin-1 reader could mangle.
+        assert!(json_escape("Æbleskiver · 🍕").is_ascii());
+        // ASCII is untouched, so the common case stays readable in the header.
+        assert_eq!(json_escape("Logged Oats - 80 g"), "Logged Oats - 80 g");
     }
 
     #[test]
@@ -2670,7 +2796,7 @@ mod tests {
             carbs: 260.0,
             fat: 72.0,
         };
-        let html = day_section_html(&[], "2026-08-16", &[], &targets, true, &HashMap::new());
+        let html = day_section_html(&[], "2026-08-16", &targets, true, &HashMap::new());
 
         // Checked against the rendered numbers rather than a bare `-0` search:
         // the ISO date in the markup contains "-0" all by itself.
@@ -2752,6 +2878,8 @@ pub fn router() -> Router<Arc<AppState>> {
             axum::routing::put(update_entry_grams),
         )
         .route("/api/nutrition/entries/undo", post(undo_log_batch))
+        .route("/fitness/htmx/log-options", get(log_options))
+        .route("/api/nutrition/foods/create-and-log", post(create_and_log))
         .route("/fitness/htmx/entries/{id}/edit", get(entry_edit_form))
         .route("/fitness/copy-day", post(copy_day_handler))
         .route("/fitness/htmx/recent", get(recent_chips))

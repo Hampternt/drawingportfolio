@@ -718,6 +718,86 @@ body.fitness-dark .fit-nudge__input {
   text-align: center;
 }
 
+/* The log card — the entry point. A slot row, a search field, and whatever is
+   one tap away right now. */
+body.fitness-dark .fit-log { padding: 14px 16px; }
+body.fitness-dark .fit-log__kicker {
+  font: var(--type-label);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+body.fitness-dark .fit-log__slots {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+body.fitness-dark .fit-log__note { font: var(--type-label); color: var(--text-muted); }
+body.fitness-dark .fit-log__check {
+  margin-left: auto;
+  font: var(--type-label);
+  color: var(--text-faint);
+}
+/* Amber only while something is genuinely unchecked; the resting state is a
+   quiet "all amounts checked" rather than a permanent warning colour. */
+body.fitness-dark .fit-log__check--pending { color: var(--accent-warm); }
+body.fitness-dark .fit-log__note[hidden],
+body.fitness-dark .fit-log__now[hidden] { display: none; }
+
+body.fitness-dark .fit-log__search {
+  display: flex;
+  gap: var(--space-4);
+  margin-top: 14px;
+}
+body.fitness-dark .fit-field {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  flex: 1;
+  min-width: 0;
+  height: var(--control-height-md);
+  padding: 0 var(--space-5);
+  background: var(--surface-inset);
+  border: var(--border-width) solid var(--border-default);
+  border-radius: var(--radius-sm);
+  color: var(--text-faint);
+}
+body.fitness-dark .fit-field:focus-within { border-color: var(--border-accent); }
+body.fitness-dark .fit-field input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: none;
+  color: var(--text-strong);
+  font: var(--type-body-sm);
+}
+body.fitness-dark .fit-field__kbd {
+  flex: none;
+  min-width: 18px;
+  padding: 0 var(--space-2);
+  border: var(--border-width) solid var(--border-default);
+  border-radius: var(--radius-xs);
+  background: var(--ink-800);
+  color: var(--text-muted);
+  font: var(--type-label);
+  text-align: center;
+}
+body.fitness-dark .fit-log__hint {
+  margin: 12px 0 0;
+  font: var(--type-body-sm);
+  color: var(--text-faint);
+}
+body.fitness-dark #log-options > .fit-log__kicker { margin: 14px 0 var(--space-3); }
+body.fitness-dark .fit-chips { display: flex; flex-wrap: wrap; gap: var(--space-3); }
+/* A chip is a name plus the amount it will log — the amount is the reason it
+   is one tap rather than a form, so it is never abbreviated away. */
+body.fitness-dark .fit-chip { gap: var(--space-4); }
+body.fitness-dark .fit-chip__grams { font: var(--type-label); color: var(--text-faint); }
+body.fitness-dark .fit-chip.hm-btn--secondary:hover .fit-chip__grams { color: var(--text-muted); }
+body.fitness-dark .fit-log__create { width: 100%; margin-top: var(--space-3); }
+
 /* Toast. Bottom-right on desktop; on phones it clears the sticky action bar
    rather than sitting under it. */
 body.fitness-dark #fit-toast {

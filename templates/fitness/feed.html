@@ -266,12 +266,39 @@ function defaultSlot() {
   return 'snack';
 }
 
-function paintSlotChips(form) {
-  const val = form.querySelector('[name="slot"]').value;
-  form.querySelectorAll('[data-slot]').forEach(b => {
-    b.classList.toggle('noc-tag-accent', b.dataset.slot === val);
-    b.classList.toggle('noc-tag-outline', b.dataset.slot !== val);
+// The slot every one-tap action logs into. There is no hidden form field any
+// more — the dropdown-and-grams form is gone — so this variable IS the picker's
+// state, and every logging button reads it through hx-vals at request time.
+function effectiveSlot() {
+  return window.currentSlot || defaultSlot();
+}
+
+function paintSlotChips() {
+  const val = effectiveSlot();
+  document.querySelectorAll('.fit-log__slots [data-slot]').forEach(b => {
+    const on = b.dataset.slot === val;
+    b.classList.toggle('hm-btn--primary', on);
+    b.classList.toggle('hm-btn--ghost', !on);
   });
+  // When the choice differs from the clock, say so and offer the way back.
+  const clock = defaultSlot();
+  const note = document.getElementById('fit-slot-note');
+  const now = document.getElementById('fit-slot-now');
+  if (note && now) {
+    const drifted = val !== clock;
+    note.hidden = !drifted;
+    now.hidden = !drifted;
+    if (drifted) {
+      note.textContent = 'staying on ' + val;
+      now.textContent = 'now: ' + clock;
+    }
+  }
+  updateCheckCount();
+}
+
+function snapSlotToClock() {
+  window.currentSlot = null;   // back to being led by the clock
+  paintSlotChips();
 }
 
 // The slot you chose, for as long as this page is open. Null until you choose
@@ -280,10 +307,8 @@ function paintSlotChips(form) {
 window.currentSlot = null;
 
 function setSlot(btn) {
-  const form = btn.closest('form');
   window.currentSlot = btn.dataset.slot;
-  form.querySelector('[name="slot"]').value = btn.dataset.slot;
-  paintSlotChips(form);
+  paintSlotChips();
 }
 
 // ── Logged-row amount controls ─────────────────────────────────────────────
@@ -342,35 +367,27 @@ function nudgeGrams(id, delta) {
   input.dispatchEvent(new Event('nudged'));
 }
 
+// `+ add` in a slot header. Same standing choice setSlot records — without it
+// the slot would survive until the next swap and then revert to the clock.
 function addToSlot(slot) {
-  const form = document.querySelector('.log-entry-form');
-  // Same standing choice setSlot records. Without this the slot survives until
-  // the next swap and then reverts to the clock — the picker-reset bug, reached
-  // through the slot header instead of the picker.
   window.currentSlot = slot;
-  form.querySelector('[name="slot"]').value = slot;
-  paintSlotChips(form);
-  form.querySelector('[name="food_item_id"]').focus();
+  paintSlotChips();
+  const search = document.getElementById('log-search');
+  if (search) { search.focus(); search.scrollIntoView({block: 'center'}); }
 }
 
-// Restores the slot picker after a swap.
+// Repaints the picker after a swap.
 //
-// This used to read `if (value === 'other') value = defaultSlot()`, and it runs
-// on every htmx:afterSwap — so every log re-rendered the form with the server's
-// "other" and the clock immediately overwrote your choice with the time of day.
-// Pick lunch at 17:00, log something, and the picker snapped to dinner.
+// The original bug lived here: the slot was a hidden field the server re-sent
+// as "other" on every render, and this function ran on every htmx:afterSwap and
+// "corrected" it to the time of day. Pick lunch at 17:00, log, and the picker
+// jumped to dinner.
 //
-// The clock is now only a *seed*: it applies while window.currentSlot is null,
-// which is true exactly once, on first load. After that the chosen slot wins
-// and keeps winning.
+// It cannot recur now, because there is no field to correct. The chosen slot is
+// window.currentSlot, which nothing but the user's own taps writes; the clock
+// only fills in while that is still null. This function just repaints.
 function initSlotDefault() {
-  document.querySelectorAll('.log-entry-form').forEach(form => {
-    const input = form.querySelector('[name="slot"]');
-    if (input && input.value === 'other') {
-      input.value = window.currentSlot || defaultSlot();
-    }
-    paintSlotChips(form);
-  });
+  paintSlotChips();
 }
 document.addEventListener('DOMContentLoaded', initSlotDefault);
 
@@ -588,65 +605,6 @@ function toggleAddForm() {
   if (!form.hidden) form.querySelector('[name="name"]').focus();
 }
 
-// Portion selector logic
-function onFoodSelect(select) {
-  const form = select.closest('form');
-  const portionSelect = form.querySelector('[name="portion"]');
-  const gramsInput = form.querySelector('[name="grams"]');
-  const opt = select.options[select.selectedIndex];
-  const pkg = opt ? opt.dataset.packageSize : null;
-  const customPortions = opt ? (opt.dataset.customPortions || '') : '';
-  const hasPkg = pkg && parseFloat(pkg) > 0;
-  const hasCustom = customPortions.trim().length > 0;
-
-  // Rebuild portion options
-  portionSelect.innerHTML = '<option value="custom">Custom</option>';
-  if (hasPkg) {
-    const p = parseFloat(pkg);
-    portionSelect.innerHTML +=
-      '<option value="1">Full (' + p + 'g)</option>' +
-      '<option value="0.5">Half (' + Math.round(p * 0.5 * 10) / 10 + 'g)</option>' +
-      '<option value="0.25">Quarter (' + Math.round(p * 0.25 * 10) / 10 + 'g)</option>' +
-      '<option value="0.125">Eighth (' + Math.round(p * 0.125 * 10) / 10 + 'g)</option>';
-  }
-  if (hasCustom) {
-    customPortions.split(',').forEach(function(s) {
-      var g = parseFloat(s.trim());
-      if (g > 0) {
-        portionSelect.innerHTML += '<option value="cp:' + g + '">' + g + 'g</option>';
-      }
-    });
-  }
-
-  if (hasPkg || hasCustom) {
-    portionSelect.disabled = false;
-  } else {
-    portionSelect.disabled = true;
-  }
-  portionSelect.value = 'custom';
-  gramsInput.readOnly = false;
-}
-
-function onPortionChange(select) {
-  const form = select.closest('form');
-  const foodSelect = form.querySelector('[name="food_item_id"]');
-  const gramsInput = form.querySelector('[name="grams"]');
-  const opt = foodSelect.options[foodSelect.selectedIndex];
-  const pkg = opt ? parseFloat(opt.dataset.packageSize) : 0;
-  const val = select.value;
-
-  if (val === 'custom') {
-    gramsInput.readOnly = false;
-    gramsInput.focus();
-  } else if (val.startsWith('cp:')) {
-    gramsInput.value = parseFloat(val.slice(3));
-    gramsInput.readOnly = true;
-  } else if (pkg > 0) {
-    var grams = Math.round(pkg * parseFloat(val) * 10) / 10;
-    gramsInput.value = grams;
-    gramsInput.readOnly = true;
-  }
-}
 </script>
 <script src="/static/barcode.js" defer></script>
 {% endblock %}
