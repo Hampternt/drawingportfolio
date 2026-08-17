@@ -1546,6 +1546,57 @@ pub async fn get_last_grams_map(
     .collect()
 }
 
+/// What this user usually eats at a given slot: their most-*frequent* foods
+/// there, with the amount they last took.
+///
+/// Deliberately not `get_recent_foods` filtered by slot. Most-recent answers
+/// "what did I just eat", which is already the log-again chips; this answers
+/// "what do I always have at breakfast", and the two disagree exactly when it
+/// matters — the morning after a one-off.
+///
+/// Ties break on recency, so a food eaten five times last year sits below one
+/// eaten five times this month.
+pub async fn get_usual_for_slot(
+    pool: &DbPool,
+    slot: &str,
+    limit: i64,
+    user: UserId,
+) -> Vec<crate::models::UsualFood> {
+    let uid = user.get();
+    sqlx::query!(
+        r#"SELECT me.food_item_id as "food_item_id!", fi.name as "name!",
+                  fi.image_url as "image_url!",
+                  fi.protein as "protein!: f64", fi.carbs as "carbs!: f64",
+                  fi.fat as "fat!: f64",
+                  COUNT(*) as "times!: i64",
+                  MAX(me.created_at || '-' || printf('%012d', me.id)) as "latest!: String",
+                  me.grams as "last_grams!: f64"
+           FROM meal_entries me
+           JOIN food_items fi ON fi.id = me.food_item_id
+           WHERE me.user_id = ? AND me.slot = ?
+           GROUP BY me.food_item_id
+           ORDER BY 7 DESC, 8 DESC
+           LIMIT ?"#,
+        uid,
+        slot,
+        limit
+    )
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default()
+    .into_iter()
+    .map(|r| crate::models::UsualFood {
+        food_item_id: r.food_item_id,
+        name: r.name,
+        image_url: r.image_url,
+        protein: r.protein,
+        carbs: r.carbs,
+        fat: r.fat,
+        last_grams: r.last_grams,
+    })
+    .collect()
+}
+
 /// Logs a food to a user's day.
 ///
 /// `food_item_id` and the user id are both bare integers on the way in, which

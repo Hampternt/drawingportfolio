@@ -377,6 +377,20 @@ pub struct Targets {
     pub fat: f64,
 }
 
+/// A food this user habitually eats at one slot — the "usual at breakfast"
+/// card. Macros ride along per 100 g so the thumbnail can wear the same
+/// dominance ring the logged row uses.
+#[derive(Debug, Clone)]
+pub struct UsualFood {
+    pub food_item_id: i64,
+    pub name: String,
+    pub image_url: String,
+    pub protein: f64,
+    pub carbs: f64,
+    pub fat: f64,
+    pub last_grams: f64,
+}
+
 /// How many grams the food's basis is: the pack it comes in, else the amount
 /// this user usually takes, else 100 g.
 ///

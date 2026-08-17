@@ -46,6 +46,15 @@
         <button id="next-day" class="btn-secondary" aria-label="Next day">→</button>
       </div>
 
+      <!-- "usual at <slot>" — follows the slot picker. Loaded on first render
+           and re-fetched whenever the slot changes, so it always offers the
+           things you actually eat at the slot you are logging into. -->
+      <div id="fit-usual-slot"
+           hx-get="/fitness/htmx/usual"
+           hx-trigger="load, slot-changed from:body"
+           hx-vals='js:{slot: effectiveSlot()}'
+           hx-target="this" hx-swap="innerHTML"></div>
+
     </div>
     <div class="fit-col fit-col--right">
 
@@ -294,6 +303,10 @@ function paintSlotChips() {
     }
   }
   updateCheckCount();
+  // Tell the "usual at <slot>" card to follow. Fired unconditionally rather
+  // than only on change: paintSlotChips is also what runs after a swap, and the
+  // card is re-rendered by that same swap, so it has to be told either way.
+  document.body.dispatchEvent(new Event('slot-changed'));
 }
 
 function snapSlotToClock() {

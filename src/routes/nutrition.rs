@@ -1454,6 +1454,64 @@ async fn log_options(
     Html(log_options_html(&matches, &q, !q.is_empty()))
 }
 
+/// The "usual at &lt;slot&gt;" card — up to three foods this user habitually eats
+/// at the slot the picker is on, each one tap from being logged.
+fn usual_card_html(usuals: &[crate::models::UsualFood], slot: &str) -> String {
+    let body = if usuals.is_empty() {
+        // Not an error state — a new member, or a slot they have never used.
+        // Say what would fill it rather than showing an empty frame.
+        format!(
+            r#"<p class="fit-log__hint">Nothing logged at {slot} yet.</p>"#,
+            slot = html_escape(slot)
+        )
+    } else {
+        usuals
+            .iter()
+            .map(|u| {
+                let dom = dominance(u.protein, u.carbs, u.fat);
+                format!(
+                    r##"<button type="button" class="hm-btn hm-btn--md hm-btn--secondary fit-usual__item"
+        hx-post="/fitness/quick-log"
+        hx-vals='js:{{food_item_id: {id}, grams: {grams}, slot: effectiveSlot(), date: window.currentDate}}'
+        hx-target="#day-section" hx-swap="innerHTML">
+    {thumb}
+    <span class="fit-usual__name">{name}</span>
+    <span class="fit-usual__grams">{grams_fmt} g</span>
+  </button>"##,
+                    id = u.food_item_id,
+                    grams = u.last_grams,
+                    grams_fmt = fmt_grams(u.last_grams),
+                    name = html_escape(&u.name),
+                    thumb = row_thumb_html(&u.name, &u.image_url, dom, 26)
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n  ")
+    };
+
+    format!(
+        r##"<div class="noc-card fit-usual" id="fit-usual">
+  <div class="fit-usual__head">
+    <span class="fit-log__kicker">usual at {slot}</span>
+    <span class="fit-usual__hint">one tap</span>
+  </div>
+  {body}
+</div>"##,
+        slot = html_escape(slot),
+        body = body
+    )
+}
+
+async fn usual_card(
+    session: AuthSession,
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<HashMap<String, String>>,
+) -> impl IntoResponse {
+    let slot = sanitize_slot(params.get("slot"));
+    let usuals = crate::db::get_usual_for_slot(&state.pool, &slot, 3, session.user()).await;
+    Html(usual_card_html(&usuals, &slot))
+}
+
 /// Creates a food from whatever was typed and logs 100 g of it in one request.
 ///
 /// The macros are left at zero deliberately: the point is to unblock the log
@@ -2879,6 +2937,7 @@ pub fn router() -> Router<Arc<AppState>> {
         )
         .route("/api/nutrition/entries/undo", post(undo_log_batch))
         .route("/fitness/htmx/log-options", get(log_options))
+        .route("/fitness/htmx/usual", get(usual_card))
         .route("/api/nutrition/foods/create-and-log", post(create_and_log))
         .route("/fitness/htmx/entries/{id}/edit", get(entry_edit_form))
         .route("/fitness/copy-day", post(copy_day_handler))

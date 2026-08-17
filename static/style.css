@@ -798,6 +798,32 @@ body.fitness-dark .fit-chip__grams { font: var(--type-label); color: var(--text-
 body.fitness-dark .fit-chip.hm-btn--secondary:hover .fit-chip__grams { color: var(--text-muted); }
 body.fitness-dark .fit-log__create { width: 100%; margin-top: var(--space-3); }
 
+/* "usual at <slot>" — the left rail's one-tap shortcut. */
+body.fitness-dark .fit-usual { padding: 14px 16px; }
+body.fitness-dark .fit-usual__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-4);
+  margin-bottom: var(--space-4);
+}
+body.fitness-dark .fit-usual__hint { font: var(--type-label); color: var(--text-faint); }
+body.fitness-dark .fit-usual__item {
+  width: 100%;
+  justify-content: flex-start;
+  gap: var(--space-4);
+  margin-bottom: var(--space-3);
+}
+body.fitness-dark .fit-usual__item:last-child { margin-bottom: 0; }
+body.fitness-dark .fit-usual__name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: left;
+}
+body.fitness-dark .fit-usual__grams { font: var(--type-label); color: var(--text-faint); }
+
 /* Toast. Bottom-right on desktop; on phones it clears the sticky action bar
    rather than sitting under it. */
 body.fitness-dark #fit-toast {
