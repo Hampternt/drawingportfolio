@@ -45,6 +45,12 @@ from this file on 2026-08-12; `git log docs/WORKTREES.md` recovers them.
   `docs/manifests/2026-08-17-fitness-today-overhaul.md`. Touches the same files as
   the landed multi-user work (`src/routes/nutrition.rs`, `templates/fitness/`,
   `static/style.css`) — nothing else is in flight there.
+  **Decoy warning:** the planning ran in a harness session worktree,
+  `.claude/worktrees/fitness-tracker-multi-user-54fb9b` on branch
+  `claude/fitness-tracker-multi-user-54fb9b`, which still holds the same two docs
+  commits under *different* SHAs (they were cherry-picked, so there is no ancestry
+  link). That worktree is **abandoned** — `e3402cf` and `2b4d519` on
+  `feat/fitness-today-overhaul` are the canonical copies. Delete it and its branch.
 - **`feat/multi-user-fitness`** — **LANDED 2026-08-17**, merged `dev → master`
   and deployed. Multi-user container: several people each with their own
   fitness log over a shared food catalog, logging in by name + PIN alongside

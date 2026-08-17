@@ -53,15 +53,23 @@ with the existing cards sitting inside it, and no other page changes appearance.
       `typography.css`, `spacing.css`, `shape.css` and `motion.css` into
       `static/style.css` under one named section. Port `tokens/base.css`'s **element**
       rules scoped under `body.fitness-dark` — upstream they are unscoped and would
-      restyle `/`, `/artportfolio`, `/tasks` and `/admin`.
+      restyle `/`, `/artportfolio`, `/tasks` and `/admin`. The rules needing scoping
+      are `body{}`, `h1,h2,h3,h4{}`, `p`, `a`, `hr`, `::selection`, `:focus-visible`
+      and `button,input,select,textarea{font:inherit}`. Its `*{box-sizing:border-box}`
+      is the one exception — `style.css:1` already sets that globally, so it is a
+      duplicate, not a change; drop it rather than scope it.
       *Done: `/fitness` resolves every token; the other four pages render unchanged.*
       ⚠ **Flagged for individual review** — cross-page blast radius.
-- [ ] **1.2 Self-hosted type; Inter dropped.** Copy `archivo-500/600` and
-      `space-grotesk-600/700` from `docs/design/artportfolio-redesign/_ds/*/assets/fonts/`
-      into `static/fonts/` (Archivo 700/800/900, Space Grotesk 400/500 and IBM Plex
-      Mono 400/500 are already there). Declare the `@font-face` set, point
-      `--font-mono` at the self-hosted Plex Mono — **not** the Google Fonts `@import`
-      in `tokens/fonts.css` — and delete the Inter link at `feed.html:7-9`.
+- [ ] **1.2 Type wired; Inter dropped.** **No font files to copy** — the roles this
+      design actually uses are Archivo 700/800, Space Grotesk 400/500 and IBM Plex
+      Mono 400/500, and all seven are already in `static/fonts/`. (`--type-h3`
+      wants Archivo 600, which is absent, but the overhaul markup contains no `<h3>`
+      or `<h4>`; leave the role undeclared rather than ship an unused face.) So:
+      keep `style.css`'s existing `@font-face` block, and **do not** copy the
+      `@import url(fonts.googleapis.com…)` line at the top of `tokens/fonts.css` —
+      that line is the only Google dependency; `--font-mono` in `typography.css`
+      already names `"IBM Plex Mono"` and needs no repointing. Then delete the Inter
+      link at `feed.html:7-9`.
       *Done: `/fitness` issues no external font request.*
 - [ ] **1.3 Nocturne bridge.** Add the `legacy-nocturne.css` mapping block so every
       `--noc-*` resolves to a new token.
@@ -166,7 +174,16 @@ Server-side in Rust; these are the prototype's own, not paraphrases.
   explicitly non-persistent, and there is no per-session store to put it in.
   Planned: the insert returns the new row id, the client marks that row fresh and
   derives the `N to check` count. Recorded here so it is a decision, not a
-  discovery.
+  discovery. **Consequence:** a full page reload clears the amber edges and resets
+  `N to check` to zero. That is what "session-scoped" means here — not a bug.
+- **The pack gate needs a real browser and this environment fought it.** The
+  in-app browser pane would not composite (`screenshot` timed out — pane not
+  displayed), and past sessions hit Dark Reader repainting colours and
+  `resize_window` not taking. Every pack here closes on a visual walkthrough, so
+  budget for the pane being uncooperative rather than meeting it at the gate.
+- **The workspace test count needs re-measuring.** CLAUDE.md's 792 was measured on
+  the Last Call branch; `dev` will differ. Take the number from
+  `cargo test --workspace` at the first pack gate and correct CLAUDE.md there.
 - **Icons are a flagged substitution.** The spec names Lucide v0.462.0
   (`command`, `search`, `scan-line`, `calendar-days`, `chevron-left`,
   `sliders-horizontal`, `copy`); `static/icons/` ships three SVGs. The README says
