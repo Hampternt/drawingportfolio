@@ -377,6 +377,20 @@ pub struct Targets {
     pub fat: f64,
 }
 
+/// How many grams the food's basis is: the pack it comes in, else the amount
+/// this user usually takes, else 100 g.
+///
+/// Lives here rather than beside either caller because both the row's fraction
+/// buttons and the day query need the same answer, and a basis that disagreed
+/// between them would label a button "½ pack" while logging half of something
+/// else. A zero or negative package size is missing data, not a 0 g pack.
+pub fn basis_grams(package_size: Option<f64>, usual: Option<f64>) -> f64 {
+    package_size
+        .filter(|g| *g > 0.0)
+        .or(usual.filter(|g| *g > 0.0))
+        .unwrap_or(100.0)
+}
+
 #[derive(Debug, Clone)]
 pub struct MealEntryWithFood {
     pub entry_id: i64,

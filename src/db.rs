@@ -1488,14 +1488,7 @@ pub async fn get_meal_entries_for_date(
     rows.into_iter()
         .map(|r| {
             let factor = r.grams / 100.0;
-            // Same fallback the row buttons use: the pack it comes in, else
-            // the amount this user usually takes, else the 100 g every
-            // nutrition figure is quoted against.
-            let base_grams = r
-                .package_size
-                .filter(|g| *g > 0.0)
-                .or(r.default_portion_g.filter(|g| *g > 0.0))
-                .unwrap_or(100.0);
+            let base_grams = crate::models::basis_grams(r.package_size, r.default_portion_g);
             MealEntryWithFood {
                 entry_id: r.entry_id,
                 food_item_id: r.food_item_id,

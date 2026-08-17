@@ -97,11 +97,7 @@ fn macro_shares(protein: f64, carbs: f64, fat: f64) -> (f64, f64, f64) {
     if total <= 0.0 {
         return (0.0, 0.0, 0.0);
     }
-    (
-        pk / total * 100.0,
-        ck / total * 100.0,
-        fk / total * 100.0,
-    )
+    (pk / total * 100.0, ck / total * 100.0, fk / total * 100.0)
 }
 
 /// What a food is mostly made of — drives its thumbnail ring, its meta label
@@ -163,20 +159,6 @@ fn dominance(protein: f64, carbs: f64, fat: f64) -> Dominance {
     }
 }
 
-/// The unit a food is taken in: how many grams, and what to call it.
-///
-/// `package_size` is the pack it comes in (shared across users); the per-user
-/// `default_portion_g` is the amount this person usually takes; 100 g is the
-/// floor every nutrition figure is quoted against anyway. `base_name` is
-/// cosmetic — an unnamed basis still produces working fraction buttons.
-fn basis(package_size: Option<f64>, usual: Option<f64>, base_name: &str) -> (f64, String) {
-    let grams = package_size
-        .filter(|g| *g > 0.0)
-        .or_else(|| usual.filter(|g| *g > 0.0))
-        .unwrap_or(100.0);
-    (grams, base_name.trim().to_string())
-}
-
 /// A single button in a row's amount grid.
 struct AmountOption {
     label: String,
@@ -203,12 +185,7 @@ fn round_grams(g: f64) -> f64 {
 /// other are the same button wearing different labels.
 fn amount_options(base: f64, last: Option<f64>, current: f64) -> Vec<AmountOption> {
     let mut out: Vec<AmountOption> = Vec::new();
-    for (label, frac) in [
-        ("full", 1.0),
-        ("½", 0.5),
-        ("⅓", 1.0 / 3.0),
-        ("¼", 0.25),
-    ] {
+    for (label, frac) in [("full", 1.0), ("½", 0.5), ("⅓", 1.0 / 3.0), ("¼", 0.25)] {
         let grams = round_grams(base * frac);
         if grams < 3.0 {
             continue;
@@ -454,6 +431,10 @@ pub fn meal_entry_row_html(
         String::new()
     };
 
+    // Whole kcal, matching the prototype's Math.round — a row cost is read at
+    // a glance and a tenth of a calorie is noise at that size.
+    let cal = format!("{:.0}", entry.calories);
+
     format!(
         r##"<li class="fit-row" id="entry-{id}" data-entry-id="{id}" data-grams="{grams_raw}">
   <div class="fit-row__line">
@@ -487,7 +468,7 @@ pub fn meal_entry_row_html(
         dom_label = dom.label(),
         basis = basis_chip,
         grams = fmt_grams(entry.grams),
-        cal = format!("{:.0}", entry.calories),
+        cal = cal,
         remove = remove_btn,
         controls = controls
     )
@@ -737,14 +718,7 @@ async fn render_day(
     let food_items = crate::db::get_food_items(pool, user).await;
     let targets = crate::db::get_targets(pool, user).await;
     let last_grams = crate::db::get_last_grams_map(pool, user).await;
-    day_section_html(
-        &entries,
-        date,
-        &food_items,
-        &targets,
-        can_edit,
-        &last_grams,
-    )
+    day_section_html(&entries, date, &food_items, &targets, can_edit, &last_grams)
 }
 
 pub fn day_section_html(
@@ -1378,8 +1352,7 @@ async fn add_meal_entry(
     };
 
     if food_item_id == 0 || grams <= 0.0 {
-        return Html(render_day(&state.pool, &date, session.user(), true).await)
-        .into_response();
+        return Html(render_day(&state.pool, &date, session.user(), true).await).into_response();
     }
 
     let new_id = crate::db::insert_meal_entry(
@@ -1408,10 +1381,7 @@ async fn add_meal_entry(
 /// reload clears it, which is the intended lifetime.
 fn fresh_row_response(body: String, id: i64) -> axum::response::Response {
     (
-        [(
-            "HX-Trigger",
-            format!(r#"{{"row-logged":{{"id":{id}}}}}"#),
-        )],
+        [("HX-Trigger", format!(r#"{{"row-logged":{{"id":{id}}}}}"#))],
         Html(body),
     )
         .into_response()
@@ -2473,12 +2443,14 @@ mod tests {
 
     #[test]
     fn test_basis_falls_through_package_then_usual_then_100g() {
-        assert_eq!(basis(Some(500.0), Some(125.0), "pack"), (500.0, "pack".into()));
-        assert_eq!(basis(None, Some(125.0), ""), (125.0, String::new()));
-        assert_eq!(basis(None, None, "scoop"), (100.0, "scoop".into()));
+        use crate::models::basis_grams;
+        assert_eq!(basis_grams(Some(500.0), Some(125.0)), 500.0);
+        assert_eq!(basis_grams(None, Some(125.0)), 125.0);
+        assert_eq!(basis_grams(None, None), 100.0);
         // A zero or negative package size is missing data, not a 0 g pack.
-        assert_eq!(basis(Some(0.0), Some(30.0), ""), (30.0, String::new()));
-        assert_eq!(basis(Some(0.0), None, ""), (100.0, String::new()));
+        assert_eq!(basis_grams(Some(0.0), Some(30.0)), 30.0);
+        assert_eq!(basis_grams(Some(0.0), None), 100.0);
+        assert_eq!(basis_grams(Some(-5.0), None), 100.0);
     }
 
     #[test]

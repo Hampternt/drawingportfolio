@@ -1,6 +1,6 @@
 # Container: Fitness "Today" overhaul
 
-**Status:** Pack 1 landed 2026-08-17 (gate green, walkthrough below). Pack 2 next.
+**Status:** Packs 1–2 landed 2026-08-17 (gates green, walkthroughs below). Pack 3 next.
 **Where:** `~/projects/drawingportfolio.worktrees/fitness-today-overhaul` on
 `feat/fitness-today-overhaul`, branched from `dev` @ 49c56cd (multi-user fitness
 landed; `dev` and `master` are level).
@@ -91,13 +91,13 @@ comment block silently drops the next rule).
 </details>
 
 <details>
-<summary><b>Pack 2 — The logged row</b> (in progress)</summary>
+<summary><b>Pack 2 — The logged row</b> (done 2026-08-17)</summary>
 
 **Done when:** you log a food and set its amount from the row itself — one tap for
 a fraction of its pack, `last`, or a nudge — without the slot picker snapping back
 under you.
 
-- [ ] **2.1 Basis and amount maths.** Migration 022 adds
+- [x] **2.1 Basis and amount maths.** Migration 022 adds
       `food_items.base_name TEXT NOT NULL DEFAULT ''` — the one field the design
       needs and the catalog lacks. `MealEntryWithFood` gains `brand`, `image_url`,
       `base_grams`, `base_name` and `last_grams`; last-grams comes from a new
@@ -109,22 +109,22 @@ under you.
       `nudge_step` (5 g under 50 g, else 10 g).
       *Done: tests green; nothing visual changes yet.*
       ⚠ Schema ritual: migrate the dev DB, `cargo sqlx prepare`, commit `.sqlx/`.
-- [ ] **2.2 The row renders.** Rewrite `meal_entry_row_html` to the full anatomy —
+- [x] **2.2 The row renders.** Rewrite `meal_entry_row_html` to the full anatomy —
       34px thumbnail (real `image_url` where there is one, else the letter tile with
       its dominance ring), name with brand appended, and the meta row: 22px macro
       pie, `P`/`C`/`F` in their macro colours, dominance label, basis. Slot headers
       get their kcal, `+ add`, and the `> nothing logged` empty state.
       *Done: `/fitness` shows the designed rows — still inert.*
-- [ ] **2.3 Amount controls.** The `auto-fit, minmax(76px, 1fr)` grid of two-line
+- [x] **2.3 Amount controls.** The `auto-fit, minmax(76px, 1fr)` grid of two-line
       buttons, the `custom` nudge row, and a route that sets one entry's grams and
       returns **just that row**. Selected button = within 0.5 g of current.
       *Done: tap a row's grams, tap ½, the row updates in place.*
-- [ ] **2.4 Fresh flag.** A newly logged row carries the amber inset edge and dot
+- [x] **2.4 Fresh flag.** A newly logged row carries the amber inset edge and dot
       and opens its controls; touching the amount clears it. Client-side, per the
       ruling — the insert returns the new row id.
       *Done: log a food and its row is flagged and open.* (The `N to check` counter
       belongs to the Log card, so it lands in Pack 3.)
-- [ ] **2.5 Slot sticks; fragments narrow.** The picker keeps the slot you chose —
+- [x] **2.5 Slot sticks; fragments narrow.** The picker keeps the slot you chose —
       the clock seeds it on first render only. Row mutations stop swapping
       `#day-section` wholesale, which **breaks the week-strip refresh** at
       `feed.html:380` (it keys on `e.target.id === 'day-section'`); re-point it.
@@ -135,6 +135,66 @@ under you.
 — this pack is nearly all logic, so the targeted suite runs every time.
 **Pack gate:** `./scripts/verify.sh` + a browser walkthrough of the log → adjust →
 remove cycle.
+
+**Gate: green.** `verify.sh` clean; 846 workspace tests (830 → 833 → 846); clippy
+**18** from a clean build, down from 19 — `MealEntryWithFood` gained read fields,
+collapsing a dead-code warning. CLAUDE.md updated with both.
+
+**2.2 and 2.3 landed in one commit.** The row's markup and its amount grid are one
+control: committing the row alone would have shipped a grams button whose
+`onclick` called a function that did not exist yet.
+
+<details>
+<summary><b>Walkthrough evidence</b> — driven through the running app</summary>
+
+Seeded two entries against the local dev DB: 250 g of a 500 g pack of skyr
+(macros, brand, named basis) and 30 g of a macro-less, package-less "Mystery
+powder", to exercise both the full and the empty case.
+
+*The row.* Skyr renders `Skyr natural · Arla`, dominance **protein** in
+`--status-warning`, `P 27.5 g / C 10 g / F 0.5 g`, basis `pack 500 g`, 158 kcal,
+and a pie whose first arc is 71.2% — protein's exact share of 154.5 kcal. Its
+amount grid is `full 500 / ½ 250* / ⅓ 167 / ¼ 125 / custom`, ½ marked current.
+
+*The empty case renders as empty, not as zero.* Mystery powder shows a hollow
+ring rather than a pie, **no** P/C/F figures, `no macros` in `--text-faint`, and
+**no** basis chip — its unnamed basis would otherwise print a bare "100 g" next
+to the row's own amount. Its grid falls back to 100 g and gains `last 30 g*`.
+
+*The amount route.* `PUT …/entries/1/grams` with 125 g returns **only** the
+`<li>` (verified: response starts `<li`), now reading 125 g, 79 kcal, P 13.8 g,
+with `¼` selected. Guards: `0`, `-5`, `99999`, `abc` and a missing field all 400;
+an unknown entry id 404s.
+
+*The slot bug, reproduced and fixed.* With the clock reading **snack**, picking
+**lunch** and logging leaves the picker on lunch, the chip painted, and the entry
+in `slot-lunch`. Before the fix the clock overwrote the choice on every swap.
+
+*The fragment boundary.* Tapping a fraction swaps the row alone
+(`swapTargetWasTheRowNotTheDay: true`) and still fires exactly one week-strip
+refresh — the breakage this pack predicted, headed off.
+
+</details>
+
+<details>
+<summary><b>Deviations and debt</b></summary>
+
+- **The slot fix is client-side, not the server echo the spec describes.** The
+  spec suggests echoing the submitted slot back in the day fragment. A
+  page-scoped `window.currentSlot` produces the same observable behaviour — the
+  clock seeds once and never corrects again — without threading a slot parameter
+  through ten handlers that Pack 3 is about to rewrite. Neither version survives
+  a full page load, so they are equivalent in reach.
+- **`basis()` was written twice and is now written once.** The first cut had the
+  fallback chain in both `nutrition.rs` and the day query; clippy caught the Rust
+  copy going unused, which is the cheap symptom of the real problem — a basis
+  that could disagree between the button label and the logged amount. It now
+  lives in `models::basis_grams`, called by both.
+- **`N to check` is not built.** It belongs to the Log card, which is Pack 3.
+  The fresh flag it counts is in place.
+- **Older row CSS is still in the stylesheet.** `.meal-entry`, `.entry-main` and
+  friends are now dead for the Today screen but still serve the entry-edit
+  fragment. They come out when Pack 3 removes that flow.
 
 </details>
 
