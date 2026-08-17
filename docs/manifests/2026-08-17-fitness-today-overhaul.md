@@ -1,6 +1,7 @@
 # Container: Fitness "Today" overhaul
 
-**Status:** Packs 1–4 landed (gates green, walkthroughs below). Pack 5 next.
+**Status:** Complete. All five packs landed, gates green, walkthroughs below.
+Ready to merge to `dev`.
 **Where:** `~/projects/drawingportfolio.worktrees/fitness-today-overhaul` on
 `feat/fitness-today-overhaul`, branched from `dev` @ 49c56cd (multi-user fitness
 landed; `dev` and `master` are level).
@@ -723,7 +724,7 @@ recorded here rather than silently changed.
 
 </details>
 
-### Pack 5 — in progress (started 2026-08-18)
+### Pack 5 — done 2026-08-18
 
 **Ends in:** the phone layout with its action bar; motion and keyboard; the
 library folded into the new treatment. The container's last pack, so the debt
@@ -759,3 +760,122 @@ Packs 3 and 4 recorded lands here or ships unfixed.
   browser paints the final state at once. Animating it means a JS-set custom
   property after every swap, which is more machinery than a polish pack should
   add. Recorded, not faked.
+
+All seven items done. `./scripts/verify.sh` green: fmt, clippy, **849 tests**,
+JS syntax. Clippy re-measured from clean: **18 distinct** warnings, unchanged
+across the pack.
+
+- [x] 5.1 The bottom bar becomes a phone bar
+- [x] 5.2 Phone sizes for the ring and the pie
+- [x] 5.3 `/` and `Esc`
+- [x] 5.4 Motion and `prefers-reduced-motion`
+- [x] 5.5 Hit-target audit
+- [x] 5.6 The library, folded in
+- [x] 5.7 `base_name` becomes editable
+
+<details>
+<summary><b>Walkthrough evidence</b></summary>
+
+Measured in the browser at the mobile preset (375px) and at 1332px. The pane
+does not composite, so everything below is `getBoundingClientRect`,
+`getComputedStyle`, `elementFromPoint` and CSSOM rather than screenshots.
+
+*The bar.* Desktop: `display: none`, page padding back to 64px, toast at 24px.
+Phone: `fixed`, 74px tall, `z-index: 20`, top at 751 in an 825px viewport;
+buttons 42px with the copy button square at 42; all three icon masks resolve.
+Clearance checked at the document end — the last library row's bottom is 719
+against the bar's top at 751, and `elementFromPoint` over the bar returns the
+bar.
+
+*Sizes.* Ring 104 / pie 64 on phone, 132 / 76 on desktop.
+
+*Keyboard.* `/` from the body focuses `#log-search` and scrolls it fully into
+view; `/` while typing is not swallowed; `Esc` in the field blurs it and leaves
+the text; `Esc` with the add sheet open closes the sheet. Layering checked with
+both open: the first `Esc` closes only the palette and the sheet stays, the
+second closes the sheet.
+
+*Motion.* All three `prefers-reduced-motion` blocks are present in the CSSOM,
+which only holds rules the parser accepted; the token block zeroes all five
+durations, and `.fit-amt` transitions read 0.13s, i.e. off `--dur-fast`, so the
+zeroing reaches it.
+
+*Hit targets, after fixes.* Amounts 42, nudges 34×44, nudge input 34, slot
+chips 34, row grams toggle 34, row remove 34×34, library Log 34, library chips
+34, library icons 26px of ink inside a **34×34 hit area** — that one measured
+by walking outward from the centre until the point stops belonging to the
+button, not by reading a height. Row controls measured with a row **open** and
+with every row **collapsed**; a collapsed panel reports zero and reads as a
+pass.
+
+*The library.* Both states measured, not inferred: open is `display: flex`
+with height, closed is `display: none` with height 0, and the label and
+`aria-expanded` follow. The choice survives a reload and a boosted round trip
+in both directions. "+ Add food" while closed forces it open and focuses the
+name field. Count tracks a delete, 5 foods → 4, matching the row count.
+Filters still behave after the restructure — all 4 rows / 2 groups, `no macros
+yet` 3 rows / 1 group, search "skyr" 1 row — and Favourites was checked by
+actually starring a row rather than trusting an empty result.
+
+*`base_name`.* Full round trip: created through the real add form with
+`tin` → library chip "tin 400 g" → edit form prefills `tin` → saved as `can` →
+chip "can 400 g" → logged → the entry row reads "can 400 g" with a
+full/½/⅓/¼ ladder off the 400 g basis.
+
+*Still true at rest:* zero network requests over 3s on an idle page, and no
+horizontal overflow at 375px with the library open and the add form open.
+
+</details>
+
+<details>
+<summary><b>Deviations and debt</b></summary>
+
+- **The bar is `fixed`, not `sticky`.** Ruling recorded above, before the work.
+- **The library opens by default; the design collapses it.** Ruling recorded
+  above. The choice is remembered, so the design's compact screen is one click
+  away and permanent.
+- **Copy-yesterday gained a second home.** The design puts it only in the phone
+  bar, so hiding that bar on desktop would have deleted the only route to
+  `/fitness/copy-day`. One control per breakpoint, never both on screen at
+  once. This is the third time a pack has had to notice that the prototype was
+  a logging demo and not an inventory of what the page already does.
+- **The ring's fill does not animate.** Ruling recorded above.
+- **The library row sheds its macro strip below 900px**, joining kcal and the
+  basis chip. It is `nowrap` and cannot shrink, and the row had nowhere to put
+  it once the management cluster was beside it.
+- **`insert_food_item` and `update_food_item` are 17 and 21 positional
+  parameters**, four of them adjacent `&str`. `base_name` made that worse and
+  the transposition is invisible to the compiler; this pack verified all 21
+  call sites by position and pinned the neighbours in a test, but the real fix
+  is a parameter struct. Not in a polish pack.
+- **The entry-edit fragment and `.meal-entry` CSS are still dead** — carried
+  from Pack 3, now the only debt this container leaves behind.
+- `#fit-meals` and `#log-options` still fetch on `load`, i.e. two requests per
+  page load. Left alone deliberately: inlining them means duplicating a
+  fragment render into the page handler, which is not a last-pack change.
+
+</details>
+
+<details>
+<summary><b>Review wave — 1 finding, fixed</b> (<code>high</code>, 2026-08-18)</summary>
+
+Gate re-run green.
+
+1. **The library ignored a boosted return, in two ways at once.**
+   `applyLibraryState()` and `updateLibraryCount()` were wired to
+   `DOMContentLoaded`, which a boosted navigation never fires — the rule
+   CLAUDE.md states outright. Leaving `/fitness` and coming back therefore
+   rendered the card at its authored defaults: a library the user had closed
+   reopened itself, and the count came back blank. Both now also run from the
+   body's `htmx:afterSwap`, unconditionally. The conditional was the cause —
+   `e.target.id === 'food-library'` is true for an add or a delete and false
+   for the body swap that needed it most.
+
+**Worth carrying forward.** The bug this pack caught in its own work was item
+5.5's: raising the library icons to 34px pushed the row 61px past a 360px
+viewport, and the audit that made the change did not re-measure the page it
+changed. Growing a control is a layout edit, not just a target edit. The fix
+separates the two — 26px of ink, 34px of hit area — which is what the
+requirement actually asked for.
+
+</details>

@@ -50,9 +50,15 @@ Each person has their own log; the food catalog is shared.
   account — a fitness account reaches `/fitness` and nothing else. Only the
   owner manages accounts, and the owner cannot be demoted or deleted.
 - Everyone manages their own name and PIN at `/fitness/account`.
-- 🚧 **Today-screen overhaul** — logging rebuilt around one-tap amounts on the
-  logged row, re-logging and batch meals, plus day-level macro composition.
-  Manifest: `docs/manifests/2026-08-17-fitness-today-overhaul.md`.
+- The Today screen logs food in one tap. Each logged row carries its own
+  amount controls — fractions of whatever that food comes in, so half a pack
+  is a tap rather than a sum — and re-logging, saved meals and "usual at this
+  meal" are each a single tap. Typing a food nobody has entered yet creates it
+  and logs it in the same tap, macros fillable later.
+- The day says where it stands without arithmetic: calories left, a macro
+  composition pie, what is still owed against each target, and a streak.
+- On a phone it is one column with Scan, Search and copy-yesterday in thumb
+  reach; `/` jumps to the search field and `Esc` backs out one layer.
 
 ## Drinks — `/drinks`
 
