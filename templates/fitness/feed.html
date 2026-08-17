@@ -727,9 +727,15 @@ if (!window.__fitnessBound) {
     if (e.target && e.target.id === 'fit-meals') applyMealBuilderState();
     initSlotDefault();
     initSheetForms();
-    // Every add, delete and edit re-renders #food-library, so the tally is
-    // recomputed from whatever came back.
-    if (e.target && e.target.id === 'food-library') updateLibraryCount();
+    // Both unconditional, and not for tidiness. A boosted navigation back to
+    // /fitness swaps the body without firing DOMContentLoaded, so the markup
+    // arrives at its authored defaults — "Hide", aria-expanded, body visible,
+    // count span empty. Keyed on `#food-library` these would not run for that
+    // swap, and a library the user had closed would reopen itself with a blank
+    // tally beside it. Both are cheap and idempotent, so there is nothing to
+    // buy by guessing which swaps matter.
+    applyLibraryState();
+    updateLibraryCount();
     // Keep the week strip's bar in sync after any day mutation.
     //
     // This used to test `e.target.id === 'day-section'`, which was sound while
