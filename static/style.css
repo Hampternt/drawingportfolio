@@ -320,32 +320,49 @@ main {
   background: #f0f0f0;
 }
 
-/* ── Nocturne tokens (fitness) ─────────────────── */
-/* Ported subset of docs/design/fitness-redesign/nocturne-tokens.css,
-   prefixed --noc- and scoped to the fitness pages via body.fitness-dark. */
-body.fitness-dark {
-  --noc-bg: #161826;
-  --noc-surface: #232532;
-  --noc-surface-2: #1c1e2b;
-  --noc-text: #e9e9ed;
-  --noc-accent: #9184d9;
-  --noc-accent-300: #d2cefd;
-  --noc-accent-400: #b5abfc;
-  --noc-accent-900: #2b2741;
-  --noc-n700: #595d6c;
-  --noc-n800: #3f424d;
-  --noc-n900: #292b31;
-  --noc-divider: color-mix(in srgb, #e9e9ed 16%, transparent);
-  --noc-muted: color-mix(in srgb, #e9e9ed 55%, transparent);
-  --noc-faint: color-mix(in srgb, #e9e9ed 45%, transparent);
-  --noc-radius-sm: 4px;
-  --noc-radius-md: 8px;
-  --noc-radius-lg: 14px;
-  --noc-shadow-card: 0 0 0 1px #3f424d;
-  --noc-shadow-pop: 0 0 0 1px #595d6c, 0 6px 18px rgba(0,0,0,0.55);
+/* ── Nocturne bridge (fitness) ─────────────────── */
+/* Nocturne used to declare its own hex values here. It now declares nothing:
+   every --noc-* name resolves to a design-system token instead. This is
+   tokens/legacy-nocturne.css from the handoff bundle, minus its unused
+   .legacy-nocturne alias.
 
-  background: var(--noc-bg);
-  color: var(--noc-text);
+   The point of a bridge is that a page converts by DELETING rules rather than
+   rewriting them. The ~150 --noc-* reads below keep working untouched, and any
+   fitness rule that has been restyled against real tokens can simply drop out.
+   Nothing new should be written against --noc-*.
+
+   Three deliberate breaks, all ruled 2026-08-17 (see the manifest at
+   docs/manifests/2026-08-17-fitness-today-overhaul.md):
+     1. accent #9184d9 becomes the brighter #B48EF7 the drinking game ships.
+     2. radii 4/8/14 become 5/8/12.
+     3. --noc-shadow-card's 1px ring becomes a real border token, and
+        --noc-shadow-pop's ring-plus-18px becomes --shadow-3, a 48px shadow.
+        That third one is the largest visible change and it lands on every
+        popover across /fitness, /fitness/week and /fitness/account — the three
+        pages carrying body.fitness-dark.
+
+   background and color are gone from this block: the shared reset in the
+   design-system section owns them now, and it resolves to the same pixels. */
+body.fitness-dark {
+  --noc-bg: var(--surface-page);
+  --noc-surface: var(--surface-card);
+  --noc-surface-2: var(--surface-inset);
+  --noc-text: var(--text-strong);
+  --noc-accent: var(--accent);
+  --noc-accent-300: var(--violet-200);
+  --noc-accent-400: var(--violet-300);
+  --noc-accent-900: var(--violet-700);
+  --noc-n700: var(--ink-400);
+  --noc-n800: var(--ink-600);
+  --noc-n900: var(--ink-700);
+  --noc-divider: var(--border-subtle);
+  --noc-muted: var(--text-muted);
+  --noc-faint: var(--text-faint);
+  --noc-radius-sm: var(--radius-sm);
+  --noc-radius-md: var(--radius-md);
+  --noc-radius-lg: var(--radius-lg);
+  --noc-shadow-card: 0 0 0 1px var(--border-default);
+  --noc-shadow-pop: var(--shadow-3);
 }
 body.fitness-dark header {
   background: var(--noc-bg);
@@ -354,8 +371,10 @@ body.fitness-dark header {
 body.fitness-dark header .site-title,
 body.fitness-dark header nav a { color: var(--noc-text); }
 body.fitness-dark header nav a:hover { color: var(--noc-accent); }
-body.fitness-dark ::selection { background: color-mix(in srgb, var(--noc-accent) 30%, transparent); }
-body.fitness-dark :focus-visible { outline: 2px solid var(--noc-accent); outline-offset: 2px; }
+/* ::selection and :focus-visible used to be redeclared here. The shared reset
+   defines both at equal specificity and later in the file, so these were dead
+   the moment item 1.1 landed — the first deletions the bridge pays for. The
+   header rules above survive only until item 1.4 restyles the chrome. */
 
 /* Nocturne primitives (fitness-scoped) */
 body.fitness-dark .noc-btn {
