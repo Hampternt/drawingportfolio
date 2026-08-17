@@ -236,79 +236,8 @@ fn nudge_step(grams: f64) -> f64 {
     }
 }
 
-pub fn food_item_card_html(
-    item: &crate::models::FoodItem,
-    is_recent: bool,
-    can_edit: bool,
-) -> String {
-    let img_html = if item.image_url.is_empty() {
-        r#"<div class="food-thumb food-thumb-empty"></div>"#.to_string()
-    } else {
-        format!(
-            "<img src=\"{}\" alt=\"{}\" class=\"food-thumb\" loading=\"lazy\">",
-            html_escape(&item.image_url),
-            html_escape(&item.name)
-        )
-    };
-    let brand_html = if item.brand.is_empty() {
-        String::new()
-    } else {
-        format!(
-            "<span class=\"food-brand\">{}</span>",
-            html_escape(&item.brand)
-        )
-    };
-    let pkg_badge = if let Some(pkg) = item.package_size {
-        format!(
-            "<span class=\"noc-tag noc-tag-neutral food-pkg-badge\">{} g</span>",
-            fmt_nutrient(pkg)
-        )
-    } else {
-        String::new()
-    };
-    let admin_btns = if can_edit {
-        format!(
-            "<div class=\"food-admin-btns\">\
-             <button class=\"fav-btn{fav_cls}\" hx-post=\"/api/nutrition/food-items/{id}/favourite\" \
-             hx-target=\"#food-library\" hx-swap=\"innerHTML\" aria-label=\"Toggle favourite\">★</button>\
-             <button class=\"food-edit-btn\" hx-get=\"/api/nutrition/food-items/{id}/edit\" \
-             hx-target=\"#food-item-{id}\" hx-swap=\"outerHTML\">Edit</button>\
-             <button class=\"food-delete-btn\" hx-delete=\"/api/nutrition/food-items/{id}\" \
-             hx-target=\"#food-library\" hx-swap=\"innerHTML\" \
-             hx-confirm=\"Delete this food item?\">×</button></div>",
-            fav_cls = if item.is_favourite != 0 { " is-fav" } else { "" },
-            id = item.id
-        )
-    } else {
-        String::new()
-    };
-    format!(
-        r##"<li class="food-item-card" id="food-item-{id}" data-fav="{fav}" data-recent="{rec}" data-protein="{prot}" data-cal="{cal_raw}">
-  {img}
-  <div class="food-info">
-    <strong>{name} {brand}</strong>
-    <span class="food-macros">{cal} cal · P {p}g · C {c}g · F {f}g</span>
-  </div>
-  {pkg}
-  {admin}
-</li>"##,
-        id = item.id,
-        fav = if item.is_favourite != 0 { 1 } else { 0 },
-        rec = if is_recent { 1 } else { 0 },
-        prot = item.protein,
-        cal_raw = item.calories,
-        img = img_html,
-        name = html_escape(&item.name),
-        brand = brand_html,
-        cal = fmt_nutrient(item.calories),
-        p = fmt_nutrient(item.protein),
-        c = fmt_nutrient(item.carbs),
-        f = fmt_nutrient(item.fat),
-        pkg = pkg_badge,
-        admin = admin_btns
-    )
-}
-
+/// The meal slots, in the order the day happens. `other` is the catch-all for
+/// entries logged before slots existed, and is hidden when empty.
 const SLOTS: [(&str, &str); 5] = [
     ("breakfast", "Breakfast"),
     ("lunch", "Lunch"),
@@ -982,7 +911,6 @@ pub fn summary_card_html(
             hx-get="/fitness/htmx/targets?date={date}"
             hx-target="#targets-editor" hx-swap="innerHTML">Targets</button>
   </div>
-  <div id="targets-editor"></div>
 </div>
 {left}"##,
         left = left_to_hit_html(
@@ -1103,14 +1031,36 @@ fn library_row_html(
         .or(item.default_portion_g)
         .or(item.package_size)
         .unwrap_or(100.0);
+    // Log, then the management cluster. The design's row shows only `Log`
+    // because the prototype had no food management at all — it was not
+    // specifying a removal, and dropping edit/delete stranded exactly the
+    // macro-less foods that create-and-log is designed to produce.
     let log_btn = if can_edit {
         format!(
             r##"<button type="button" class="hm-btn hm-btn--sm hm-btn--secondary"
         hx-post="/fitness/quick-log"
         hx-vals='js:{{food_item_id: {id}, grams: {grams}, slot: effectiveSlot(), date: window.currentDate}}'
-        hx-target="#day-section" hx-swap="innerHTML">Log</button>"##,
+        hx-target="#day-section" hx-swap="innerHTML">Log</button>
+    <span class="lib-row__manage">
+      <button type="button" class="lib-row__icon{fav_cls}" title="Favourite" aria-label="Toggle favourite"
+        hx-post="/api/nutrition/food-items/{id}/favourite"
+        hx-target="#food-library" hx-swap="innerHTML">★</button>
+      <button type="button" class="lib-row__icon" title="Edit" aria-label="Edit {name}"
+        hx-get="/api/nutrition/food-items/{id}/edit"
+        hx-target="#lib-row-{id}" hx-swap="outerHTML">✎</button>
+      <button type="button" class="lib-row__icon lib-row__icon--danger" title="Delete" aria-label="Delete {name}"
+        hx-delete="/api/nutrition/food-items/{id}"
+        hx-target="#food-library" hx-swap="innerHTML"
+        hx-confirm="Delete this food item?">✕</button>
+    </span>"##,
             id = item.id,
-            grams = grams
+            grams = grams,
+            name = html_escape(&item.name),
+            fav_cls = if item.is_favourite != 0 {
+                " is-fav"
+            } else {
+                ""
+            }
         )
     } else {
         String::new()
@@ -1125,7 +1075,7 @@ fn library_row_html(
     };
 
     format!(
-        r##"<li class="lib-row" data-fav="0" data-recent="0" data-protein="{p_raw}" data-cal="{cal_raw}">
+        r##"<li class="lib-row" id="lib-row-{id}" data-fav="{fav}" data-recent="{rec}" data-protein="{p_raw}" data-cal="{cal_raw}">
     {thumb}
     {pie}
     <span class="lib-row__name">{name}</span>
@@ -1134,6 +1084,11 @@ fn library_row_html(
     {basis}
     {log_btn}
   </li>"##,
+        id = item.id,
+        fav = if item.is_favourite != 0 { 1 } else { 0 },
+        // "Recent" means this user has logged it before, which is exactly what
+        // having a last-logged amount records.
+        rec = if last.is_some() { 1 } else { 0 },
         p_raw = item.protein,
         cal_raw = item.calories,
         thumb = row_thumb_html(&item.name, &item.image_url, dom, 30),
@@ -2039,8 +1994,17 @@ async fn food_item_card(
     State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
 ) -> impl IntoResponse {
+    // Cancelling an edit puts the row back — the *library's* row, not the old
+    // card shape, or one <li> would come back styled unlike its neighbours.
     match crate::db::get_food_item(&state.pool, id, session.user()).await {
-        Some(item) => Html(food_item_card_html(&item, false, true)).into_response(),
+        Some(item) => {
+            let last = crate::db::get_last_grams_map(&state.pool, session.user())
+                .await
+                .get(&id)
+                .copied();
+            let dom = dominance(item.protein, item.carbs, item.fat);
+            Html(library_row_html(&item, last, dom, true)).into_response()
+        }
         None => (
             StatusCode::NOT_FOUND,
             Html("<p>Food item not found</p>".to_string()),

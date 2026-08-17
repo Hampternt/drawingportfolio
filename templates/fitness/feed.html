@@ -43,6 +43,11 @@
            every day response, so it never needs a fetch of its own. -->
       {{ summary_html|safe }}
 
+      <!-- Outside the summary card on purpose: the summary is replaced
+           out-of-band by every day response, which would destroy an open
+           editor and discard whatever had been typed into it. -->
+      <div id="targets-editor"></div>
+
       <div class="fitness-date-nav">
         <button id="prev-day" class="btn-secondary" aria-label="Previous day">←</button>
         <button id="next-day" class="btn-secondary" aria-label="Next day">→</button>
@@ -226,9 +231,13 @@
 window.currentDate = "{{ date }}";
 
 // Date navigation
+// These read `.lib-row`, which is what the library renders. They used to read
+// `.food-item-card`; when the library was regrouped by nutrition profile the
+// selector matched nothing, so every chip — including "All" — found no visible
+// rows in any group and hid the entire library.
 function filterLibrary(q) {
   const term = q.toLowerCase();
-  document.querySelectorAll('#food-library .food-item-card').forEach(card => {
+  document.querySelectorAll('#food-library .lib-row').forEach(card => {
     const text = card.textContent.toLowerCase();
     card.style.display = text.includes(term) ? '' : 'none';
   });
@@ -240,7 +249,7 @@ function libFilter(btn) {
     b.classList.toggle('noc-tag-outline', b !== btn);
   });
   const mode = btn.dataset.filter;
-  document.querySelectorAll('#food-library .food-item-card').forEach(card => {
+  document.querySelectorAll('#food-library .lib-row').forEach(card => {
     const show =
       mode === 'all' ? true :
       mode === 'fav' ? card.dataset.fav === '1' :
@@ -250,7 +259,7 @@ function libFilter(btn) {
     card.style.display = show ? '' : 'none';
   });
   document.querySelectorAll('#food-library .lib-group').forEach(g => {
-    const any = [...g.querySelectorAll('.food-item-card')].some(c => c.style.display !== 'none');
+    const any = [...g.querySelectorAll('.lib-row')].some(c => c.style.display !== 'none');
     g.style.display = any ? '' : 'none';
   });
 }

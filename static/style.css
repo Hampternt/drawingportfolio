@@ -867,6 +867,23 @@ body.fitness-dark .lib-row__kcal { color: var(--text-muted); white-space: nowrap
 body.fitness-dark .lib-row__macros { display: flex; gap: var(--space-4); white-space: nowrap; }
 body.fitness-dark .lib-row__basis { font: var(--type-mono); color: var(--text-faint); }
 body.fitness-dark .lib-row__nomacros { color: var(--text-faint); }
+/* Management cluster. Quiet by default — the row is for reading and logging —
+   but always present: create-and-log makes macro-less foods on purpose, and
+   something has to be able to finish them. */
+body.fitness-dark .lib-row__manage { display: flex; gap: var(--space-2); flex: none; }
+body.fitness-dark .lib-row__icon {
+  width: 26px;
+  height: 26px;
+  border: var(--border-width) solid transparent;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-faint);
+  cursor: pointer;
+  transition: var(--transition-control);
+}
+body.fitness-dark .lib-row__icon:hover { color: var(--text-strong); background: var(--surface-hover); }
+body.fitness-dark .lib-row__icon.is-fav { color: var(--accent-warm); }
+body.fitness-dark .lib-row__icon--danger:hover { color: var(--status-danger); }
 /* Below the two-column breakpoint the metadata is the first thing to go — the
    name and the Log button are what the row is for. */
 @media (max-width: 899px) {
