@@ -36,7 +36,10 @@ fn sanitize_date(input: Option<&String>) -> String {
 /// printing it means a stale day-section is visible rather than merely wrong.
 fn head_date_label(date: &str) -> String {
     match chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d") {
-        Ok(d) => format!("{} · {date}", d.format("%a %d %b").to_string().to_uppercase()),
+        Ok(d) => format!(
+            "{} · {date}",
+            d.format("%a %d %b").to_string().to_uppercase()
+        ),
         // `sanitize_date` means this is unreachable from a request; falling back
         // to the raw string keeps the label honest if it ever is reached.
         Err(_) => date.to_string(),

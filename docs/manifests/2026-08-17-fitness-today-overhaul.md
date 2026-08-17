@@ -1,6 +1,6 @@
 # Container: Fitness "Today" overhaul
 
-**Status:** planned — awaiting go. No pack started.
+**Status:** Pack 1 landed 2026-08-17 (gate green, walkthrough below). Pack 2 next.
 **Where:** `~/projects/drawingportfolio.worktrees/fitness-today-overhaul` on
 `feat/fitness-today-overhaul`, branched from `dev` @ 49c56cd (multi-user fitness
 landed; `dev` and `master` are level).
@@ -43,13 +43,13 @@ Two real bugs die with it:
 Only Pack 1 is planned to item level. Later packs get their manifests when they start.
 
 <details>
-<summary><b>Pack 1 — Token layer + page shell</b> (planned)</summary>
+<summary><b>Pack 1 — Token layer + page shell</b> (done 2026-08-17)</summary>
 
 **Done when:** `/fitness` renders on the Hampter Design System tokens, self-hosted
 type, and the overhaul's desktop frame — sticky header, page head, two columns —
 with the existing cards sitting inside it, and no other page changes appearance.
 
-- [ ] **1.1 Token layer, scoped.** Paste the `:root` blocks from `tokens/colors.css`,
+- [x] **1.1 Token layer, scoped.** Paste the `:root` blocks from `tokens/colors.css`,
       `typography.css`, `spacing.css`, `shape.css` and `motion.css` into
       `static/style.css` under one named section. Port `tokens/base.css`'s **element**
       rules scoped under `body.fitness-dark` — upstream they are unscoped and would
@@ -60,7 +60,7 @@ with the existing cards sitting inside it, and no other page changes appearance.
       duplicate, not a change; drop it rather than scope it.
       *Done: `/fitness` resolves every token; the other four pages render unchanged.*
       ⚠ **Flagged for individual review** — cross-page blast radius.
-- [ ] **1.2 Type wired; Inter dropped.** **No font files to copy** — the roles this
+- [x] **1.2 Type wired; Inter dropped.** **No font files to copy** — the roles this
       design actually uses are Archivo 700/800, Space Grotesk 400/500 and IBM Plex
       Mono 400/500, and all seven are already in `static/fonts/`. (`--type-h3`
       wants Archivo 600, which is absent, but the overhaul markup contains no `<h3>`
@@ -71,11 +71,11 @@ with the existing cards sitting inside it, and no other page changes appearance.
       already names `"IBM Plex Mono"` and needs no repointing. Then delete the Inter
       link at `feed.html:7-9`.
       *Done: `/fitness` issues no external font request.*
-- [ ] **1.3 Nocturne bridge.** Add the `legacy-nocturne.css` mapping block so every
+- [x] **1.3 Nocturne bridge.** Add the `legacy-nocturne.css` mapping block so every
       `--noc-*` resolves to a new token.
       *Done: `/fitness`, `/fitness/week` and the Add sheet repaint with zero markup
       changes.* See **Accepted trade-offs** — this repaints two out-of-scope surfaces.
-- [ ] **1.4 Page shell.** Sticky 56px header (wordmark with the violet stop, nav,
+- [x] **1.4 Page shell.** Sticky 56px header (wordmark with the violet stop, nav,
       user name, `Search` + `K` cap), 1180px shell, page head (`MON 17 AUG · 2026-08-17`
       micro-label, `Today` h1, Yesterday/Week buttons, 32px grid texture), and the
       two-column flex with the left rail `position: sticky; top: 80px`.
@@ -199,4 +199,87 @@ Server-side in Rust; these are the prototype's own, not paraphrases.
 
 ## Ledger
 
-Nothing executed yet.
+### Pack 1 — done 2026-08-17
+
+All four items landed. **Pack gate green:** `./scripts/verify.sh` — fmt, clippy,
+833 workspace tests, JS syntax all clean. Clippy holds at 19 distinct warnings,
+none in new code. Test count 830 → 833 (the three new date-helper tests);
+CLAUDE.md corrected.
+
+**The pack shrank on contact with the tree.** The artportfolio slice had already
+landed the entire token layer on bare `:root` — all five groups, the exact
+`@font-face` set, and the primitives whose class names the prototype's markup
+uses (`.hm-btn`, `.hm-icon`, `.hm-kbd`). Items 1.1 and 1.2 stopped being "write
+a token layer" and became "unscope one" and "delete a link".
+
+| Item | Landed as | Note |
+| --- | --- | --- |
+| 1.1 tokens | `1be6c2e` | 61 primitive rules `body.art-page` → `:is(body.art-page, body.fitness-dark)` |
+| 1.2 type | `34864f6` | Inter dropped from both fitness templates; **no font files copied** |
+| 1.3 bridge | `bbb7f14` | `--noc-*` declares no hex at all now |
+| 1.4 shell | `02b3753` | + 8 chrome rules generalised; 2 Rust helpers, 3 tests |
+
+<details>
+<summary><b>Walkthrough evidence</b> — computed styles, not eyeballs</summary>
+
+The browser pane would not composite (`screenshot` times out — the pane is not
+displayed in this environment, and `file://` URLs render as static snapshots).
+Verified instead by running the real server and reading `getComputedStyle` in
+the live page, which is stronger evidence for CSS work than a screenshot: it
+asserts values rather than impressions. **A human still has to look at it** —
+this proves the rules resolve, not that it looks right.
+
+*`/fitness` at 1280px* — every value matches the spec: page `max-width` 1180px,
+columns `row`, left rail `sticky` / `top: 80px` / `max-width: 360px`, right
+column `2 1 480px`, `h1` Archivo 800 40px, micro-label IBM Plex Mono with
+1.1px tracking (= 0.10em × 11px), header `sticky` 56px, body `rgb(11, 9, 16)`
+(`#0B0910`).
+
+*Bridge working:* `--noc-accent` resolves to `#B48EF7` (was `#9184d9`) and
+`--noc-radius-md` to 8px, on all three `body.fitness-dark` pages.
+
+*No bleed* — the item flagged for individual review. `/`, `/tasks` and `/admin`
+all still compute `rgb(245, 245, 245)`, `system-ui`, `position: static` header.
+`/artportfolio` is unchanged **and** has no `--noc-*` set at all, confirming the
+bridge is fitness-scoped and the `:is()` change is purely additive.
+
+*Type* — `document.fonts` shows Archivo 700/800 and Space Grotesk 400/500
+loaded from `/static/fonts`; `performance.getEntriesByType('resource')` lists
+**zero** off-origin requests. (IBM Plex Mono 400 reads "unloaded" simply because
+no `--type-mono` text renders until Pack 2.)
+
+*Breakpoint* — measured at 899/900/917/920px: `flex-direction` tracks
+`matchMedia('(min-width: 900px)')` exactly. The apparent early flip at a 900px
+frame is the iframe scrollbar (innerWidth 896), not a CSS fault.
+
+Local setup, for whoever repeats this: `.env` from `.env.example` with
+`RP_ID=localhost`; the seeded owner (id 1, "admin") has **no** PIN, so logging
+in needs one written into `users.pin_hash` — generate it with `pin::hash_pin`
+rather than by hand, since it is a salted Argon2 PHC string. `/api/auth/login/pin`
+takes **JSON**, not form encoding.
+
+</details>
+
+<details>
+<summary><b>Deviations from the spec, and what Pack 2 inherits</b></summary>
+
+- **The header is not the prototype's.** It keeps base.html's "Portfolio"
+  wordmark and bare `Ctrl`/`K` keycaps rather than the `hampter` wordmark with a
+  violet full stop and a labelled Search button. Those are markup changes to
+  `base.html` **and** `admin.html` — shared with `/admin`, `/tasks` and the hub —
+  so they are out of scope for a fitness pack. Recorded in the stylesheet at the
+  chrome block. Pack 5 or a follow-up should decide whether to take them.
+- **`--shadow-3` is loose in the fitness pages.** `--noc-shadow-pop` now resolves
+  to an 18px/48px shadow where it was a 1px ring plus a 6px shadow. Every popover
+  on `/fitness`, `/fitness/week` and `/fitness/account` wears it. Computed styles
+  cannot judge whether it is too heavy — this is the first thing to look at when
+  a human opens the page.
+- **`.fitness-page` is still the theme marker.** `base.html`'s `syncBodyTheme()`
+  keys the `fitness-dark` body class off `main .fitness-page`, so that class must
+  stay the outermost element in the content block. Noted in the template; a Pack
+  2 restructure that moves it silently breaks the theme on boosted navigation
+  only — never on a cold load, which is why it would survive a casual check.
+- **`.claude/launch.json` was added** so the app can be started from the
+  preview tooling.
+
+</details>
