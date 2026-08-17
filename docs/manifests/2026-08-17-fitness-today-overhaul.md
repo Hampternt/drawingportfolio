@@ -199,6 +199,39 @@ refresh — the breakage this pack predicted, headed off.
 </details>
 
 <details>
+<summary><b>Review wave — 3 findings, all fixed</b> (<code>high</code>, 2026-08-17)</summary>
+
+Fixed in `ee8dc21`; gate re-run green.
+
+1. **Every amount grid and nudge row was permanently expanded.** Both carry
+   `hidden`, but giving them a `display` set an author rule at (0,2,1) against
+   the UA's `[hidden] { display: none }` at (0,1,0). The author rule won, the
+   attribute stopped meaning anything, and `toggleAmounts`/`toggleCustom`
+   flipped state with no visual effect — the pack's central interaction did not
+   exist. Restated at author level. This file already documents the same trap
+   for `.art-pop`; **any collapsible that gains a `display` needs its
+   `[hidden]` rule in the same breath.**
+2. **`+ add` did not persist its slot.** It set the form field but not
+   `window.currentSlot`, so the choice reverted to the clock on the next swap —
+   the picker-reset bug of item 2.5, reached through the slot header instead of
+   the picker. One entry point was fixed and its twin was missed.
+3. **Nudging an emptied field blanked it.** `parseFloat('')` is NaN, NaN
+   survives the arithmetic and `Math.max`, and a number input discards it — so
+   the box emptied and the request that followed was rejected with no feedback.
+   It now falls back to the row's own amount, which is what the previously
+   unread `data-grams` attribute was for.
+
+**Why finding 1 got past the pack walkthrough.** The walkthrough asserted that
+a *freshly logged* row's grid was open — and it was, because `flagFreshRow`
+removes the attribute. It never asserted that a *non-fresh* row was closed. The
+check could not have failed, so it passed while the feature was wholly broken.
+A collapse is only verified by measuring both states; the assertion now reads
+`display:none` / height 0 at rest and `display:grid` / height 42 once `hidden`
+comes off.
+
+</details>
+
+<details>
 <summary><b>Packs 3–5 — scope only</b></summary>
 
 **Pack 3 — One-tap logging.** `Log again` chips, `usual at <slot>`, create-and-log
