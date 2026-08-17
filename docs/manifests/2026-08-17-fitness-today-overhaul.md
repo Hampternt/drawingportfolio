@@ -1,6 +1,6 @@
 # Container: Fitness "Today" overhaul
 
-**Status:** Packs 1–2 landed 2026-08-17 (gates green, walkthroughs below). Pack 3 next.
+**Status:** Packs 1–3 landed 2026-08-17 (gates green, walkthroughs below). Pack 4 next.
 **Where:** `~/projects/drawingportfolio.worktrees/fitness-today-overhaul` on
 `feat/fitness-today-overhaul`, branched from `dev` @ 49c56cd (multi-user fitness
 landed; `dev` and `master` are level).
@@ -232,13 +232,13 @@ comes off.
 </details>
 
 <details>
-<summary><b>Pack 3 — One-tap logging</b> (in progress)</summary>
+<summary><b>Pack 3 — One-tap logging</b> (done 2026-08-17)</summary>
 
 **Done when:** logging a familiar food is one tap — from a recent chip, from
 "usual at this slot", or a whole saved meal at once — and anything you log can be
 undone from the toast that says you logged it.
 
-- [ ] **3.1 The Log card.** Replace the log form with the designed card: a
+- [x] **3.1 The Log card.** Replace the log form with the designed card: a
       `LOG TO` slot row (selected slot `primary`, the rest `ghost`), the
       `staying on lunch` / `now: dinner` snap-back when the choice differs from
       the clock, the `N to check` count of fresh rows, and the search field with
@@ -246,21 +246,21 @@ undone from the toast that says you logged it.
       with it bug 2** — a new food is no longer absent from a baked-in list
       because there is no list.
       *Done: the log card matches the design and the dropdown is gone.*
-- [ ] **3.2 Toast and Undo.** A logging action reports the entry ids it created;
+- [x] **3.2 Toast and Undo.** A logging action reports the entry ids it created;
       the toast names what landed and Undo removes exactly that batch. 5s
       auto-dismiss. Batch ids ride the existing `HX-Trigger` channel — no schema.
       *Done: log a food, the toast says so, Undo takes it back.*
-- [ ] **3.3 Log again / Matches, and create-and-log.** With an empty query, up to
+- [x] **3.3 Log again / Matches, and create-and-log.** With an empty query, up to
       six recents at their last-logged grams; while typing, matches. Tapping one
       logs it into the selected slot. When nothing matches, a primary
       `+ Add "<query>" and log 100 g` that creates the food and logs it in one
       request, flagged `no macros yet` for later.
       *Done: type nothing and re-log in one tap; type junk and create-and-log.*
-- [ ] **3.4 usual at &lt;slot&gt;.** A left-rail card offering this user's three
+- [x] **3.4 usual at &lt;slot&gt;.** A left-rail card offering this user's three
       most-*frequent* foods for the selected slot — a different question from
       `get_recent_foods`'s most-*recent*, so it needs its own query.
       *Done: the card tracks the slot picker and one tap logs.*
-- [ ] **3.5 Saved meals and the builder.** Meal chips logging every item into the
+- [x] **3.5 Saved meals and the builder.** Meal chips logging every item into the
       selected slot as one undoable batch, and a builder that composes a meal
       from any foods rather than only from an already-logged slot.
       *Done: one tap logs a three-item meal; a new meal can be built and saved.*
@@ -268,6 +268,70 @@ undone from the toast that says you logged it.
 **Item gate:** `./scripts/check.sh` + `cargo test --bin drawingportfolio nutrition::`.
 **Pack gate:** `./scripts/verify.sh` + a walkthrough of every logging path,
 including Undo on a multi-item batch.
+
+**Gate: green.** `verify.sh` clean; 848 workspace tests (846 → 848); clippy
+holds at **18** from a clean build. CLAUDE.md updated.
+
+**Bug 2 is dead, by deletion as planned.** The `<select>`, its portion select,
+the grams field, `onFoodSelect`, `onPortionChange` and the catalog query that
+fed them are gone. There is no baked-in list to go stale, so a food created a
+moment ago is loggable a moment later.
+
+<details>
+<summary><b>Walkthrough evidence</b></summary>
+
+*Chips.* Empty query → `Log again` with recents at their last-logged grams;
+`skyr` → `Matches — tap to log`; `zzzznope` → `Nothing matches` plus
+`+ Add "zzzznope" and log 100 g`.
+
+*Create-and-log.* One request creates the food and logs 100 g; the row renders
+`no macros` rather than pretending it is calorie-free; toast and fresh flag
+fire; `1 to check` appears; Undo removes it and a second tap is inert.
+
+*usual at &lt;slot&gt;.* Three breakfast logs of one food and one of another put
+the frequent one first — frequency beating recency is the whole reason it is
+its own query. An unused slot says "Nothing logged at dinner yet." Tapping the
+breakfast chip repoints the card, marks the chip primary, and shows
+`staying on breakfast` with `now: snack`.
+
+*Meals.* Adding the same food twice yields one tag; saving produces a chip;
+tapping it logs two rows as one batch, toast `Logged Walkthrough shake · 2
+items`, both flagged, and Undo removes exactly both.
+
+</details>
+
+<details>
+<summary><b>A bug the tests could not have caught</b></summary>
+
+The toast rendered `Logged 12" test pizza Â· 100 g` in the browser while every
+unit test passed. **HTTP header values are read as Latin-1**, so the UTF-8
+middle dot in the `HX-Trigger` payload arrived double-encoded; an accented food
+name would have fared worse. `json_escape` now emits `\uXXXX` for anything
+non-ASCII, surrogate pairs included.
+
+The uncomfortable part: my original test asserted
+`json_escape("Æbleskiver · Ålborg") == "Æbleskiver · Ålborg"` — it encoded the
+broken behaviour as the expectation. Only reading the rendered toast found it.
+The test now asserts the header is pure ASCII and that
+`12" Æbleskiver 🍕 · 100 g` round-trips exactly, checked in the browser.
+
+</details>
+
+<details>
+<summary><b>Deviations and debt</b></summary>
+
+- **The Scan button opens the existing add sheet.** The sheet is out of scope
+  per the spec, so the button keeps its current behaviour rather than gaining a
+  new one.
+- **The builder offers the first eight foods**, as the design shows, with no
+  search of its own. Fine while a catalog is small; it will want the search
+  field when it is not.
+- **`/fitness/htmx/food-search` and the old quick-add still exist**, feeding the
+  add sheet and the (now redundant) desktop quick-add strip above the day. Pack
+  4 or 5 should remove the strip — the log card replaces it.
+- **The entry-edit fragment is now unreachable** from the Today screen: the row
+  no longer links to it. Its route, `entry_edit_row_html`, and the `.meal-entry`
+  CSS are dead weight to be removed once nothing else references them.
 
 </details>
 
