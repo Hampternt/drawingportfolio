@@ -273,6 +273,52 @@ function setSlot(btn) {
   paintSlotChips(form);
 }
 
+// ── Logged-row amount controls ─────────────────────────────────────────────
+// The row's grams/kcal button opens its amount grid. State lives in the DOM
+// (the `hidden` attribute) rather than in a JS map, so a row that HTMX swaps
+// out takes its state with it instead of leaving a stale entry behind.
+
+function toggleAmounts(id) {
+  const panel = document.getElementById('amounts-' + id);
+  if (!panel) return;
+  const open = panel.hidden;
+  panel.hidden = !open;
+  if (!open) {
+    // Collapsing the grid collapses the nudge row with it — leaving it behind
+    // would strand a bare − [input] + with nothing above it.
+    const nudge = document.getElementById('nudge-' + id);
+    if (nudge) nudge.hidden = true;
+  }
+  const row = document.getElementById('entry-' + id);
+  const btn = row && row.querySelector('.fit-row__amount');
+  if (btn) btn.setAttribute('aria-expanded', String(open));
+  // Touching the amount is the acknowledgement the fresh flag waits for.
+  if (row) row.classList.remove('fit-row--fresh');
+}
+
+function toggleCustom(id) {
+  const nudge = document.getElementById('nudge-' + id);
+  if (!nudge) return;
+  nudge.hidden = !nudge.hidden;
+  const row = document.getElementById('entry-' + id);
+  const btn = row && row.querySelector('.fit-amt--custom');
+  if (btn) btn.classList.toggle('fit-amt--on', !nudge.hidden);
+  if (!nudge.hidden) nudge.querySelector('input').focus();
+}
+
+function nudgeGrams(id, delta) {
+  const nudge = document.getElementById('nudge-' + id);
+  const input = nudge && nudge.querySelector('input');
+  if (!input) return;
+  // Floor at 1g and round to 0.1 — the server enforces the same bounds, this
+  // just keeps the field from displaying something it would reject.
+  const next = Math.max(1, Math.round((parseFloat(input.value) + delta) * 10) / 10);
+  input.value = next;
+  // `change` does not fire for a scripted value assignment, so the hx-trigger
+  // listens for this custom event too.
+  input.dispatchEvent(new Event('nudged'));
+}
+
 function addToSlot(slot) {
   const form = document.querySelector('.log-entry-form');
   form.querySelector('[name="slot"]').value = slot;

@@ -504,6 +504,227 @@ body.fitness-dark .fitness-whoami-name {
 /* date header */
 .fitness-date-nav { display: flex; align-items: center; gap: 8px; margin: 14px 0; }
 
+/* ── The logged row (overhaul, pack 2) ───────────────────────────────────
+   The core unit of the redesign: what you ate, what it cost you, and the
+   control that changes the amount — all on one row, so adjusting a portion
+   never opens a form.
+
+   Written against design-system tokens, not --noc-*. The bridge keeps the
+   older rules below working; nothing new should be added to them. */
+body.fitness-dark .fit-slot { padding: 14px 16px; }
+body.fitness-dark .fit-slot__head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-4);
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+body.fitness-dark .fit-slot__name {
+  font: var(--type-label);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--text-strong);
+}
+body.fitness-dark .fit-slot__cal { font: var(--type-mono); color: var(--text-faint); }
+body.fitness-dark .fit-slot__add {
+  margin-left: auto;
+  height: var(--control-height-sm);
+  padding: 0 var(--space-5);
+  border: var(--border-width) solid transparent;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-accent);
+  font: var(--type-ui);
+  cursor: pointer;
+  transition: var(--transition-control);
+}
+body.fitness-dark .fit-slot__add:hover { background: var(--surface-hover); }
+body.fitness-dark .fit-slot__empty {
+  margin: 0;
+  padding: 12px 0;
+  font: var(--type-mono);
+  color: var(--text-faint);
+}
+
+body.fitness-dark .fit-rows { list-style: none; padding: 0; margin: 0; }
+body.fitness-dark .fit-row {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+body.fitness-dark .fit-row:last-child { border-bottom: none; }
+body.fitness-dark .fit-row__line { display: flex; align-items: flex-start; gap: var(--space-5); }
+
+body.fitness-dark .fit-thumb {
+  flex: none;
+  border-radius: var(--radius-sm);
+  background-color: var(--surface-chip);
+  object-fit: cover;
+}
+body.fitness-dark .fit-thumb--letter {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  /* The same blueprint grid as the page head, at a quarter of the pitch —
+     a tile with no photograph still reads as a deliberate mark. */
+  background-image: var(--texture-grid);
+  background-size: 8px 8px;
+  font: 800 13px/1 var(--font-display);
+  text-transform: uppercase;
+}
+
+body.fitness-dark .fit-row__body { flex: 1; min-width: 0; }
+body.fitness-dark .fit-row__name { font: var(--type-body); color: var(--text-strong); }
+body.fitness-dark .fit-row__brand { color: var(--text-faint); }
+body.fitness-dark .fit-row__meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-5);
+  margin-top: var(--space-2);
+  font: var(--type-label);
+}
+body.fitness-dark .fit-pie { flex: none; border-radius: var(--radius-pill); }
+/* A food whose macros nobody has filled in yet — a ring, not a slice, so it
+   reads as "unknown" rather than as one macro at 100%. */
+body.fitness-dark .fit-pie--empty {
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius-pill);
+  box-shadow: inset 0 0 0 1px var(--border-default);
+}
+body.fitness-dark .fit-row__macro--p { color: var(--status-warning); }
+body.fitness-dark .fit-row__macro--c { color: var(--status-info); }
+body.fitness-dark .fit-row__macro--f { color: var(--status-danger); }
+body.fitness-dark .fit-row__basis { color: var(--text-faint); }
+
+body.fitness-dark .fit-row__amount {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-4);
+  min-width: 56px;
+  padding: 0 var(--space-3);
+  border: var(--border-width) solid transparent;
+  border-radius: var(--radius-sm);
+  background: none;
+  cursor: pointer;
+  text-align: right;
+  transition: var(--transition-control);
+}
+body.fitness-dark .fit-row__amount:hover { background: var(--surface-hover); }
+body.fitness-dark .fit-row__grams { font: var(--type-mono); color: var(--text-body); }
+body.fitness-dark .fit-row__kcal {
+  font: var(--weight-regular) var(--text-15)/1.45 var(--font-mono);
+  color: var(--text-strong);
+}
+body.fitness-dark .fit-row__remove {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border: var(--border-width) solid transparent;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-faint);
+  cursor: pointer;
+  transition: var(--transition-control);
+}
+body.fitness-dark .fit-row__remove:hover { color: var(--status-danger); background: var(--surface-hover); }
+
+/* Amount grid. auto-fit rather than a fixed column count: the same markup has
+   to hold four fraction buttons on a phone and six beside a desktop rail, and
+   this reflows without a second breakpoint. */
+body.fitness-dark .fit-row__amounts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(76px, 1fr));
+  gap: var(--space-3);
+  width: 100%;
+  margin-top: 10px;
+  /* Indented past the thumbnail so the grid reads as belonging to the row
+     above it rather than as a new block. */
+  padding-left: 46px;
+}
+body.fitness-dark .fit-amt {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  /* 34px minimum: these are the primary touch targets on this screen and the
+     brief forbids shrinking them on phones. */
+  min-height: var(--control-height-md);
+  padding: 5px 10px;
+  line-height: 1.2;
+  border: var(--border-width) solid var(--border-default);
+  border-radius: var(--radius-sm);
+  background: var(--surface-inset);
+  color: var(--text-body);
+  cursor: pointer;
+  transition: var(--transition-control);
+}
+body.fitness-dark .fit-amt:hover { border-color: var(--border-strong); }
+body.fitness-dark .fit-amt:active { transform: translateY(1px); }
+body.fitness-dark .fit-amt__label { font: var(--type-ui); }
+body.fitness-dark .fit-amt__grams { font: var(--type-label); opacity: .7; }
+body.fitness-dark .fit-amt--on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--text-on-accent);
+}
+body.fitness-dark .fit-amt--custom.fit-amt--on {
+  /* The custom toggle is a mode, not a value — it takes the accent outline
+     rather than the filled treatment the chosen amount wears. */
+  background: var(--surface-inset);
+  border-color: var(--border-accent);
+  color: var(--text-accent);
+}
+
+body.fitness-dark .fit-row__nudge {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+  padding-left: 46px;
+}
+body.fitness-dark .fit-nudge {
+  min-width: 44px;
+  height: var(--control-height-md);
+  border: var(--border-width) solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-body);
+  font: var(--type-ui);
+  cursor: pointer;
+  transition: var(--transition-control);
+}
+body.fitness-dark .fit-nudge:hover { background: var(--surface-hover); }
+body.fitness-dark .fit-nudge__input {
+  width: 88px;
+  height: var(--control-height-md);
+  padding: 0 var(--space-4);
+  border: var(--border-width) solid var(--border-default);
+  border-radius: var(--radius-sm);
+  background: var(--surface-inset);
+  color: var(--text-strong);
+  font: var(--type-mono);
+  text-align: center;
+}
+
+/* Freshly logged: an amber edge and dot until the amount is acknowledged.
+   Shares the amber with protein deliberately — the brief notes the flag and a
+   macro mark never appear on the same element. */
+body.fitness-dark .fit-row--fresh {
+  box-shadow: inset 2px 0 0 var(--accent-warm);
+  padding-left: 10px;
+}
+body.fitness-dark .fit-row--fresh .fit-row__line::before {
+  content: "";
+  flex: none;
+  align-self: center;
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-pill);
+  background: var(--accent-warm);
+}
+
 /* meal entries */
 body.fitness-dark .meal-list { list-style: none; padding: 0; margin: 0 0 12px; }
 body.fitness-dark .meal-entry {
