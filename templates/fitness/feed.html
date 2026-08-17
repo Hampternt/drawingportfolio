@@ -267,8 +267,14 @@ function paintSlotChips(form) {
   });
 }
 
+// The slot you chose, for as long as this page is open. Null until you choose
+// one, which is what lets the clock seed the very first render and nothing
+// after it — see initSlotDefault.
+window.currentSlot = null;
+
 function setSlot(btn) {
   const form = btn.closest('form');
+  window.currentSlot = btn.dataset.slot;
   form.querySelector('[name="slot"]').value = btn.dataset.slot;
   paintSlotChips(form);
 }
@@ -326,10 +332,22 @@ function addToSlot(slot) {
   form.querySelector('[name="food_item_id"]').focus();
 }
 
+// Restores the slot picker after a swap.
+//
+// This used to read `if (value === 'other') value = defaultSlot()`, and it runs
+// on every htmx:afterSwap — so every log re-rendered the form with the server's
+// "other" and the clock immediately overwrote your choice with the time of day.
+// Pick lunch at 17:00, log something, and the picker snapped to dinner.
+//
+// The clock is now only a *seed*: it applies while window.currentSlot is null,
+// which is true exactly once, on first load. After that the chosen slot wins
+// and keeps winning.
 function initSlotDefault() {
   document.querySelectorAll('.log-entry-form').forEach(form => {
     const input = form.querySelector('[name="slot"]');
-    if (input && input.value === 'other') { input.value = defaultSlot(); }
+    if (input && input.value === 'other') {
+      input.value = window.currentSlot || defaultSlot();
+    }
     paintSlotChips(form);
   });
 }
@@ -429,6 +447,26 @@ function initQuickAdd() {
 }
 document.addEventListener('DOMContentLoaded', initQuickAdd);
 
+// A freshly logged row wears an amber edge and opens its amount grid, so the
+// one thing worth checking — did it log the amount you meant? — is already in
+// front of you. The server names the row via an HX-Trigger header; the flag
+// itself is client-side and dies with the page, which is the intended life.
+function flagFreshRow(id) {
+  const row = document.getElementById('entry-' + id);
+  if (!row) return;
+  row.classList.add('fit-row--fresh');
+  const panel = document.getElementById('amounts-' + id);
+  if (panel) panel.hidden = false;
+  const btn = row.querySelector('.fit-row__amount');
+  if (btn) btn.setAttribute('aria-expanded', 'true');
+}
+
+function refreshWeekStrip() {
+  if (!document.getElementById('week-strip')) return;
+  htmx.ajax('GET', '/fitness/htmx/week-strip?date=' + window.currentDate,
+    {target: '#week-strip', swap: 'outerHTML'});
+}
+
 // Body-level htmx listeners — registered once per tab: <body> survives
 // hx-boost swaps, so re-running this script on a boosted return visit must
 // not stack duplicates (CLAUDE.md hx-boost rule).
@@ -442,14 +480,27 @@ if (!window.__fitnessBound) {
       stopBarcodeScanner();
     }
   });
+  // Fired by the log route's HX-Trigger header. It arrives before the swap
+  // settles, so the flag is deferred a tick — otherwise it looks for a row
+  // that the incoming fragment has not put in the DOM yet.
+  document.body.addEventListener('row-logged', e => {
+    const id = e.detail && e.detail.id;
+    if (id) setTimeout(() => flagFreshRow(id), 0);
+  });
   document.body.addEventListener('htmx:afterSwap', e => {
     initSlotDefault();
     initSheetForms();
     initQuickAdd();
-    // keep the week strip's selected bar in sync after any day mutation
-    if (e.target && e.target.id === 'day-section' && document.getElementById('week-strip')) {
-      htmx.ajax('GET', '/fitness/htmx/week-strip?date=' + window.currentDate,
-        {target: '#week-strip', swap: 'outerHTML'});
+    // Keep the week strip's bar in sync after any day mutation.
+    //
+    // This used to test `e.target.id === 'day-section'`, which was sound while
+    // every mutation swapped the whole day. Changing an amount now swaps one
+    // row, so that test never fires and the strip would silently drift from
+    // the totals beside it. Anything that lands inside the day counts.
+    const inDay = e.target && e.target.closest &&
+      (e.target.id === 'day-section' || e.target.closest('#day-section'));
+    if (inDay && document.getElementById('week-strip')) {
+      refreshWeekStrip();
     }
   });
 }

@@ -1382,7 +1382,7 @@ async fn add_meal_entry(
         .into_response();
     }
 
-    let _ = crate::db::insert_meal_entry(
+    let new_id = crate::db::insert_meal_entry(
         &state.pool,
         food_item_id,
         &date,
@@ -1391,8 +1391,30 @@ async fn add_meal_entry(
         session.user(),
     )
     .await;
-    Html(render_day(&state.pool, &date, session.user(), true).await)
-    .into_response()
+    let body = render_day(&state.pool, &date, session.user(), true).await;
+    match new_id {
+        Ok(id) => fresh_row_response(body, id),
+        // The entry did not land, so there is no row to flag. The day still
+        // re-renders — it is the honest picture either way.
+        Err(_) => Html(body).into_response(),
+    }
+}
+
+/// A day fragment plus the id of the row that was just logged.
+///
+/// `fresh` is session-scoped and deliberately not persisted — the spec calls it
+/// a nudge to check an amount, not a property of the entry. The server's part
+/// is only to say *which* row is new; the client owns the flag from there, so a
+/// reload clears it, which is the intended lifetime.
+fn fresh_row_response(body: String, id: i64) -> axum::response::Response {
+    (
+        [(
+            "HX-Trigger",
+            format!(r#"{{"row-logged":{{"id":{id}}}}}"#),
+        )],
+        Html(body),
+    )
+        .into_response()
 }
 
 async fn delete_meal_entry_handler(
