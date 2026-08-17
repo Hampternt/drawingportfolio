@@ -336,6 +336,44 @@ The test now asserts the header is pure ASCII and that
 </details>
 
 <details>
+<summary><b>Review wave — 2 findings, both fixed</b> (<code>high</code>, 2026-08-17)</summary>
+
+Gate re-run green after the fixes.
+
+1. **`/fitness` hammered the server while nobody touched it.**
+   `paintSlotChips` dispatched `slot-changed` unconditionally;
+   `#fit-usual-slot` listens for it, fetches, and its response swap re-entered
+   the same body-level `htmx:afterSwap` handler that calls `paintSlotChips`.
+   The element's `load` trigger started the cycle, so no user action was
+   needed. **An idle page issued 1384 requests in three seconds** — about
+   460/s at a single-threaded SQLite server, from one tab. Fixed by firing the
+   event only on a real change, seeding `lastUsualSlot` from the clock so the
+   first paint stays quiet. Now: 0 requests idle, exactly 1 per slot change,
+   0 from repeated no-op repaints.
+2. **The meal builder kept invisible items.** Its panel lives inside the day
+   fragment, so any log destroyed it while `window.mealItems` survived —
+   reopening showed an empty list with items still staged, and Save would have
+   written foods the user could not see. The panel is now rebuilt from JS state
+   after every `#fit-meals` swap, so what is shown and what would be saved
+   cannot disagree.
+
+**The lesson worth keeping.** Every walkthrough in this container so far *acted*
+and then measured the result, which means an idle page was never once the thing
+under test — and an idle page was where the worst bug in the container lived.
+The loop surfaced only from reading the event wiring and asking what happens
+when nobody does anything. **Watch the network on a page at rest** before
+calling an HTMX pack done; a trigger that fires on a swap, and produces a swap,
+is the shape to look for.
+
+**Accepted cost, not fixed:** `#fit-meals` and `#log-options` both carry
+`hx-trigger="load"` inside the day fragment, so every log spends two extra round
+trips re-fetching sections that did not change. The clean fix is lifting the
+whole log card out of the day fragment — it renders no day data — which is a
+restructure for Pack 4 rather than a review fix.
+
+</details>
+
+<details>
 <summary><b>Packs 4–5 — scope only</b></summary>
 
 **Pack 4 — Day at a glance.** Summary card (132px ring, three macro rails, week
