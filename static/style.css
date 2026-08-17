@@ -806,7 +806,12 @@ body.fitness-dark .fit-summary__top {
   gap: var(--space-6);
   margin-bottom: 14px;
 }
-body.fitness-dark .fit-summary__top svg { flex: none; width: 132px; height: 132px; }
+/* Mobile-first, like the rest of the shell: the ring's own viewBox is 98 units
+   square, so both of these are pure scale — nothing inside it is re-laid out. */
+body.fitness-dark .fit-summary__top svg { flex: none; width: 104px; height: 104px; }
+@media (min-width: 900px) {
+  body.fitness-dark .fit-summary__top svg { width: 132px; height: 132px; }
+}
 body.fitness-dark .fit-summary__rails {
   display: flex;
   flex-direction: column;
@@ -897,7 +902,12 @@ body.fitness-dark .fit-comp {
   align-items: center;
   gap: var(--space-6);
 }
-body.fitness-dark .fit-comp__pie { flex: none; border-radius: var(--radius-pill); }
+/* Sized here rather than inline from the server, which is why composition_html
+   emits only the gradient — an inline width would outrank the media query. */
+body.fitness-dark .fit-comp__pie { flex: none; width: 64px; height: 64px; border-radius: var(--radius-pill); }
+@media (min-width: 900px) {
+  body.fitness-dark .fit-comp__pie { width: 76px; height: 76px; }
+}
 body.fitness-dark .fit-comp__legend {
   display: flex;
   flex-direction: column;
@@ -1076,7 +1086,65 @@ body.fitness-dark #fit-toast-undo {
   transition: var(--transition-control);
 }
 body.fitness-dark #fit-toast-undo:hover { background: var(--surface-hover); }
+/* ── The phone action bar (overhaul, pack 5) ─────────────────────────────
+   Scan / Search / copy-yesterday, always within thumb reach on a phone and
+   absent entirely on desktop — where the log card is already on screen and a
+   bar would be a second way to do what the page is showing you.
+
+   `fixed`, though the brief says `sticky`. The prototype draws a 390px
+   bordered div and sticks the bar to *that* box while the desktop page
+   scrolls; on a real phone the viewport is the box and this is the last
+   in-flow child of .fitness-today, so `bottom: 0` has nothing to stick
+   against and the bar would settle at the document end. Fixed is what the
+   sticky was drawing a picture of.
+
+   One height, three consumers: the bar's own box, the page's bottom padding
+   (without which the library's last row hides underneath it) and the toast's
+   offset. Declaring it once is what keeps those from drifting — the toast's
+   old 96px was a hand-measurement of a bar that no longer exists. */
+body.fitness-dark {
+  --fit-bar-h: calc(
+    var(--control-height-lg) + var(--space-5) + 20px + env(safe-area-inset-bottom)
+  );
+}
+body.fitness-dark #fitness-actionbar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 20;
+  display: flex;
+  gap: var(--space-4);
+  padding: var(--space-5) var(--space-6) calc(20px + env(safe-area-inset-bottom));
+  background: linear-gradient(
+    to top,
+    var(--surface-page) 70%,
+    color-mix(in srgb, var(--surface-page) 0%, transparent)
+  );
+}
+body.fitness-dark #fitness-actionbar .hm-btn { flex: 1; }
+/* Not a DS modifier — the square copy button is this bar's shape, not a
+   primitive anything else asks for. */
+body.fitness-dark #fitness-actionbar .fit-bar__icon { flex: none; width: var(--control-height-lg); padding: 0; }
+/* The bar floats over the page, so the page has to end above it. */
+body.fitness-dark .fitness-today { padding-bottom: calc(var(--fit-bar-h) + var(--space-6)); }
+body.fitness-dark #fit-toast { bottom: calc(var(--fit-bar-h) + var(--space-5)); }
+
+/* The head's copy-yesterday is the desktop half of that pair — below 900px the
+   bar carries it and this would be a second button for one job.
+
+   Scoped through .fit-head rather than written flat, and not for tidiness:
+   `:is(body.art-page, body.fitness-dark) .hm-btn` is (0,2,1) and sits ~800
+   lines later in this file, so a flat `body.fitness-dark .fit-head__copy` ties
+   it and loses on source order — the button would stay visible on phones. The
+   extra ancestor makes it (0,3,1) and order stops mattering. Pack 1 lost a fix
+   to this exact pairing. */
+body.fitness-dark .fit-head .fit-head__copy { display: none; }
+
 @media (min-width: 900px) {
+  body.fitness-dark #fitness-actionbar { display: none; }
+  body.fitness-dark .fit-head .fit-head__copy { display: inline-flex; }
+  body.fitness-dark .fitness-today { padding-bottom: var(--space-12); }
   body.fitness-dark #fit-toast { bottom: var(--gutter); }
 }
 
@@ -1246,16 +1314,6 @@ body.fitness-dark .day-cell.future { background: var(--noc-surface-2); }
 body.fitness-dark .day-fill { width: 100%; background: var(--noc-n800); border-radius: var(--noc-radius-sm); }
 body.fitness-dark .day-fill.accent { background: var(--noc-accent); }
 
-/* bottom action bar (Task 6) */
-body.fitness-dark #fitness-actionbar {
-  position: fixed; bottom: 0; left: 0; right: 0; z-index: 40;
-  display: flex; gap: 10px; padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
-  max-width: 640px; margin: 0 auto;
-  background: linear-gradient(to top, var(--noc-bg) 60%, color-mix(in srgb, var(--noc-bg) 0%, transparent));
-}
-body.fitness-dark #fitness-actionbar .noc-btn { flex: 1; min-height: 50px; font-size: 15px; }
-body.fitness-dark #fitness-actionbar .noc-btn-icon { flex: none; width: 50px; }
-
 /* add sheet (Task 7) */
 body.fitness-dark #add-sheet {
   position: fixed; inset: 0; z-index: 50; overflow-y: auto;
@@ -1345,7 +1403,6 @@ body.fitness-dark .meal-cal { color: var(--noc-muted); font-size: 12px; }
      leaving this to do what it always did for the week view — which is the
      only page still relying on it. */
   body.fitness-dark .week-page { max-width: 760px; padding-bottom: 40px; }
-  body.fitness-dark #fitness-actionbar { position: static; max-width: none; padding: 16px 0 0; background: none; }
   body.fitness-dark #add-sheet { max-width: 560px; border-radius: var(--noc-radius-lg); inset: 40px auto auto 50%; transform: translateX(-50%); max-height: calc(100vh - 80px); box-shadow: var(--noc-shadow-pop); }
 }
 
@@ -1931,6 +1988,8 @@ body.fitness-dark .meal-cal { color: var(--noc-muted); font-size: 12px; }
 :is(body.art-page, body.fitness-dark) .hm-icon--x { -webkit-mask-image: url("/static/icons/x.svg"); mask-image: url("/static/icons/x.svg"); }
 :is(body.art-page, body.fitness-dark) .hm-icon--chevron-left { -webkit-mask-image: url("/static/icons/chevron-left.svg"); mask-image: url("/static/icons/chevron-left.svg"); }
 :is(body.art-page, body.fitness-dark) .hm-icon--calendar-days { -webkit-mask-image: url("/static/icons/calendar-days.svg"); mask-image: url("/static/icons/calendar-days.svg"); }
+:is(body.art-page, body.fitness-dark) .hm-icon--scan-line { -webkit-mask-image: url("/static/icons/scan-line.svg"); mask-image: url("/static/icons/scan-line.svg"); }
+:is(body.art-page, body.fitness-dark) .hm-icon--copy { -webkit-mask-image: url("/static/icons/copy.svg"); mask-image: url("/static/icons/copy.svg"); }
 
 /* Button */
 :is(body.art-page, body.fitness-dark) .hm-btn {
@@ -1960,6 +2019,9 @@ body.fitness-dark .meal-cal { color: var(--noc-muted); font-size: 12px; }
 :is(body.art-page, body.fitness-dark) .hm-btn[aria-disabled="true"] { opacity: .42; pointer-events: none; }
 :is(body.art-page, body.fitness-dark) .hm-btn--sm { height: var(--control-height-sm); padding: 0 var(--space-5); font-size: var(--text-13); }
 :is(body.art-page, body.fitness-dark) .hm-btn--md { height: var(--control-height-md); padding: 0 var(--space-6); }
+/* `lg` exists for one caller — the phone action bar, where the buttons are the
+   page's primary reach and a 34px target under a thumb is not enough. */
+:is(body.art-page, body.fitness-dark) .hm-btn--lg { height: var(--control-height-lg); padding: 0 var(--space-6); font-size: var(--text-15); }
 :is(body.art-page, body.fitness-dark) .hm-btn--primary {
   background: var(--accent);
   color: var(--text-on-accent);

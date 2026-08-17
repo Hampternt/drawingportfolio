@@ -17,6 +17,18 @@
       <h1>Today</h1>
     </div>
     <div class="fit-head__actions">
+      <!-- Copy yesterday's log lives in the phone action bar, and the design
+           gives it no other home — so hiding that bar on desktop would delete
+           the only way to reach /fitness/copy-day at all. One control per
+           breakpoint, never both: this one is hidden below 900px, the bar's is
+           hidden above it. Labelled "Copy yesterday's log" rather than the
+           bar's bare icon, because it sits next to a "Yesterday" that
+           navigates rather than copies. -->
+      <button class="hm-btn hm-btn--sm hm-btn--ghost fit-head__copy" title="Copy yesterday's log into today"
+              hx-post="/fitness/copy-day" hx-vals='js:{date: window.currentDate}'
+              hx-target="#day-section" hx-swap="innerHTML">
+        <span class="hm-icon hm-icon--copy" aria-hidden="true"></span>Copy yesterday's log
+      </button>
       <!-- A real href, not the arrows' JS step: the head has to work on a cold
            render, and this is also the only day-step that survives no-JS. -->
       <a class="hm-btn hm-btn--sm hm-btn--ghost" href="/fitness?date={{ prev_date }}">
@@ -158,18 +170,22 @@
     </div><!-- /.fit-col--right -->
   </div><!-- /.fit-cols -->
 
+  <!-- The phone action bar. Hidden at >=900px, where the log card is already
+       on screen — see the CSS for why it is `fixed` and not the brief's
+       `sticky`. "Search" focuses the page's own search field rather than
+       opening the sheet's: they are two fields for one job, and the one on the
+       page is the one that logs in a single tap. -->
   <div id="fitness-actionbar">
-    <button id="bar-scan" class="noc-btn noc-btn-primary" onclick="openAddSheet('scan')">
-      <svg width="18" height="14" viewBox="0 0 18 14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M1 1v12M4.5 1v12M7.5 1v12M11 1v12M14 1v12M17 1v12"></path></svg>
-      Scan
+    <button id="bar-scan" class="hm-btn hm-btn--lg hm-btn--primary" onclick="openAddSheet('scan')">
+      <span class="hm-icon hm-icon--scan-line" aria-hidden="true"></span>Scan
     </button>
-    <button id="bar-search" class="noc-btn noc-btn-secondary" onclick="openAddSheet('search')">
-      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="7" cy="7" r="5"></circle><path d="M11 11l4 4"></path></svg>
-      Search
+    <button id="bar-search" class="hm-btn hm-btn--lg hm-btn--secondary" onclick="focusLogSearch()">
+      <span class="hm-icon hm-icon--search" aria-hidden="true"></span>Search
     </button>
-    <button id="bar-copy" class="noc-btn noc-btn-secondary noc-btn-icon" title="Copy yesterday"
+    <button id="bar-copy" class="hm-btn hm-btn--lg hm-btn--secondary fit-bar__icon"
+            title="Copy yesterday" aria-label="Copy yesterday"
             hx-post="/fitness/copy-day" hx-vals='js:{date: window.currentDate}' hx-target="#day-section" hx-swap="innerHTML">
-      <svg width="17" height="17" viewBox="0 0 17 17" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="9" height="11" rx="2"></rect><path d="M6 15h7a2 2 0 0 0 2-2V6"></path></svg>
+      <span class="hm-icon hm-icon--copy" aria-hidden="true"></span>
     </button>
   </div>
 
@@ -656,6 +672,7 @@ function flagFreshRow(id) {
 // not stack duplicates (CLAUDE.md hx-boost rule).
 if (!window.__fitnessBound) {
   window.__fitnessBound = true;
+  document.addEventListener('keydown', fitnessKeydown);
   // hx-boost swaps the body without unloading the page — stop a live camera
   // before navigating away (body target only: fragment swaps like the
   // week-strip refresh must not kill an active scan)
@@ -695,6 +712,71 @@ if (!window.__fitnessBound) {
     // rides along in the same response as an out-of-band block, so there is
     // nothing left to chase — one request, both columns.
   });
+}
+
+// ── Keyboard ───────────────────────────────────────────────────────────────
+// `/` reaches the log field from anywhere on the page and Esc unwinds one layer
+// per press. Modelled on artfeed.js, palette guard included.
+
+function fitnessIsTyping(el) {
+  if (!el) return false;
+  const tag = el.tagName;
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable;
+}
+
+// palette.js's Escape handler does not stopPropagation, so without this one
+// press would close the palette AND a layer of this page at once.
+function fitnessPaletteOpen() {
+  const overlay = document.getElementById('palette-overlay');
+  return !!overlay && !overlay.hidden;
+}
+
+// Shared by `/` and the phone bar's Search button. Scrolls before focusing: on
+// a phone the log card sits below the whole left column, so a bare focus() puts
+// the caret somewhere off screen and the page looks like it ignored the tap.
+function focusLogSearch() {
+  const search = document.getElementById('log-search');
+  if (!search) return;
+  const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  search.scrollIntoView({ block: 'center', behavior: still ? 'auto' : 'smooth' });
+  search.focus();
+  search.select();
+}
+
+function fitnessKeydown(e) {
+  // Leave chords alone — Ctrl/Cmd-K belongs to the command palette.
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+
+  const search = document.getElementById('log-search');
+  const active = document.activeElement;
+
+  // Escape is handled before the typing guard on purpose: leaving a field is
+  // the one thing that has to work while that field has focus.
+  if (e.key === 'Escape' && !fitnessPaletteOpen()) {
+    // One layer per press, outermost first. The meal builder is deliberately
+    // NOT on this list — it holds items staged but never saved, and Esc is a
+    // reflex key. Discarding a half-built meal to a reflex would be a trap, so
+    // it keeps its visible toggle and nothing else.
+    const sheet = document.getElementById('add-sheet');
+    if (sheet && !sheet.hidden) { e.preventDefault(); closeAddSheet(); return; }
+    if (search && active === search) {
+      // preventDefault does more than stop the blur being undone: WebKit clears
+      // an <input type="search"> on Escape, and that fires `input`, which trips
+      // the field's 200ms hx-get for a query nobody typed.
+      e.preventDefault();
+      search.blur();
+      return;
+    }
+    return;
+  }
+
+  if (fitnessIsTyping(active)) return;
+
+  if (e.key === '/') {
+    // Without this the slash lands in the field it just focused.
+    e.preventDefault();
+    focusLogSearch();
+  }
 }
 
 // Add food form toggle

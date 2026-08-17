@@ -722,3 +722,40 @@ would mean deleting its mobile navigation — not a fitness pack's call. Left
 recorded here rather than silently changed.
 
 </details>
+
+### Pack 5 — in progress (started 2026-08-18)
+
+**Ends in:** the phone layout with its action bar; motion and keyboard; the
+library folded into the new treatment. The container's last pack, so the debt
+Packs 3 and 4 recorded lands here or ships unfixed.
+
+| # | Item | Done when |
+| --- | --- | --- |
+| 5.1 | The bottom bar becomes a phone bar | Below 900px it floats over the day with the design's gradient and `lg` buttons; at ≥900px it is gone, and nothing it used to reserve space for is clipped |
+| 5.2 | Phone sizes for the ring and the pie | Ring 104px / pie 64px below 900px, 132 / 76 above |
+| 5.3 | `/` and `Esc` | `/` focuses the log search from anywhere on the page; `Esc` unwinds one layer per press |
+| 5.4 | Motion and `prefers-reduced-motion` | Controls press by 1px; a reduced-motion visitor gets no transition anywhere on the page |
+| 5.5 | Hit-target audit | Amount buttons, nudge buttons and slot chips measure ≥34px tall — in a **collapsed** row as well as an expanded one — and nudge buttons ≥44px wide |
+| 5.6 | The library, folded in | Its header, search, chips and add-food form wear the design system, behind an `Open`/`Hide` toggle |
+| 5.7 | `base_name` becomes editable | The add and edit food forms write the column migration 022 added |
+
+**Rulings taken before writing any of it:**
+
+- **The bar stays `position: fixed`; the design's `sticky` is a prototype
+  artifact.** The prototype draws a 390px bordered `div` with `padding: 0 16px
+  24px` and sticks the bar to *that* box as the desktop page scrolls. On a real
+  phone the viewport is the box and the bar is the last in-flow child of
+  `.fitness-today`, so `bottom: 0` has nothing to stick against — it would
+  settle at the document end and you would scroll the whole day to reach the
+  Scan button. `fixed` delivers what the sticky was drawing.
+- **The collapse in 5.6 defaults to open.** Closed would re-bury the edit,
+  delete and favourite controls Pack 4's review wave had just restored, and
+  bury them worst for exactly the macro-less rows create-and-log produces on
+  purpose. Same shape as that regression; not repeating it.
+- **The ring's fill will not animate, and no rule will be written pretending it
+  does.** The brief asks for a 280ms fill. The ring is an SVG `<circle>` whose
+  `stroke-dashoffset` the server computes, delivered by an out-of-band swap — a
+  freshly inserted element has no previous value to transition *from*, so the
+  browser paints the final state at once. Animating it means a JS-set custom
+  property after every swap, which is more machinery than a polish pack should
+  add. Recorded, not faked.

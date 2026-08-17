@@ -253,12 +253,23 @@ const SLOTS: [(&str, &str); 5] = [
 /// A macro-less food yields three zero-width arcs, i.e. a flat disc of the last
 /// colour; callers render `.fit-pie--empty` instead for that case.
 fn macro_pie_style(protein: f64, carbs: f64, fat: f64, size_px: u32) -> String {
+    format!(
+        "width:{size}px;height:{size}px;{gradient}",
+        size = size_px,
+        gradient = macro_pie_gradient(protein, carbs, fat)
+    )
+}
+
+/// The same arcs without a diameter, for the one pie whose size is a layout
+/// decision rather than a fixed mark: the day's composition pie is 76px on
+/// desktop and 64px on a phone, and an inline `width` would beat any media
+/// query trying to say so.
+fn macro_pie_gradient(protein: f64, carbs: f64, fat: f64) -> String {
     let (p, c, _f) = macro_shares(protein, carbs, fat);
     format!(
-        "width:{size}px;height:{size}px;background:conic-gradient(\
+        "background:conic-gradient(\
          var(--status-warning) 0 {p:.1}%,var(--status-info) {p:.1}% {pc:.1}%,\
          var(--status-danger) {pc:.1}% 100%)",
-        size = size_px,
         p = p,
         pc = p + c
     )
@@ -795,7 +806,7 @@ fn composition_html(protein: f64, carbs: f64, fat: f64) -> String {
     {rows}
   </div>
 </div>"##,
-        pie = macro_pie_style(protein, carbs, fat, 76),
+        pie = macro_pie_gradient(protein, carbs, fat),
         rows = rows
     )
 }
