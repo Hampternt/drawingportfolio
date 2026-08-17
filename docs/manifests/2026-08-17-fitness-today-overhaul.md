@@ -374,7 +374,47 @@ restructure for Pack 4 rather than a review fix.
 </details>
 
 <details>
-<summary><b>Packs 4–5 — scope only</b></summary>
+<summary><b>Pack 4 — Day at a glance</b> (in progress)</summary>
+
+**Done when:** the left rail answers "where does the day stand" without
+arithmetic — ring, rails, week strip, what the calories were made of, what is
+left, and the streak — and the library is grouped by what foods actually are.
+
+- [ ] **4.1 Fragment boundaries, redrawn.** The log card renders no day data yet
+      lives inside the day fragment, which is why Pack 3 pays two round trips per
+      log and why the meal builder needed rebuilding after every swap. Lift it
+      out; `#day-section` becomes the meal slots alone, and the left rail's
+      summary refreshes by out-of-band swap on the same response.
+      *Done: logging updates slots and summary in one request; an idle page and
+      a logging page both show no redundant fetches.*
+- [ ] **4.2 Summary card.** 132px calorie ring beside the three macro rails in
+      their macro colours, the week strip moved inside the card, and a footer of
+      `1840 / 2400 kcal` in mono with the `Targets` button.
+      *Done: the card matches the design and tracks the day.*
+- [ ] **4.3 Where the calories came from.** The 76px day pie plus its legend —
+      three mono rows, each a swatch and `protein 31% · 168 g` in that macro's
+      colour. Shares are of **calories**, not grams, which is the whole point.
+      *Done: the legend's percentages sum to 100 and match the pie.*
+- [ ] **4.4 Left to hit today, and the streak.** Four tiles (kcal, protein,
+      carbs, fat) counting down, going `+N` in `--status-danger` once over. The
+      streak card reuses `compute_streak`, already written and tested for the
+      week page.
+      *Done: tiles count down and flip sign; the streak matches the week view.*
+- [ ] **4.5 Library by nutrition profile.** Regroup the food library under
+      `mostly protein` / `mostly carbs` / `mostly fat` / `balanced` /
+      `macros missing` — the same `dominance` the rows already use — collapsed
+      by default, each row one tap from being logged.
+      *Done: the library groups by what foods are, not by a category field.*
+
+**Item gate:** `./scripts/check.sh` + `cargo test --bin drawingportfolio nutrition::`.
+**Pack gate:** `./scripts/verify.sh`, a walkthrough of the day-at-a-glance
+numbers against the rows that produce them, **and a network check on an idle
+page** — the Pack 3 lesson.
+
+</details>
+
+<details>
+<summary><b>Pack 5 — scope only</b></summary>
 
 **Pack 4 — Day at a glance.** Summary card (132px ring, three macro rails, week
 strip, day macro pie + "where the calories came from" legend), the "left to hit

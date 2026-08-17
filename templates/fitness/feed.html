@@ -39,10 +39,12 @@
         <a class="fitness-whoami-name" href="/fitness/account">{{ user_name }}</a>
       </div>
 
-      <!-- Date navigator: week strip + step arrows -->
+      <!-- Summary: ring, rails, week strip, totals. Re-rendered out-of-band by
+           every day response, so it never needs a fetch of its own. -->
+      {{ summary_html|safe }}
+
       <div class="fitness-date-nav">
         <button id="prev-day" class="btn-secondary" aria-label="Previous day">←</button>
-        {{ week_strip_html|safe }}
         <button id="next-day" class="btn-secondary" aria-label="Next day">→</button>
       </div>
 
@@ -58,17 +60,39 @@
     </div>
     <div class="fit-col fit-col--right">
 
-      <!-- Desktop quick-add: type-ahead over the library, Enter logs the usual portion -->
-      <div id="quickadd">
-        <input class="noc-input" type="search" id="quickadd-input" placeholder="Type a food, Enter logs your usual portion…"
-               name="q" hx-get="/fitness/htmx/food-search" hx-trigger="input changed delay:250ms"
-               hx-target="#quickadd-results" hx-swap="innerHTML">
-        <div id="quickadd-results"></div>
+      <!-- The log card. Outside #day-section on purpose: it renders no day
+           data, so rebuilding it on every log cost two round trips and threw
+           away the meal builder mid-compose. -->
+      <div class="noc-card fit-log">
+        <div class="fit-log__slots">
+          <span class="fit-log__kicker">LOG TO</span>
+          <button type="button" class="hm-btn hm-btn--sm hm-btn--ghost" data-slot="breakfast" onclick="setSlot(this)">breakfast</button>
+          <button type="button" class="hm-btn hm-btn--sm hm-btn--ghost" data-slot="lunch" onclick="setSlot(this)">lunch</button>
+          <button type="button" class="hm-btn hm-btn--sm hm-btn--ghost" data-slot="dinner" onclick="setSlot(this)">dinner</button>
+          <button type="button" class="hm-btn hm-btn--sm hm-btn--ghost" data-slot="snack" onclick="setSlot(this)">snack</button>
+          <span class="fit-log__note" id="fit-slot-note" hidden></span>
+          <button type="button" class="hm-btn hm-btn--sm hm-btn--ghost fit-log__now" id="fit-slot-now" hidden onclick="snapSlotToClock()"></button>
+          <span class="fit-log__check" id="fit-check-count">all amounts checked</span>
+        </div>
+        <div class="fit-log__search">
+          <div class="fit-field">
+            <span class="hm-icon hm-icon--search" aria-hidden="true"></span>
+            <input type="search" id="log-search" name="q" autocomplete="off"
+                   placeholder="Type a food, &#8629; logs your usual portion"
+                   hx-get="/fitness/htmx/log-options" hx-trigger="input changed delay:200ms, load"
+                   hx-target="#log-options" hx-swap="innerHTML">
+            <kbd class="fit-field__kbd">/</kbd>
+          </div>
+          <button type="button" class="hm-btn hm-btn--md hm-btn--secondary" onclick="openAddSheet('scan')">Scan</button>
+        </div>
+        <div id="log-options"></div>
+        <div id="fit-meals" hx-get="/fitness/htmx/meals-section" hx-trigger="load"
+             hx-target="this" hx-swap="innerHTML"></div>
       </div>
 
-      <!-- Day section: totals + meal log + log form (pre-rendered by Rust) -->
+      <!-- Day section: the meal slot cards, and nothing else. -->
       <div id="day-section">
-        {{ day_section_html|safe }}
+        {{ day_slots_html|safe }}
       </div>
 
       <!-- Food library section -->
@@ -208,14 +232,6 @@ function filterLibrary(q) {
   });
 }
 
-function markSelectedDay(date) {
-  document.querySelectorAll('#week-strip .day-col').forEach(col => {
-    const sel = col.dataset.date === date;
-    col.querySelector('.day-letter').classList.toggle('selected', sel);
-    col.querySelector('.day-cell').classList.toggle('selected', sel);
-  });
-}
-
 function libFilter(btn) {
   document.querySelectorAll('.lib-chips [data-filter]').forEach(b => {
     b.classList.toggle('noc-tag-accent', b === btn);
@@ -245,7 +261,6 @@ function loadDay(date) {
     return;
   }
   window.currentDate = date;
-  markSelectedDay(date);
   htmx.ajax('GET', '/fitness/htmx/day?date=' + date, {target: '#day-section', swap: 'innerHTML'});
 }
 
@@ -484,34 +499,6 @@ window.onBarcodeMatch = function (code) {
   });
 };
 
-// Desktop quick-add (Task 10)
-function quickLogItem(id) {
-  htmx.ajax('POST', '/fitness/quick-log', {
-    target: '#day-section', swap: 'innerHTML',
-    values: { food_item_id: id, date: window.currentDate, slot: defaultSlot() }
-  });
-  document.getElementById('quickadd-input').value = '';
-  document.getElementById('quickadd-results').innerHTML = '';
-}
-
-function initQuickAdd() {
-  const input = document.getElementById('quickadd-input');
-  if (!input || input.dataset.init) return;
-  input.dataset.init = '1';
-  input.addEventListener('keydown', e => {
-    if (e.key !== 'Enter') return;
-    e.preventDefault();
-    const first = document.querySelector('#quickadd-results .search-row');
-    if (first) quickLogItem(first.dataset.itemId);
-  });
-  // capture phase so the row's hx-get (sheet flow) doesn't also fire here
-  document.getElementById('quickadd-results').addEventListener('click', e => {
-    const row = e.target.closest('.search-row');
-    if (row) { e.preventDefault(); e.stopPropagation(); quickLogItem(row.dataset.itemId); }
-  }, true);
-}
-document.addEventListener('DOMContentLoaded', initQuickAdd);
-
 // A freshly logged row wears an amber edge and opens its amount grid, so the
 // one thing worth checking — did it log the amount you meant? — is already in
 // front of you. The server names the row via an HX-Trigger header; the flag
@@ -653,12 +640,6 @@ function flagFreshRow(id) {
   if (btn) btn.setAttribute('aria-expanded', 'true');
 }
 
-function refreshWeekStrip() {
-  if (!document.getElementById('week-strip')) return;
-  htmx.ajax('GET', '/fitness/htmx/week-strip?date=' + window.currentDate,
-    {target: '#week-strip', swap: 'outerHTML'});
-}
-
 // Body-level htmx listeners — registered once per tab: <body> survives
 // hx-boost swaps, so re-running this script on a boosted return visit must
 // not stack duplicates (CLAUDE.md hx-boost rule).
@@ -693,18 +674,15 @@ if (!window.__fitnessBound) {
     if (e.target && e.target.id === 'fit-meals') applyMealBuilderState();
     initSlotDefault();
     initSheetForms();
-    initQuickAdd();
     // Keep the week strip's bar in sync after any day mutation.
     //
     // This used to test `e.target.id === 'day-section'`, which was sound while
     // every mutation swapped the whole day. Changing an amount now swaps one
     // row, so that test never fires and the strip would silently drift from
     // the totals beside it. Anything that lands inside the day counts.
-    const inDay = e.target && e.target.closest &&
-      (e.target.id === 'day-section' || e.target.closest('#day-section'));
-    if (inDay && document.getElementById('week-strip')) {
-      refreshWeekStrip();
-    }
+    // The week strip used to be re-fetched here after any day mutation. It now
+    // rides along in the same response as an out-of-band block, so there is
+    // nothing left to chase — one request, both columns.
   });
 }
 

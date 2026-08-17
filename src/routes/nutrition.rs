@@ -731,53 +731,48 @@ async fn render_day(
     let last_grams = crate::db::get_last_grams_map(pool, user).await;
     // The food catalog used to be fetched here too, purely to bake an <option>
     // list into the log form. That form is gone, and so is the query.
-    day_section_html(&entries, date, &targets, can_edit, &last_grams)
+    let slots = day_slots_html(&entries, date, can_edit, &last_grams);
+
+    // The summary rides along out-of-band. It lives in the other column, so it
+    // cannot be this response's target — but it is a pure function of the very
+    // rows being swapped, and fetching it separately afterwards is exactly how
+    // the week strip came to cost a second request per log.
+    let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+    let week = week_for(pool, date, user).await;
+    let summary = summary_card_html(&entries, &targets, date, &week, &today, true);
+    format!("{slots}\n{summary}")
 }
 
-pub fn day_section_html(
+/// The meal slot cards — and *only* those. This is `#day-section`.
+///
+/// The log card used to render here too, which cost two round trips on every
+/// log re-fetching sections that had not changed, and made the meal builder's
+/// panel vanish mid-compose. It renders no day data, so it now lives in the
+/// page and stays put.
+pub fn day_slots_html(
     entries: &[crate::models::MealEntryWithFood],
     date: &str,
-    targets: &crate::models::Targets,
     can_edit: bool,
-    // Each food's last-logged amount for this user, feeding every row's `last`
-    // button. Passed in rather than looked up per row — one query serves the
-    // whole day.
     last_grams: &HashMap<i64, f64>,
 ) -> String {
-    // The `+ 0.0` is not redundant. `f64`'s `Sum` identity is **negative** zero
-    // — `-0.0 + x == x` holds for every x including `-0.0`, which `0.0` does
-    // not satisfy — so an empty day sums to `-0.0`, `{:.0}` formats that as
-    // "-0", and `rail_pct`'s `clamp(0.0, 100.0)` waves it through because
-    // `-0.0 >= 0.0` is true. `-0.0 + 0.0 == 0.0` collapses it.
-    //
-    // The bug predates multi-user; what changed is who meets it. An empty day
-    // used to be a date you had deliberately scrolled back to. It is now the
-    // first screen every new member sees.
-    let total_cal: f64 = entries.iter().map(|e| e.calories).sum::<f64>() + 0.0;
-    let total_protein: f64 = entries.iter().map(|e| e.protein).sum::<f64>() + 0.0;
-    let total_carbs: f64 = entries.iter().map(|e| e.carbs).sum::<f64>() + 0.0;
-    let total_fat: f64 = entries.iter().map(|e| e.fat).sum::<f64>() + 0.0;
-
-    let slots_html: String = SLOTS
+    SLOTS
         .iter()
         .map(|(key, label)| {
             let slot_entries: Vec<_> = entries.iter().filter(|e| e.slot == *key).collect();
             if slot_entries.is_empty() && *key == "other" {
-                return String::new(); // "other" group hidden when empty
+                return String::new(); // hidden until something lands in it
             }
             let slot_cal: f64 = slot_entries.iter().map(|e| e.calories).sum();
             // An em dash, not "0" — the slot has no total rather than a total
-            // of nothing, and a zero here reads as a logged but calorie-free
-            // meal.
+            // of nothing, and a zero reads as a logged but calorie-free meal.
             let head_cal = if slot_entries.is_empty() {
                 "—".to_string()
             } else {
-                format!("{:.0}", slot_cal)
+                format!("{slot_cal:.0}")
             };
             let add_btn = if can_edit {
                 format!(
-                    r##"<button type="button" class="fit-slot__add" onclick="addToSlot('{key}')">+ add</button>"##,
-                    key = key
+                    r##"<button type="button" class="fit-slot__add" onclick="addToSlot('{key}')">+ add</button>"##
                 )
             } else {
                 String::new()
@@ -807,9 +802,7 @@ pub fn day_section_html(
   <input class="noc-input" type="text" name="name" placeholder="Meal name" required>
   <button type="submit" class="noc-btn noc-btn-secondary">Save</button>
 </form></details>"##,
-                    rows = rows,
-                    date = html_escape(date),
-                    key = key
+                    date = html_escape(date)
                 )
             };
             format!(
@@ -821,75 +814,69 @@ pub fn day_section_html(
   </div>
   {body}
 </div>"##,
-                key = key,
-                label = label.to_lowercase(),
-                head_cal = head_cal,
-                add_btn = add_btn,
-                body = body
+                label = label.to_lowercase()
             )
         })
         .collect::<Vec<_>>()
-        .join("\n");
+        .join("\n")
+}
 
-    let pct_of_target = if targets.calories > 0.0 {
-        (total_cal / targets.calories * 100.0).round()
-    } else {
-        0.0
-    };
-    let summary = format!(
-        r##"<div class="day-summary noc-card">
-  {ring}
-  <div class="macro-rails">
-    {p}{c}{f}
-    <div class="cal-caption">{cal:.0} of {tcal:.0} cal · {pct:.0}%</div>
-  </div>
-</div>
-<div class="targets-row">
-  <button class="noc-btn noc-btn-ghost" hx-get="/fitness/htmx/targets?date={date}" hx-target="#targets-editor" hx-swap="innerHTML">Edit targets</button>
-  <div id="targets-editor"></div>
-</div>"##,
-        ring = calorie_ring_svg(total_cal, targets.calories),
-        p = macro_rail_html("Protein", total_protein, targets.protein, "#9184d9"),
-        c = macro_rail_html("Carbs", total_carbs, targets.carbs, "#796cbf"),
-        f = macro_rail_html("Fat", total_fat, targets.fat, "#5d5294"),
-        cal = total_cal,
-        tcal = targets.calories,
-        pct = pct_of_target,
-        date = html_escape(date)
-    );
+/// The left rail's summary: ring, macro rails, week strip and the day's totals.
+///
+/// Rendered out-of-band so one logging response updates both the slots and the
+/// numbers describing them. The week strip used to be fetched separately after
+/// every mutation — a second request asking what the first response already
+/// knew.
+pub fn summary_card_html(
+    entries: &[crate::models::MealEntryWithFood],
+    targets: &crate::models::Targets,
+    date: &str,
+    week: &[(String, f64)],
+    today: &str,
+    oob: bool,
+) -> String {
+    // The `+ 0.0` is not redundant. `f64`'s `Sum` identity is **negative** zero
+    // — `-0.0 + x == x` holds for every x including `-0.0`, which `0.0` does
+    // not satisfy — so an empty day sums to `-0.0`, `{:.0}` formats that as
+    // "-0", and `rail_pct`'s clamp waves it through because `-0.0 >= 0.0`.
+    // `-0.0 + 0.0 == 0.0` collapses it. The first screen a new member sees.
+    let total_cal: f64 = entries.iter().map(|e| e.calories).sum::<f64>() + 0.0;
+    let total_protein: f64 = entries.iter().map(|e| e.protein).sum::<f64>() + 0.0;
+    let total_carbs: f64 = entries.iter().map(|e| e.carbs).sum::<f64>() + 0.0;
+    let total_fat: f64 = entries.iter().map(|e| e.fat).sum::<f64>() + 0.0;
 
     format!(
-        r##"{summary}
-<div class="noc-card fit-log">
-  <div class="fit-log__slots">
-    <span class="fit-log__kicker">LOG TO</span>
-    <button type="button" class="hm-btn hm-btn--sm hm-btn--ghost" data-slot="breakfast" onclick="setSlot(this)">breakfast</button>
-    <button type="button" class="hm-btn hm-btn--sm hm-btn--ghost" data-slot="lunch" onclick="setSlot(this)">lunch</button>
-    <button type="button" class="hm-btn hm-btn--sm hm-btn--ghost" data-slot="dinner" onclick="setSlot(this)">dinner</button>
-    <button type="button" class="hm-btn hm-btn--sm hm-btn--ghost" data-slot="snack" onclick="setSlot(this)">snack</button>
-    <span class="fit-log__note" id="fit-slot-note" hidden></span>
-    <button type="button" class="hm-btn hm-btn--sm hm-btn--ghost fit-log__now" id="fit-slot-now" hidden onclick="snapSlotToClock()"></button>
-    <span class="fit-log__check" id="fit-check-count">all amounts checked</span>
-  </div>
-  <div class="fit-log__search">
-    <div class="fit-field">
-      <span class="hm-icon hm-icon--search" aria-hidden="true"></span>
-      <input type="search" id="log-search" name="q" autocomplete="off"
-             placeholder="Type a food, &#8629; logs your usual portion"
-             hx-get="/fitness/htmx/log-options" hx-trigger="input changed delay:200ms, load"
-             hx-target="#log-options" hx-swap="innerHTML"
-             hx-vals='js:{{date: window.currentDate}}'>
-      <kbd class="fit-field__kbd">/</kbd>
+        r##"<div class="noc-card fit-summary" id="fit-summary"{oob}>
+  <div class="fit-summary__top">
+    {ring}
+    <div class="fit-summary__rails">
+      {p}{c}{f}
     </div>
-    <button type="button" class="hm-btn hm-btn--md hm-btn--secondary" onclick="openAddSheet('scan')">Scan</button>
   </div>
-  <div id="log-options"></div>
-  <div id="fit-meals" hx-get="/fitness/htmx/meals-section" hx-trigger="load"
-       hx-target="this" hx-swap="innerHTML"></div>
-</div>
-{slots}"##,
-        summary = summary,
-        slots = slots_html
+  {strip}
+  <hr class="fit-log__rule">
+  <div class="fit-summary__foot">
+    <span class="fit-summary__kcal">{cal:.0} / {tcal:.0} kcal</span>
+    <button type="button" class="hm-btn hm-btn--sm hm-btn--ghost"
+            hx-get="/fitness/htmx/targets?date={date}"
+            hx-target="#targets-editor" hx-swap="innerHTML">Targets</button>
+  </div>
+  <div id="targets-editor"></div>
+</div>"##,
+        oob = if oob { r#" hx-swap-oob="true""# } else { "" },
+        ring = calorie_ring_svg(total_cal, targets.calories),
+        p = macro_rail_html(
+            "protein",
+            total_protein,
+            targets.protein,
+            "var(--status-warning)"
+        ),
+        c = macro_rail_html("carbs", total_carbs, targets.carbs, "var(--status-info)"),
+        f = macro_rail_html("fat", total_fat, targets.fat, "var(--status-danger)"),
+        strip = week_strip_html(week, date, today, targets.calories),
+        cal = total_cal,
+        tcal = targets.calories,
+        date = html_escape(date)
     )
 }
 
@@ -1031,8 +1018,10 @@ struct FitnessTemplate {
     date_label: String,
     /// Target of the head's Yesterday link.
     prev_date: String,
-    week_strip_html: String,
-    day_section_html: String,
+    /// The left rail's summary, rendered in place on first paint and refreshed
+    /// out-of-band by every day response thereafter.
+    summary_html: String,
+    day_slots_html: String,
     library_html: String,
 }
 
@@ -1049,12 +1038,12 @@ async fn fitness_page(
     let food_items = crate::db::get_food_items(&state.pool, session.user()).await;
     let targets = crate::db::get_targets(&state.pool, session.user()).await;
     let week = week_for(&state.pool, &date, session.user()).await;
-    let strip = week_strip_html(&week, &date, &today, targets.calories);
-    // Not `render_day` here: this handler already holds `food_items` and
-    // `targets` for the library and the week strip, and re-fetching them would
-    // trade three queries for tidier-looking code.
+    // Not `render_day` here: this handler already holds `entries`, `targets`
+    // and `week` for the library and the summary, and the first paint wants the
+    // summary in place rather than out-of-band.
     let last_grams = crate::db::get_last_grams_map(&state.pool, session.user()).await;
-    let day_html = day_section_html(&entries, &date, &targets, true, &last_grams);
+    let day_html = day_slots_html(&entries, &date, true, &last_grams);
+    let summary = summary_card_html(&entries, &targets, &date, &week, &today, false);
     let recent_ids: std::collections::HashSet<i64> =
         crate::db::get_recent_foods(&state.pool, 20, session.user())
             .await
@@ -1069,8 +1058,8 @@ async fn fitness_page(
             date_label: head_date_label(&date),
             prev_date: step_date(&date, -1),
             date,
-            week_strip_html: strip,
-            day_section_html: day_html,
+            summary_html: summary,
+            day_slots_html: day_html,
             library_html: lib_html,
         }
         .render()
@@ -2994,20 +2983,24 @@ mod tests {
             carbs: 260.0,
             fat: 72.0,
         };
-        let html = day_section_html(&[], "2026-08-16", &targets, true, &HashMap::new());
+        let html = summary_card_html(&[], &targets, "2026-08-16", &[], "2026-08-16", false);
 
         // Checked against the rendered numbers rather than a bare `-0` search:
         // the ISO date in the markup contains "-0" all by itself.
-        assert!(
-            html.contains("0 of 2400 cal · 0%"),
-            "calorie caption is wrong"
-        );
-        assert!(html.contains("<span>Protein</span><span class=\"rail-nums\">0 / 165 g"));
-        assert!(html.contains("<span>Carbs</span><span class=\"rail-nums\">0 / 260 g"));
-        assert!(html.contains("<span>Fat</span><span class=\"rail-nums\">0 / 72 g"));
+        assert!(html.contains("0 / 2400 kcal"), "calorie footer is wrong");
+        assert!(html.contains("<span>protein</span><span class=\"rail-nums\">0 / 165 g"));
+        assert!(html.contains("<span>carbs</span><span class=\"rail-nums\">0 / 260 g"));
+        assert!(html.contains("<span>fat</span><span class=\"rail-nums\">0 / 72 g"));
         assert!(
             !html.contains("width:-0%"),
             "a rail was rendered with a negative-zero width"
+        );
+        // The ring reads the same totals, so it is the fourth place -0 could
+        // surface. Its dash offset is derived, not formatted, but a negative
+        // zero consumed value would show up as a NaN or negative offset.
+        assert!(
+            !html.contains("stroke-dashoffset:-") && !html.contains("NaN"),
+            "the ring rendered a negative or NaN offset on an empty day"
         );
     }
 
