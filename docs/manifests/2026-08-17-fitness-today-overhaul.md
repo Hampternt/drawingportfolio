@@ -848,6 +848,12 @@ horizontal overflow at 375px with the library open and the add form open.
   the transposition is invisible to the compiler; this pack verified all 21
   call sites by position and pinned the neighbours in a test, but the real fix
   is a parameter struct. Not in a polish pack.
+- **A food made by create-and-log does not appear in the library list until
+  the next reload.** `create_and_log` returns the day fragment only, so the
+  rendered library goes stale. The food itself is in the catalog immediately
+  and reachable everywhere it matters — search, "Log again", the day — so this
+  is a stale list, not lost data. An out-of-band library block in that response
+  would fix it.
 - **The entry-edit fragment and `.meal-entry` CSS are still dead** — carried
   from Pack 3, now the only debt this container leaves behind.
 - `#fit-meals` and `#log-options` still fetch on `load`, i.e. two requests per
@@ -857,7 +863,7 @@ horizontal overflow at 375px with the library open and the add form open.
 </details>
 
 <details>
-<summary><b>Review wave — 1 finding, fixed</b> (<code>high</code>, 2026-08-18)</summary>
+<summary><b>Review wave — 3 findings, all fixed</b> (<code>high</code>, 2026-08-18)</summary>
 
 Gate re-run green.
 
@@ -870,6 +876,21 @@ Gate re-run green.
    body's `htmx:afterSwap`, unconditionally. The conditional was the cause —
    `e.target.id === 'food-library'` is true for an add or a delete and false
    for the body swap that needed it most.
+
+2. **The OpenFoodFacts fallback un-hid a form inside a hidden card.** Item 5.6
+   moved the add-food form into the library's collapsible body and taught the
+   "+ Add food" button to open it; `openOffLookup` in `barcode.js` still set
+   `form.hidden = false` on its own, so an unknown barcode scanned with the
+   library closed revealed nothing and scrolled nowhere. There is now one way
+   in — `revealAddFoodForm()` — and `barcode.js` calls it.
+3. **No log action cleared the search query**, which the brief's interaction
+   table asks for. A pack-3 gap rather than a pack-5 regression, fixed here
+   because of what it does to create-and-log specifically: the query stayed,
+   so `+ Add "x" and log 100 g` stayed live under the user's finger, and a
+   second tap would mint a *second* food of the same name in a catalog
+   everybody shares. Verified: after create-and-log the field is empty, the
+   primary is gone, the list has become "Log again", and exactly one entry
+   carries the name.
 
 **Worth carrying forward.** The bug this pack caught in its own work was item
 5.5's: raising the library icons to 34px pushed the row 61px past a 360px

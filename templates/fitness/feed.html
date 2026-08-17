@@ -718,6 +718,7 @@ if (!window.__fitnessBound) {
       ids.forEach(flagFreshRow);
       if (text) showToast(text, ids);
       updateCheckCount();
+      clearLogQuery();
     }, 0);
   });
   document.body.addEventListener('htmx:afterSwap', e => {
@@ -746,6 +747,19 @@ if (!window.__fitnessBound) {
     // rides along in the same response as an out-of-band block, so there is
     // nothing left to chase — one request, both columns.
   });
+}
+
+// Every log action clears the query, which the brief's interaction table asks
+// for on chips, "usual at", and the library's Log alike. It matters most for
+// create-and-log: leaving the query in place leaves `+ Add "x" and log 100 g`
+// sitting there live, and a second tap on it creates a *second* food of the
+// same name in a catalog everybody shares. Re-fetching restores the "Log
+// again" list the empty query renders — one request, and only on a log.
+function clearLogQuery() {
+  const search = document.getElementById('log-search');
+  if (!search || !search.value) return;
+  search.value = '';
+  htmx.ajax('GET', '/fitness/htmx/log-options', {target: '#log-options', swap: 'innerHTML'});
 }
 
 // ── Keyboard ───────────────────────────────────────────────────────────────
@@ -851,15 +865,27 @@ function updateLibraryCount() {
   el.textContent = n === 1 ? '1 food' : n + ' foods';
 }
 
+// The one way in to the add-food form. It lives inside the collapsible body,
+// so showing it means opening that too — a caller that only clears `hidden`
+// gets a form inside a `display: none` ancestor, i.e. nothing on screen and a
+// scrollIntoView that goes nowhere. barcode.js's OpenFoodFacts fallback calls
+// this rather than reaching for the attribute itself.
+function revealAddFoodForm() {
+  const form = document.getElementById('add-food-form');
+  if (!form) return null;
+  toggleLibrary(true);
+  form.hidden = false;
+  return form;
+}
+
 // Add food form toggle
 function toggleAddForm() {
   const form = document.getElementById('add-food-form');
-  form.hidden = !form.hidden;
-  if (!form.hidden) {
-    // The form lives inside the collapsible body, so opening it while the
-    // library is closed would look like the button did nothing.
-    toggleLibrary(true);
+  if (form.hidden) {
+    revealAddFoodForm();
     form.querySelector('[name="name"]').focus();
+  } else {
+    form.hidden = true;
   }
 }
 
