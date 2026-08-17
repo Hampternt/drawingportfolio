@@ -311,6 +311,9 @@ pub struct FoodItem {
     pub custom_portions: String,
     pub image_url: String,
     pub category: String,
+    /// What the food's basis is called — "pack", "breast", "scoop". Shared,
+    /// because it describes the food rather than the eater. Migration 022.
+    pub base_name: String,
     pub is_favourite: i64,
     pub default_portion_g: Option<f64>,
     pub created_at: String,

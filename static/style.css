@@ -831,6 +831,116 @@ body.fitness-dark .fit-summary__foot {
 }
 body.fitness-dark .fit-summary__kcal { font: var(--type-mono); color: var(--text-muted); }
 
+/* Food library, grouped by what a food is rather than by a category nobody
+   fills in. Rows are wide and quiet; the Log button is the only accent. */
+body.fitness-dark .lib-group__head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-4);
+  margin: 12px 0 6px;
+  font: var(--type-label);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+}
+body.fitness-dark .lib-group__count { font: var(--type-mono); color: var(--text-faint); }
+body.fitness-dark .lib-rows { list-style: none; margin: 0; padding: 0; }
+body.fitness-dark .lib-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-5);
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border-subtle);
+  font: var(--type-label);
+}
+body.fitness-dark .lib-row:last-child { border-bottom: none; }
+body.fitness-dark .lib-row__pie-empty { width: 18px; height: 18px; }
+body.fitness-dark .lib-row__name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: var(--type-body-sm);
+  color: var(--text-strong);
+}
+body.fitness-dark .lib-row__kcal { color: var(--text-muted); white-space: nowrap; }
+body.fitness-dark .lib-row__macros { display: flex; gap: var(--space-4); white-space: nowrap; }
+body.fitness-dark .lib-row__basis { font: var(--type-mono); color: var(--text-faint); }
+body.fitness-dark .lib-row__nomacros { color: var(--text-faint); }
+/* Below the two-column breakpoint the metadata is the first thing to go — the
+   name and the Log button are what the row is for. */
+@media (max-width: 899px) {
+  body.fitness-dark .lib-row__kcal,
+  body.fitness-dark .lib-row__basis { display: none; }
+}
+
+/* Where the calories came from — the day pie and its legend. */
+body.fitness-dark .fit-comp {
+  display: flex;
+  align-items: center;
+  gap: var(--space-6);
+}
+body.fitness-dark .fit-comp__pie { flex: none; border-radius: var(--radius-pill); }
+body.fitness-dark .fit-comp__legend {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+body.fitness-dark .fit-comp__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  font: var(--type-mono);
+}
+body.fitness-dark .fit-comp__swatch {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+}
+
+/* Left to hit today. */
+body.fitness-dark .fit-left { padding: 14px 16px; }
+body.fitness-dark .fit-left__grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: var(--space-4);
+}
+body.fitness-dark .fit-left__tile {
+  padding: 8px 10px;
+  background: var(--surface-inset);
+  border: var(--border-width) solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+}
+body.fitness-dark .fit-left__label {
+  font: var(--type-label);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+}
+body.fitness-dark .fit-left__value {
+  font: var(--weight-regular) var(--text-15)/1.45 var(--font-mono);
+  color: var(--text-strong);
+}
+/* Past the target, not short of it — the tile shows `+N` and turns, so the
+   sign is legible without reading the number. */
+body.fitness-dark .fit-left__value--over { color: var(--status-danger); }
+
+/* Streak. */
+body.fitness-dark .fit-streak {
+  display: flex;
+  align-items: center;
+  gap: var(--space-5);
+  padding: 14px 16px;
+  background: var(--surface-inset);
+}
+body.fitness-dark .fit-streak__n {
+  font: 800 40px/1 var(--font-display);
+  color: var(--accent-warm);
+}
+body.fitness-dark .fit-streak__label { font: var(--type-body-sm); color: var(--text-muted); }
+
 /* Saved meals and the builder. */
 body.fitness-dark .fit-log__rule {
   border: none;

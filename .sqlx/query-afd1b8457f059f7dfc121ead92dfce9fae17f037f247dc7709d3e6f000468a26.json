@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT\n            fi.id, fi.name, fi.brand, fi.barcode, fi.calories, fi.protein, fi.carbs,\n            fi.fat, fi.fiber, fi.sugar, fi.sodium, fi.saturated_fat, fi.package_size,\n            COALESCE(p.custom_portions, '') as \"custom_portions!\",\n            fi.image_url, fi.category,\n            COALESCE(p.is_favourite, 0) as \"is_favourite!\",\n            p.default_portion_g, fi.created_at\n        FROM food_items fi\n        LEFT JOIN user_food_prefs p ON p.food_item_id = fi.id AND p.user_id = ?\n        WHERE fi.id = ?",
+  "query": "SELECT\n            fi.id, fi.name, fi.brand, fi.barcode, fi.calories, fi.protein, fi.carbs,\n            fi.fat, fi.fiber, fi.sugar, fi.sodium, fi.saturated_fat, fi.package_size,\n            COALESCE(p.custom_portions, '') as \"custom_portions!\",\n            fi.image_url, fi.category, fi.base_name as \"base_name!\",\n            COALESCE(p.is_favourite, 0) as \"is_favourite!\",\n            p.default_portion_g, fi.created_at\n        FROM food_items fi\n        LEFT JOIN user_food_prefs p ON p.food_item_id = fi.id AND p.user_id = ?\n        WHERE fi.barcode = ?",
   "describe": {
     "columns": [
       {
@@ -84,18 +84,23 @@
         "type_info": "Text"
       },
       {
-        "name": "is_favourite!",
+        "name": "base_name!",
         "ordinal": 16,
+        "type_info": "Text"
+      },
+      {
+        "name": "is_favourite!",
+        "ordinal": 17,
         "type_info": "Integer"
       },
       {
         "name": "default_portion_g",
-        "ordinal": 17,
+        "ordinal": 18,
         "type_info": "Float"
       },
       {
         "name": "created_at",
-        "ordinal": 18,
+        "ordinal": 19,
         "type_info": "Text"
       }
     ],
@@ -120,9 +125,10 @@
       false,
       false,
       false,
+      false,
       true,
       false
     ]
   },
-  "hash": "7725c55270e0f08f3d2e149b2b509bb2b78a1eba1512924f0397f8df139642b5"
+  "hash": "afd1b8457f059f7dfc121ead92dfce9fae17f037f247dc7709d3e6f000468a26"
 }

@@ -1196,7 +1196,7 @@ pub async fn get_food_items(pool: &DbPool, user: UserId) -> Vec<FoodItem> {
             fi.id, fi.name, fi.brand, fi.barcode, fi.calories, fi.protein, fi.carbs,
             fi.fat, fi.fiber, fi.sugar, fi.sodium, fi.saturated_fat, fi.package_size,
             COALESCE(p.custom_portions, '') as "custom_portions!",
-            fi.image_url, fi.category,
+            fi.image_url, fi.category, fi.base_name as "base_name!",
             COALESCE(p.is_favourite, 0) as "is_favourite!",
             p.default_portion_g, fi.created_at
         FROM food_items fi
@@ -1218,7 +1218,7 @@ pub async fn search_food_items(pool: &DbPool, q: &str, user: UserId) -> Vec<Food
             fi.id, fi.name, fi.brand, fi.barcode, fi.calories, fi.protein, fi.carbs,
             fi.fat, fi.fiber, fi.sugar, fi.sodium, fi.saturated_fat, fi.package_size,
             COALESCE(p.custom_portions, '') as "custom_portions!",
-            fi.image_url, fi.category,
+            fi.image_url, fi.category, fi.base_name as "base_name!",
             COALESCE(p.is_favourite, 0) as "is_favourite!",
             p.default_portion_g, fi.created_at
         FROM food_items fi
@@ -1328,7 +1328,7 @@ pub async fn get_food_item(pool: &DbPool, id: i64, user: UserId) -> Option<FoodI
             fi.id, fi.name, fi.brand, fi.barcode, fi.calories, fi.protein, fi.carbs,
             fi.fat, fi.fiber, fi.sugar, fi.sodium, fi.saturated_fat, fi.package_size,
             COALESCE(p.custom_portions, '') as "custom_portions!",
-            fi.image_url, fi.category,
+            fi.image_url, fi.category, fi.base_name as "base_name!",
             COALESCE(p.is_favourite, 0) as "is_favourite!",
             p.default_portion_g, fi.created_at
         FROM food_items fi
@@ -1671,7 +1671,7 @@ pub async fn get_food_item_by_barcode(
             fi.id, fi.name, fi.brand, fi.barcode, fi.calories, fi.protein, fi.carbs,
             fi.fat, fi.fiber, fi.sugar, fi.sodium, fi.saturated_fat, fi.package_size,
             COALESCE(p.custom_portions, '') as "custom_portions!",
-            fi.image_url, fi.category,
+            fi.image_url, fi.category, fi.base_name as "base_name!",
             COALESCE(p.is_favourite, 0) as "is_favourite!",
             p.default_portion_g, fi.created_at
         FROM food_items fi

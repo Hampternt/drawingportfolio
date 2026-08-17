@@ -740,7 +740,15 @@ async fn render_day(
     let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
     let week = week_for(pool, date, user).await;
     let summary = summary_card_html(&entries, &targets, date, &week, &today, true);
-    format!("{slots}\n{summary}")
+    // The streak needs its own history query, so it is built here rather than
+    // inside the summary — but it changes when the day does (logging into an
+    // empty day extends it), so it travels with the same response.
+    let streak = compute_streak(
+        &crate::db::get_logged_dates_desc(pool, 400, user).await,
+        &today,
+    );
+    let streak_html = streak_card_html(streak, true);
+    format!("{slots}\n{summary}\n{streak_html}")
 }
 
 /// The meal slot cards — and *only* those. This is `#day-section`.
@@ -821,6 +829,117 @@ pub fn day_slots_html(
         .join("\n")
 }
 
+/// "Where the calories came from" — the day pie and its legend.
+///
+/// Shares are of **calories**, not grams, which is the entire point: 20 g of
+/// olive oil and 20 g of rice are the same weight and nothing like the same
+/// day. The legend spells out both, so the percentage and the grams that
+/// produced it are never separated.
+fn composition_html(protein: f64, carbs: f64, fat: f64) -> String {
+    let (p, c, f) = macro_shares(protein, carbs, fat);
+    if p + c + f <= 0.0 {
+        return r#"<p class="fit-log__hint">Log something with macros to see where the day's calories came from.</p>"#
+            .to_string();
+    }
+
+    let rows: String = [
+        ("protein", p, protein, "var(--status-warning)"),
+        ("carbs", c, carbs, "var(--status-info)"),
+        ("fat", f, fat, "var(--status-danger)"),
+    ]
+    .iter()
+    .map(|(name, share, grams, colour)| {
+        format!(
+            r##"<div class="fit-comp__row" style="color:{colour}">
+      <span class="fit-comp__swatch" style="background:{colour}"></span>
+      <span>{name} {share:.0}% · {grams:.0} g</span>
+    </div>"##
+        )
+    })
+    .collect();
+
+    format!(
+        r##"<div class="fit-comp">
+  <span class="fit-comp__pie" style="{pie}"></span>
+  <div class="fit-comp__legend">
+    <div class="fit-log__kicker">Where the calories came from</div>
+    {rows}
+  </div>
+</div>"##,
+        pie = macro_pie_style(protein, carbs, fat, 76),
+        rows = rows
+    )
+}
+
+/// "Left to hit today" — what remains of each target, or by how much it is
+/// already passed.
+///
+/// Over-target reads `+N` in the danger colour rather than a negative number:
+/// "-40" invites reading it as a deficit, which is the opposite of what it is.
+fn left_to_hit_html(
+    total_cal: f64,
+    total_protein: f64,
+    total_carbs: f64,
+    total_fat: f64,
+    targets: &crate::models::Targets,
+    oob: bool,
+) -> String {
+    let tiles: String = [
+        ("kcal", total_cal, targets.calories, "var(--text-muted)"),
+        (
+            "protein",
+            total_protein,
+            targets.protein,
+            "var(--status-warning)",
+        ),
+        ("carbs", total_carbs, targets.carbs, "var(--status-info)"),
+        ("fat", total_fat, targets.fat, "var(--status-danger)"),
+    ]
+    .iter()
+    .map(|(name, have, target, colour)| {
+        let left = target - have;
+        let over = left < 0.0;
+        let value = if over {
+            format!("+{:.0}", -left)
+        } else {
+            format!("{left:.0}")
+        };
+        format!(
+            r##"<div class="fit-left__tile">
+      <div class="fit-left__label" style="color:{colour}">{name}</div>
+      <div class="fit-left__value{over_cls}">{value}</div>
+    </div>"##,
+            over_cls = if over { " fit-left__value--over" } else { "" }
+        )
+    })
+    .collect();
+
+    format!(
+        r##"<div class="noc-card fit-left" id="fit-left"{oob}>
+  <div class="fit-log__kicker">Left to hit today</div>
+  <div class="fit-left__grid">
+    {tiles}
+  </div>
+</div>"##,
+        oob = if oob { r#" hx-swap-oob="true""# } else { "" },
+        tiles = tiles
+    )
+}
+
+/// The logging streak, as the week page has counted it since before this
+/// redesign — same function, same answer, so the two screens cannot disagree.
+fn streak_card_html(streak: i64, oob: bool) -> String {
+    format!(
+        r##"<div class="noc-card fit-streak" id="fit-streak"{oob}>
+  <span class="fit-streak__n">{streak}</span>
+  <span class="fit-streak__label">day{s} logged in a row</span>
+</div>"##,
+        oob = if oob { r#" hx-swap-oob="true""# } else { "" },
+        streak = streak,
+        s = if streak == 1 { "" } else { "s" }
+    )
+}
+
 /// The left rail's summary: ring, macro rails, week strip and the day's totals.
 ///
 /// Rendered out-of-band so one logging response updates both the slots and the
@@ -855,6 +974,8 @@ pub fn summary_card_html(
   </div>
   {strip}
   <hr class="fit-log__rule">
+  {composition}
+  <hr class="fit-log__rule">
   <div class="fit-summary__foot">
     <span class="fit-summary__kcal">{cal:.0} / {tcal:.0} kcal</span>
     <button type="button" class="hm-btn hm-btn--sm hm-btn--ghost"
@@ -862,7 +983,16 @@ pub fn summary_card_html(
             hx-target="#targets-editor" hx-swap="innerHTML">Targets</button>
   </div>
   <div id="targets-editor"></div>
-</div>"##,
+</div>
+{left}"##,
+        left = left_to_hit_html(
+            total_cal,
+            total_protein,
+            total_carbs,
+            total_fat,
+            targets,
+            oob
+        ),
         oob = if oob { r#" hx-swap-oob="true""# } else { "" },
         ring = calorie_ring_svg(total_cal, targets.calories),
         p = macro_rail_html(
@@ -874,45 +1004,146 @@ pub fn summary_card_html(
         c = macro_rail_html("carbs", total_carbs, targets.carbs, "var(--status-info)"),
         f = macro_rail_html("fat", total_fat, targets.fat, "var(--status-danger)"),
         strip = week_strip_html(week, date, today, targets.calories),
+        composition = composition_html(total_protein, total_carbs, total_fat),
         cal = total_cal,
         tcal = targets.calories,
         date = html_escape(date)
     )
 }
 
+/// The food library, grouped by what each food actually *is*.
+///
+/// The old grouping used `category`, a free-text field almost nothing fills in,
+/// so in practice everything landed under "Uncategorised". Dominance is derived
+/// from the macros already stored, needs no data entry, and is the same measure
+/// the logged rows and thumbnails use — so a food wears one identity across the
+/// whole screen.
 pub fn library_list_html(
     items: &[crate::models::FoodItem],
-    recent_ids: &std::collections::HashSet<i64>,
+    last_grams: &HashMap<i64, f64>,
     can_edit: bool,
 ) -> String {
-    use std::collections::BTreeMap;
-    let mut groups: BTreeMap<String, Vec<&crate::models::FoodItem>> = BTreeMap::new();
-    for item in items {
-        // "zzz_" prefix sorts Uncategorised last; stripped before display
-        let key = if item.category.is_empty() {
-            "zzz_Uncategorised".to_string()
-        } else {
-            item.category.clone()
-        };
-        groups.entry(key).or_default().push(item);
-    }
-    groups
+    // Fixed order, most-eaten-first rather than alphabetical: the groups mean
+    // something, so their sequence should too.
+    let order = [
+        (Dominance::Protein, "mostly protein"),
+        (Dominance::Carbs, "mostly carbs"),
+        (Dominance::Fat, "mostly fat"),
+        (Dominance::Balanced, "balanced"),
+        (Dominance::Unknown, "macros missing"),
+    ];
+
+    order
         .iter()
-        .map(|(key, group)| {
-            let label = key.strip_prefix("zzz_").unwrap_or(key);
-            let cards: String = group
+        .filter_map(|(dom, label)| {
+            let group: Vec<&crate::models::FoodItem> = items
                 .iter()
-                .map(|i| food_item_card_html(i, recent_ids.contains(&i.id), can_edit))
+                .filter(|i| dominance(i.protein, i.carbs, i.fat) == *dom)
+                .collect();
+            // An empty group is not rendered at all — a heading with nothing
+            // under it reads as a filter that failed.
+            if group.is_empty() {
+                return None;
+            }
+            let rows: String = group
+                .iter()
+                .map(|i| library_row_html(i, last_grams.get(&i.id).copied(), *dom, can_edit))
                 .collect::<Vec<_>>()
                 .join("\n");
-            format!(
-                "<div class=\"lib-group\"><div class=\"noc-kicker lib-group-head\">{}</div>\n<ul class=\"food-library-list\">\n{}\n</ul></div>",
-                html_escape(label),
-                cards
-            )
+            Some(format!(
+                r##"<div class="lib-group">
+  <div class="lib-group__head" style="color:{colour}">
+    <span class="lib-group__name">{label}</span>
+    <span class="lib-group__count">{n}</span>
+  </div>
+  <ul class="lib-rows">
+{rows}
+  </ul>
+</div>"##,
+                colour = dom.color(),
+                label = label,
+                n = group.len(),
+                rows = rows
+            ))
         })
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+/// One library row: what the food is, what it costs, and a way to log it.
+fn library_row_html(
+    item: &crate::models::FoodItem,
+    last: Option<f64>,
+    dom: Dominance,
+    can_edit: bool,
+) -> String {
+    let has_macros = dom != Dominance::Unknown;
+    let pie = if has_macros {
+        format!(
+            r#"<span class="fit-pie" style="{}"></span>"#,
+            macro_pie_style(item.protein, item.carbs, item.fat, 18)
+        )
+    } else {
+        r#"<span class="fit-pie fit-pie--empty lib-row__pie-empty"></span>"#.to_string()
+    };
+    let macros = if has_macros {
+        format!(
+            r#"<span class="fit-row__macro--p">P {p}</span>
+      <span class="fit-row__macro--c">C {c}</span>
+      <span class="fit-row__macro--f">F {f}</span>"#,
+            p = fmt_nutrient(item.protein),
+            c = fmt_nutrient(item.carbs),
+            f = fmt_nutrient(item.fat)
+        )
+    } else {
+        r#"<span class="lib-row__nomacros">no macros yet</span>"#.to_string()
+    };
+    // The amount a log button would use, so the button never surprises you.
+    let grams = last
+        .or(item.default_portion_g)
+        .or(item.package_size)
+        .unwrap_or(100.0);
+    let log_btn = if can_edit {
+        format!(
+            r##"<button type="button" class="hm-btn hm-btn--sm hm-btn--secondary"
+        hx-post="/fitness/quick-log"
+        hx-vals='js:{{food_item_id: {id}, grams: {grams}, slot: effectiveSlot(), date: window.currentDate}}'
+        hx-target="#day-section" hx-swap="innerHTML">Log</button>"##,
+            id = item.id,
+            grams = grams
+        )
+    } else {
+        String::new()
+    };
+    let basis = match item.package_size {
+        Some(p) if p > 0.0 && !item.base_name.trim().is_empty() => format!(
+            r#"<span class="lib-row__basis">{} {} g</span>"#,
+            html_escape(item.base_name.trim()),
+            fmt_grams(p)
+        ),
+        _ => String::new(),
+    };
+
+    format!(
+        r##"<li class="lib-row" data-fav="0" data-recent="0" data-protein="{p_raw}" data-cal="{cal_raw}">
+    {thumb}
+    {pie}
+    <span class="lib-row__name">{name}</span>
+    <span class="lib-row__kcal">{kcal} kcal / 100 g</span>
+    <span class="lib-row__macros">{macros}</span>
+    {basis}
+    {log_btn}
+  </li>"##,
+        p_raw = item.protein,
+        cal_raw = item.calories,
+        thumb = row_thumb_html(&item.name, &item.image_url, dom, 30),
+        pie = pie,
+        name = html_escape(&item.name),
+        kcal = fmt_nutrient(item.calories),
+        macros = macros,
+        basis = basis,
+        log_btn = log_btn
+    )
 }
 
 fn history_bars_html(days: &[(String, f64)]) -> String {
@@ -1021,6 +1252,7 @@ struct FitnessTemplate {
     /// The left rail's summary, rendered in place on first paint and refreshed
     /// out-of-band by every day response thereafter.
     summary_html: String,
+    streak_html: String,
     day_slots_html: String,
     library_html: String,
 }
@@ -1044,13 +1276,13 @@ async fn fitness_page(
     let last_grams = crate::db::get_last_grams_map(&state.pool, session.user()).await;
     let day_html = day_slots_html(&entries, &date, true, &last_grams);
     let summary = summary_card_html(&entries, &targets, &date, &week, &today, false);
-    let recent_ids: std::collections::HashSet<i64> =
-        crate::db::get_recent_foods(&state.pool, 20, session.user())
-            .await
-            .into_iter()
-            .map(|r| r.food_item_id)
-            .collect();
-    let lib_html = library_list_html(&food_items, &recent_ids, true);
+    let streak = compute_streak(
+        &crate::db::get_logged_dates_desc(&state.pool, 400, session.user()).await,
+        &today,
+    );
+    let streak_html = streak_card_html(streak, false);
+    // Same map the rows use — this handler already has it.
+    let lib_html = library_list_html(&food_items, &last_grams, true);
     Html(
         FitnessTemplate {
             is_admin: session.is_effective_admin(),
@@ -1059,6 +1291,7 @@ async fn fitness_page(
             prev_date: step_date(&date, -1),
             date,
             summary_html: summary,
+            streak_html,
             day_slots_html: day_html,
             library_html: lib_html,
         }
@@ -1261,13 +1494,8 @@ async fn add_food_item(
 
     let all_items = crate::db::get_food_items(&state.pool, session.user()).await;
     {
-        let recent_ids: std::collections::HashSet<i64> =
-            crate::db::get_recent_foods(&state.pool, 20, session.user())
-                .await
-                .into_iter()
-                .map(|r| r.food_item_id)
-                .collect();
-        Html(library_list_html(&all_items, &recent_ids, true)).into_response()
+        let lib_last = crate::db::get_last_grams_map(&state.pool, session.user()).await;
+        Html(library_list_html(&all_items, &lib_last, true)).into_response()
     }
 }
 
@@ -1283,13 +1511,8 @@ async fn delete_food_item_handler(
     }
     let items = crate::db::get_food_items(&state.pool, session.user()).await;
     {
-        let recent_ids: std::collections::HashSet<i64> =
-            crate::db::get_recent_foods(&state.pool, 20, session.user())
-                .await
-                .into_iter()
-                .map(|r| r.food_item_id)
-                .collect();
-        Html(library_list_html(&items, &recent_ids, true))
+        let lib_last = crate::db::get_last_grams_map(&state.pool, session.user()).await;
+        Html(library_list_html(&items, &lib_last, true))
     }
 }
 
@@ -2046,13 +2269,8 @@ async fn update_food_item_handler(
 
     let all_items = crate::db::get_food_items(&state.pool, session.user()).await;
     {
-        let recent_ids: std::collections::HashSet<i64> =
-            crate::db::get_recent_foods(&state.pool, 20, session.user())
-                .await
-                .into_iter()
-                .map(|r| r.food_item_id)
-                .collect();
-        Html(library_list_html(&all_items, &recent_ids, true)).into_response()
+        let lib_last = crate::db::get_last_grams_map(&state.pool, session.user()).await;
+        Html(library_list_html(&all_items, &lib_last, true)).into_response()
     }
 }
 
@@ -2673,13 +2891,8 @@ async fn toggle_favourite_handler(
 ) -> impl IntoResponse {
     crate::db::toggle_food_favourite(&state.pool, id, session.user()).await;
     let items = crate::db::get_food_items(&state.pool, session.user()).await;
-    let recent_ids: std::collections::HashSet<i64> =
-        crate::db::get_recent_foods(&state.pool, 20, session.user())
-            .await
-            .into_iter()
-            .map(|r| r.food_item_id)
-            .collect();
-    Html(library_list_html(&items, &recent_ids, true))
+    let lib_last = crate::db::get_last_grams_map(&state.pool, session.user()).await;
+    Html(library_list_html(&items, &lib_last, true))
 }
 
 async fn favourite_chips(
