@@ -364,17 +364,11 @@ body.fitness-dark {
   --noc-shadow-card: 0 0 0 1px var(--border-default);
   --noc-shadow-pop: var(--shadow-3);
 }
-body.fitness-dark header {
-  background: var(--noc-bg);
-  border-bottom: 1px solid var(--noc-divider);
-}
-body.fitness-dark header .site-title,
-body.fitness-dark header nav a { color: var(--noc-text); }
-body.fitness-dark header nav a:hover { color: var(--noc-accent); }
-/* ::selection and :focus-visible used to be redeclared here. The shared reset
-   defines both at equal specificity and later in the file, so these were dead
-   the moment item 1.1 landed — the first deletions the bridge pays for. The
-   header rules above survive only until item 1.4 restyles the chrome. */
+/* Five rules used to live here — a header background and border, two colour
+   rules for the wordmark and nav links, ::selection and :focus-visible. Every
+   one is now declared by the shared design-system block at equal specificity
+   and later in the file, so all five were dead on arrival and are deleted.
+   This is what the bridge buys: pages convert by deleting, not rewriting. */
 
 /* Nocturne primitives (fitness-scoped) */
 body.fitness-dark .noc-btn {
@@ -421,6 +415,81 @@ body.fitness-dark .noc-kicker {
 
 /* ── Fitness Tracker ─────────────────────────────────── */
 .fitness-page { max-width: 640px; margin: 0 auto; padding: 0 16px 90px; }
+
+/* ── Fitness Today shell (overhaul, pack 1 item 1.4) ──────────────────────
+   The frame the redesigned Today screen hangs in: page head, then a sticky
+   left rail beside a wider right column. Mobile-first — the single column is
+   the default and the two-column layout is the 900px override, which is also
+   the one breakpoint the design brief allows.
+
+   Everything here is scoped body.fitness-dark rather than .fitness-page alone,
+   so it cannot leak into /tasks, which uses the same 640px-page idiom. */
+body.fitness-dark .fitness-page {
+  max-width: var(--page-max);
+  padding: 0 var(--space-6) var(--space-12);
+}
+
+body.fitness-dark .fit-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-6);
+  flex-wrap: wrap;
+  padding: var(--space-6) 0 var(--space-5);
+}
+body.fitness-dark .fit-head__label {
+  font: var(--type-label);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: var(--space-2);
+}
+body.fitness-dark .fit-head h1 {
+  font: var(--type-h2);
+  letter-spacing: var(--tracking-tight);
+}
+body.fitness-dark .fit-head__actions { display: flex; gap: var(--space-4); }
+
+body.fitness-dark .fit-cols {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+body.fitness-dark .fit-col {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  /* A flex item defaults to min-width:auto, so a wide child — the week strip,
+     a long food name — would push the column past its basis instead of
+     scrolling or wrapping inside it. */
+  min-width: 0;
+}
+
+@media (min-width: 900px) {
+  body.fitness-dark .fitness-page { padding: 0 var(--gutter) var(--space-12); }
+  body.fitness-dark .fit-head {
+    padding: var(--space-9) 0 var(--space-8);
+    background-image: var(--texture-grid);
+    background-size: var(--texture-grid-size);
+  }
+  body.fitness-dark .fit-head h1 { font: var(--type-h1); }
+  body.fitness-dark .fit-cols {
+    flex-direction: row;
+    align-items: flex-start;
+    gap: var(--gutter);
+    flex-wrap: wrap;
+  }
+  body.fitness-dark .fit-col { gap: var(--space-6); }
+  body.fitness-dark .fit-col--left {
+    flex: 1 1 320px;
+    max-width: 360px;
+    position: sticky;
+    /* 80px = the 56px header plus a 24px gutter, so the rail clears the bar
+       it slides under rather than touching it. */
+    top: 80px;
+  }
+  body.fitness-dark .fit-col--right { flex: 2 1 480px; }
+}
 
 /* signed-in-as chip — /fitness shows one user's own log, so it names them */
 .fitness-whoami { display: flex; align-items: baseline; gap: 6px; padding-top: 14px; }
@@ -678,7 +747,9 @@ body.fitness-dark #quickadd-results { position: absolute; top: 100%; left: 0; ri
 body.fitness-dark #quickadd-results .search-row { margin-top: 0; border-radius: 0; box-shadow: none; background: transparent; }
 body.fitness-dark #quickadd-results .search-row:first-child { background: var(--noc-surface); }
 @media (min-width: 900px) {
-  body.fitness-dark .fitness-page { max-width: 760px; padding-bottom: 40px; }
+  /* The 760px clamp that used to sit here is gone — the shell section above
+     owns the page width now, and being later in the file this rule would have
+     silently won at equal specificity. */
   body.fitness-dark #quickadd { display: block; }
   body.fitness-dark #fitness-actionbar { position: static; max-width: none; padding: 16px 0 0; background: none; }
   body.fitness-dark #add-sheet { max-width: 560px; border-radius: var(--noc-radius-lg); inset: 40px auto auto 50%; transform: translateX(-50%); max-height: calc(100vh - 80px); box-shadow: var(--noc-shadow-pop); }
@@ -1152,18 +1223,27 @@ body.fitness-dark #quickadd-results .search-row:first-child { background: var(--
 :is(body.art-page, body.fitness-dark) textarea { font: inherit; color: inherit; }
 :is(body.art-page, body.fitness-dark) hr { border: none; border-top: 1px solid var(--border-subtle); margin: 0; }
 
-/* Site chrome from base.html, restyled in place. The markup is untouched.
+/* Site chrome from base.html, restyled in place on both design-system pages.
+   The markup is untouched — which is the whole point: base.html is shared with
+   /admin, /tasks and the hub, so the chrome is restyled rather than rewritten.
+
+   Consequence worth stating: /fitness therefore keeps the "Portfolio" wordmark
+   and the bare Ctrl/K keycaps. The overhaul prototype draws a "hampter"
+   wordmark with a violet full stop and a labelled Search button instead. Those
+   are markup changes to base.html AND admin.html, deliberately deferred — see
+   the manifest's Pack 1 notes.
 
    These two overrides are load-bearing, not cosmetic. The global rules earlier
    in this file set `main { max-width: 640px; margin: 2rem auto; padding: 0 1rem }`
    and `header { padding: 1rem 2rem }` — the first would clamp the 1180px feed to
-   640px and kill the masonry outright, and the second fights the 56px bar. */
-body.art-page main {
+   640px and kill the masonry outright, and the second fights the 56px bar. The
+   fitness shell needs exactly the same two escapes for the same two reasons. */
+:is(body.art-page, body.fitness-dark) main {
   max-width: none;
   margin: 0;
   padding: 0;
 }
-body.art-page header {
+:is(body.art-page, body.fitness-dark) header {
   position: sticky;
   top: 0;
   z-index: 40;
@@ -1175,7 +1255,7 @@ body.art-page header {
   -webkit-backdrop-filter: blur(10px);
   border-bottom: 1px solid var(--border-subtle);
 }
-body.art-page header .site-title {
+:is(body.art-page, body.fitness-dark) header .site-title {
   font: 800 17px/1 var(--font-display);
   letter-spacing: -0.035em;
   color: var(--text-strong);
@@ -1183,19 +1263,19 @@ body.art-page header .site-title {
 /* The shared stylesheet never gives `nav` a display or a gap, so its links are
    inline elements separated by one space of whitespace. At this type size they
    read as one run-on string; lay them out explicitly. */
-body.art-page header nav {
+:is(body.art-page, body.fitness-dark) header nav {
   display: flex;
   align-items: center;
   gap: var(--space-7);
 }
-body.art-page header nav a {
+:is(body.art-page, body.fitness-dark) header nav a {
   font: var(--weight-medium) var(--text-14)/1.2 var(--font-sans);
   color: var(--text-muted);
 }
-body.art-page header nav a:hover { color: var(--text-strong); text-decoration: none; }
+:is(body.art-page, body.fitness-dark) header nav a:hover { color: var(--text-strong); text-decoration: none; }
 
 /* The Ctrl-K affordance, which base.html renders as a bare <button> of <kbd>s. */
-body.art-page header .palette-hint {
+:is(body.art-page, body.fitness-dark) header .palette-hint {
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
@@ -1205,7 +1285,7 @@ body.art-page header .palette-hint {
   background: none;
   cursor: pointer;
 }
-body.art-page header .palette-hint kbd {
+:is(body.art-page, body.fitness-dark) header .palette-hint kbd {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1236,6 +1316,8 @@ body.art-page header .palette-hint kbd {
 :is(body.art-page, body.fitness-dark) .hm-icon--search { -webkit-mask-image: url("/static/icons/search.svg"); mask-image: url("/static/icons/search.svg"); }
 :is(body.art-page, body.fitness-dark) .hm-icon--chevron-down { -webkit-mask-image: url("/static/icons/chevron-down.svg"); mask-image: url("/static/icons/chevron-down.svg"); }
 :is(body.art-page, body.fitness-dark) .hm-icon--x { -webkit-mask-image: url("/static/icons/x.svg"); mask-image: url("/static/icons/x.svg"); }
+:is(body.art-page, body.fitness-dark) .hm-icon--chevron-left { -webkit-mask-image: url("/static/icons/chevron-left.svg"); mask-image: url("/static/icons/chevron-left.svg"); }
+:is(body.art-page, body.fitness-dark) .hm-icon--calendar-days { -webkit-mask-image: url("/static/icons/calendar-days.svg"); mask-image: url("/static/icons/calendar-days.svg"); }
 
 /* Button */
 :is(body.art-page, body.fitness-dark) .hm-btn {

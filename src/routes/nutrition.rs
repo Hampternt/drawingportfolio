@@ -29,6 +29,32 @@ fn sanitize_date(input: Option<&String>) -> String {
         .unwrap_or_else(|| chrono::Utc::now().format("%Y-%m-%d").to_string())
 }
 
+/// The page head's micro-label: `MON 17 AUG · 2026-08-17`.
+///
+/// Both halves earn their place. The weekday and short date are what a person
+/// reads; the ISO date is what every fragment URL on this page carries, so
+/// printing it means a stale day-section is visible rather than merely wrong.
+fn head_date_label(date: &str) -> String {
+    match chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d") {
+        Ok(d) => format!("{} · {date}", d.format("%a %d %b").to_string().to_uppercase()),
+        // `sanitize_date` means this is unreachable from a request; falling back
+        // to the raw string keeps the label honest if it ever is reached.
+        Err(_) => date.to_string(),
+    }
+}
+
+/// `date` shifted by `days`, ISO in and ISO out — the head's Yesterday link.
+///
+/// Server-side rather than the client-side `stepDay()` the arrows use, because
+/// this one is an `href` that has to survive a page render with no JS.
+fn step_date(date: &str, days: i64) -> String {
+    chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d")
+        .ok()
+        .and_then(|d| d.checked_add_signed(chrono::Duration::days(days)))
+        .map(|d| d.format("%Y-%m-%d").to_string())
+        .unwrap_or_else(|| date.to_string())
+}
+
 fn fmt_nutrient(v: f64) -> String {
     if v == 0.0 {
         "0".to_string()
@@ -618,6 +644,10 @@ struct FitnessTemplate {
     is_admin: bool,
     user_name: String,
     date: String,
+    /// `MON 17 AUG · 2026-08-17` — the page head's micro-label.
+    date_label: String,
+    /// Target of the head's Yesterday link.
+    prev_date: String,
     week_strip_html: String,
     day_section_html: String,
     library_html: String,
@@ -649,6 +679,8 @@ async fn fitness_page(
         FitnessTemplate {
             is_admin: session.is_effective_admin(),
             user_name: session.user_name,
+            date_label: head_date_label(&date),
+            prev_date: step_date(&date, -1),
             date,
             week_strip_html: strip,
             day_section_html: day_html,
@@ -1966,6 +1998,32 @@ async fn set_targets_handler(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_head_date_label_shape() {
+        // 2026-08-17 is a Monday.
+        assert_eq!(head_date_label("2026-08-17"), "MON 17 AUG · 2026-08-17");
+        // Zero-padded day, and a month whose short name is not a prefix clash.
+        assert_eq!(head_date_label("2026-09-05"), "SAT 05 SEP · 2026-09-05");
+    }
+
+    #[test]
+    fn test_head_date_label_falls_back_to_the_raw_string() {
+        // Unreachable through `sanitize_date`, but the label must never invent
+        // a date it could not parse.
+        assert_eq!(head_date_label("not-a-date"), "not-a-date");
+    }
+
+    #[test]
+    fn test_step_date_crosses_month_and_year_boundaries() {
+        assert_eq!(step_date("2026-08-17", -1), "2026-08-16");
+        assert_eq!(step_date("2026-08-01", -1), "2026-07-31");
+        assert_eq!(step_date("2026-01-01", -1), "2025-12-31");
+        // Leap day: 2028 is a leap year, so stepping back from 1 March lands
+        // on the 29th rather than skipping it.
+        assert_eq!(step_date("2028-03-01", -1), "2028-02-29");
+        assert_eq!(step_date("2026-08-17", 1), "2026-08-18");
+    }
 
     /// An empty day must render `0`, not `-0`.
     ///

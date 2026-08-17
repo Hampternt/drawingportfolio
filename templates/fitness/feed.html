@@ -6,87 +6,115 @@
 {% block content %}
 <section class="fitness-page">
 
-  <!-- Whose log this is. /fitness renders the signed-in user's own day, so the
-       page has to say whose — otherwise two people sharing a screen cannot tell
-       which account they are logging into. -->
-  <div class="fitness-whoami">
-    <span class="noc-kicker">Signed in as</span>
-    <a class="fitness-whoami-name" href="/fitness/account">{{ user_name }}</a>
-  </div>
-
-  <!-- Date navigator: week strip + step arrows -->
-  <div class="fitness-date-nav">
-    <button id="prev-day" class="btn-secondary" aria-label="Previous day">←</button>
-    {{ week_strip_html|safe }}
-    <button id="next-day" class="btn-secondary" aria-label="Next day">→</button>
-    <a class="noc-btn noc-btn-ghost" href="/fitness/week" aria-label="Week view">Week</a>
-  </div>
-
-  <!-- Desktop quick-add: type-ahead over the library, Enter logs the usual portion -->
-  <div id="quickadd">
-    <input class="noc-input" type="search" id="quickadd-input" placeholder="Type a food, Enter logs your usual portion…"
-           name="q" hx-get="/fitness/htmx/food-search" hx-trigger="input changed delay:250ms"
-           hx-target="#quickadd-results" hx-swap="innerHTML">
-    <div id="quickadd-results"></div>
-  </div>
-
-  <!-- Day section: totals + meal log + log form (pre-rendered by Rust) -->
-  <div id="day-section">
-    {{ day_section_html|safe }}
-  </div>
-
-  <!-- Food library section -->
-  <section class="food-library-section">
-    <div class="library-header">
-      <h2>Food Library</h2>
-      <div class="library-actions">
-        <input type="text" id="library-search" placeholder="Search…" oninput="filterLibrary(this.value)">
-        <button class="btn-secondary" onclick="toggleAddForm()">+ Add food</button>
-      </div>
+  <!-- Page head. `.fitness-page` must stay the outermost element inside this
+       block: base.html's syncBodyTheme() looks for it to re-derive the
+       fitness-dark body class after a boosted navigation. -->
+  <div class="fit-head">
+    <div class="fit-head__titles">
+      <div class="fit-head__label">{{ date_label }}</div>
+      <h1>Today</h1>
     </div>
-
-    <!-- Add food form (hidden by default) -->
-    <form id="add-food-form" class="nutrient-form" hidden
-          hx-post="/api/nutrition/food-items"
-          hx-target="#food-library"
-          hx-swap="innerHTML"
-          hx-encoding="multipart/form-data"
-          hx-on::after-request="this.reset(); document.getElementById('add-food-form').hidden = true;">
-      <input type="text" name="name" placeholder="Name *" required>
-      <input type="text" name="brand" placeholder="Brand">
-      <input type="text" name="barcode" id="barcode-field" placeholder="Barcode">
-      <div class="nutrient-grid">
-        <label>Calories/100g<input type="number" name="calories" step="0.1" min="0" value="0"></label>
-        <label>Protein/100g<input type="number" name="protein" step="0.1" min="0" value="0"></label>
-        <label>Carbs/100g<input type="number" name="carbs" step="0.1" min="0" value="0"></label>
-        <label>Fat/100g<input type="number" name="fat" step="0.1" min="0" value="0"></label>
-        <label>Fiber/100g<input type="number" name="fiber" step="0.1" min="0" value="0"></label>
-        <label>Sugar/100g<input type="number" name="sugar" step="0.1" min="0" value="0"></label>
-        <label>Sodium/100g (mg)<input type="number" name="sodium" step="0.1" min="0" value="0"></label>
-        <label>Sat. fat/100g<input type="number" name="saturated_fat" step="0.1" min="0" value="0"></label>
-      </div>
-      <label class="package-size-label">Package / total size (g)<input type="number" name="package_size" id="package-size-field" step="0.1" min="0" placeholder="e.g. 565"></label>
-      <label class="package-size-label">Custom portions (g, comma-separated)<input type="text" name="custom_portions" placeholder="e.g. 125, 250, 375"></label>
-      <label class="file-label">Image <input type="file" name="image" accept="image/jpeg,image/png,image/webp"></label>
-      <input type="hidden" name="image_url" id="image-url-field" value="">
-      <div class="form-actions">
-        <button type="submit" class="btn-primary">Save food</button>
-        <button type="button" class="btn-secondary" onclick="toggleAddForm()">Cancel</button>
-      </div>
-    </form>
-
-    <div class="lib-chips">
-      <button class="noc-tag noc-tag-accent" data-filter="all" onclick="libFilter(this)">All</button>
-      <button class="noc-tag noc-tag-outline" data-filter="fav" onclick="libFilter(this)">Favourites</button>
-      <button class="noc-tag noc-tag-outline" data-filter="recent" onclick="libFilter(this)">Recent</button>
-      <button class="noc-tag noc-tag-outline" data-filter="protein" onclick="libFilter(this)">High protein</button>
-      <button class="noc-tag noc-tag-outline" data-filter="nomacros" onclick="libFilter(this)">No macros yet</button>
+    <div class="fit-head__actions">
+      <!-- A real href, not the arrows' JS step: the head has to work on a cold
+           render, and this is also the only day-step that survives no-JS. -->
+      <a class="hm-btn hm-btn--sm hm-btn--ghost" href="/fitness?date={{ prev_date }}">
+        <span class="hm-icon hm-icon--chevron-left"></span>Yesterday
+      </a>
+      <a class="hm-btn hm-btn--sm hm-btn--secondary" href="/fitness/week">
+        <span class="hm-icon hm-icon--calendar-days"></span>Week
+      </a>
     </div>
+  </div>
 
-    <div id="food-library">
-      {{ library_html|safe }}
+  <div class="fit-cols">
+    <div class="fit-col fit-col--left">
+
+      <!-- Whose log this is. /fitness renders the signed-in user's own day, so
+           the page has to say whose — otherwise two people sharing a screen
+           cannot tell which account they are logging into. -->
+      <div class="fitness-whoami">
+        <span class="noc-kicker">Signed in as</span>
+        <a class="fitness-whoami-name" href="/fitness/account">{{ user_name }}</a>
+      </div>
+
+      <!-- Date navigator: week strip + step arrows -->
+      <div class="fitness-date-nav">
+        <button id="prev-day" class="btn-secondary" aria-label="Previous day">←</button>
+        {{ week_strip_html|safe }}
+        <button id="next-day" class="btn-secondary" aria-label="Next day">→</button>
+      </div>
+
     </div>
-  </section>
+    <div class="fit-col fit-col--right">
+
+      <!-- Desktop quick-add: type-ahead over the library, Enter logs the usual portion -->
+      <div id="quickadd">
+        <input class="noc-input" type="search" id="quickadd-input" placeholder="Type a food, Enter logs your usual portion…"
+               name="q" hx-get="/fitness/htmx/food-search" hx-trigger="input changed delay:250ms"
+               hx-target="#quickadd-results" hx-swap="innerHTML">
+        <div id="quickadd-results"></div>
+      </div>
+
+      <!-- Day section: totals + meal log + log form (pre-rendered by Rust) -->
+      <div id="day-section">
+        {{ day_section_html|safe }}
+      </div>
+
+      <!-- Food library section -->
+      <section class="food-library-section">
+        <div class="library-header">
+          <h2>Food Library</h2>
+          <div class="library-actions">
+            <input type="text" id="library-search" placeholder="Search…" oninput="filterLibrary(this.value)">
+            <button class="btn-secondary" onclick="toggleAddForm()">+ Add food</button>
+          </div>
+        </div>
+
+        <!-- Add food form (hidden by default) -->
+        <form id="add-food-form" class="nutrient-form" hidden
+              hx-post="/api/nutrition/food-items"
+              hx-target="#food-library"
+              hx-swap="innerHTML"
+              hx-encoding="multipart/form-data"
+              hx-on::after-request="this.reset(); document.getElementById('add-food-form').hidden = true;">
+          <input type="text" name="name" placeholder="Name *" required>
+          <input type="text" name="brand" placeholder="Brand">
+          <input type="text" name="barcode" id="barcode-field" placeholder="Barcode">
+          <div class="nutrient-grid">
+            <label>Calories/100g<input type="number" name="calories" step="0.1" min="0" value="0"></label>
+            <label>Protein/100g<input type="number" name="protein" step="0.1" min="0" value="0"></label>
+            <label>Carbs/100g<input type="number" name="carbs" step="0.1" min="0" value="0"></label>
+            <label>Fat/100g<input type="number" name="fat" step="0.1" min="0" value="0"></label>
+            <label>Fiber/100g<input type="number" name="fiber" step="0.1" min="0" value="0"></label>
+            <label>Sugar/100g<input type="number" name="sugar" step="0.1" min="0" value="0"></label>
+            <label>Sodium/100g (mg)<input type="number" name="sodium" step="0.1" min="0" value="0"></label>
+            <label>Sat. fat/100g<input type="number" name="saturated_fat" step="0.1" min="0" value="0"></label>
+          </div>
+          <label class="package-size-label">Package / total size (g)<input type="number" name="package_size" id="package-size-field" step="0.1" min="0" placeholder="e.g. 565"></label>
+          <label class="package-size-label">Custom portions (g, comma-separated)<input type="text" name="custom_portions" placeholder="e.g. 125, 250, 375"></label>
+          <label class="file-label">Image <input type="file" name="image" accept="image/jpeg,image/png,image/webp"></label>
+          <input type="hidden" name="image_url" id="image-url-field" value="">
+          <div class="form-actions">
+            <button type="submit" class="btn-primary">Save food</button>
+            <button type="button" class="btn-secondary" onclick="toggleAddForm()">Cancel</button>
+          </div>
+        </form>
+
+        <div class="lib-chips">
+          <button class="noc-tag noc-tag-accent" data-filter="all" onclick="libFilter(this)">All</button>
+          <button class="noc-tag noc-tag-outline" data-filter="fav" onclick="libFilter(this)">Favourites</button>
+          <button class="noc-tag noc-tag-outline" data-filter="recent" onclick="libFilter(this)">Recent</button>
+          <button class="noc-tag noc-tag-outline" data-filter="protein" onclick="libFilter(this)">High protein</button>
+          <button class="noc-tag noc-tag-outline" data-filter="nomacros" onclick="libFilter(this)">No macros yet</button>
+        </div>
+
+        <div id="food-library">
+          {{ library_html|safe }}
+        </div>
+      </section>
+
+    </div><!-- /.fit-col--right -->
+  </div><!-- /.fit-cols -->
 
   <div id="fitness-actionbar">
     <button id="bar-scan" class="noc-btn noc-btn-primary" onclick="openAddSheet('scan')">
