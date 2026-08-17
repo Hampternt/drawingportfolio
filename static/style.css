@@ -346,7 +346,6 @@ body.fitness-dark {
 
   background: var(--noc-bg);
   color: var(--noc-text);
-  font-family: "Inter", system-ui, sans-serif;
 }
 body.fitness-dark header {
   background: var(--noc-bg);
