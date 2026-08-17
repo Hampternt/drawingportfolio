@@ -884,6 +884,8 @@ pub fn day_section_html(
     <button type="button" class="hm-btn hm-btn--md hm-btn--secondary" onclick="openAddSheet('scan')">Scan</button>
   </div>
   <div id="log-options"></div>
+  <div id="fit-meals" hx-get="/fitness/htmx/meals-section" hx-trigger="load"
+       hx-target="this" hx-swap="innerHTML"></div>
 </div>
 {slots}"##,
         summary = summary,
@@ -1452,6 +1454,127 @@ async fn log_options(
     };
 
     Html(log_options_html(&matches, &q, !q.is_empty()))
+}
+
+/// Saved meals, and the builder that makes new ones.
+///
+/// A meal chip logs every item in one action — so it flags and undoes as one,
+/// which is why the log route hands back a list of ids rather than a count.
+fn meals_section_html(
+    recipes: &[crate::models::RecipeWithTotals],
+    foods: &[crate::models::FoodItem],
+) -> String {
+    let chips: String = if recipes.is_empty() {
+        r#"<p class="fit-log__hint">No saved meals yet — build one, or save a slot you have already logged.</p>"#.to_string()
+    } else {
+        recipes
+            .iter()
+            .map(|r| {
+                format!(
+                    r##"<button type="button" class="hm-btn hm-btn--md hm-btn--secondary fit-chip"
+          hx-post="/api/nutrition/recipes/{id}/log"
+          hx-vals='js:{{slot: effectiveSlot(), date: window.currentDate}}'
+          hx-target="#day-section" hx-swap="innerHTML">
+    <span class="fit-chip__name">{name}</span>
+    <span class="fit-chip__grams">{cal:.0} kcal</span>
+  </button>"##,
+                    id = r.id,
+                    name = html_escape(&r.name),
+                    cal = r.total_cal
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n  ")
+    };
+
+    // The first eight foods, which is what fits before the panel needs its own
+    // search. Composing from the catalog is the point — `create_recipe_from_slot`
+    // can only capture a meal you have already eaten.
+    let picks: String = foods
+        .iter()
+        .take(8)
+        .map(|f| {
+            format!(
+                r##"<button type="button" class="hm-btn hm-btn--sm hm-btn--ghost"
+        onclick="addMealItem({id}, this.dataset.name, {grams})"
+        data-name="{name}">+ {name}</button>"##,
+                id = f.id,
+                grams = f.default_portion_g.unwrap_or(100.0),
+                name = html_escape(&f.name)
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n      ");
+
+    format!(
+        r##"<hr class="fit-log__rule">
+<div class="fit-log__meals-head">
+  <span class="fit-log__kicker">Saved meals</span>
+  <button type="button" class="hm-btn hm-btn--sm hm-btn--ghost" id="fit-meal-toggle"
+          onclick="toggleMealBuilder()">New meal</button>
+</div>
+<div class="fit-chips">
+  {chips}
+</div>
+<div class="fit-builder" id="fit-builder" hidden>
+  <div class="fit-builder__row">
+    <div class="fit-field">
+      <input type="text" id="fit-meal-name" placeholder="Meal name" autocomplete="off">
+    </div>
+    <span class="fit-builder__total" id="fit-meal-total">0 kcal</span>
+    <button type="button" class="hm-btn hm-btn--md hm-btn--primary" onclick="saveMeal()">Save meal</button>
+  </div>
+  <div class="fit-builder__picked" id="fit-meal-picked"></div>
+  <div class="fit-builder__adds">
+      {picks}
+  </div>
+</div>"##,
+        chips = chips,
+        picks = picks
+    )
+}
+
+/// Creates a saved meal from the builder's list.
+///
+/// `items` arrives as `id:grams` pairs. Anything malformed is dropped rather
+/// than failing the whole save — a meal that mostly worked beats an error on a
+/// panel the user has already filled in.
+async fn create_meal(
+    session: AuthSession,
+    State(state): State<Arc<AppState>>,
+    axum::Form(form): axum::Form<HashMap<String, String>>,
+) -> impl IntoResponse {
+    let name = form.get("name").map(|s| s.trim()).unwrap_or_default();
+    let items: Vec<(i64, f64)> = form
+        .get("items")
+        .map(|s| {
+            s.split(',')
+                .filter_map(|pair| {
+                    let (id, grams) = pair.split_once(':')?;
+                    let id: i64 = id.trim().parse().ok()?;
+                    let grams: f64 = grams.trim().parse().ok()?;
+                    (1.0..=5000.0).contains(&grams).then_some((id, grams))
+                })
+                .take(32)
+                .collect()
+        })
+        .unwrap_or_default();
+
+    if !name.is_empty() && name.chars().count() <= 80 {
+        crate::db::create_recipe_from_items(&state.pool, name, &items, session.user()).await;
+    }
+    let recipes = crate::db::get_recipes_with_totals(&state.pool, session.user()).await;
+    let foods = crate::db::get_food_items(&state.pool, session.user()).await;
+    Html(meals_section_html(&recipes, &foods))
+}
+
+async fn meals_section(
+    session: AuthSession,
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    let recipes = crate::db::get_recipes_with_totals(&state.pool, session.user()).await;
+    let foods = crate::db::get_food_items(&state.pool, session.user()).await;
+    Html(meals_section_html(&recipes, &foods))
 }
 
 /// The "usual at &lt;slot&gt;" card — up to three foods this user habitually eats
@@ -2492,8 +2615,25 @@ async fn log_recipe_handler(
 ) -> impl IntoResponse {
     let date = sanitize_date(form.get("date"));
     let slot = sanitize_slot(form.get("slot"));
-    crate::db::log_recipe(&state.pool, id, &date, &slot, session.user()).await;
-    Html(render_day(&state.pool, &date, session.user(), true).await)
+    let ids = crate::db::log_recipe(&state.pool, id, &date, &slot, session.user()).await;
+
+    // The meal's own name, so the toast says "Logged Post-gym shake · 3 items"
+    // rather than naming whichever food happened to be inserted last.
+    let name = crate::db::get_recipes_with_totals(&state.pool, session.user())
+        .await
+        .into_iter()
+        .find(|r| r.id == id)
+        .map(|r| r.name)
+        .unwrap_or_else(|| "meal".to_string());
+    let text = format!(
+        "Logged {} · {} item{}",
+        name,
+        ids.len(),
+        if ids.len() == 1 { "" } else { "s" }
+    );
+
+    let body = render_day(&state.pool, &date, session.user(), true).await;
+    log_batch_response(body, &ids, &text)
 }
 
 fn meals_pane_html(recipes: &[crate::models::RecipeWithTotals]) -> String {
@@ -2938,6 +3078,8 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/api/nutrition/entries/undo", post(undo_log_batch))
         .route("/fitness/htmx/log-options", get(log_options))
         .route("/fitness/htmx/usual", get(usual_card))
+        .route("/fitness/htmx/meals-section", get(meals_section))
+        .route("/api/nutrition/recipes/build", post(create_meal))
         .route("/api/nutrition/foods/create-and-log", post(create_and_log))
         .route("/fitness/htmx/entries/{id}/edit", get(entry_edit_form))
         .route("/fitness/copy-day", post(copy_day_handler))

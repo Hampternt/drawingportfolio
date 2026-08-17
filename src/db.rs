@@ -1878,24 +1878,70 @@ pub async fn get_recipes_with_totals(
 /// copying their meal into your day. The new entries are stamped with the
 /// logger's id, not the recipe owner's — they are the same person here, but
 /// writing it explicitly keeps that true if the ownership rule ever loosens.
-pub async fn log_recipe(pool: &DbPool, id: i64, date: &str, slot: &str, user: UserId) -> u64 {
+/// Logs every item of a saved meal, returning the entry ids it created.
+///
+/// The ids are the point: a meal is one action to the person tapping it, so its
+/// rows must flag together and undo together. `RETURNING` gives them straight
+/// from the insert — reading them back afterwards would race a second tab
+/// logging the same meal.
+pub async fn log_recipe(pool: &DbPool, id: i64, date: &str, slot: &str, user: UserId) -> Vec<i64> {
     let uid = user.get();
     sqlx::query!(
-        "INSERT INTO meal_entries (food_item_id, date, grams, slot, user_id)
+        r#"INSERT INTO meal_entries (food_item_id, date, grams, slot, user_id)
          SELECT ri.food_item_id, ?, ri.grams, ?, ?
          FROM recipe_items ri
          JOIN recipes r ON r.id = ri.recipe_id
-         WHERE ri.recipe_id = ? AND r.user_id = ?",
+         WHERE ri.recipe_id = ? AND r.user_id = ?
+         RETURNING id as "id!""#,
         date,
         slot,
         uid,
         id,
         uid
     )
-    .execute(pool)
+    .fetch_all(pool)
     .await
-    .map(|r| r.rows_affected())
-    .unwrap_or(0)
+    .map(|rows| rows.into_iter().map(|r| r.id).collect())
+    .unwrap_or_default()
+}
+
+/// Creates a saved meal from an explicit list of foods and amounts.
+///
+/// The sibling of `create_recipe_from_slot`, which can only capture what is
+/// already logged. The builder needs to compose a meal you have not eaten yet.
+pub async fn create_recipe_from_items(
+    pool: &DbPool,
+    name: &str,
+    items: &[(i64, f64)],
+    user: UserId,
+) -> Option<i64> {
+    if items.is_empty() {
+        return None;
+    }
+    let uid = user.get();
+    let mut tx = pool.begin().await.ok()?;
+    let rid = sqlx::query!(
+        "INSERT INTO recipes (name, user_id) VALUES (?, ?) RETURNING id",
+        name,
+        uid
+    )
+    .fetch_one(&mut *tx)
+    .await
+    .ok()?
+    .id;
+    for (food_item_id, grams) in items {
+        sqlx::query!(
+            "INSERT INTO recipe_items (recipe_id, food_item_id, grams) VALUES (?, ?, ?)",
+            rid,
+            food_item_id,
+            grams
+        )
+        .execute(&mut *tx)
+        .await
+        .ok()?;
+    }
+    tx.commit().await.ok()?;
+    Some(rid)
 }
 
 /// Deletes one of this user's recipes. Someone else's id deletes nothing.
@@ -2680,9 +2726,10 @@ mod tests {
         );
 
         // Logging someone else's recipe inserts nothing.
-        assert_eq!(
-            log_recipe(&pool, rid, "2026-08-17", "dinner", alex).await,
-            0,
+        assert!(
+            log_recipe(&pool, rid, "2026-08-17", "dinner", alex)
+                .await
+                .is_empty(),
             "another user's recipe must not be loggable"
         );
         assert!(get_meal_entries_for_date(&pool, "2026-08-17", alex)
@@ -2708,7 +2755,9 @@ mod tests {
 
         // The owner's own calls work.
         assert_eq!(
-            log_recipe(&pool, rid, "2026-08-17", "dinner", OWNER).await,
+            log_recipe(&pool, rid, "2026-08-17", "dinner", OWNER)
+                .await
+                .len(),
             1
         );
         assert!(delete_recipe(&pool, rid, OWNER).await);
@@ -3868,7 +3917,18 @@ mod tests {
         assert_eq!(recipes[0].item_count, 2);
         assert!((recipes[0].total_cal - (379.0 * 0.8 + 63.0 * 2.5)).abs() < 0.1);
         let inserted = log_recipe(&pool, rid, "2026-08-01", "snack", OWNER).await;
-        assert_eq!(inserted, 2);
+        assert_eq!(inserted.len(), 2);
+        // The ids are what the toast's Undo removes, so they must be the real
+        // entry ids and not, say, row ordinals.
+        let entry_ids: Vec<i64> = get_meal_entries_for_date(&pool, "2026-08-01", OWNER)
+            .await
+            .iter()
+            .map(|e| e.entry_id)
+            .collect();
+        assert!(
+            inserted.iter().all(|id| entry_ids.contains(id)),
+            "log_recipe must return the ids it actually inserted"
+        );
         let entries = get_meal_entries_for_date(&pool, "2026-08-01", OWNER).await;
         assert!(entries.iter().all(|e| e.slot == "snack"));
         delete_recipe(&pool, rid, OWNER).await;

@@ -798,6 +798,64 @@ body.fitness-dark .fit-chip__grams { font: var(--type-label); color: var(--text-
 body.fitness-dark .fit-chip.hm-btn--secondary:hover .fit-chip__grams { color: var(--text-muted); }
 body.fitness-dark .fit-log__create { width: 100%; margin-top: var(--space-3); }
 
+/* Saved meals and the builder. */
+body.fitness-dark .fit-log__rule {
+  border: none;
+  border-top: 1px solid var(--border-subtle);
+  margin: 14px 0;
+}
+body.fitness-dark .fit-log__meals-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  margin-bottom: var(--space-3);
+}
+body.fitness-dark .fit-builder {
+  margin-top: var(--space-5);
+  padding: 12px;
+  background: var(--surface-inset);
+  border: var(--border-width) solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+}
+body.fitness-dark .fit-builder[hidden] { display: none; }
+body.fitness-dark .fit-builder__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+body.fitness-dark .fit-builder__row .fit-field { flex: 1 1 160px; }
+body.fitness-dark .fit-builder__total { font: var(--type-mono); color: var(--text-muted); }
+body.fitness-dark .fit-builder__picked,
+body.fitness-dark .fit-builder__adds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+}
+body.fitness-dark .fit-builder__picked:empty { margin-top: 0; }
+body.fitness-dark .fit-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 3px var(--space-4);
+  border: var(--border-width) solid var(--border-default);
+  border-radius: var(--radius-pill);
+  background: var(--surface-chip);
+  font: var(--type-label);
+  color: var(--text-body);
+}
+body.fitness-dark .fit-tag__x {
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--text-faint);
+  cursor: pointer;
+  font: var(--type-label);
+}
+body.fitness-dark .fit-tag__x:hover { color: var(--status-danger); }
+
 /* "usual at <slot>" — the left rail's one-tap shortcut. */
 body.fitness-dark .fit-usual { padding: 14px 16px; }
 body.fitness-dark .fit-usual__head {

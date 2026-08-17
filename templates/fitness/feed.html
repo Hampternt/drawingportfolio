@@ -513,6 +513,72 @@ function updateCheckCount() {
   el.classList.toggle('fit-log__check--pending', n > 0);
 }
 
+// ── Meal builder ───────────────────────────────────────────────────────────
+// Composes a saved meal from any foods, not only from a slot already logged.
+// The picked list lives in JS because it is scratch state — nothing has been
+// created until Save, and abandoning the panel should leave nothing behind.
+
+window.mealItems = [];
+
+function toggleMealBuilder() {
+  const panel = document.getElementById('fit-builder');
+  const btn = document.getElementById('fit-meal-toggle');
+  if (!panel) return;
+  panel.hidden = !panel.hidden;
+  if (btn) btn.textContent = panel.hidden ? 'New meal' : 'Close';
+  if (panel.hidden) { window.mealItems = []; renderMealItems(); }
+}
+
+function addMealItem(id, name, grams) {
+  if (window.mealItems.some(i => i.id === id)) return;   // one row per food
+  window.mealItems.push({id: id, name: name, grams: grams});
+  renderMealItems();
+}
+
+function removeMealItem(id) {
+  window.mealItems = window.mealItems.filter(i => i.id !== id);
+  renderMealItems();
+}
+
+function renderMealItems() {
+  const wrap = document.getElementById('fit-meal-picked');
+  if (!wrap) return;
+  wrap.textContent = '';
+  window.mealItems.forEach(item => {
+    // Built as nodes rather than an HTML string: the name is catalog text and
+    // this is the one place it would otherwise be concatenated into markup.
+    const tag = document.createElement('span');
+    tag.className = 'fit-tag';
+    tag.textContent = item.name + ' ' + item.grams + ' g';
+    const x = document.createElement('button');
+    x.type = 'button';
+    x.className = 'fit-tag__x';
+    x.textContent = '✕';
+    x.setAttribute('aria-label', 'Remove ' + item.name);
+    x.onclick = () => removeMealItem(item.id);
+    tag.appendChild(x);
+    wrap.appendChild(tag);
+  });
+  const total = document.getElementById('fit-meal-total');
+  if (total) total.textContent = window.mealItems.length + ' item' +
+    (window.mealItems.length === 1 ? '' : 's');
+}
+
+function saveMeal() {
+  const name = (document.getElementById('fit-meal-name').value || '').trim();
+  if (!name || !window.mealItems.length) return;
+  const items = window.mealItems.map(i => i.id + ':' + i.grams).join(',');
+  htmx.ajax('POST', '/api/nutrition/recipes/build', {
+    target: '#fit-meals', swap: 'innerHTML',
+    values: { name: name, items: items }
+  }).then(() => {
+    window.mealItems = [];
+    const n = document.getElementById('fit-meal-name');
+    if (n) n.value = '';
+    showToast('Saved meal · ' + name, null);
+  });
+}
+
 // ── Toast ──────────────────────────────────────────────────────────────────
 // Names what just landed and offers to take it back. The batch is a list of
 // entry ids rather than "the last N rows": those two disagree the moment
