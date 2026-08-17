@@ -36,13 +36,17 @@ from this file on 2026-08-12; `git log docs/WORKTREES.md` recovers them.
   life party challenges as Last Call cards (vote-judged duels, solo dares,
   social penalties, challenge HUD). Three packs; manifest:
   `docs/manifests/2026-08-14-lc-challenge-cards.md`.
-- **`feat/multi-user-fitness`** (started 2026-08-16, from `dev`, worktree
-  `~/projects/drawingportfolio.worktrees/multi-user-fitness`): multi-user
-  container — several people each with their own fitness log over a shared
-  food catalog, logging in by name + PIN alongside the owner's passkeys.
-  Art-portfolio admin becomes a grantable permission rather than a synonym
-  for "logged in". Four packs; manifest:
-  `docs/manifests/2026-08-16-multi-user-fitness.md`.
+- **`feat/multi-user-fitness`** — **LANDED 2026-08-17**, merged `dev → master`
+  and deployed. Multi-user container: several people each with their own
+  fitness log over a shared food catalog, logging in by name + PIN alongside
+  the owner's passkeys; art-portfolio admin became a grantable permission
+  rather than a synonym for "logged in". All four packs complete; the manifest
+  `docs/manifests/2026-08-16-multi-user-fitness.md` holds the ledgers, the
+  populated-database upgrade test and the no-rollback note. The worktree
+  `~/projects/drawingportfolio.worktrees/multi-user-fitness` can be removed.
+  Deploy-time discovery worth carrying forward: the server's nginx config was
+  still the 2026-07-28 file and carried `listen [::]` lines the repo had
+  dropped in April — read the `deploying` skill before copying `nginx.conf`.
 
 ## Reminders
 
