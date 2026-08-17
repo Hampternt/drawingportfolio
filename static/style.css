@@ -1148,6 +1148,57 @@ body.fitness-dark .fit-head .fit-head__copy { display: none; }
   body.fitness-dark #fit-toast { bottom: var(--gutter); }
 }
 
+/* ── Press and hit targets (overhaul, pack 5) ────────────────────────────
+   Press is a 1px drop, never a scale. The design-system primitives already do
+   it; these are the page's own controls, which are not built from them. */
+body.fitness-dark .fit-nudge:active,
+body.fitness-dark .fit-row__amount:active,
+body.fitness-dark .fit-row__remove:active,
+body.fitness-dark .lib-row__icon:active,
+body.fitness-dark .fit-tag__x:active,
+body.fitness-dark #fit-toast-undo:active,
+body.fitness-dark .noc-btn:active,
+body.fitness-dark .noc-tag:active { transform: translateY(1px); }
+
+/* The brief names three controls at >=34px tall, nudge buttons also >=44px
+   wide. Measured on a 375px phone with a row open: amounts 42px, nudges 34x44
+   — but the slot chips came in at 28px, because they are `hm-btn--sm` and that
+   is what `sm` is. `min-height` rather than `height`: the used height is
+   clamped to at least the minimum, so it wins over the primitive's `height`
+   without having to unset it. Raised at every width — the brief states the
+   floor unconditionally, and a 28px chip is not a desktop virtue either. */
+body.fitness-dark .fit-log__slots .hm-btn { min-height: 34px; }
+
+/* These were outside the brief's list and failed the same measurement. They
+   are also the controls a thumb reaches for most: the row's own grams toggle,
+   at 23.8px, is the single most-tapped thing in the redesign. Phones only —
+   under a mouse the quiet 26px library cluster is precise enough, and growing
+   it on desktop would undo the recessive treatment Pack 4 gave it on purpose.
+   The two scoped selectors are (0,3,1), so they beat the design system's
+   `.hm-btn--sm` wherever it happens to sit in this file. */
+@media (max-width: 899px) {
+  body.fitness-dark .fit-row__amount { min-height: 34px; }
+  body.fitness-dark .fit-row__remove { min-height: 34px; min-width: 34px; }
+  body.fitness-dark .lib-row .lib-row__icon { width: 34px; height: 34px; }
+  body.fitness-dark .lib-row .hm-btn { min-height: 34px; }
+  body.fitness-dark .lib-chips .noc-tag { min-height: 34px; }
+}
+
+/* Belt and braces, matching the art page's. The duration tokens already zero
+   themselves under this query, but a transition or animation written literally
+   anywhere in the fitness sections — and the older Nocturne rules below are
+   full of them — would survive that. */
+@media (prefers-reduced-motion: reduce) {
+  body.fitness-dark *,
+  body.fitness-dark *::before,
+  body.fitness-dark *::after {
+    transition-duration: 0ms !important;
+    animation-duration: 0ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 /* Freshly logged: an amber edge and dot until the amount is acknowledged.
    Shares the amber with protein deliberately — the brief notes the flag and a
    macro mark never appear on the same element. */
