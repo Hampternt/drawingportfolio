@@ -464,6 +464,46 @@ is display rounding.
 </details>
 
 <details>
+<summary><b>Review wave — 3 findings, all fixed</b> (<code>high</code>, 2026-08-18)</summary>
+
+Gate re-run green.
+
+1. **Every library filter chip hid the whole library.** `libFilter` and
+   `filterLibrary` still queried `.food-item-card`, which 4.5 replaced with
+   `.lib-row` — the per-card loop matched nothing, so the group loop found no
+   visible rows anywhere and set every group to `display: none`, including
+   "All", the chip that should be a no-op. Search was inert for the same reason.
+   Both selectors repointed; `data-fav` and `data-recent` now carry real values
+   rather than hardcoded zeros, so Favourites and Recent filter something.
+2. **The library had lost edit, delete and favourite** with no replacement,
+   stranding the macro-less foods create-and-log produces on purpose: three rows
+   read "no macros yet" with no way to complete or remove any of them. Restored
+   as a quiet icon cluster on the row. **A deliberate deviation from the design**,
+   whose row shows only `Log` — the prototype had no food management at all, so
+   it was not specifying a removal. Cancelling an edit now returns the library's
+   row instead of the old card shape, which leaves `food_item_card_html`
+   unreferenced; deleted rather than left to drift.
+3. **Logging destroyed an open Targets editor** and everything typed into it —
+   `#targets-editor` sat inside the out-of-band-swapped summary card. Moved out;
+   a typed `2555` now survives a log while the summary still updates.
+
+**The pattern worth naming, because this is its third appearance.** Pack 3's
+meal builder, Pack 4's targets editor: *transient state inside a container that
+another response replaces*. Any panel a user can be halfway through — a builder,
+an editor, an open form — must either live outside every OOB/swap target or be
+rebuilt from state after the swap. Ask of each new panel: what replaces the box
+this sits in, and what is the user in the middle of when it does?
+
+**And a second-order lesson from finding 2:** implementing a design faithfully
+is not the same as implementing it *completely*. The prototype was a logging
+demo with no food management, so its library row legitimately showed one button.
+Reading that as a spec deleted three working capabilities. When a redesign
+replaces a surface, diff what the old one could do — not just what the new one
+draws.
+
+</details>
+
+<details>
 <summary><b>Pack 5 — scope only</b></summary>
 
 **Pack 4 — Day at a glance.** Summary card (132px ring, three macro rails, week
