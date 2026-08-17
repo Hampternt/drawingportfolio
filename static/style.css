@@ -822,25 +822,29 @@ body.fitness-dark #quickadd-results .search-row:first-child { background: var(--
 .task-image-row .task-thumb { width: 40px; height: 40px; }
 .task-image-title { flex: 1; font-size: 0.9rem; }
 
-/* ── Drawing Portfolio ──────────────────────────────────────────────────────
-   The Hampter Design System, applied to /artportfolio only.
+/* ── Hampter Design System ──────────────────────────────────────────────────
+   Shared by /artportfolio and /fitness. Lifted from
+   docs/design/artportfolio-redesign/_ds/hampter-design-system-.../ with one
+   deliberate deviation, recorded in the slice-1 spec:
+     tokens/base.css is NOT lifted as-is. Its resets are unscoped and would turn
+     every page on the site dark; they are rewritten under the scope below.
 
-   Lifted from docs/design/artportfolio-redesign/_ds/hampter-design-system-.../
-   with two deliberate deviations, both recorded in the slice-1 spec:
-     1. tokens/base.css is NOT lifted as-is. Its resets are unscoped and would
-        turn every page on the site dark; they are rewritten under body.art-page.
-     2. tokens/legacy-nocturne.css is excluded entirely. It repoints every
-        --noc-* variable and would shift /fitness from #9184d9 to #B48EF7 as a
-        side effect of this slice.
+   The second deviation is now spent. Slice 1 excluded tokens/legacy-nocturne.css
+   because it repoints every --noc-* variable and would have shifted /fitness
+   from #9184d9 to #B48EF7 as a side effect of an artportfolio change. The
+   fitness Today overhaul adopts that shift deliberately — ruled 2026-08-17, see
+   docs/manifests/2026-08-17-fitness-today-overhaul.md — so the bridge now lives
+   with the Nocturne block above rather than being excluded here.
 
    Token declarations sit on bare :root because custom properties are inert —
-   nothing that does not read them is affected. Verified: the rest of this
-   stylesheet declares only --noc-* names and reads no token defined here.
+   nothing that does not read them is affected.
 
-   Everything that PAINTS is prefixed body.art-page. Comments from the source
-   files are stripped: CSS comments do not nest, and a lifted opening marker
-   inside this block would silently drop the next rule. Guarded by
-   tests/static_assets.rs.
+   Everything that PAINTS is scoped. The primitives — resets, icons, Button,
+   IconButton, Kbd, Field, utility surfaces — carry both page scopes; the site
+   chrome, the PostCard and the feed layout stay artportfolio-only. Comments
+   from the source files are stripped: CSS comments do not nest, and a lifted
+   opening marker inside this block would silently drop the next rule. Guarded
+   by tests/static_assets.rs.
    ────────────────────────────────────────────────────────────────────────── */
 
 /* Tokens: colors.css */
@@ -1075,13 +1079,23 @@ body.fitness-dark #quickadd-results .search-row:first-child { background: var(--
 @font-face { font-family:"IBM Plex Mono"; font-style:normal; font-weight:400; font-display:swap; src:url("/static/fonts/ibm-plex-mono-400.woff2") format("woff2"); }
 @font-face { font-family:"IBM Plex Mono"; font-style:normal; font-weight:500; font-display:swap; src:url("/static/fonts/ibm-plex-mono-500.woff2") format("woff2"); }
 
-/* Resets — tokens/base.css, rewritten under body.art-page. Linking that file
-   as-is would repaint every page on the site on the next request. */
-body.art-page,
-body.art-page *,
-body.art-page *::before,
-body.art-page *::after { box-sizing: border-box; }
-body.art-page {
+/* Resets — tokens/base.css, rewritten under the design-system scope. Linking
+   that file as-is would repaint every page on the site on the next request.
+
+   The scope is a two-page :is() list, not one class, because both surfaces
+   already carry their own body class and base.html re-derives those from
+   content markers on every boosted swap. Adding a third shared class would
+   mean a third thing that can fail to be re-derived. :is(a, b) X takes the
+   specificity of its most specific argument, so each of these still weighs
+   exactly what `body.art-page X` weighed — the cascade is unchanged.
+
+   Only the primitives below are shared. The site chrome, the PostCard and the
+   feed layout stay artportfolio-only, further down. */
+:is(body.art-page, body.fitness-dark),
+:is(body.art-page, body.fitness-dark) *,
+:is(body.art-page, body.fitness-dark) *::before,
+:is(body.art-page, body.fitness-dark) *::after { box-sizing: border-box; }
+:is(body.art-page, body.fitness-dark) {
   margin: 0;
   background: var(--surface-page);
   color: var(--text-body);
@@ -1090,35 +1104,35 @@ body.art-page {
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
-body.art-page h1,
-body.art-page h2,
-body.art-page h3,
-body.art-page h4 {
+:is(body.art-page, body.fitness-dark) h1,
+:is(body.art-page, body.fitness-dark) h2,
+:is(body.art-page, body.fitness-dark) h3,
+:is(body.art-page, body.fitness-dark) h4 {
   margin: 0;
   color: var(--text-strong);
   font-family: var(--font-display);
   letter-spacing: var(--tracking-tight);
   text-wrap: balance;
 }
-body.art-page p { margin: 0; text-wrap: pretty; }
-body.art-page a {
+:is(body.art-page, body.fitness-dark) p { margin: 0; text-wrap: pretty; }
+:is(body.art-page, body.fitness-dark) a {
   color: var(--text-link);
   text-decoration: none;
   text-underline-offset: 3px;
   transition: color var(--dur-fast) var(--ease-snap);
 }
-body.art-page a:hover { color: var(--text-link-hover); text-decoration: underline; }
-body.art-page code,
-body.art-page kbd,
-body.art-page pre,
-body.art-page samp { font-family: var(--font-mono); }
-body.art-page ::selection { background: var(--violet-a28); color: var(--ink-050); }
-body.art-page :focus-visible { outline: none; box-shadow: var(--focus-ring); }
-body.art-page button,
-body.art-page input,
-body.art-page select,
-body.art-page textarea { font: inherit; color: inherit; }
-body.art-page hr { border: none; border-top: 1px solid var(--border-subtle); margin: 0; }
+:is(body.art-page, body.fitness-dark) a:hover { color: var(--text-link-hover); text-decoration: underline; }
+:is(body.art-page, body.fitness-dark) code,
+:is(body.art-page, body.fitness-dark) kbd,
+:is(body.art-page, body.fitness-dark) pre,
+:is(body.art-page, body.fitness-dark) samp { font-family: var(--font-mono); }
+:is(body.art-page, body.fitness-dark) ::selection { background: var(--violet-a28); color: var(--ink-050); }
+:is(body.art-page, body.fitness-dark) :focus-visible { outline: none; box-shadow: var(--focus-ring); }
+:is(body.art-page, body.fitness-dark) button,
+:is(body.art-page, body.fitness-dark) input,
+:is(body.art-page, body.fitness-dark) select,
+:is(body.art-page, body.fitness-dark) textarea { font: inherit; color: inherit; }
+:is(body.art-page, body.fitness-dark) hr { border: none; border-top: 1px solid var(--border-subtle); margin: 0; }
 
 /* Site chrome from base.html, restyled in place. The markup is untouched.
 
@@ -1191,7 +1205,7 @@ body.art-page header .palette-hint kbd {
 
 /* Icons — Lucide as CSS masks, so a glyph inherits currentColor and needs no
    recolouring per context. */
-body.art-page .hm-icon {
+:is(body.art-page, body.fitness-dark) .hm-icon {
   display: inline-block;
   flex: none;
   width: 16px;
@@ -1201,12 +1215,12 @@ body.art-page .hm-icon {
   -webkit-mask-position: center; mask-position: center;
   -webkit-mask-size: 100% 100%; mask-size: 100% 100%;
 }
-body.art-page .hm-icon--search { -webkit-mask-image: url("/static/icons/search.svg"); mask-image: url("/static/icons/search.svg"); }
-body.art-page .hm-icon--chevron-down { -webkit-mask-image: url("/static/icons/chevron-down.svg"); mask-image: url("/static/icons/chevron-down.svg"); }
-body.art-page .hm-icon--x { -webkit-mask-image: url("/static/icons/x.svg"); mask-image: url("/static/icons/x.svg"); }
+:is(body.art-page, body.fitness-dark) .hm-icon--search { -webkit-mask-image: url("/static/icons/search.svg"); mask-image: url("/static/icons/search.svg"); }
+:is(body.art-page, body.fitness-dark) .hm-icon--chevron-down { -webkit-mask-image: url("/static/icons/chevron-down.svg"); mask-image: url("/static/icons/chevron-down.svg"); }
+:is(body.art-page, body.fitness-dark) .hm-icon--x { -webkit-mask-image: url("/static/icons/x.svg"); mask-image: url("/static/icons/x.svg"); }
 
 /* Button */
-body.art-page .hm-btn {
+:is(body.art-page, body.fitness-dark) .hm-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1221,28 +1235,28 @@ body.art-page .hm-btn {
   text-decoration: none;
   transition: var(--transition-control);
 }
-body.art-page .hm-btn:focus-visible { outline: none; box-shadow: var(--focus-ring); }
-body.art-page .hm-btn:active { transform: translateY(1px); }
-body.art-page .hm-btn[disabled],
-body.art-page .hm-btn[aria-disabled="true"] { opacity: .42; pointer-events: none; }
-body.art-page .hm-btn--sm { height: var(--control-height-sm); padding: 0 var(--space-5); font-size: var(--text-13); }
-body.art-page .hm-btn--md { height: var(--control-height-md); padding: 0 var(--space-6); }
-body.art-page .hm-btn--primary {
+:is(body.art-page, body.fitness-dark) .hm-btn:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+:is(body.art-page, body.fitness-dark) .hm-btn:active { transform: translateY(1px); }
+:is(body.art-page, body.fitness-dark) .hm-btn[disabled],
+:is(body.art-page, body.fitness-dark) .hm-btn[aria-disabled="true"] { opacity: .42; pointer-events: none; }
+:is(body.art-page, body.fitness-dark) .hm-btn--sm { height: var(--control-height-sm); padding: 0 var(--space-5); font-size: var(--text-13); }
+:is(body.art-page, body.fitness-dark) .hm-btn--md { height: var(--control-height-md); padding: 0 var(--space-6); }
+:is(body.art-page, body.fitness-dark) .hm-btn--primary {
   background: var(--accent);
   color: var(--text-on-accent);
   border-color: var(--violet-300);
   box-shadow: var(--shadow-inset-hairline);
 }
-body.art-page .hm-btn--primary:hover { background: var(--accent-hover); }
-body.art-page .hm-btn--primary:active { background: var(--accent-press); }
-body.art-page .hm-btn--secondary { background: var(--ink-800); color: var(--text-strong); border-color: var(--border-default); }
-body.art-page .hm-btn--secondary:hover { background: var(--ink-750); border-color: var(--border-strong); }
-body.art-page .hm-btn--secondary:active { background: var(--ink-800); }
-body.art-page .hm-btn--ghost { background: transparent; color: var(--text-muted); }
-body.art-page .hm-btn--ghost:hover { background: var(--surface-hover); color: var(--text-strong); }
+:is(body.art-page, body.fitness-dark) .hm-btn--primary:hover { background: var(--accent-hover); }
+:is(body.art-page, body.fitness-dark) .hm-btn--primary:active { background: var(--accent-press); }
+:is(body.art-page, body.fitness-dark) .hm-btn--secondary { background: var(--ink-800); color: var(--text-strong); border-color: var(--border-default); }
+:is(body.art-page, body.fitness-dark) .hm-btn--secondary:hover { background: var(--ink-750); border-color: var(--border-strong); }
+:is(body.art-page, body.fitness-dark) .hm-btn--secondary:active { background: var(--ink-800); }
+:is(body.art-page, body.fitness-dark) .hm-btn--ghost { background: transparent; color: var(--text-muted); }
+:is(body.art-page, body.fitness-dark) .hm-btn--ghost:hover { background: var(--surface-hover); color: var(--text-strong); }
 
 /* IconButton */
-body.art-page .hm-iconbtn {
+:is(body.art-page, body.fitness-dark) .hm-iconbtn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1253,14 +1267,14 @@ body.art-page .hm-iconbtn {
   cursor: pointer;
   transition: var(--transition-control);
 }
-body.art-page .hm-iconbtn:hover { background: var(--surface-hover); color: var(--text-strong); }
-body.art-page .hm-iconbtn:active { transform: translateY(1px); }
-body.art-page .hm-iconbtn:focus-visible { outline: none; box-shadow: var(--focus-ring); }
-body.art-page .hm-iconbtn--sm { width: var(--control-height-sm); height: var(--control-height-sm); }
-body.art-page .hm-iconbtn--md { width: var(--control-height-md); height: var(--control-height-md); }
+:is(body.art-page, body.fitness-dark) .hm-iconbtn:hover { background: var(--surface-hover); color: var(--text-strong); }
+:is(body.art-page, body.fitness-dark) .hm-iconbtn:active { transform: translateY(1px); }
+:is(body.art-page, body.fitness-dark) .hm-iconbtn:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+:is(body.art-page, body.fitness-dark) .hm-iconbtn--sm { width: var(--control-height-sm); height: var(--control-height-sm); }
+:is(body.art-page, body.fitness-dark) .hm-iconbtn--md { width: var(--control-height-md); height: var(--control-height-md); }
 
 /* Kbd */
-body.art-page .hm-kbd {
+:is(body.art-page, body.fitness-dark) .hm-kbd {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1277,7 +1291,7 @@ body.art-page .hm-kbd {
   font-size: var(--text-11);
   text-transform: uppercase;
 }
-body.art-page .hm-kbd-group {
+:is(body.art-page, body.fitness-dark) .hm-kbd-group {
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
@@ -1286,15 +1300,15 @@ body.art-page .hm-kbd-group {
 }
 
 /* Field primitives — the search field in the next slice is built from these. */
-body.art-page .hm-field { display: flex; flex-direction: column; gap: var(--space-3); }
-body.art-page .hm-field__label {
+:is(body.art-page, body.fitness-dark) .hm-field { display: flex; flex-direction: column; gap: var(--space-3); }
+:is(body.art-page, body.fitness-dark) .hm-field__label {
   font: var(--type-label);
   letter-spacing: var(--tracking-caps);
   text-transform: uppercase;
   color: var(--text-muted);
 }
-body.art-page .hm-field__hint { font: var(--type-body-sm); color: var(--text-faint); }
-body.art-page .hm-input-wrap {
+:is(body.art-page, body.fitness-dark) .hm-field__hint { font: var(--type-body-sm); color: var(--text-faint); }
+:is(body.art-page, body.fitness-dark) .hm-input-wrap {
   position: relative;
   display: flex;
   align-items: center;
@@ -1307,9 +1321,9 @@ body.art-page .hm-input-wrap {
   color: var(--text-faint);
   transition: var(--transition-control);
 }
-body.art-page .hm-input-wrap:hover { border-color: var(--border-strong); }
-body.art-page .hm-input-wrap:focus-within { border-color: var(--border-focus); box-shadow: 0 0 0 3px var(--violet-a14); }
-body.art-page .hm-input {
+:is(body.art-page, body.fitness-dark) .hm-input-wrap:hover { border-color: var(--border-strong); }
+:is(body.art-page, body.fitness-dark) .hm-input-wrap:focus-within { border-color: var(--border-focus); box-shadow: 0 0 0 3px var(--violet-a14); }
+:is(body.art-page, body.fitness-dark) .hm-input {
   flex: 1;
   min-width: 0;
   background: none;
@@ -1319,7 +1333,7 @@ body.art-page .hm-input {
   font: var(--type-body);
   font-size: var(--text-14);
 }
-body.art-page .hm-input::placeholder { color: var(--text-faint); }
+:is(body.art-page, body.fitness-dark) .hm-input::placeholder { color: var(--text-faint); }
 
 /* PostCard */
 body.art-page .hm-post {
@@ -1364,18 +1378,18 @@ body.art-page .hm-post__meta {
 }
 
 /* Utility surfaces */
-body.art-page .hm-grid-bg {
+:is(body.art-page, body.fitness-dark) .hm-grid-bg {
   background-color: var(--surface-page);
   background-image: var(--texture-grid);
   background-size: var(--texture-grid-size);
 }
-body.art-page .hm-eyebrow {
+:is(body.art-page, body.fitness-dark) .hm-eyebrow {
   font: var(--type-label);
   letter-spacing: var(--tracking-caps);
   text-transform: uppercase;
   color: var(--text-faint);
 }
-body.art-page .hm-rule { height: 1px; background: var(--border-subtle); }
+:is(body.art-page, body.fitness-dark) .hm-rule { height: 1px; background: var(--border-subtle); }
 
 /* Page layout */
 body.art-page .art-head {
