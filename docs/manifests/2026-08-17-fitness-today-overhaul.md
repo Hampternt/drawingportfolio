@@ -1,6 +1,6 @@
 # Container: Fitness "Today" overhaul
 
-**Status:** Packs 1–3 landed 2026-08-17 (gates green, walkthroughs below). Pack 4 next.
+**Status:** Packs 1–4 landed (gates green, walkthroughs below). Pack 5 next.
 **Where:** `~/projects/drawingportfolio.worktrees/fitness-today-overhaul` on
 `feat/fitness-today-overhaul`, branched from `dev` @ 49c56cd (multi-user fitness
 landed; `dev` and `master` are level).
@@ -374,33 +374,33 @@ restructure for Pack 4 rather than a review fix.
 </details>
 
 <details>
-<summary><b>Pack 4 — Day at a glance</b> (in progress)</summary>
+<summary><b>Pack 4 — Day at a glance</b> (done 2026-08-18)</summary>
 
 **Done when:** the left rail answers "where does the day stand" without
 arithmetic — ring, rails, week strip, what the calories were made of, what is
 left, and the streak — and the library is grouped by what foods actually are.
 
-- [ ] **4.1 Fragment boundaries, redrawn.** The log card renders no day data yet
+- [x] **4.1 Fragment boundaries, redrawn.** The log card renders no day data yet
       lives inside the day fragment, which is why Pack 3 pays two round trips per
       log and why the meal builder needed rebuilding after every swap. Lift it
       out; `#day-section` becomes the meal slots alone, and the left rail's
       summary refreshes by out-of-band swap on the same response.
       *Done: logging updates slots and summary in one request; an idle page and
       a logging page both show no redundant fetches.*
-- [ ] **4.2 Summary card.** 132px calorie ring beside the three macro rails in
+- [x] **4.2 Summary card.** 132px calorie ring beside the three macro rails in
       their macro colours, the week strip moved inside the card, and a footer of
       `1840 / 2400 kcal` in mono with the `Targets` button.
       *Done: the card matches the design and tracks the day.*
-- [ ] **4.3 Where the calories came from.** The 76px day pie plus its legend —
+- [x] **4.3 Where the calories came from.** The 76px day pie plus its legend —
       three mono rows, each a swatch and `protein 31% · 168 g` in that macro's
       colour. Shares are of **calories**, not grams, which is the whole point.
       *Done: the legend's percentages sum to 100 and match the pie.*
-- [ ] **4.4 Left to hit today, and the streak.** Four tiles (kcal, protein,
+- [x] **4.4 Left to hit today, and the streak.** Four tiles (kcal, protein,
       carbs, fat) counting down, going `+N` in `--status-danger` once over. The
       streak card reuses `compute_streak`, already written and tested for the
       week page.
       *Done: tiles count down and flip sign; the streak matches the week view.*
-- [ ] **4.5 Library by nutrition profile.** Regroup the food library under
+- [x] **4.5 Library by nutrition profile.** Regroup the food library under
       `mostly protein` / `mostly carbs` / `mostly fat` / `balanced` /
       `macros missing` — the same `dominance` the rows already use — collapsed
       by default, each row one tap from being logged.
@@ -410,6 +410,56 @@ left, and the streak — and the library is grouped by what foods actually are.
 **Pack gate:** `./scripts/verify.sh`, a walkthrough of the day-at-a-glance
 numbers against the rows that produce them, **and a network check on an idle
 page** — the Pack 3 lesson.
+
+**Gate: green.** `verify.sh` clean; 848 workspace tests; clippy holds at **18**
+from a clean build.
+
+**The Pack 3 debt is paid, and it paid for itself.** `day_section_html` rendered
+three unrelated things; it is now `day_slots_html` (the meal cards) and
+`summary_card_html` (the rail), with the log card lifted into the page — it
+renders no day data, so rebuilding it per log was pure cost. The rail refreshes
+by `hx-swap-oob` on the same response, since it is a pure function of the rows
+being swapped. **One log went from four requests to one**, and the deletions
+that follow are the real dividend: `refreshWeekStrip`, `markSelectedDay`, the
+desktop quick-add strip with its handlers and CSS, and the afterSwap hook that
+chased the strip.
+
+<details>
+<summary><b>Walkthrough evidence</b></summary>
+
+*Numbers checked against the rows that produce them,* not against themselves:
+the legend's percentages sum to 100, its grams match the summed row macros, and
+protein's 71% recomputed independently from ×4/×4/×9 agrees. Tiles read
+1039 kcal / **+73** protein (flagged over) / 174 carbs / 68 fat against the
+targets.
+
+*Fragments.* Idle page: **0 requests**. One log: exactly one request, from which
+all three rail cards update — kcal 1361 → 1424, left 1039 → 976, composition
+238 g → 249 g.
+
+*Library.* Groups are `mostly protein` (1) and `macros missing` (3) on the test
+catalog; every count matches its row count, no empty group renders, every row
+carries a Log button, and "Uncategorised" is gone from the page entirely.
+
+*A non-bug, checked:* the footer reads 1361 kcal where summing the displayed row
+kcal gives 1360. Rows round individually; the footer rounds the true total once.
+Sum-then-round is the correct order, so the footer is right and the discrepancy
+is display rounding.
+
+</details>
+
+<details>
+<summary><b>Deviations and debt</b></summary>
+
+- **The library is not collapsed by default.** The design shows it behind an
+  `Open`/`Hide` toggle. It still sits in its pre-existing section with the
+  add-food form and filter chips, which Pack 5 should fold into the new
+  treatment; collapsing it now would hide controls nothing else replaces yet.
+- **`FoodItem.base_name` is readable but not editable.** Migration 022 added the
+  column, the model and library now read it, but no form writes it — so bases
+  stay unnamed until the add/edit food form gains the field. Pack 5.
+- **The entry-edit fragment and `.meal-entry` CSS are still dead**, as recorded
+  in Pack 3.
 
 </details>
 
