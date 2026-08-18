@@ -7,15 +7,15 @@
   <!-- Pre-warm TLS connection to image CDN so first image loads faster -->
   <link rel="preconnect" href="https://portfolio-images.hel1.your-objectstorage.com" crossorigin>
   <link rel="dns-prefetch" href="https://portfolio-images.hel1.your-objectstorage.com">
-  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="/static/style.css?v={{ crate::assets::asset_version() }}">
   <link rel="prefetch" href="/artportfolio">
   <link rel="prefetch" href="/fitness">
   <link rel="prefetch" href="/tasks">
   <!-- Self-hosted HTMX — eliminates DNS lookup + TLS handshake to unpkg.com -->
-  <script src="/static/htmx.min.js" defer></script>
+  <script src="/static/htmx.min.js?v={{ crate::assets::asset_version() }}" defer></script>
   <script>const IS_ADMIN = {% if is_admin %}true{% else %}false{% endif %};</script>
-  <script src="/static/palette.js" defer></script>
-  <script src="/static/artfeed.js" defer></script>
+  <script src="/static/palette.js?v={{ crate::assets::asset_version() }}" defer></script>
+  <script src="/static/artfeed.js?v={{ crate::assets::asset_version() }}" defer></script>
   <script>
     // hx-boost swaps body children, not body attributes — so the body_class
     // block is lost on every boosted navigation. Re-derive each theme class

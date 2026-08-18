@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Login — Portfolio</title>
-  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="/static/style.css?v={{ crate::assets::asset_version() }}">
   <style>
     /* Standalone page — it does not extend base.html, so its styles live here
        (the same exception admin.html carries). */
@@ -43,6 +43,6 @@
       <p class="login-hint">PIN accounts are created by the site owner.</p>
     </div>
   </main>
-  <script src="/static/webauthn.js"></script>
+  <script src="/static/webauthn.js?v={{ crate::assets::asset_version() }}"></script>
 </body>
 </html>
