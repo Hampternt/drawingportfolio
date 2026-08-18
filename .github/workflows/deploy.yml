@@ -24,12 +24,19 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Prepare database for sqlx
+        # Comments are stripped before splitting on ';'. A semicolon inside a
+        # `--` comment otherwise cuts a statement in half, and since every
+        # execute is wrapped in `except: pass`, the half carrying the real DDL
+        # fails silently and the schema is quietly wrong — which is how
+        # migration 022's ALTER went missing and broke the build rather than
+        # the migration.
         run: |
           python3 -c "
-          import sqlite3, pathlib
+          import sqlite3, pathlib, re
           db = sqlite3.connect('ci.db')
           for m in sorted(pathlib.Path('migrations').glob('*.sql')):
-              for s in m.read_text().split(';'):
+              sql = re.sub(r'--[^\n]*', '', m.read_text())
+              for s in sql.split(';'):
                   s = s.strip()
                   if s:
                       try: db.execute(s)
