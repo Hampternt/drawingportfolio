@@ -10,6 +10,7 @@
 // These tell Rust "there are other .rs files in src/ that belong to this project".
 // Each `mod` declaration makes the module's public items available under that name,
 // e.g. `db::connect(...)` or `routes::feed::router()`.
+mod assets; // Cache-busting version string for /static/ asset URLs
 mod db; // All database queries (SQLite via sqlx)
 mod middleware; // Extractors: AuthSession, RequireAdmin, OptionalAdmin, LocalhostOnly
 mod models; // Plain data structs that mirror database rows
