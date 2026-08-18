@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT\n            fi.id, fi.name, fi.brand, fi.barcode, fi.calories, fi.protein, fi.carbs,\n            fi.fat, fi.fiber, fi.sugar, fi.sodium, fi.saturated_fat, fi.package_size,\n            COALESCE(p.custom_portions, '') as \"custom_portions!\",\n            fi.image_url, fi.category,\n            COALESCE(p.is_favourite, 0) as \"is_favourite!\",\n            p.default_portion_g, fi.created_at\n        FROM food_items fi\n        LEFT JOIN user_food_prefs p ON p.food_item_id = fi.id AND p.user_id = ?\n        WHERE fi.name LIKE ? OR fi.brand LIKE ?\n        ORDER BY fi.name ASC LIMIT 20",
+  "query": "SELECT\n            fi.id, fi.name, fi.brand, fi.barcode, fi.calories, fi.protein, fi.carbs,\n            fi.fat, fi.fiber, fi.sugar, fi.sodium, fi.saturated_fat, fi.package_size,\n            COALESCE(p.custom_portions, '') as \"custom_portions!\",\n            fi.image_url, fi.category, fi.base_name as \"base_name!\",\n            COALESCE(p.is_favourite, 0) as \"is_favourite!\",\n            p.default_portion_g, fi.created_at\n        FROM food_items fi\n        LEFT JOIN user_food_prefs p ON p.food_item_id = fi.id AND p.user_id = ?\n        WHERE fi.id = ?",
   "describe": {
     "columns": [
       {
@@ -84,23 +84,28 @@
         "type_info": "Text"
       },
       {
-        "name": "is_favourite!",
+        "name": "base_name!",
         "ordinal": 16,
+        "type_info": "Text"
+      },
+      {
+        "name": "is_favourite!",
+        "ordinal": 17,
         "type_info": "Integer"
       },
       {
         "name": "default_portion_g",
-        "ordinal": 17,
+        "ordinal": 18,
         "type_info": "Float"
       },
       {
         "name": "created_at",
-        "ordinal": 18,
+        "ordinal": 19,
         "type_info": "Text"
       }
     ],
     "parameters": {
-      "Right": 3
+      "Right": 2
     },
     "nullable": [
       false,
@@ -120,9 +125,10 @@
       false,
       false,
       false,
+      false,
       true,
       false
     ]
   },
-  "hash": "99ac3b308bb2c2c4de204611981821a5984db2b89f1e301735a392477316e004"
+  "hash": "92ba092ee10411206ed90c0ef54c35499e5d460bc0da52336170a17324b16c4c"
 }

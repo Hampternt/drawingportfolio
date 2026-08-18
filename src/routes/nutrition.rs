@@ -29,6 +29,35 @@ fn sanitize_date(input: Option<&String>) -> String {
         .unwrap_or_else(|| chrono::Utc::now().format("%Y-%m-%d").to_string())
 }
 
+/// The page head's micro-label: `MON 17 AUG · 2026-08-17`.
+///
+/// Both halves earn their place. The weekday and short date are what a person
+/// reads; the ISO date is what every fragment URL on this page carries, so
+/// printing it means a stale day-section is visible rather than merely wrong.
+fn head_date_label(date: &str) -> String {
+    match chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d") {
+        Ok(d) => format!(
+            "{} · {date}",
+            d.format("%a %d %b").to_string().to_uppercase()
+        ),
+        // `sanitize_date` means this is unreachable from a request; falling back
+        // to the raw string keeps the label honest if it ever is reached.
+        Err(_) => date.to_string(),
+    }
+}
+
+/// `date` shifted by `days`, ISO in and ISO out — the head's Yesterday link.
+///
+/// Server-side rather than the client-side `stepDay()` the arrows use, because
+/// this one is an `href` that has to survive a page render with no JS.
+fn step_date(date: &str, days: i64) -> String {
+    chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d")
+        .ok()
+        .and_then(|d| d.checked_add_signed(chrono::Duration::days(days)))
+        .map(|d| d.format("%Y-%m-%d").to_string())
+        .unwrap_or_else(|| date.to_string())
+}
+
 fn fmt_nutrient(v: f64) -> String {
     if v == 0.0 {
         "0".to_string()
@@ -37,79 +66,178 @@ fn fmt_nutrient(v: f64) -> String {
     }
 }
 
-pub fn food_item_card_html(
-    item: &crate::models::FoodItem,
-    is_recent: bool,
-    can_edit: bool,
-) -> String {
-    let img_html = if item.image_url.is_empty() {
-        r#"<div class="food-thumb food-thumb-empty"></div>"#.to_string()
-    } else {
-        format!(
-            "<img src=\"{}\" alt=\"{}\" class=\"food-thumb\" loading=\"lazy\">",
-            html_escape(&item.image_url),
-            html_escape(&item.name)
-        )
-    };
-    let brand_html = if item.brand.is_empty() {
-        String::new()
-    } else {
-        format!(
-            "<span class=\"food-brand\">{}</span>",
-            html_escape(&item.brand)
-        )
-    };
-    let pkg_badge = if let Some(pkg) = item.package_size {
-        format!(
-            "<span class=\"noc-tag noc-tag-neutral food-pkg-badge\">{} g</span>",
-            fmt_nutrient(pkg)
-        )
-    } else {
-        String::new()
-    };
-    let admin_btns = if can_edit {
-        format!(
-            "<div class=\"food-admin-btns\">\
-             <button class=\"fav-btn{fav_cls}\" hx-post=\"/api/nutrition/food-items/{id}/favourite\" \
-             hx-target=\"#food-library\" hx-swap=\"innerHTML\" aria-label=\"Toggle favourite\">★</button>\
-             <button class=\"food-edit-btn\" hx-get=\"/api/nutrition/food-items/{id}/edit\" \
-             hx-target=\"#food-item-{id}\" hx-swap=\"outerHTML\">Edit</button>\
-             <button class=\"food-delete-btn\" hx-delete=\"/api/nutrition/food-items/{id}\" \
-             hx-target=\"#food-library\" hx-swap=\"innerHTML\" \
-             hx-confirm=\"Delete this food item?\">×</button></div>",
-            fav_cls = if item.is_favourite != 0 { " is-fav" } else { "" },
-            id = item.id
-        )
-    } else {
-        String::new()
-    };
-    format!(
-        r##"<li class="food-item-card" id="food-item-{id}" data-fav="{fav}" data-recent="{rec}" data-protein="{prot}" data-cal="{cal_raw}">
-  {img}
-  <div class="food-info">
-    <strong>{name} {brand}</strong>
-    <span class="food-macros">{cal} cal · P {p}g · C {c}g · F {f}g</span>
-  </div>
-  {pkg}
-  {admin}
-</li>"##,
-        id = item.id,
-        fav = if item.is_favourite != 0 { 1 } else { 0 },
-        rec = if is_recent { 1 } else { 0 },
-        prot = item.protein,
-        cal_raw = item.calories,
-        img = img_html,
-        name = html_escape(&item.name),
-        brand = brand_html,
-        cal = fmt_nutrient(item.calories),
-        p = fmt_nutrient(item.protein),
-        c = fmt_nutrient(item.carbs),
-        f = fmt_nutrient(item.fat),
-        pkg = pkg_badge,
-        admin = admin_btns
-    )
+/// A meal slot from user input, or `other`.
+///
+/// An unrecognised slot must not reach the database: `SLOTS` drives the day's
+/// grouping, so a row filed under anything else would be invisible on the very
+/// screen that created it.
+fn sanitize_slot(input: Option<&String>) -> String {
+    input
+        .filter(|s| SLOTS.iter().any(|(k, _)| *k == s.as_str()))
+        .cloned()
+        .unwrap_or_else(|| "other".to_string())
 }
 
+/// Grams for display: `250 g`, not `250.0 g`, but `27.5` keeps its tenth.
+///
+/// `fmt_nutrient` always prints one decimal, which is right for a macro figure
+/// and wrong for an amount — the row shows grams four times over (the button,
+/// the basis, every fraction) and a column of `.0`s is noise in all of them.
+fn fmt_grams(v: f64) -> String {
+    if (v - v.round()).abs() < 0.05 {
+        format!("{:.0}", v)
+    } else {
+        format!("{:.1}", v)
+    }
+}
+
+// ── Row maths ─────────────────────────────────────────────────────────────────
+//
+// Ported from the design prototype's own implementation
+// (`docs/design/fitness-today-overhaul/Fitness Today (overhaul).dc.html`), not
+// paraphrased from its README — where the two disagree the running prototype is
+// what the design was signed off against. Every rule here has a test.
+
+/// Each macro's share of a row's calories, as percentages summing to 100.
+///
+/// Protein and carbs are 4 kcal/g, fat 9. The denominator is guarded because a
+/// food with no macros yet — created from search, macros filled in later — is a
+/// normal state on this screen, not a bad row.
+fn macro_shares(protein: f64, carbs: f64, fat: f64) -> (f64, f64, f64) {
+    let (pk, ck, fk) = (protein * 4.0, carbs * 4.0, fat * 9.0);
+    let total = pk + ck + fk;
+    if total <= 0.0 {
+        return (0.0, 0.0, 0.0);
+    }
+    (pk / total * 100.0, ck / total * 100.0, fk / total * 100.0)
+}
+
+/// What a food is mostly made of — drives its thumbnail ring, its meta label
+/// and (in Pack 4) its library grouping.
+///
+/// Shares are scale-invariant, so this reads the same from a row's absolute
+/// grams as from the food's per-100g figures.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+enum Dominance {
+    Protein,
+    Carbs,
+    Fat,
+    Balanced,
+    Unknown,
+}
+
+impl Dominance {
+    /// The design's colour for this class. Protein shares the amber with
+    /// `--accent-warm`; that is deliberate and safe because the fresh-row flag
+    /// and a macro mark never sit on the same element.
+    fn color(self) -> &'static str {
+        match self {
+            Dominance::Protein => "var(--status-warning)",
+            Dominance::Carbs => "var(--status-info)",
+            Dominance::Fat => "var(--status-danger)",
+            Dominance::Balanced => "var(--text-muted)",
+            Dominance::Unknown => "var(--text-faint)",
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Dominance::Protein => "protein",
+            Dominance::Carbs => "carbs",
+            Dominance::Fat => "fat",
+            Dominance::Balanced => "balanced",
+            Dominance::Unknown => "no macros",
+        }
+    }
+}
+
+fn dominance(protein: f64, carbs: f64, fat: f64) -> Dominance {
+    let (p, c, f) = macro_shares(protein, carbs, fat);
+    if p + c + f <= 0.0 {
+        return Dominance::Unknown;
+    }
+    let max = p.max(c).max(f);
+    // Under 45% no macro really characterises the food, so it reads as balanced
+    // rather than as a weak win for whichever edged ahead.
+    if max < 45.0 {
+        return Dominance::Balanced;
+    }
+    if max == p {
+        Dominance::Protein
+    } else if max == c {
+        Dominance::Carbs
+    } else {
+        Dominance::Fat
+    }
+}
+
+/// A single button in a row's amount grid.
+struct AmountOption {
+    label: String,
+    grams: f64,
+    /// Whether this is the amount the row currently holds.
+    selected: bool,
+}
+
+/// Round the way the prototype does: whole grams once an amount is big enough
+/// for a tenth to be noise, a tenth below that.
+fn round_grams(g: f64) -> f64 {
+    if g >= 20.0 {
+        g.round()
+    } else {
+        (g * 10.0).round() / 10.0
+    }
+}
+
+/// The fraction buttons for a row: `full`, `½`, `⅓`, `¼` of the basis, plus
+/// `last` when the previously logged amount is not already among them.
+///
+/// Two filters keep the grid honest on small or oddly-sized foods: anything
+/// under 3 g is not a portion anyone taps, and two buttons within 0.5 g of each
+/// other are the same button wearing different labels.
+fn amount_options(base: f64, last: Option<f64>, current: f64) -> Vec<AmountOption> {
+    let mut out: Vec<AmountOption> = Vec::new();
+    for (label, frac) in [("full", 1.0), ("½", 0.5), ("⅓", 1.0 / 3.0), ("¼", 0.25)] {
+        let grams = round_grams(base * frac);
+        if grams < 3.0 {
+            continue;
+        }
+        if out.iter().any(|o| (o.grams - grams).abs() < 0.5) {
+            continue;
+        }
+        out.push(AmountOption {
+            label: label.to_string(),
+            grams,
+            selected: false,
+        });
+    }
+    if let Some(last) = last.filter(|g| *g > 0.0) {
+        if !out.iter().any(|o| (o.grams - last).abs() < 0.5) {
+            out.push(AmountOption {
+                label: "last".to_string(),
+                grams: last,
+                selected: false,
+            });
+        }
+    }
+    for o in out.iter_mut() {
+        o.selected = (o.grams - current).abs() < 0.5;
+    }
+    out
+}
+
+/// Nudge size for the `custom` row: gentler below 50 g, where 10 g is a large
+/// fraction of the whole amount.
+fn nudge_step(grams: f64) -> f64 {
+    if grams < 50.0 {
+        5.0
+    } else {
+        10.0
+    }
+}
+
+/// The meal slots, in the order the day happens. `other` is the catch-all for
+/// entries logged before slots existed, and is hidden when empty.
 const SLOTS: [(&str, &str); 5] = [
     ("breakfast", "Breakfast"),
     ("lunch", "Lunch"),
@@ -118,36 +246,249 @@ const SLOTS: [(&str, &str); 5] = [
     ("other", "Other"),
 ];
 
+/// A macro pie as an inline `conic-gradient` — three arcs sized by share of
+/// calories, in the fixed protein/carbs/fat order so the colours mean the same
+/// thing on every row and in the day summary.
+///
+/// A macro-less food yields three zero-width arcs, i.e. a flat disc of the last
+/// colour; callers render `.fit-pie--empty` instead for that case.
+fn macro_pie_style(protein: f64, carbs: f64, fat: f64, size_px: u32) -> String {
+    format!(
+        "width:{size}px;height:{size}px;{gradient}",
+        size = size_px,
+        gradient = macro_pie_gradient(protein, carbs, fat)
+    )
+}
+
+/// The same arcs without a diameter, for the one pie whose size is a layout
+/// decision rather than a fixed mark: the day's composition pie is 76px on
+/// desktop and 64px on a phone, and an inline `width` would beat any media
+/// query trying to say so.
+fn macro_pie_gradient(protein: f64, carbs: f64, fat: f64) -> String {
+    let (p, c, _f) = macro_shares(protein, carbs, fat);
+    format!(
+        "background:conic-gradient(\
+         var(--status-warning) 0 {p:.1}%,var(--status-info) {p:.1}% {pc:.1}%,\
+         var(--status-danger) {pc:.1}% 100%)",
+        p = p,
+        pc = p + c
+    )
+}
+
+/// The row's 34px mark: the food's own picture where it has one, else a letter
+/// tile ringed in its dominance colour.
+fn row_thumb_html(name: &str, image_url: &str, dom: Dominance, size_px: u32) -> String {
+    if !image_url.trim().is_empty() {
+        return format!(
+            r#"<img class="fit-thumb" style="width:{size}px;height:{size}px;box-shadow:inset 0 0 0 1px {color}" src="{src}" alt="" loading="lazy">"#,
+            size = size_px,
+            color = dom.color(),
+            src = html_escape(image_url)
+        );
+    }
+    // First character, not first byte — a food named "Œufs" or "Ærter" would
+    // otherwise slice a multi-byte char and panic.
+    let letter = name
+        .trim()
+        .chars()
+        .next()
+        .map(|c| c.to_uppercase().to_string())
+        .unwrap_or_else(|| "·".to_string());
+    format!(
+        r#"<span class="fit-thumb fit-thumb--letter" style="width:{size}px;height:{size}px;box-shadow:inset 0 0 0 1px {color};color:{color}" aria-hidden="true">{letter}</span>"#,
+        size = size_px,
+        color = dom.color(),
+        letter = html_escape(&letter)
+    )
+}
+
+/// One logged food. The core unit of the redesign: everything you need to
+/// judge the row, and the control that changes it, on the row itself.
+///
+/// `last_grams` is the amount this user last used for this food, which becomes
+/// the `last` button in the amount grid. Rendering is split from the grid
+/// (see `amount_controls_html`) so a grams change can swap the row alone.
 pub fn meal_entry_row_html(
     entry: &crate::models::MealEntryWithFood,
     date: &str,
     can_edit: bool,
+    last_grams: Option<f64>,
 ) -> String {
-    let delete_btn = if can_edit {
+    let dom = dominance(entry.protein, entry.carbs, entry.fat);
+    let has_macros = dom != Dominance::Unknown;
+
+    let pie = if has_macros {
         format!(
-            "<button class=\"food-delete-btn\" hx-delete=\"/api/nutrition/entries/{}?date={}\" \
-             hx-target=\"#day-section\" hx-swap=\"innerHTML\">×</button>",
-            entry.entry_id,
-            html_escape(date)
+            r#"<span class="fit-pie" style="{}"></span>"#,
+            macro_pie_style(entry.protein, entry.carbs, entry.fat, 22)
+        )
+    } else {
+        r#"<span class="fit-pie fit-pie--empty"></span>"#.to_string()
+    };
+
+    // Macro figures are suppressed rather than shown as three zeros when the
+    // food has no macros — "P 0 g · C 0 g · F 0 g" reads as a measurement, and
+    // this is an absence of one.
+    let macros = if has_macros {
+        format!(
+            r#"<span class="fit-row__macro fit-row__macro--p">P {p} g</span>
+        <span class="fit-row__macro fit-row__macro--c">C {c} g</span>
+        <span class="fit-row__macro fit-row__macro--f">F {f} g</span>"#,
+            p = fmt_nutrient(entry.protein),
+            c = fmt_nutrient(entry.carbs),
+            f = fmt_nutrient(entry.fat)
         )
     } else {
         String::new()
     };
+
+    // Only a *named* basis is worth a chip. Unnamed, it falls back to 100 g for
+    // every food, and a bare "100 g" beside the row's own amount reads as a
+    // second quantity rather than as the unit it is measured in.
+    let basis_chip = if entry.base_name.trim().is_empty() {
+        String::new()
+    } else {
+        format!(
+            r#"<span class="fit-row__basis">{name} {grams} g</span>"#,
+            name = html_escape(entry.base_name.trim()),
+            grams = fmt_grams(entry.base_grams)
+        )
+    };
+
+    let brand = if entry.brand.trim().is_empty() {
+        String::new()
+    } else {
+        format!(
+            r#" <span class="fit-row__brand">· {}</span>"#,
+            html_escape(entry.brand.trim())
+        )
+    };
+
+    let remove_btn = if can_edit {
+        format!(
+            r##"<button type="button" class="fit-row__remove" aria-label="Remove {name}"
+        hx-delete="/api/nutrition/entries/{id}?date={date}"
+        hx-target="#day-section" hx-swap="innerHTML">✕</button>"##,
+            name = html_escape(&entry.food_name),
+            id = entry.entry_id,
+            date = html_escape(date)
+        )
+    } else {
+        String::new()
+    };
+
+    let controls = if can_edit {
+        amount_controls_html(entry, date, last_grams)
+    } else {
+        String::new()
+    };
+
+    // Whole kcal, matching the prototype's Math.round — a row cost is read at
+    // a glance and a tenth of a calorie is noise at that size.
+    let cal = format!("{:.0}", entry.calories);
+
     format!(
-        r##"<li class="meal-entry" id="entry-{id}">
-  <button type="button" class="entry-main" hx-get="/fitness/htmx/entries/{id}/edit?date={date}" hx-target="#entry-{id}" hx-swap="outerHTML">
-    <span class="entry-name">{name}</span>
-    <span class="entry-grams">{grams}g</span>
-    <span class="entry-cal">{cal}</span>
-  </button>
-  {delete_btn}
+        r##"<li class="fit-row" id="entry-{id}" data-entry-id="{id}" data-grams="{grams_raw}">
+  <div class="fit-row__line">
+    {thumb}
+    <div class="fit-row__body">
+      <div class="fit-row__name">{name}{brand}</div>
+      <div class="fit-row__meta">
+        {pie}
+        {macros}
+        <span class="fit-row__dom" style="color:{dom_color}">{dom_label}</span>
+        {basis}
+      </div>
+    </div>
+    <button type="button" class="fit-row__amount" aria-expanded="false"
+            aria-controls="amounts-{id}" onclick="toggleAmounts({id})">
+      <span class="fit-row__grams">{grams} g</span>
+      <span class="fit-row__kcal">{cal}</span>
+    </button>
+    {remove}
+  </div>
+  {controls}
 </li>"##,
         id = entry.entry_id,
-        date = html_escape(date),
+        grams_raw = entry.grams,
+        thumb = row_thumb_html(&entry.food_name, &entry.image_url, dom, 34),
         name = html_escape(&entry.food_name),
-        grams = fmt_nutrient(entry.grams),
-        cal = fmt_nutrient(entry.calories),
-        delete_btn = delete_btn
+        brand = brand,
+        pie = pie,
+        macros = macros,
+        dom_color = dom.color(),
+        dom_label = dom.label(),
+        basis = basis_chip,
+        grams = fmt_grams(entry.grams),
+        cal = cal,
+        remove = remove_btn,
+        controls = controls
+    )
+}
+
+/// The amount grid for one row: fractions of the food's basis, `last`, and the
+/// `custom` toggle that reveals a nudge row.
+///
+/// Collapsed by default — the markup is always present so opening it is a class
+/// flip rather than a round trip. Each button posts the new grams and swaps the
+/// whole row, which is how the kcal, macros and pie stay consistent with the
+/// amount without the client recomputing any of them.
+fn amount_controls_html(
+    entry: &crate::models::MealEntryWithFood,
+    date: &str,
+    last_grams: Option<f64>,
+) -> String {
+    let opts = amount_options(entry.base_grams, last_grams, entry.grams);
+    let buttons: String = opts
+        .iter()
+        .map(|o| {
+            format!(
+                r##"<button type="button" class="fit-amt{sel}"
+          hx-put="/api/nutrition/entries/{id}/grams"
+          hx-vals='{{"grams": {grams}, "date": "{date}"}}'
+          hx-target="#entry-{id}" hx-swap="outerHTML">
+      <span class="fit-amt__label">{label}</span>
+      <span class="fit-amt__grams">{grams_fmt} g</span>
+    </button>"##,
+                sel = if o.selected { " fit-amt--on" } else { "" },
+                id = entry.entry_id,
+                grams = o.grams,
+                grams_fmt = fmt_grams(o.grams),
+                date = html_escape(date),
+                label = o.label
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n    ");
+
+    let step = nudge_step(entry.grams);
+    format!(
+        r##"<div class="fit-row__amounts" id="amounts-{id}" hidden>
+    {buttons}
+    <button type="button" class="fit-amt fit-amt--custom" onclick="toggleCustom({id})">
+      <span class="fit-amt__label">custom</span>
+      <span class="fit-amt__grams">g</span>
+    </button>
+  </div>
+  <div class="fit-row__nudge" id="nudge-{id}" hidden>
+    <button type="button" class="fit-nudge" aria-label="Less"
+            onclick="nudgeGrams({id}, -{step})">−</button>
+    <input type="number" class="fit-nudge__input" value="{grams}" min="1" max="5000" step="0.1"
+           aria-label="Grams"
+           hx-put="/api/nutrition/entries/{id}/grams"
+           hx-trigger="change, nudged"
+           hx-include="this"
+           name="grams"
+           hx-vals='{{"date": "{date}"}}'
+           hx-target="#entry-{id}" hx-swap="outerHTML">
+    <button type="button" class="fit-nudge" aria-label="More"
+            onclick="nudgeGrams({id}, {step})">+</button>
+  </div>"##,
+        id = entry.entry_id,
+        buttons = buttons,
+        step = step,
+        grams = fmt_grams(entry.grams),
+        date = html_escape(date)
     )
 }
 
@@ -312,54 +653,95 @@ fn week_strip_html(week: &[(String, f64)], selected: &str, today: &str, target_c
     format!(r#"<div class="week-strip" id="week-strip">{}</div>"#, cols)
 }
 
-pub fn day_section_html(
-    entries: &[crate::models::MealEntryWithFood],
+/// Fetches and renders the whole day section for one user.
+///
+/// Ten handlers end by re-rendering the day after mutating it, and each used to
+/// spell out the same three fetches. That was already duplication; adding the
+/// last-grams map would have made it four lines in ten places, and the first
+/// handler to forget one would render rows whose `last` button silently
+/// disappeared. One function, one place to change.
+async fn render_day(
+    pool: &crate::db::DbPool,
     date: &str,
-    food_items: &[crate::models::FoodItem],
-    targets: &crate::models::Targets,
+    user: crate::models::UserId,
     can_edit: bool,
 ) -> String {
-    // The `+ 0.0` is not redundant. `f64`'s `Sum` identity is **negative** zero
-    // — `-0.0 + x == x` holds for every x including `-0.0`, which `0.0` does
-    // not satisfy — so an empty day sums to `-0.0`, `{:.0}` formats that as
-    // "-0", and `rail_pct`'s `clamp(0.0, 100.0)` waves it through because
-    // `-0.0 >= 0.0` is true. `-0.0 + 0.0 == 0.0` collapses it.
-    //
-    // The bug predates multi-user; what changed is who meets it. An empty day
-    // used to be a date you had deliberately scrolled back to. It is now the
-    // first screen every new member sees.
-    let total_cal: f64 = entries.iter().map(|e| e.calories).sum::<f64>() + 0.0;
-    let total_protein: f64 = entries.iter().map(|e| e.protein).sum::<f64>() + 0.0;
-    let total_carbs: f64 = entries.iter().map(|e| e.carbs).sum::<f64>() + 0.0;
-    let total_fat: f64 = entries.iter().map(|e| e.fat).sum::<f64>() + 0.0;
+    let entries = crate::db::get_meal_entries_for_date(pool, date, user).await;
+    let targets = crate::db::get_targets(pool, user).await;
+    let last_grams = crate::db::get_last_grams_map(pool, user).await;
+    // The food catalog used to be fetched here too, purely to bake an <option>
+    // list into the log form. That form is gone, and so is the query.
+    let slots = day_slots_html(&entries, date, can_edit, &last_grams);
 
-    let slots_html: String = SLOTS
+    // The summary rides along out-of-band. It lives in the other column, so it
+    // cannot be this response's target — but it is a pure function of the very
+    // rows being swapped, and fetching it separately afterwards is exactly how
+    // the week strip came to cost a second request per log.
+    let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+    let week = week_for(pool, date, user).await;
+    let summary = summary_card_html(&entries, &targets, date, &week, &today, true);
+    // The streak needs its own history query, so it is built here rather than
+    // inside the summary — but it changes when the day does (logging into an
+    // empty day extends it), so it travels with the same response.
+    let streak = compute_streak(
+        &crate::db::get_logged_dates_desc(pool, 400, user).await,
+        &today,
+    );
+    let streak_html = streak_card_html(streak, true);
+    format!("{slots}\n{summary}\n{streak_html}")
+}
+
+/// The meal slot cards — and *only* those. This is `#day-section`.
+///
+/// The log card used to render here too, which cost two round trips on every
+/// log re-fetching sections that had not changed, and made the meal builder's
+/// panel vanish mid-compose. It renders no day data, so it now lives in the
+/// page and stays put.
+pub fn day_slots_html(
+    entries: &[crate::models::MealEntryWithFood],
+    date: &str,
+    can_edit: bool,
+    last_grams: &HashMap<i64, f64>,
+) -> String {
+    SLOTS
         .iter()
         .map(|(key, label)| {
             let slot_entries: Vec<_> = entries.iter().filter(|e| e.slot == *key).collect();
             if slot_entries.is_empty() && *key == "other" {
-                return String::new(); // "other" group hidden when empty
+                return String::new(); // hidden until something lands in it
             }
             let slot_cal: f64 = slot_entries.iter().map(|e| e.calories).sum();
-            let head_right = if slot_entries.is_empty() {
-                r#"<span class="slot-cal slot-empty">empty</span>"#.to_string()
+            // An em dash, not "0" — the slot has no total rather than a total
+            // of nothing, and a zero reads as a logged but calorie-free meal.
+            let head_cal = if slot_entries.is_empty() {
+                "—".to_string()
             } else {
-                format!(r#"<span class="slot-cal">{} cal</span>"#, fmt_nutrient(slot_cal))
+                format!("{slot_cal:.0}")
+            };
+            let add_btn = if can_edit {
+                format!(
+                    r##"<button type="button" class="fit-slot__add" onclick="addToSlot('{key}')">+ add</button>"##
+                )
+            } else {
+                String::new()
             };
             let body = if slot_entries.is_empty() {
-                format!(
-                    r##"<button type="button" class="noc-btn noc-btn-secondary slot-add-btn" onclick="addToSlot('{key}')">+ Add to {label_lc}</button>"##,
-                    key = key,
-                    label_lc = label.to_lowercase()
-                )
+                r#"<p class="fit-slot__empty">&gt; nothing logged</p>"#.to_string()
             } else {
                 let rows: String = slot_entries
                     .iter()
-                    .map(|e| meal_entry_row_html(e, date, can_edit))
+                    .map(|e| {
+                        meal_entry_row_html(
+                            e,
+                            date,
+                            can_edit,
+                            last_grams.get(&e.food_item_id).copied(),
+                        )
+                    })
                     .collect::<Vec<_>>()
                     .join("\n");
                 format!(
-                    r##"<ul class="meal-list">
+                    r##"<ul class="fit-rows">
 {rows}
 </ul>
 <details class="save-meal"><summary>Save as meal</summary>
@@ -368,155 +750,366 @@ pub fn day_section_html(
   <input class="noc-input" type="text" name="name" placeholder="Meal name" required>
   <button type="submit" class="noc-btn noc-btn-secondary">Save</button>
 </form></details>"##,
-                    rows = rows,
-                    date = html_escape(date),
-                    key = key
+                    date = html_escape(date)
                 )
             };
             format!(
-                r##"<div class="slot-group" id="slot-{key}">
-  <div class="slot-head"><span class="noc-kicker">{label}</span>{head_right}</div>
+                r##"<div class="noc-card fit-slot" id="slot-{key}">
+  <div class="fit-slot__head">
+    <span class="fit-slot__name">{label}</span>
+    <span class="fit-slot__cal">{head_cal}</span>
+    {add_btn}
+  </div>
   {body}
 </div>"##,
-                key = key,
-                label = label,
-                head_right = head_right,
-                body = body
-            )
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
-
-    let options_html: String = food_items
-        .iter()
-        .map(|fi| {
-            let pkg_attr = if let Some(pkg) = fi.package_size {
-                format!(" data-package-size=\"{}\"", pkg)
-            } else {
-                String::new()
-            };
-            let cp_attr = if fi.custom_portions.is_empty() {
-                String::new()
-            } else {
-                format!(
-                    " data-custom-portions=\"{}\"",
-                    html_escape(&fi.custom_portions)
-                )
-            };
-            format!(
-                "<option value=\"{}\"{}{}>{} {}</option>",
-                fi.id,
-                pkg_attr,
-                cp_attr,
-                html_escape(&fi.name),
-                if fi.brand.is_empty() {
-                    String::new()
-                } else {
-                    format!("({})", html_escape(&fi.brand))
-                }
-            )
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
-
-    let pct_of_target = if targets.calories > 0.0 {
-        (total_cal / targets.calories * 100.0).round()
-    } else {
-        0.0
-    };
-    let summary = format!(
-        r##"<div class="day-summary noc-card">
-  {ring}
-  <div class="macro-rails">
-    {p}{c}{f}
-    <div class="cal-caption">{cal:.0} of {tcal:.0} cal · {pct:.0}%</div>
-  </div>
-</div>
-<div class="targets-row">
-  <button class="noc-btn noc-btn-ghost" hx-get="/fitness/htmx/targets?date={date}" hx-target="#targets-editor" hx-swap="innerHTML">Edit targets</button>
-  <div id="targets-editor"></div>
-</div>"##,
-        ring = calorie_ring_svg(total_cal, targets.calories),
-        p = macro_rail_html("Protein", total_protein, targets.protein, "#9184d9"),
-        c = macro_rail_html("Carbs", total_carbs, targets.carbs, "#796cbf"),
-        f = macro_rail_html("Fat", total_fat, targets.fat, "#5d5294"),
-        cal = total_cal,
-        tcal = targets.calories,
-        pct = pct_of_target,
-        date = html_escape(date)
-    );
-
-    format!(
-        r##"{}
-{}
-<form class="log-entry-form"
-      hx-post="/api/nutrition/entries"
-      hx-target="#day-section"
-      hx-swap="innerHTML"
-      hx-on::after-request="this.reset(); onFoodSelect(this.querySelector('[name=food_item_id]'))">
-  <input type="hidden" name="date" value="{}">
-  <select name="food_item_id" required onchange="onFoodSelect(this)">
-    <option value="">— pick food —</option>
-{}
-  </select>
-  <select name="portion" class="portion-select" onchange="onPortionChange(this)" disabled>
-    <option value="custom">Custom</option>
-    <option value="1">Full</option>
-    <option value="0.5">Half</option>
-    <option value="0.25">Quarter</option>
-    <option value="0.125">Eighth</option>
-  </select>
-  <input type="number" name="grams" value="100" min="1" max="5000" step="0.1" required>
-  <span class="grams-label">g</span>
-  <input type="hidden" name="slot" value="other">
-  <div class="slot-chips" data-role="slot-chips">
-    <button type="button" class="noc-tag noc-tag-outline" data-slot="breakfast" onclick="setSlot(this)">Breakfast</button>
-    <button type="button" class="noc-tag noc-tag-outline" data-slot="lunch" onclick="setSlot(this)">Lunch</button>
-    <button type="button" class="noc-tag noc-tag-outline" data-slot="dinner" onclick="setSlot(this)">Dinner</button>
-    <button type="button" class="noc-tag noc-tag-outline" data-slot="snack" onclick="setSlot(this)">Snack</button>
-  </div>
-  <button type="submit" class="btn-primary">Log</button>
-</form>"##,
-        summary,
-        slots_html,
-        html_escape(date),
-        options_html
-    )
-}
-
-pub fn library_list_html(
-    items: &[crate::models::FoodItem],
-    recent_ids: &std::collections::HashSet<i64>,
-    can_edit: bool,
-) -> String {
-    use std::collections::BTreeMap;
-    let mut groups: BTreeMap<String, Vec<&crate::models::FoodItem>> = BTreeMap::new();
-    for item in items {
-        // "zzz_" prefix sorts Uncategorised last; stripped before display
-        let key = if item.category.is_empty() {
-            "zzz_Uncategorised".to_string()
-        } else {
-            item.category.clone()
-        };
-        groups.entry(key).or_default().push(item);
-    }
-    groups
-        .iter()
-        .map(|(key, group)| {
-            let label = key.strip_prefix("zzz_").unwrap_or(key);
-            let cards: String = group
-                .iter()
-                .map(|i| food_item_card_html(i, recent_ids.contains(&i.id), can_edit))
-                .collect::<Vec<_>>()
-                .join("\n");
-            format!(
-                "<div class=\"lib-group\"><div class=\"noc-kicker lib-group-head\">{}</div>\n<ul class=\"food-library-list\">\n{}\n</ul></div>",
-                html_escape(label),
-                cards
+                label = label.to_lowercase()
             )
         })
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+/// "Where the calories came from" — the day pie and its legend.
+///
+/// Shares are of **calories**, not grams, which is the entire point: 20 g of
+/// olive oil and 20 g of rice are the same weight and nothing like the same
+/// day. The legend spells out both, so the percentage and the grams that
+/// produced it are never separated.
+fn composition_html(protein: f64, carbs: f64, fat: f64) -> String {
+    let (p, c, f) = macro_shares(protein, carbs, fat);
+    if p + c + f <= 0.0 {
+        return r#"<p class="fit-log__hint">Log something with macros to see where the day's calories came from.</p>"#
+            .to_string();
+    }
+
+    let rows: String = [
+        ("protein", p, protein, "var(--status-warning)"),
+        ("carbs", c, carbs, "var(--status-info)"),
+        ("fat", f, fat, "var(--status-danger)"),
+    ]
+    .iter()
+    .map(|(name, share, grams, colour)| {
+        format!(
+            r##"<div class="fit-comp__row" style="color:{colour}">
+      <span class="fit-comp__swatch" style="background:{colour}"></span>
+      <span>{name} {share:.0}% · {grams:.0} g</span>
+    </div>"##
+        )
+    })
+    .collect();
+
+    format!(
+        r##"<div class="fit-comp">
+  <span class="fit-comp__pie" style="{pie}"></span>
+  <div class="fit-comp__legend">
+    <div class="fit-log__kicker">Where the calories came from</div>
+    {rows}
+  </div>
+</div>"##,
+        pie = macro_pie_gradient(protein, carbs, fat),
+        rows = rows
+    )
+}
+
+/// "Left to hit today" — what remains of each target, or by how much it is
+/// already passed.
+///
+/// Over-target reads `+N` in the danger colour rather than a negative number:
+/// "-40" invites reading it as a deficit, which is the opposite of what it is.
+fn left_to_hit_html(
+    total_cal: f64,
+    total_protein: f64,
+    total_carbs: f64,
+    total_fat: f64,
+    targets: &crate::models::Targets,
+    oob: bool,
+) -> String {
+    let tiles: String = [
+        ("kcal", total_cal, targets.calories, "var(--text-muted)"),
+        (
+            "protein",
+            total_protein,
+            targets.protein,
+            "var(--status-warning)",
+        ),
+        ("carbs", total_carbs, targets.carbs, "var(--status-info)"),
+        ("fat", total_fat, targets.fat, "var(--status-danger)"),
+    ]
+    .iter()
+    .map(|(name, have, target, colour)| {
+        let left = target - have;
+        let over = left < 0.0;
+        let value = if over {
+            format!("+{:.0}", -left)
+        } else {
+            format!("{left:.0}")
+        };
+        format!(
+            r##"<div class="fit-left__tile">
+      <div class="fit-left__label" style="color:{colour}">{name}</div>
+      <div class="fit-left__value{over_cls}">{value}</div>
+    </div>"##,
+            over_cls = if over { " fit-left__value--over" } else { "" }
+        )
+    })
+    .collect();
+
+    format!(
+        r##"<div class="noc-card fit-left" id="fit-left"{oob}>
+  <div class="fit-log__kicker">Left to hit today</div>
+  <div class="fit-left__grid">
+    {tiles}
+  </div>
+</div>"##,
+        oob = if oob { r#" hx-swap-oob="true""# } else { "" },
+        tiles = tiles
+    )
+}
+
+/// The logging streak, as the week page has counted it since before this
+/// redesign — same function, same answer, so the two screens cannot disagree.
+fn streak_card_html(streak: i64, oob: bool) -> String {
+    format!(
+        r##"<div class="noc-card fit-streak" id="fit-streak"{oob}>
+  <span class="fit-streak__n">{streak}</span>
+  <span class="fit-streak__label">day{s} logged in a row</span>
+</div>"##,
+        oob = if oob { r#" hx-swap-oob="true""# } else { "" },
+        streak = streak,
+        s = if streak == 1 { "" } else { "s" }
+    )
+}
+
+/// The left rail's summary: ring, macro rails, week strip and the day's totals.
+///
+/// Rendered out-of-band so one logging response updates both the slots and the
+/// numbers describing them. The week strip used to be fetched separately after
+/// every mutation — a second request asking what the first response already
+/// knew.
+pub fn summary_card_html(
+    entries: &[crate::models::MealEntryWithFood],
+    targets: &crate::models::Targets,
+    date: &str,
+    week: &[(String, f64)],
+    today: &str,
+    oob: bool,
+) -> String {
+    // The `+ 0.0` is not redundant. `f64`'s `Sum` identity is **negative** zero
+    // — `-0.0 + x == x` holds for every x including `-0.0`, which `0.0` does
+    // not satisfy — so an empty day sums to `-0.0`, `{:.0}` formats that as
+    // "-0", and `rail_pct`'s clamp waves it through because `-0.0 >= 0.0`.
+    // `-0.0 + 0.0 == 0.0` collapses it. The first screen a new member sees.
+    let total_cal: f64 = entries.iter().map(|e| e.calories).sum::<f64>() + 0.0;
+    let total_protein: f64 = entries.iter().map(|e| e.protein).sum::<f64>() + 0.0;
+    let total_carbs: f64 = entries.iter().map(|e| e.carbs).sum::<f64>() + 0.0;
+    let total_fat: f64 = entries.iter().map(|e| e.fat).sum::<f64>() + 0.0;
+
+    format!(
+        r##"<div class="noc-card fit-summary" id="fit-summary"{oob}>
+  <div class="fit-summary__top">
+    {ring}
+    <div class="fit-summary__rails">
+      {p}{c}{f}
+    </div>
+  </div>
+  {strip}
+  <hr class="fit-log__rule">
+  {composition}
+  <hr class="fit-log__rule">
+  <div class="fit-summary__foot">
+    <span class="fit-summary__kcal">{cal:.0} / {tcal:.0} kcal</span>
+    <button type="button" class="hm-btn hm-btn--sm hm-btn--ghost"
+            hx-get="/fitness/htmx/targets?date={date}"
+            hx-target="#targets-editor" hx-swap="innerHTML">Targets</button>
+  </div>
+</div>
+{left}"##,
+        left = left_to_hit_html(
+            total_cal,
+            total_protein,
+            total_carbs,
+            total_fat,
+            targets,
+            oob
+        ),
+        oob = if oob { r#" hx-swap-oob="true""# } else { "" },
+        ring = calorie_ring_svg(total_cal, targets.calories),
+        p = macro_rail_html(
+            "protein",
+            total_protein,
+            targets.protein,
+            "var(--status-warning)"
+        ),
+        c = macro_rail_html("carbs", total_carbs, targets.carbs, "var(--status-info)"),
+        f = macro_rail_html("fat", total_fat, targets.fat, "var(--status-danger)"),
+        strip = week_strip_html(week, date, today, targets.calories),
+        composition = composition_html(total_protein, total_carbs, total_fat),
+        cal = total_cal,
+        tcal = targets.calories,
+        date = html_escape(date)
+    )
+}
+
+/// The food library, grouped by what each food actually *is*.
+///
+/// The old grouping used `category`, a free-text field almost nothing fills in,
+/// so in practice everything landed under "Uncategorised". Dominance is derived
+/// from the macros already stored, needs no data entry, and is the same measure
+/// the logged rows and thumbnails use — so a food wears one identity across the
+/// whole screen.
+pub fn library_list_html(
+    items: &[crate::models::FoodItem],
+    last_grams: &HashMap<i64, f64>,
+    can_edit: bool,
+) -> String {
+    // Fixed order, most-eaten-first rather than alphabetical: the groups mean
+    // something, so their sequence should too.
+    let order = [
+        (Dominance::Protein, "mostly protein"),
+        (Dominance::Carbs, "mostly carbs"),
+        (Dominance::Fat, "mostly fat"),
+        (Dominance::Balanced, "balanced"),
+        (Dominance::Unknown, "macros missing"),
+    ];
+
+    order
+        .iter()
+        .filter_map(|(dom, label)| {
+            let group: Vec<&crate::models::FoodItem> = items
+                .iter()
+                .filter(|i| dominance(i.protein, i.carbs, i.fat) == *dom)
+                .collect();
+            // An empty group is not rendered at all — a heading with nothing
+            // under it reads as a filter that failed.
+            if group.is_empty() {
+                return None;
+            }
+            let rows: String = group
+                .iter()
+                .map(|i| library_row_html(i, last_grams.get(&i.id).copied(), *dom, can_edit))
+                .collect::<Vec<_>>()
+                .join("\n");
+            Some(format!(
+                r##"<div class="lib-group">
+  <div class="lib-group__head" style="color:{colour}">
+    <span class="lib-group__name">{label}</span>
+    <span class="lib-group__count">{n}</span>
+  </div>
+  <ul class="lib-rows">
+{rows}
+  </ul>
+</div>"##,
+                colour = dom.color(),
+                label = label,
+                n = group.len(),
+                rows = rows
+            ))
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// One library row: what the food is, what it costs, and a way to log it.
+fn library_row_html(
+    item: &crate::models::FoodItem,
+    last: Option<f64>,
+    dom: Dominance,
+    can_edit: bool,
+) -> String {
+    let has_macros = dom != Dominance::Unknown;
+    let pie = if has_macros {
+        format!(
+            r#"<span class="fit-pie" style="{}"></span>"#,
+            macro_pie_style(item.protein, item.carbs, item.fat, 18)
+        )
+    } else {
+        r#"<span class="fit-pie fit-pie--empty lib-row__pie-empty"></span>"#.to_string()
+    };
+    let macros = if has_macros {
+        format!(
+            r#"<span class="fit-row__macro--p">P {p}</span>
+      <span class="fit-row__macro--c">C {c}</span>
+      <span class="fit-row__macro--f">F {f}</span>"#,
+            p = fmt_nutrient(item.protein),
+            c = fmt_nutrient(item.carbs),
+            f = fmt_nutrient(item.fat)
+        )
+    } else {
+        r#"<span class="lib-row__nomacros">no macros yet</span>"#.to_string()
+    };
+    // The amount a log button would use, so the button never surprises you.
+    let grams = last
+        .or(item.default_portion_g)
+        .or(item.package_size)
+        .unwrap_or(100.0);
+    // Log, then the management cluster. The design's row shows only `Log`
+    // because the prototype had no food management at all — it was not
+    // specifying a removal, and dropping edit/delete stranded exactly the
+    // macro-less foods that create-and-log is designed to produce.
+    let log_btn = if can_edit {
+        format!(
+            r##"<button type="button" class="hm-btn hm-btn--sm hm-btn--secondary"
+        hx-post="/fitness/quick-log"
+        hx-vals='js:{{food_item_id: {id}, grams: {grams}, slot: effectiveSlot(), date: window.currentDate}}'
+        hx-target="#day-section" hx-swap="innerHTML">Log</button>
+    <span class="lib-row__manage">
+      <button type="button" class="lib-row__icon{fav_cls}" title="Favourite" aria-label="Toggle favourite"
+        hx-post="/api/nutrition/food-items/{id}/favourite"
+        hx-target="#food-library" hx-swap="innerHTML">★</button>
+      <button type="button" class="lib-row__icon" title="Edit" aria-label="Edit {name}"
+        hx-get="/api/nutrition/food-items/{id}/edit"
+        hx-target="#lib-row-{id}" hx-swap="outerHTML">✎</button>
+      <button type="button" class="lib-row__icon lib-row__icon--danger" title="Delete" aria-label="Delete {name}"
+        hx-delete="/api/nutrition/food-items/{id}"
+        hx-target="#food-library" hx-swap="innerHTML"
+        hx-confirm="Delete this food item?">✕</button>
+    </span>"##,
+            id = item.id,
+            grams = grams,
+            name = html_escape(&item.name),
+            fav_cls = if item.is_favourite != 0 {
+                " is-fav"
+            } else {
+                ""
+            }
+        )
+    } else {
+        String::new()
+    };
+    let basis = match item.package_size {
+        Some(p) if p > 0.0 && !item.base_name.trim().is_empty() => format!(
+            r#"<span class="lib-row__basis">{} {} g</span>"#,
+            html_escape(item.base_name.trim()),
+            fmt_grams(p)
+        ),
+        _ => String::new(),
+    };
+
+    format!(
+        r##"<li class="lib-row" id="lib-row-{id}" data-fav="{fav}" data-recent="{rec}" data-protein="{p_raw}" data-cal="{cal_raw}">
+    {thumb}
+    {pie}
+    <span class="lib-row__name">{name}</span>
+    <span class="lib-row__kcal">{kcal} kcal / 100 g</span>
+    <span class="lib-row__macros">{macros}</span>
+    {basis}
+    {log_btn}
+  </li>"##,
+        id = item.id,
+        fav = if item.is_favourite != 0 { 1 } else { 0 },
+        // "Recent" means this user has logged it before, which is exactly what
+        // having a last-logged amount records.
+        rec = if last.is_some() { 1 } else { 0 },
+        p_raw = item.protein,
+        cal_raw = item.calories,
+        thumb = row_thumb_html(&item.name, &item.image_url, dom, 30),
+        pie = pie,
+        name = html_escape(&item.name),
+        kcal = fmt_nutrient(item.calories),
+        macros = macros,
+        basis = basis,
+        log_btn = log_btn
+    )
 }
 
 fn history_bars_html(days: &[(String, f64)]) -> String {
@@ -564,6 +1157,7 @@ fn edit_food_form_html(item: &crate::models::FoodItem, history_html: &str) -> St
     <label>Sat. fat/100g<input type="number" name="saturated_fat" step="0.1" min="0" value="{sat_fat}"></label>
   </div>
   <label class="package-size-label">Package / total size (g)<input type="number" name="package_size" step="0.1" min="0" value="{pkg}" placeholder="e.g. 565"></label>
+  <label class="package-size-label">What that size is called<input type="text" name="base_name" value="{base_name}" placeholder="e.g. pack, tin, slice"></label>
   <label class="package-size-label">Custom portions (g, comma-separated)<input type="text" name="custom_portions" value="{custom_portions}" placeholder="e.g. 125, 250, 375"></label>
   <label class="package-size-label">Category<input type="text" name="category" value="{category}" placeholder="e.g. Dairy &amp; eggs"></label>
   <label class="package-size-label">Default portion (g)<input type="number" name="default_portion_g" step="0.1" min="0" value="{default_portion}" placeholder="usual amount"></label>
@@ -572,8 +1166,8 @@ fn edit_food_form_html(item: &crate::models::FoodItem, history_html: &str) -> St
   <input type="hidden" name="image_url" value="{image_url}">
   {history_html}
   <div class="form-actions">
-    <button type="submit" class="btn-primary">Save</button>
-    <button type="button" class="btn-secondary"
+    <button type="submit" class="hm-btn hm-btn--md hm-btn--primary">Save</button>
+    <button type="button" class="hm-btn hm-btn--md hm-btn--secondary"
             hx-get="/api/nutrition/food-items/{id}/card"
             hx-target="#food-item-{id}"
             hx-swap="outerHTML">Cancel</button>
@@ -593,6 +1187,7 @@ fn edit_food_form_html(item: &crate::models::FoodItem, history_html: &str) -> St
         sodium = fmt_nutrient(item.sodium),
         sat_fat = fmt_nutrient(item.saturated_fat),
         pkg = pkg_val,
+        base_name = html_escape(&item.base_name),
         custom_portions = html_escape(&item.custom_portions),
         image_url = html_escape(&item.image_url),
         category = html_escape(&item.category),
@@ -618,8 +1213,15 @@ struct FitnessTemplate {
     is_admin: bool,
     user_name: String,
     date: String,
-    week_strip_html: String,
-    day_section_html: String,
+    /// `MON 17 AUG · 2026-08-17` — the page head's micro-label.
+    date_label: String,
+    /// Target of the head's Yesterday link.
+    prev_date: String,
+    /// The left rail's summary, rendered in place on first paint and refreshed
+    /// out-of-band by every day response thereafter.
+    summary_html: String,
+    streak_html: String,
+    day_slots_html: String,
     library_html: String,
 }
 
@@ -636,22 +1238,29 @@ async fn fitness_page(
     let food_items = crate::db::get_food_items(&state.pool, session.user()).await;
     let targets = crate::db::get_targets(&state.pool, session.user()).await;
     let week = week_for(&state.pool, &date, session.user()).await;
-    let strip = week_strip_html(&week, &date, &today, targets.calories);
-    let day_html = day_section_html(&entries, &date, &food_items, &targets, true);
-    let recent_ids: std::collections::HashSet<i64> =
-        crate::db::get_recent_foods(&state.pool, 20, session.user())
-            .await
-            .into_iter()
-            .map(|r| r.food_item_id)
-            .collect();
-    let lib_html = library_list_html(&food_items, &recent_ids, true);
+    // Not `render_day` here: this handler already holds `entries`, `targets`
+    // and `week` for the library and the summary, and the first paint wants the
+    // summary in place rather than out-of-band.
+    let last_grams = crate::db::get_last_grams_map(&state.pool, session.user()).await;
+    let day_html = day_slots_html(&entries, &date, true, &last_grams);
+    let summary = summary_card_html(&entries, &targets, &date, &week, &today, false);
+    let streak = compute_streak(
+        &crate::db::get_logged_dates_desc(&state.pool, 400, session.user()).await,
+        &today,
+    );
+    let streak_html = streak_card_html(streak, false);
+    // Same map the rows use — this handler already has it.
+    let lib_html = library_list_html(&food_items, &last_grams, true);
     Html(
         FitnessTemplate {
             is_admin: session.is_effective_admin(),
             user_name: session.user_name,
+            date_label: head_date_label(&date),
+            prev_date: step_date(&date, -1),
             date,
-            week_strip_html: strip,
-            day_section_html: day_html,
+            summary_html: summary,
+            streak_html,
+            day_slots_html: day_html,
             library_html: lib_html,
         }
         .render()
@@ -665,16 +1274,7 @@ async fn htmx_day(
     Query(params): Query<HashMap<String, String>>,
 ) -> impl IntoResponse {
     let date = sanitize_date(params.get("date"));
-    let entries = crate::db::get_meal_entries_for_date(&state.pool, &date, session.user()).await;
-    let food_items = crate::db::get_food_items(&state.pool, session.user()).await;
-    let targets = crate::db::get_targets(&state.pool, session.user()).await;
-    Html(day_section_html(
-        &entries,
-        &date,
-        &food_items,
-        &targets,
-        true,
-    ))
+    Html(render_day(&state.pool, &date, session.user(), true).await)
 }
 
 async fn add_food_item(
@@ -695,6 +1295,7 @@ async fn add_food_item(
     let mut saturated_fat = 0f64;
     let mut package_size: Option<f64> = None;
     let mut custom_portions = String::new();
+    let mut base_name = String::new();
     let mut image_url = String::new();
     let mut image_bytes: Option<Vec<u8>> = None;
 
@@ -795,6 +1396,9 @@ async fn add_food_item(
             }
             Some("custom_portions") => {
                 custom_portions = field.text().await.unwrap_or_default().trim().to_string()
+            }
+            Some("base_name") => {
+                base_name = field.text().await.unwrap_or_default().trim().to_string()
             }
             Some("image_url") => {
                 image_url = field.text().await.unwrap_or_default().trim().to_string()
@@ -854,6 +1458,7 @@ async fn add_food_item(
         sodium,
         saturated_fat,
         package_size,
+        &base_name,
         &custom_portions,
         &image_url,
         session.user(),
@@ -862,13 +1467,8 @@ async fn add_food_item(
 
     let all_items = crate::db::get_food_items(&state.pool, session.user()).await;
     {
-        let recent_ids: std::collections::HashSet<i64> =
-            crate::db::get_recent_foods(&state.pool, 20, session.user())
-                .await
-                .into_iter()
-                .map(|r| r.food_item_id)
-                .collect();
-        Html(library_list_html(&all_items, &recent_ids, true)).into_response()
+        let lib_last = crate::db::get_last_grams_map(&state.pool, session.user()).await;
+        Html(library_list_html(&all_items, &lib_last, true)).into_response()
     }
 }
 
@@ -884,13 +1484,8 @@ async fn delete_food_item_handler(
     }
     let items = crate::db::get_food_items(&state.pool, session.user()).await;
     {
-        let recent_ids: std::collections::HashSet<i64> =
-            crate::db::get_recent_foods(&state.pool, 20, session.user())
-                .await
-                .into_iter()
-                .map(|r| r.food_item_id)
-                .collect();
-        Html(library_list_html(&items, &recent_ids, true))
+        let lib_last = crate::db::get_last_grams_map(&state.pool, session.user()).await;
+        Html(library_list_html(&items, &lib_last, true))
     }
 }
 
@@ -908,32 +1503,13 @@ async fn add_meal_entry(
         .get("grams")
         .and_then(|v| v.parse().ok())
         .unwrap_or(100.0);
-    let slot = form
-        .get("slot")
-        .cloned()
-        .unwrap_or_else(|| "other".to_string());
-    let slot = if SLOTS.iter().any(|(k, _)| *k == slot) {
-        slot
-    } else {
-        "other".to_string()
-    };
+    let slot = sanitize_slot(form.get("slot"));
 
     if food_item_id == 0 || grams <= 0.0 {
-        let entries =
-            crate::db::get_meal_entries_for_date(&state.pool, &date, session.user()).await;
-        let food_items = crate::db::get_food_items(&state.pool, session.user()).await;
-        let targets = crate::db::get_targets(&state.pool, session.user()).await;
-        return Html(day_section_html(
-            &entries,
-            &date,
-            &food_items,
-            &targets,
-            true,
-        ))
-        .into_response();
+        return Html(render_day(&state.pool, &date, session.user(), true).await).into_response();
     }
 
-    let _ = crate::db::insert_meal_entry(
+    let (ids, text) = log_one(
         &state.pool,
         food_item_id,
         &date,
@@ -942,17 +1518,446 @@ async fn add_meal_entry(
         session.user(),
     )
     .await;
-    let entries = crate::db::get_meal_entries_for_date(&state.pool, &date, session.user()).await;
-    let food_items = crate::db::get_food_items(&state.pool, session.user()).await;
-    let targets = crate::db::get_targets(&state.pool, session.user()).await;
-    Html(day_section_html(
-        &entries,
-        &date,
-        &food_items,
-        &targets,
-        true,
-    ))
-    .into_response()
+    let body = render_day(&state.pool, &date, session.user(), true).await;
+    log_batch_response(body, &ids, &text)
+}
+
+/// Logs one food and reports what to flag and what to say.
+///
+/// Every one-tap path funnels through here — the log form, a recent chip, a
+/// "usual at" button — so a food logged from any of them flags its row and
+/// names itself in the toast the same way. Returns an empty batch when the food
+/// does not exist or the insert fails, which `log_batch_response` renders as a
+/// plain day with no toast: nothing landed, so nothing is claimed.
+async fn log_one(
+    pool: &crate::db::DbPool,
+    food_item_id: i64,
+    date: &str,
+    grams: f64,
+    slot: &str,
+    user: crate::models::UserId,
+) -> (Vec<i64>, String) {
+    let Some(item) = crate::db::get_food_item(pool, food_item_id, user).await else {
+        return (Vec::new(), String::new());
+    };
+    match crate::db::insert_meal_entry(pool, food_item_id, date, grams, slot, user).await {
+        Ok(id) => (
+            vec![id],
+            format!("Logged {} · {} g", item.name, fmt_grams(grams)),
+        ),
+        Err(_) => (Vec::new(), String::new()),
+    }
+}
+
+/// The chips under the log card's search field.
+///
+/// With no query these are the foods logged most recently, at the grams last
+/// used — the "log again" case, which is most of what this screen is for. While
+/// typing they become matches. When nothing matches, the only button offered is
+/// the one that creates the food and logs it in the same tap, because being
+/// stuck with a food you cannot name is the failure this redesign exists to fix.
+fn log_options_html(matches: &[(i64, String, f64)], query: &str, is_search: bool) -> String {
+    if matches.is_empty() {
+        if !is_search {
+            return r#"<p class="fit-log__hint">Nothing logged yet — search for a food above.</p>"#
+                .to_string();
+        }
+        return format!(
+            r##"<div class="fit-log__kicker">Nothing matches</div>
+<button type="button" class="hm-btn hm-btn--md hm-btn--primary fit-log__create"
+        hx-post="/api/nutrition/foods/create-and-log"
+        hx-vals='js:{{name: document.getElementById("log-search").value, slot: effectiveSlot(), date: window.currentDate}}'
+        hx-target="#day-section" hx-swap="innerHTML">+ Add &ldquo;{q}&rdquo; and log 100 g</button>"##,
+            q = html_escape(query)
+        );
+    }
+
+    let heading = if is_search {
+        "Matches — tap to log"
+    } else {
+        "Log again"
+    };
+    let chips: String = matches
+        .iter()
+        .map(|(id, name, grams)| {
+            format!(
+                r##"<button type="button" class="hm-btn hm-btn--md hm-btn--secondary fit-chip"
+          hx-post="/fitness/quick-log"
+          hx-vals='js:{{food_item_id: {id}, grams: {grams}, slot: effectiveSlot(), date: window.currentDate}}'
+          hx-target="#day-section" hx-swap="innerHTML">
+    <span class="fit-chip__name">{name}</span>
+    <span class="fit-chip__grams">{grams_fmt} g</span>
+  </button>"##,
+                id = id,
+                grams = grams,
+                grams_fmt = fmt_grams(*grams),
+                name = html_escape(name)
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n  ");
+
+    format!(
+        r##"<div class="fit-log__kicker">{heading}</div>
+<div class="fit-chips">
+  {chips}
+</div>"##
+    )
+}
+
+async fn log_options(
+    session: AuthSession,
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<HashMap<String, String>>,
+) -> impl IntoResponse {
+    let q = params.get("q").cloned().unwrap_or_default();
+    let q = q.trim().to_string();
+    let last = crate::db::get_last_grams_map(&state.pool, session.user()).await;
+
+    // Both branches answer the same question — what would I log, and how much
+    // of it — and differ only in where the candidates come from.
+    let matches: Vec<(i64, String, f64)> = if q.is_empty() {
+        crate::db::get_recent_foods(&state.pool, 6, session.user())
+            .await
+            .into_iter()
+            .map(|r| (r.food_item_id, r.name, r.last_grams))
+            .collect()
+    } else {
+        crate::db::search_food_items(&state.pool, &q, session.user())
+            .await
+            .into_iter()
+            .take(6)
+            .map(|i| {
+                let grams = last
+                    .get(&i.id)
+                    .copied()
+                    .or(i.default_portion_g)
+                    .unwrap_or(100.0);
+                (i.id, i.name, grams)
+            })
+            .collect()
+    };
+
+    Html(log_options_html(&matches, &q, !q.is_empty()))
+}
+
+/// Saved meals, and the builder that makes new ones.
+///
+/// A meal chip logs every item in one action — so it flags and undoes as one,
+/// which is why the log route hands back a list of ids rather than a count.
+fn meals_section_html(
+    recipes: &[crate::models::RecipeWithTotals],
+    foods: &[crate::models::FoodItem],
+) -> String {
+    let chips: String = if recipes.is_empty() {
+        r#"<p class="fit-log__hint">No saved meals yet — build one, or save a slot you have already logged.</p>"#.to_string()
+    } else {
+        recipes
+            .iter()
+            .map(|r| {
+                format!(
+                    r##"<button type="button" class="hm-btn hm-btn--md hm-btn--secondary fit-chip"
+          hx-post="/api/nutrition/recipes/{id}/log"
+          hx-vals='js:{{slot: effectiveSlot(), date: window.currentDate}}'
+          hx-target="#day-section" hx-swap="innerHTML">
+    <span class="fit-chip__name">{name}</span>
+    <span class="fit-chip__grams">{cal:.0} kcal</span>
+  </button>"##,
+                    id = r.id,
+                    name = html_escape(&r.name),
+                    cal = r.total_cal
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n  ")
+    };
+
+    // The first eight foods, which is what fits before the panel needs its own
+    // search. Composing from the catalog is the point — `create_recipe_from_slot`
+    // can only capture a meal you have already eaten.
+    let picks: String = foods
+        .iter()
+        .take(8)
+        .map(|f| {
+            format!(
+                r##"<button type="button" class="hm-btn hm-btn--sm hm-btn--ghost"
+        onclick="addMealItem({id}, this.dataset.name, {grams})"
+        data-name="{name}">+ {name}</button>"##,
+                id = f.id,
+                grams = f.default_portion_g.unwrap_or(100.0),
+                name = html_escape(&f.name)
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n      ");
+
+    format!(
+        r##"<hr class="fit-log__rule">
+<div class="fit-log__meals-head">
+  <span class="fit-log__kicker">Saved meals</span>
+  <button type="button" class="hm-btn hm-btn--sm hm-btn--ghost" id="fit-meal-toggle"
+          onclick="toggleMealBuilder()">New meal</button>
+</div>
+<div class="fit-chips">
+  {chips}
+</div>
+<div class="fit-builder" id="fit-builder" hidden>
+  <div class="fit-builder__row">
+    <div class="fit-field">
+      <input type="text" id="fit-meal-name" placeholder="Meal name" autocomplete="off">
+    </div>
+    <span class="fit-builder__total" id="fit-meal-total">0 kcal</span>
+    <button type="button" class="hm-btn hm-btn--md hm-btn--primary" onclick="saveMeal()">Save meal</button>
+  </div>
+  <div class="fit-builder__picked" id="fit-meal-picked"></div>
+  <div class="fit-builder__adds">
+      {picks}
+  </div>
+</div>"##,
+        chips = chips,
+        picks = picks
+    )
+}
+
+/// Creates a saved meal from the builder's list.
+///
+/// `items` arrives as `id:grams` pairs. Anything malformed is dropped rather
+/// than failing the whole save — a meal that mostly worked beats an error on a
+/// panel the user has already filled in.
+async fn create_meal(
+    session: AuthSession,
+    State(state): State<Arc<AppState>>,
+    axum::Form(form): axum::Form<HashMap<String, String>>,
+) -> impl IntoResponse {
+    let name = form.get("name").map(|s| s.trim()).unwrap_or_default();
+    let items: Vec<(i64, f64)> = form
+        .get("items")
+        .map(|s| {
+            s.split(',')
+                .filter_map(|pair| {
+                    let (id, grams) = pair.split_once(':')?;
+                    let id: i64 = id.trim().parse().ok()?;
+                    let grams: f64 = grams.trim().parse().ok()?;
+                    (1.0..=5000.0).contains(&grams).then_some((id, grams))
+                })
+                .take(32)
+                .collect()
+        })
+        .unwrap_or_default();
+
+    if !name.is_empty() && name.chars().count() <= 80 {
+        crate::db::create_recipe_from_items(&state.pool, name, &items, session.user()).await;
+    }
+    let recipes = crate::db::get_recipes_with_totals(&state.pool, session.user()).await;
+    let foods = crate::db::get_food_items(&state.pool, session.user()).await;
+    Html(meals_section_html(&recipes, &foods))
+}
+
+async fn meals_section(
+    session: AuthSession,
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    let recipes = crate::db::get_recipes_with_totals(&state.pool, session.user()).await;
+    let foods = crate::db::get_food_items(&state.pool, session.user()).await;
+    Html(meals_section_html(&recipes, &foods))
+}
+
+/// The "usual at &lt;slot&gt;" card — up to three foods this user habitually eats
+/// at the slot the picker is on, each one tap from being logged.
+fn usual_card_html(usuals: &[crate::models::UsualFood], slot: &str) -> String {
+    let body = if usuals.is_empty() {
+        // Not an error state — a new member, or a slot they have never used.
+        // Say what would fill it rather than showing an empty frame.
+        format!(
+            r#"<p class="fit-log__hint">Nothing logged at {slot} yet.</p>"#,
+            slot = html_escape(slot)
+        )
+    } else {
+        usuals
+            .iter()
+            .map(|u| {
+                let dom = dominance(u.protein, u.carbs, u.fat);
+                format!(
+                    r##"<button type="button" class="hm-btn hm-btn--md hm-btn--secondary fit-usual__item"
+        hx-post="/fitness/quick-log"
+        hx-vals='js:{{food_item_id: {id}, grams: {grams}, slot: effectiveSlot(), date: window.currentDate}}'
+        hx-target="#day-section" hx-swap="innerHTML">
+    {thumb}
+    <span class="fit-usual__name">{name}</span>
+    <span class="fit-usual__grams">{grams_fmt} g</span>
+  </button>"##,
+                    id = u.food_item_id,
+                    grams = u.last_grams,
+                    grams_fmt = fmt_grams(u.last_grams),
+                    name = html_escape(&u.name),
+                    thumb = row_thumb_html(&u.name, &u.image_url, dom, 26)
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n  ")
+    };
+
+    format!(
+        r##"<div class="noc-card fit-usual" id="fit-usual">
+  <div class="fit-usual__head">
+    <span class="fit-log__kicker">usual at {slot}</span>
+    <span class="fit-usual__hint">one tap</span>
+  </div>
+  {body}
+</div>"##,
+        slot = html_escape(slot),
+        body = body
+    )
+}
+
+async fn usual_card(
+    session: AuthSession,
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<HashMap<String, String>>,
+) -> impl IntoResponse {
+    let slot = sanitize_slot(params.get("slot"));
+    let usuals = crate::db::get_usual_for_slot(&state.pool, &slot, 3, session.user()).await;
+    Html(usual_card_html(&usuals, &slot))
+}
+
+/// Creates a food from whatever was typed and logs 100 g of it in one request.
+///
+/// The macros are left at zero deliberately: the point is to unblock the log
+/// now and fill them in later. The row renders `no macros` rather than
+/// pretending the food is calorie-free.
+async fn create_and_log(
+    session: AuthSession,
+    State(state): State<Arc<AppState>>,
+    axum::Form(form): axum::Form<HashMap<String, String>>,
+) -> impl IntoResponse {
+    let date = sanitize_date(form.get("date"));
+    let slot = sanitize_slot(form.get("slot"));
+    let name = form.get("name").map(|s| s.trim()).unwrap_or_default();
+
+    // An empty or absurd name is a broken client, not a food.
+    if name.is_empty() || name.chars().count() > 80 {
+        return Html(render_day(&state.pool, &date, session.user(), true).await).into_response();
+    }
+
+    let item = crate::db::insert_food_item(
+        &state.pool,
+        name,
+        "",
+        None,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        None, // package_size
+        "",   // base_name
+        "",   // custom_portions
+        "",   // image_url
+        session.user(),
+    )
+    .await;
+
+    let (ids, text) = log_one(&state.pool, item.id, &date, 100.0, &slot, session.user()).await;
+    let body = render_day(&state.pool, &date, session.user(), true).await;
+    log_batch_response(body, &ids, &text)
+}
+
+/// Removes a batch of entries — the toast's Undo.
+///
+/// Takes ids rather than "the last N entries" because the two disagree the
+/// moment a second tab, or the user themselves, logs something else in the five
+/// seconds the toast is up. Each delete is user-scoped, so a forged id belonging
+/// to another member deletes nothing rather than someone else's dinner.
+async fn undo_log_batch(
+    session: AuthSession,
+    State(state): State<Arc<AppState>>,
+    axum::Form(form): axum::Form<HashMap<String, String>>,
+) -> impl IntoResponse {
+    let date = sanitize_date(form.get("date"));
+    let ids: Vec<i64> = form
+        .get("ids")
+        .map(|s| s.split(',').filter_map(|p| p.trim().parse().ok()).collect())
+        .unwrap_or_default();
+    // A cap, not a guard: undo covers one action, and the largest single action
+    // this screen offers is a saved meal. An unbounded list would let one
+    // request issue arbitrarily many deletes.
+    for id in ids.into_iter().take(64) {
+        crate::db::delete_meal_entry(&state.pool, id, session.user()).await;
+    }
+    Html(render_day(&state.pool, &date, session.user(), true).await)
+}
+
+/// A day fragment plus the id of the row that was just logged.
+///
+/// `fresh` is session-scoped and deliberately not persisted — the spec calls it
+/// a nudge to check an amount, not a property of the entry. The server's part
+/// is only to say *which* row is new; the client owns the flag from there, so a
+/// reload clears it, which is the intended lifetime.
+fn log_batch_response(body: String, ids: &[i64], text: &str) -> axum::response::Response {
+    if ids.is_empty() {
+        return Html(body).into_response();
+    }
+    let list = ids
+        .iter()
+        .map(|i| i.to_string())
+        .collect::<Vec<_>>()
+        .join(",");
+    // Hand-built rather than serde: the payload is two fields, and the only
+    // free text in it is a food name. It reaches the DOM through textContent on
+    // the client, never innerHTML.
+    (
+        [(
+            "HX-Trigger",
+            format!(
+                r#"{{"row-logged":{{"ids":[{list}],"text":"{text}"}}}}"#,
+                list = list,
+                text = json_escape(text)
+            ),
+        )],
+        Html(body),
+    )
+        .into_response()
+}
+
+/// Escapes a string for the `HX-Trigger` JSON payload, ASCII-only.
+///
+/// Three separate hazards, all of which produce a wrong page rather than an
+/// error:
+///
+/// - A food called `12" pizza` would close the JSON string, handing htmx a
+///   header it cannot parse — no toast, no fresh flags, nothing in the console.
+/// - Control characters are dropped rather than escaped: a header value
+///   containing a newline is a response-splitting vector, and axum refuses to
+///   send it, turning a successfully logged meal into a 500.
+/// - **Non-ASCII must be `\u`-escaped, not passed through.** HTTP header values
+///   are read as Latin-1, so a UTF-8 `·` (C2 B7) arrives as `Â·` and
+///   `Æbleskiver` as `Ã†bleskiver`. Emitting `·` keeps the header pure
+///   ASCII and lets the client's JSON parse rebuild the character. Found by
+///   reading the rendered toast — the first version of this function shipped
+///   the mojibake, and the test I wrote asserted it was fine.
+fn json_escape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' | '\r' | '\t' => out.push(' '),
+            c if (c as u32) < 0x20 => {}
+            c if c.is_ascii() => out.push(c),
+            // encode_utf16 yields a surrogate pair for astral characters, which
+            // is exactly the pair JSON wants.
+            c => {
+                let mut buf = [0u16; 2];
+                for unit in c.encode_utf16(&mut buf) {
+                    out.push_str(&format!("\\u{unit:04x}"));
+                }
+            }
+        }
+    }
+    out
 }
 
 async fn delete_meal_entry_handler(
@@ -963,16 +1968,7 @@ async fn delete_meal_entry_handler(
 ) -> impl IntoResponse {
     crate::db::delete_meal_entry(&state.pool, id, session.user()).await;
     let date = sanitize_date(params.get("date"));
-    let entries = crate::db::get_meal_entries_for_date(&state.pool, &date, session.user()).await;
-    let food_items = crate::db::get_food_items(&state.pool, session.user()).await;
-    let targets = crate::db::get_targets(&state.pool, session.user()).await;
-    Html(day_section_html(
-        &entries,
-        &date,
-        &food_items,
-        &targets,
-        true,
-    ))
+    Html(render_day(&state.pool, &date, session.user(), true).await)
 }
 
 async fn edit_food_form(
@@ -1017,8 +2013,17 @@ async fn food_item_card(
     State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
 ) -> impl IntoResponse {
+    // Cancelling an edit puts the row back — the *library's* row, not the old
+    // card shape, or one <li> would come back styled unlike its neighbours.
     match crate::db::get_food_item(&state.pool, id, session.user()).await {
-        Some(item) => Html(food_item_card_html(&item, false, true)).into_response(),
+        Some(item) => {
+            let last = crate::db::get_last_grams_map(&state.pool, session.user())
+                .await
+                .get(&id)
+                .copied();
+            let dom = dominance(item.protein, item.carbs, item.fat);
+            Html(library_row_html(&item, last, dom, true)).into_response()
+        }
         None => (
             StatusCode::NOT_FOUND,
             Html("<p>Food item not found</p>".to_string()),
@@ -1049,6 +2054,7 @@ async fn update_food_item_handler(
     let mut saturated_fat = 0f64;
     let mut package_size: Option<f64> = None;
     let mut custom_portions = String::new();
+    let mut base_name = String::new();
     let mut image_url = String::new();
     let mut image_bytes: Option<Vec<u8>> = None;
 
@@ -1149,6 +2155,9 @@ async fn update_food_item_handler(
             }
             Some("custom_portions") => {
                 custom_portions = field.text().await.unwrap_or_default().trim().to_string()
+            }
+            Some("base_name") => {
+                base_name = field.text().await.unwrap_or_default().trim().to_string()
             }
             Some("category") => {
                 category = field.text().await.unwrap_or_default().trim().to_string()
@@ -1236,6 +2245,7 @@ async fn update_food_item_handler(
         sodium,
         saturated_fat,
         package_size,
+        &base_name,
         &custom_portions,
         &image_url,
         &category,
@@ -1247,13 +2257,8 @@ async fn update_food_item_handler(
 
     let all_items = crate::db::get_food_items(&state.pool, session.user()).await;
     {
-        let recent_ids: std::collections::HashSet<i64> =
-            crate::db::get_recent_foods(&state.pool, 20, session.user())
-                .await
-                .into_iter()
-                .map(|r| r.food_item_id)
-                .collect();
-        Html(library_list_html(&all_items, &recent_ids, true)).into_response()
+        let lib_last = crate::db::get_last_grams_map(&state.pool, session.user()).await;
+        Html(library_list_html(&all_items, &lib_last, true)).into_response()
     }
 }
 
@@ -1322,29 +2327,62 @@ async fn update_meal_entry_handler(
         .get("grams")
         .and_then(|v| v.parse().ok())
         .unwrap_or(0.0);
-    let slot = form
-        .get("slot")
-        .cloned()
-        .unwrap_or_else(|| "other".to_string());
-    let slot = if SLOTS.iter().any(|(k, _)| *k == slot) {
-        slot
-    } else {
-        "other".to_string()
-    };
+    let slot = sanitize_slot(form.get("slot"));
     if grams > 0.0 {
         crate::db::update_meal_entry(&state.pool, id, grams, &slot, session.user()).await;
     }
     let date = sanitize_date(form.get("date"));
-    let targets = crate::db::get_targets(&state.pool, session.user()).await;
-    let entries = crate::db::get_meal_entries_for_date(&state.pool, &date, session.user()).await;
-    let food_items = crate::db::get_food_items(&state.pool, session.user()).await;
-    Html(day_section_html(
-        &entries,
-        &date,
-        &food_items,
-        &targets,
+    Html(render_day(&state.pool, &date, session.user(), true).await)
+}
+
+/// Sets one entry's amount and returns **that row alone**.
+///
+/// The narrow fragment is the point. Re-rendering the whole day would work, but
+/// it would also throw away every other row's expanded state and scroll the
+/// page under someone who is halfway through checking three amounts.
+///
+/// The date comes from the stored entry, not from the request: the row's own
+/// `date` field is only there so the delete link can rebuild the day, and
+/// trusting it here would let a stale fragment file an amount against the wrong
+/// day.
+async fn update_entry_grams(
+    session: AuthSession,
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<i64>,
+    axum::Form(form): axum::Form<HashMap<String, String>>,
+) -> impl IntoResponse {
+    let grams: f64 = form
+        .get("grams")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0.0);
+
+    // Floor of 1 g and a 0.1 g grain, matching the nudge buttons. An amount
+    // outside that is a broken client, not a portion.
+    if !(1.0..=5000.0).contains(&grams) {
+        return (StatusCode::BAD_REQUEST, Html(String::new())).into_response();
+    }
+    let grams = (grams * 10.0).round() / 10.0;
+
+    // `get_meal_entry` is user-scoped, so this doubles as the ownership check:
+    // another member's entry id simply does not resolve.
+    let Some(existing) = crate::db::get_meal_entry(&state.pool, id, session.user()).await else {
+        return (StatusCode::NOT_FOUND, Html(String::new())).into_response();
+    };
+    crate::db::update_meal_entry(&state.pool, id, grams, &existing.slot, session.user()).await;
+
+    let entries =
+        crate::db::get_meal_entries_for_date(&state.pool, &existing.date, session.user()).await;
+    let Some(entry) = entries.iter().find(|e| e.entry_id == id) else {
+        return (StatusCode::NOT_FOUND, Html(String::new())).into_response();
+    };
+    let last_grams = crate::db::get_last_grams_map(&state.pool, session.user()).await;
+    Html(meal_entry_row_html(
+        entry,
+        &existing.date,
         true,
+        last_grams.get(&entry.food_item_id).copied(),
     ))
+    .into_response()
 }
 
 /// The log card shown when a scan / search / recent tap resolves to a food item.
@@ -1520,33 +2558,33 @@ async fn quick_log_handler(
     axum::Form(form): axum::Form<HashMap<String, String>>,
 ) -> impl IntoResponse {
     let date = sanitize_date(form.get("date"));
-    let slot = form
-        .get("slot")
-        .cloned()
-        .unwrap_or_else(|| "other".to_string());
-    let slot = if SLOTS.iter().any(|(k, _)| *k == slot) {
-        slot
-    } else {
-        "other".to_string()
-    };
+    let slot = sanitize_slot(form.get("slot"));
+    let mut ids = Vec::new();
+    let mut text = String::new();
+
     if let Some(id) = form.get("food_item_id").and_then(|v| v.parse::<i64>().ok()) {
-        if let Some(item) = crate::db::get_food_item(&state.pool, id, session.user()).await {
-            let grams = item.default_portion_g.unwrap_or(100.0);
-            let _ =
-                crate::db::insert_meal_entry(&state.pool, id, &date, grams, &slot, session.user())
-                    .await;
+        // A chip already knows its amount — it is rendered with the grams this
+        // user last logged for that food, which is what makes re-logging one
+        // tap. Callers that send none (the add sheet) keep the old behaviour.
+        let explicit = form
+            .get("grams")
+            .and_then(|v| v.parse::<f64>().ok())
+            .filter(|g| (1.0..=5000.0).contains(g));
+        let grams = match explicit {
+            Some(g) => Some(g),
+            None => crate::db::get_food_item(&state.pool, id, session.user())
+                .await
+                .map(|i| i.default_portion_g.unwrap_or(100.0)),
+        };
+        if let Some(grams) = grams {
+            let (batch, msg) = log_one(&state.pool, id, &date, grams, &slot, session.user()).await;
+            ids = batch;
+            text = msg;
         }
     }
-    let targets = crate::db::get_targets(&state.pool, session.user()).await;
-    let entries = crate::db::get_meal_entries_for_date(&state.pool, &date, session.user()).await;
-    let food_items = crate::db::get_food_items(&state.pool, session.user()).await;
-    Html(day_section_html(
-        &entries,
-        &date,
-        &food_items,
-        &targets,
-        true,
-    ))
+
+    let body = render_day(&state.pool, &date, session.user(), true).await;
+    log_batch_response(body, &ids, &text)
 }
 
 #[derive(Template)]
@@ -1761,16 +2799,7 @@ async fn create_recipe_handler(
     if !name.is_empty() {
         crate::db::create_recipe_from_slot(&state.pool, name, &date, &slot, session.user()).await;
     }
-    let targets = crate::db::get_targets(&state.pool, session.user()).await;
-    let entries = crate::db::get_meal_entries_for_date(&state.pool, &date, session.user()).await;
-    let food_items = crate::db::get_food_items(&state.pool, session.user()).await;
-    Html(day_section_html(
-        &entries,
-        &date,
-        &food_items,
-        &targets,
-        true,
-    ))
+    Html(render_day(&state.pool, &date, session.user(), true).await)
 }
 
 async fn log_recipe_handler(
@@ -1780,26 +2809,26 @@ async fn log_recipe_handler(
     axum::Form(form): axum::Form<HashMap<String, String>>,
 ) -> impl IntoResponse {
     let date = sanitize_date(form.get("date"));
-    let slot = form
-        .get("slot")
-        .cloned()
-        .unwrap_or_else(|| "other".to_string());
-    let slot = if SLOTS.iter().any(|(k, _)| *k == slot) {
-        slot
-    } else {
-        "other".to_string()
-    };
-    crate::db::log_recipe(&state.pool, id, &date, &slot, session.user()).await;
-    let targets = crate::db::get_targets(&state.pool, session.user()).await;
-    let entries = crate::db::get_meal_entries_for_date(&state.pool, &date, session.user()).await;
-    let food_items = crate::db::get_food_items(&state.pool, session.user()).await;
-    Html(day_section_html(
-        &entries,
-        &date,
-        &food_items,
-        &targets,
-        true,
-    ))
+    let slot = sanitize_slot(form.get("slot"));
+    let ids = crate::db::log_recipe(&state.pool, id, &date, &slot, session.user()).await;
+
+    // The meal's own name, so the toast says "Logged Post-gym shake · 3 items"
+    // rather than naming whichever food happened to be inserted last.
+    let name = crate::db::get_recipes_with_totals(&state.pool, session.user())
+        .await
+        .into_iter()
+        .find(|r| r.id == id)
+        .map(|r| r.name)
+        .unwrap_or_else(|| "meal".to_string());
+    let text = format!(
+        "Logged {} · {} item{}",
+        name,
+        ids.len(),
+        if ids.len() == 1 { "" } else { "s" }
+    );
+
+    let body = render_day(&state.pool, &date, session.user(), true).await;
+    log_batch_response(body, &ids, &text)
 }
 
 fn meals_pane_html(recipes: &[crate::models::RecipeWithTotals]) -> String {
@@ -1850,13 +2879,8 @@ async fn toggle_favourite_handler(
 ) -> impl IntoResponse {
     crate::db::toggle_food_favourite(&state.pool, id, session.user()).await;
     let items = crate::db::get_food_items(&state.pool, session.user()).await;
-    let recent_ids: std::collections::HashSet<i64> =
-        crate::db::get_recent_foods(&state.pool, 20, session.user())
-            .await
-            .into_iter()
-            .map(|r| r.food_item_id)
-            .collect();
-    Html(library_list_html(&items, &recent_ids, true))
+    let lib_last = crate::db::get_last_grams_map(&state.pool, session.user()).await;
+    Html(library_list_html(&items, &lib_last, true))
 }
 
 async fn favourite_chips(
@@ -1899,16 +2923,7 @@ async fn copy_day_handler(
     if !yesterday.is_empty() {
         crate::db::copy_day_entries(&state.pool, &yesterday, &date, session.user()).await;
     }
-    let targets = crate::db::get_targets(&state.pool, session.user()).await;
-    let entries = crate::db::get_meal_entries_for_date(&state.pool, &date, session.user()).await;
-    let food_items = crate::db::get_food_items(&state.pool, session.user()).await;
-    Html(day_section_html(
-        &entries,
-        &date,
-        &food_items,
-        &targets,
-        true,
-    ))
+    Html(render_day(&state.pool, &date, session.user(), true).await)
 }
 
 async fn targets_form(
@@ -1951,21 +2966,209 @@ async fn set_targets_handler(
     )
     .await;
     let date = sanitize_date(form.get("date"));
-    let targets = crate::db::get_targets(&state.pool, session.user()).await;
-    let entries = crate::db::get_meal_entries_for_date(&state.pool, &date, session.user()).await;
-    let food_items = crate::db::get_food_items(&state.pool, session.user()).await;
-    Html(day_section_html(
-        &entries,
-        &date,
-        &food_items,
-        &targets,
-        true,
-    ))
+    Html(render_day(&state.pool, &date, session.user(), true).await)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── Row maths ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_json_escape_keeps_the_trigger_payload_parseable() {
+        // A quote in a food name would otherwise close the JSON string, leaving
+        // htmx a header it cannot parse — no toast, no fresh flags, no error.
+        assert_eq!(json_escape(r#"12" pizza"#), r#"12\" pizza"#);
+        assert_eq!(json_escape(r"back\slash"), r"back\\slash");
+        // Newlines are dropped, not escaped: axum refuses to send a header
+        // containing one, which would turn a logged meal into a 500.
+        assert_eq!(json_escape("two\nlines"), "two lines");
+        assert_eq!(json_escape("tab\there"), "tab here");
+        assert_eq!(json_escape("bell\u{7}here"), "bellhere");
+    }
+
+    #[test]
+    fn test_json_escape_makes_non_ascii_pure_ascii() {
+        // Header values are read as Latin-1, so passing UTF-8 through renders
+        // `·` as `Â·` and `Æbleskiver` as `Ã†bleskiver`. This shipped once —
+        // the toast said "Logged 12\" test pizza Â· 100 g" in the browser.
+        assert_eq!(json_escape("a \u{b7} b"), "a \\u00b7 b");
+        assert_eq!(json_escape("\u{c6}bleskiver"), "\\u00c6bleskiver");
+        // Astral plane: one char, one surrogate pair, which is what JSON wants.
+        assert_eq!(json_escape("\u{1F355}"), "\\ud83c\\udf55");
+        // And the result must contain no byte a Latin-1 reader could mangle.
+        assert!(json_escape("Æbleskiver · 🍕").is_ascii());
+        // ASCII is untouched, so the common case stays readable in the header.
+        assert_eq!(json_escape("Logged Oats - 80 g"), "Logged Oats - 80 g");
+    }
+
+    #[test]
+    fn test_fmt_grams_drops_a_trailing_zero_but_keeps_a_real_tenth() {
+        assert_eq!(fmt_grams(250.0), "250");
+        assert_eq!(fmt_grams(167.0), "167");
+        assert_eq!(fmt_grams(27.5), "27.5");
+        assert_eq!(fmt_grams(3.3), "3.3");
+        // A third of a 500 g pack does not land on a clean integer in binary
+        // floating point; once rounded it must still print without a decimal.
+        assert_eq!(fmt_grams(round_grams(500.0 / 3.0)), "167");
+    }
+
+    #[test]
+    fn test_macro_shares_weight_fat_at_nine_kcal() {
+        // 10 g of each: protein 40, carbs 40, fat 90 kcal of 170.
+        let (p, c, f) = macro_shares(10.0, 10.0, 10.0);
+        assert!((p - 23.529).abs() < 0.01, "protein share {p}");
+        assert!((c - 23.529).abs() < 0.01, "carbs share {c}");
+        assert!((f - 52.941).abs() < 0.01, "fat share {f}");
+        assert!((p + c + f - 100.0).abs() < 0.001, "shares must total 100");
+    }
+
+    #[test]
+    fn test_macro_shares_of_a_macroless_food_is_zeros_not_nan() {
+        // A food created from the search field has no macros yet. Dividing by
+        // its zero total would put NaN into a conic-gradient and paint nothing.
+        assert_eq!(macro_shares(0.0, 0.0, 0.0), (0.0, 0.0, 0.0));
+    }
+
+    #[test]
+    fn test_dominance_classes() {
+        assert_eq!(dominance(0.0, 0.0, 0.0), Dominance::Unknown);
+        // Chicken breast: overwhelmingly protein.
+        assert_eq!(dominance(31.0, 0.0, 3.6), Dominance::Protein);
+        // White rice: nearly all carbs.
+        assert_eq!(dominance(2.7, 28.0, 0.3), Dominance::Carbs);
+        // Olive oil: pure fat.
+        assert_eq!(dominance(0.0, 0.0, 100.0), Dominance::Fat);
+        // Equal *grams* is not equal *calories* — 10 g of each is 40/40/90
+        // kcal, so fat takes 53% and the row reads as fat, not balanced. This
+        // is the whole reason dominance weights before it compares.
+        assert_eq!(dominance(10.0, 10.0, 10.0), Dominance::Fat);
+        // Balanced needs an even split by calorie, not by gram: 40/35/25.
+        assert_eq!(dominance(10.0, 8.75, 2.78), Dominance::Balanced);
+    }
+
+    #[test]
+    fn test_dominance_boundary_sits_at_45_percent() {
+        // Protein at 46% of calories — over the line, so it characterises.
+        assert_eq!(dominance(11.5, 7.5, 24.0 / 9.0), Dominance::Protein);
+        // The same shape at 44% falls back to balanced.
+        assert_eq!(dominance(11.0, 7.75, 25.0 / 9.0), Dominance::Balanced);
+    }
+
+    #[test]
+    fn test_basis_falls_through_package_then_usual_then_100g() {
+        use crate::models::basis_grams;
+        assert_eq!(basis_grams(Some(500.0), Some(125.0)), 500.0);
+        assert_eq!(basis_grams(None, Some(125.0)), 125.0);
+        assert_eq!(basis_grams(None, None), 100.0);
+        // A zero or negative package size is missing data, not a 0 g pack.
+        assert_eq!(basis_grams(Some(0.0), Some(30.0)), 30.0);
+        assert_eq!(basis_grams(Some(0.0), None), 100.0);
+        assert_eq!(basis_grams(Some(-5.0), None), 100.0);
+    }
+
+    #[test]
+    fn test_amount_options_for_a_500g_pack() {
+        let opts = amount_options(500.0, None, 250.0);
+        let got: Vec<_> = opts.iter().map(|o| (o.label.as_str(), o.grams)).collect();
+        assert_eq!(
+            got,
+            vec![("full", 500.0), ("½", 250.0), ("⅓", 167.0), ("¼", 125.0)]
+        );
+        // ½ is the current amount, so it is the primary button.
+        assert!(opts[1].selected, "½ should be selected at 250 g");
+        assert_eq!(opts.iter().filter(|o| o.selected).count(), 1);
+    }
+
+    #[test]
+    fn test_amount_options_drop_fractions_under_three_grams() {
+        // A 10 g basis: ⅓ is 3.3 g and ¼ is 2.5 g, so only the latter goes.
+        let got: Vec<_> = amount_options(10.0, None, 10.0)
+            .iter()
+            .map(|o| (o.label.clone(), o.grams))
+            .collect();
+        assert_eq!(
+            got,
+            vec![
+                ("full".to_string(), 10.0),
+                ("½".to_string(), 5.0),
+                ("⅓".to_string(), 3.3),
+            ]
+        );
+        // An 8 g basis leaves only full and half.
+        assert_eq!(amount_options(8.0, None, 8.0).len(), 2);
+    }
+
+    #[test]
+    fn test_amount_options_dedupe_within_half_a_gram() {
+        // A 4 g basis: full 4, ½ 2 (dropped, under 3). Nothing collides.
+        // A 6 g basis: full 6, ½ 3, ⅓ 2 (dropped), ¼ 1.5 (dropped).
+        assert_eq!(amount_options(6.0, None, 6.0).len(), 2);
+        // Rounding can collapse two fractions onto the same whole gram: with a
+        // basis of 24, ⅓ = 8 and ¼ = 6, distinct — but `last` at 8.2 g is
+        // within 0.5 g of ⅓ and must not appear twice.
+        let opts = amount_options(24.0, Some(8.2), 24.0);
+        assert_eq!(opts.iter().filter(|o| o.label == "last").count(), 0);
+    }
+
+    #[test]
+    fn test_amount_options_append_last_when_it_is_a_new_amount() {
+        let opts = amount_options(500.0, Some(180.0), 180.0);
+        let last = opts.last().expect("options are non-empty");
+        assert_eq!(last.label, "last");
+        assert_eq!(last.grams, 180.0);
+        assert!(last.selected, "the row is at 180 g, so `last` is current");
+    }
+
+    #[test]
+    fn test_amount_options_ignore_a_zero_last() {
+        // No history for this food yet.
+        let opts = amount_options(500.0, Some(0.0), 500.0);
+        assert!(opts.iter().all(|o| o.label != "last"));
+    }
+
+    #[test]
+    fn test_round_grams_switches_precision_at_twenty() {
+        assert_eq!(round_grams(166.666), 167.0);
+        assert_eq!(round_grams(20.4), 20.0);
+        assert_eq!(round_grams(19.44), 19.4);
+        assert_eq!(round_grams(3.333), 3.3);
+    }
+
+    #[test]
+    fn test_nudge_step_is_gentler_under_fifty_grams() {
+        assert_eq!(nudge_step(250.0), 10.0);
+        assert_eq!(nudge_step(50.0), 10.0);
+        assert_eq!(nudge_step(49.9), 5.0);
+        assert_eq!(nudge_step(4.0), 5.0);
+    }
+
+    #[test]
+    fn test_head_date_label_shape() {
+        // 2026-08-17 is a Monday.
+        assert_eq!(head_date_label("2026-08-17"), "MON 17 AUG · 2026-08-17");
+        // Zero-padded day, and a month whose short name is not a prefix clash.
+        assert_eq!(head_date_label("2026-09-05"), "SAT 05 SEP · 2026-09-05");
+    }
+
+    #[test]
+    fn test_head_date_label_falls_back_to_the_raw_string() {
+        // Unreachable through `sanitize_date`, but the label must never invent
+        // a date it could not parse.
+        assert_eq!(head_date_label("not-a-date"), "not-a-date");
+    }
+
+    #[test]
+    fn test_step_date_crosses_month_and_year_boundaries() {
+        assert_eq!(step_date("2026-08-17", -1), "2026-08-16");
+        assert_eq!(step_date("2026-08-01", -1), "2026-07-31");
+        assert_eq!(step_date("2026-01-01", -1), "2025-12-31");
+        // Leap day: 2028 is a leap year, so stepping back from 1 March lands
+        // on the 29th rather than skipping it.
+        assert_eq!(step_date("2028-03-01", -1), "2028-02-29");
+        assert_eq!(step_date("2026-08-17", 1), "2026-08-18");
+    }
 
     /// An empty day must render `0`, not `-0`.
     ///
@@ -1981,20 +3184,24 @@ mod tests {
             carbs: 260.0,
             fat: 72.0,
         };
-        let html = day_section_html(&[], "2026-08-16", &[], &targets, true);
+        let html = summary_card_html(&[], &targets, "2026-08-16", &[], "2026-08-16", false);
 
         // Checked against the rendered numbers rather than a bare `-0` search:
         // the ISO date in the markup contains "-0" all by itself.
-        assert!(
-            html.contains("0 of 2400 cal · 0%"),
-            "calorie caption is wrong"
-        );
-        assert!(html.contains("<span>Protein</span><span class=\"rail-nums\">0 / 165 g"));
-        assert!(html.contains("<span>Carbs</span><span class=\"rail-nums\">0 / 260 g"));
-        assert!(html.contains("<span>Fat</span><span class=\"rail-nums\">0 / 72 g"));
+        assert!(html.contains("0 / 2400 kcal"), "calorie footer is wrong");
+        assert!(html.contains("<span>protein</span><span class=\"rail-nums\">0 / 165 g"));
+        assert!(html.contains("<span>carbs</span><span class=\"rail-nums\">0 / 260 g"));
+        assert!(html.contains("<span>fat</span><span class=\"rail-nums\">0 / 72 g"));
         assert!(
             !html.contains("width:-0%"),
             "a rail was rendered with a negative-zero width"
+        );
+        // The ring reads the same totals, so it is the fourth place -0 could
+        // surface. Its dash offset is derived, not formatted, but a negative
+        // zero consumed value would show up as a NaN or negative offset.
+        assert!(
+            !html.contains("stroke-dashoffset:-") && !html.contains("NaN"),
+            "the ring rendered a negative or NaN offset on an empty day"
         );
     }
 
@@ -2058,6 +3265,16 @@ pub fn router() -> Router<Arc<AppState>> {
             "/api/nutrition/entries/{id}",
             delete(delete_meal_entry_handler).put(update_meal_entry_handler),
         )
+        .route(
+            "/api/nutrition/entries/{id}/grams",
+            axum::routing::put(update_entry_grams),
+        )
+        .route("/api/nutrition/entries/undo", post(undo_log_batch))
+        .route("/fitness/htmx/log-options", get(log_options))
+        .route("/fitness/htmx/usual", get(usual_card))
+        .route("/fitness/htmx/meals-section", get(meals_section))
+        .route("/api/nutrition/recipes/build", post(create_meal))
+        .route("/api/nutrition/foods/create-and-log", post(create_and_log))
         .route("/fitness/htmx/entries/{id}/edit", get(entry_edit_form))
         .route("/fitness/copy-day", post(copy_day_handler))
         .route("/fitness/htmx/recent", get(recent_chips))

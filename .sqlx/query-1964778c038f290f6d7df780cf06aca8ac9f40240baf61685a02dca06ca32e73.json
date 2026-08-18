@@ -1,0 +1,68 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT me.food_item_id as \"food_item_id!\", fi.name as \"name!\",\n                  fi.image_url as \"image_url!\",\n                  fi.protein as \"protein!: f64\", fi.carbs as \"carbs!: f64\",\n                  fi.fat as \"fat!: f64\",\n                  COUNT(*) as \"times!: i64\",\n                  MAX(me.created_at || '-' || printf('%012d', me.id)) as \"latest!: String\",\n                  me.grams as \"last_grams!: f64\"\n           FROM meal_entries me\n           JOIN food_items fi ON fi.id = me.food_item_id\n           WHERE me.user_id = ? AND me.slot = ?\n           GROUP BY me.food_item_id\n           ORDER BY 7 DESC, 8 DESC\n           LIMIT ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "food_item_id!",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "name!",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "image_url!",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "protein!: f64",
+        "ordinal": 3,
+        "type_info": "Float"
+      },
+      {
+        "name": "carbs!: f64",
+        "ordinal": 4,
+        "type_info": "Float"
+      },
+      {
+        "name": "fat!: f64",
+        "ordinal": 5,
+        "type_info": "Float"
+      },
+      {
+        "name": "times!: i64",
+        "ordinal": 6,
+        "type_info": "Null"
+      },
+      {
+        "name": "latest!: String",
+        "ordinal": 7,
+        "type_info": "Null"
+      },
+      {
+        "name": "last_grams!: f64",
+        "ordinal": 8,
+        "type_info": "Float"
+      }
+    ],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      null,
+      null,
+      false
+    ]
+  },
+  "hash": "1964778c038f290f6d7df780cf06aca8ac9f40240baf61685a02dca06ca32e73"
+}

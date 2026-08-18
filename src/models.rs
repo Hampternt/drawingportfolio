@@ -311,6 +311,9 @@ pub struct FoodItem {
     pub custom_portions: String,
     pub image_url: String,
     pub category: String,
+    /// What the food's basis is called — "pack", "breast", "scoop". Shared,
+    /// because it describes the food rather than the eater. Migration 022.
+    pub base_name: String,
     pub is_favourite: i64,
     pub default_portion_g: Option<f64>,
     pub created_at: String,
@@ -377,11 +380,49 @@ pub struct Targets {
     pub fat: f64,
 }
 
+/// A food this user habitually eats at one slot — the "usual at breakfast"
+/// card. Macros ride along per 100 g so the thumbnail can wear the same
+/// dominance ring the logged row uses.
+#[derive(Debug, Clone)]
+pub struct UsualFood {
+    pub food_item_id: i64,
+    pub name: String,
+    pub image_url: String,
+    pub protein: f64,
+    pub carbs: f64,
+    pub fat: f64,
+    pub last_grams: f64,
+}
+
+/// How many grams the food's basis is: the pack it comes in, else the amount
+/// this user usually takes, else 100 g.
+///
+/// Lives here rather than beside either caller because both the row's fraction
+/// buttons and the day query need the same answer, and a basis that disagreed
+/// between them would label a button "½ pack" while logging half of something
+/// else. A zero or negative package size is missing data, not a 0 g pack.
+pub fn basis_grams(package_size: Option<f64>, usual: Option<f64>) -> f64 {
+    package_size
+        .filter(|g| *g > 0.0)
+        .or(usual.filter(|g| *g > 0.0))
+        .unwrap_or(100.0)
+}
+
 #[derive(Debug, Clone)]
 pub struct MealEntryWithFood {
     pub entry_id: i64,
     pub food_item_id: i64,
     pub food_name: String,
+    /// Rendered after the name as `Skyr natural · Arla`; empty for own-brand.
+    pub brand: String,
+    /// The row's thumbnail when the food has one. Empty falls back to the
+    /// letter tile — a real state, not a placeholder, since most catalog rows
+    /// are typed in rather than scanned.
+    pub image_url: String,
+    /// Grams the food is packaged or served in, and what to call that unit.
+    /// The row's fraction buttons are computed from these.
+    pub base_grams: f64,
+    pub base_name: String,
     pub slot: String,
     pub grams: f64,
     pub calories: f64,

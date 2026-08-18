@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO meal_entries (food_item_id, date, grams, slot, user_id)\n         SELECT ri.food_item_id, ?, ri.grams, ?, ?\n         FROM recipe_items ri\n         JOIN recipes r ON r.id = ri.recipe_id\n         WHERE ri.recipe_id = ? AND r.user_id = ?\n         RETURNING id as \"id!\"",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!",
+        "ordinal": 0,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 5
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "a913de4bf61dae72e97083651284fb52746eae466157e58e2158a1d2cd0dab57"
+}

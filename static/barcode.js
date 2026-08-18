@@ -108,7 +108,14 @@ function lookupManualBarcode() {
 // Unknown product: prefill the library's add-food form from OpenFoodFacts
 // and reveal it, so the user can save the item (then scan again to log it).
 async function openOffLookup(barcode) {
-  const form = document.getElementById('add-food-form');
+  // Not a bare `form.hidden = false`: the form sits inside the food library's
+  // collapsible body, so revealing it means opening that too — otherwise this
+  // un-hides a form inside a `display: none` ancestor and scrolls to nothing.
+  // feed.html owns that knowledge and exposes it as revealAddFoodForm().
+  const form = typeof revealAddFoodForm === 'function'
+    ? revealAddFoodForm()
+    : document.getElementById('add-food-form');
+  if (!form) return;
   form.hidden = false;
   form.scrollIntoView({ behavior: 'smooth', block: 'start' });
   try {

@@ -3,110 +3,218 @@
 
 {% block body_class %}fitness-dark{% endblock %}
 
-{% block head %}
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap">
-{% endblock %}
-
 {% block content %}
-<section class="fitness-page">
+<section class="fitness-page fitness-today">
 
-  <!-- Whose log this is. /fitness renders the signed-in user's own day, so the
-       page has to say whose — otherwise two people sharing a screen cannot tell
-       which account they are logging into. -->
-  <div class="fitness-whoami">
-    <span class="noc-kicker">Signed in as</span>
-    <a class="fitness-whoami-name" href="/fitness/account">{{ user_name }}</a>
-  </div>
-
-  <!-- Date navigator: week strip + step arrows -->
-  <div class="fitness-date-nav">
-    <button id="prev-day" class="btn-secondary" aria-label="Previous day">←</button>
-    {{ week_strip_html|safe }}
-    <button id="next-day" class="btn-secondary" aria-label="Next day">→</button>
-    <a class="noc-btn noc-btn-ghost" href="/fitness/week" aria-label="Week view">Week</a>
-  </div>
-
-  <!-- Desktop quick-add: type-ahead over the library, Enter logs the usual portion -->
-  <div id="quickadd">
-    <input class="noc-input" type="search" id="quickadd-input" placeholder="Type a food, Enter logs your usual portion…"
-           name="q" hx-get="/fitness/htmx/food-search" hx-trigger="input changed delay:250ms"
-           hx-target="#quickadd-results" hx-swap="innerHTML">
-    <div id="quickadd-results"></div>
-  </div>
-
-  <!-- Day section: totals + meal log + log form (pre-rendered by Rust) -->
-  <div id="day-section">
-    {{ day_section_html|safe }}
-  </div>
-
-  <!-- Food library section -->
-  <section class="food-library-section">
-    <div class="library-header">
-      <h2>Food Library</h2>
-      <div class="library-actions">
-        <input type="text" id="library-search" placeholder="Search…" oninput="filterLibrary(this.value)">
-        <button class="btn-secondary" onclick="toggleAddForm()">+ Add food</button>
-      </div>
+  <!-- Two classes, two jobs. `.fitness-page` must stay the outermost element
+       inside this block: base.html's syncBodyTheme() looks for it to re-derive
+       the fitness-dark body class after a boosted navigation. `.fitness-today`
+       is what the shell's width and layout hang off — /fitness/week is also a
+       `.fitness-page`, and keying the 1180px shell on that name widened it too. -->
+  <div class="fit-head">
+    <div class="fit-head__titles">
+      <div class="fit-head__label">{{ date_label }}</div>
+      <h1>Today</h1>
     </div>
-
-    <!-- Add food form (hidden by default) -->
-    <form id="add-food-form" class="nutrient-form" hidden
-          hx-post="/api/nutrition/food-items"
-          hx-target="#food-library"
-          hx-swap="innerHTML"
-          hx-encoding="multipart/form-data"
-          hx-on::after-request="this.reset(); document.getElementById('add-food-form').hidden = true;">
-      <input type="text" name="name" placeholder="Name *" required>
-      <input type="text" name="brand" placeholder="Brand">
-      <input type="text" name="barcode" id="barcode-field" placeholder="Barcode">
-      <div class="nutrient-grid">
-        <label>Calories/100g<input type="number" name="calories" step="0.1" min="0" value="0"></label>
-        <label>Protein/100g<input type="number" name="protein" step="0.1" min="0" value="0"></label>
-        <label>Carbs/100g<input type="number" name="carbs" step="0.1" min="0" value="0"></label>
-        <label>Fat/100g<input type="number" name="fat" step="0.1" min="0" value="0"></label>
-        <label>Fiber/100g<input type="number" name="fiber" step="0.1" min="0" value="0"></label>
-        <label>Sugar/100g<input type="number" name="sugar" step="0.1" min="0" value="0"></label>
-        <label>Sodium/100g (mg)<input type="number" name="sodium" step="0.1" min="0" value="0"></label>
-        <label>Sat. fat/100g<input type="number" name="saturated_fat" step="0.1" min="0" value="0"></label>
-      </div>
-      <label class="package-size-label">Package / total size (g)<input type="number" name="package_size" id="package-size-field" step="0.1" min="0" placeholder="e.g. 565"></label>
-      <label class="package-size-label">Custom portions (g, comma-separated)<input type="text" name="custom_portions" placeholder="e.g. 125, 250, 375"></label>
-      <label class="file-label">Image <input type="file" name="image" accept="image/jpeg,image/png,image/webp"></label>
-      <input type="hidden" name="image_url" id="image-url-field" value="">
-      <div class="form-actions">
-        <button type="submit" class="btn-primary">Save food</button>
-        <button type="button" class="btn-secondary" onclick="toggleAddForm()">Cancel</button>
-      </div>
-    </form>
-
-    <div class="lib-chips">
-      <button class="noc-tag noc-tag-accent" data-filter="all" onclick="libFilter(this)">All</button>
-      <button class="noc-tag noc-tag-outline" data-filter="fav" onclick="libFilter(this)">Favourites</button>
-      <button class="noc-tag noc-tag-outline" data-filter="recent" onclick="libFilter(this)">Recent</button>
-      <button class="noc-tag noc-tag-outline" data-filter="protein" onclick="libFilter(this)">High protein</button>
-      <button class="noc-tag noc-tag-outline" data-filter="nomacros" onclick="libFilter(this)">No macros yet</button>
+    <div class="fit-head__actions">
+      <!-- Copy yesterday's log lives in the phone action bar, and the design
+           gives it no other home — so hiding that bar on desktop would delete
+           the only way to reach /fitness/copy-day at all. One control per
+           breakpoint, never both: this one is hidden below 900px, the bar's is
+           hidden above it. Labelled "Copy yesterday's log" rather than the
+           bar's bare icon, because it sits next to a "Yesterday" that
+           navigates rather than copies. -->
+      <button class="hm-btn hm-btn--sm hm-btn--ghost fit-head__copy" title="Copy yesterday's log into today"
+              hx-post="/fitness/copy-day" hx-vals='js:{date: window.currentDate}'
+              hx-target="#day-section" hx-swap="innerHTML">
+        <span class="hm-icon hm-icon--copy" aria-hidden="true"></span>Copy yesterday's log
+      </button>
+      <!-- A real href, not the arrows' JS step: the head has to work on a cold
+           render, and this is also the only day-step that survives no-JS. -->
+      <a class="hm-btn hm-btn--sm hm-btn--ghost" href="/fitness?date={{ prev_date }}">
+        <span class="hm-icon hm-icon--chevron-left"></span>Yesterday
+      </a>
+      <a class="hm-btn hm-btn--sm hm-btn--secondary" href="/fitness/week">
+        <span class="hm-icon hm-icon--calendar-days"></span>Week
+      </a>
     </div>
+  </div>
 
-    <div id="food-library">
-      {{ library_html|safe }}
+  <div class="fit-cols">
+    <div class="fit-col fit-col--left">
+
+      <!-- Whose log this is. /fitness renders the signed-in user's own day, so
+           the page has to say whose — otherwise two people sharing a screen
+           cannot tell which account they are logging into. -->
+      <div class="fitness-whoami">
+        <span class="noc-kicker">Signed in as</span>
+        <a class="fitness-whoami-name" href="/fitness/account">{{ user_name }}</a>
+      </div>
+
+      <!-- Summary: ring, rails, week strip, totals. Re-rendered out-of-band by
+           every day response, so it never needs a fetch of its own. -->
+      {{ summary_html|safe }}
+
+      <!-- Outside the summary card on purpose: the summary is replaced
+           out-of-band by every day response, which would destroy an open
+           editor and discard whatever had been typed into it. -->
+      <div id="targets-editor"></div>
+
+      <div class="fitness-date-nav">
+        <button id="prev-day" class="btn-secondary" aria-label="Previous day">←</button>
+        <button id="next-day" class="btn-secondary" aria-label="Next day">→</button>
+      </div>
+
+      <!-- "usual at <slot>" — follows the slot picker. Loaded on first render
+           and re-fetched whenever the slot changes, so it always offers the
+           things you actually eat at the slot you are logging into. -->
+      <div id="fit-usual-slot"
+           hx-get="/fitness/htmx/usual"
+           hx-trigger="load, slot-changed from:body"
+           hx-vals='js:{slot: effectiveSlot()}'
+           hx-target="this" hx-swap="innerHTML"></div>
+
+      {{ streak_html|safe }}
+
     </div>
-  </section>
+    <div class="fit-col fit-col--right">
 
+      <!-- The log card. Outside #day-section on purpose: it renders no day
+           data, so rebuilding it on every log cost two round trips and threw
+           away the meal builder mid-compose. -->
+      <div class="noc-card fit-log">
+        <div class="fit-log__slots">
+          <span class="fit-log__kicker">LOG TO</span>
+          <button type="button" class="hm-btn hm-btn--sm hm-btn--ghost" data-slot="breakfast" onclick="setSlot(this)">breakfast</button>
+          <button type="button" class="hm-btn hm-btn--sm hm-btn--ghost" data-slot="lunch" onclick="setSlot(this)">lunch</button>
+          <button type="button" class="hm-btn hm-btn--sm hm-btn--ghost" data-slot="dinner" onclick="setSlot(this)">dinner</button>
+          <button type="button" class="hm-btn hm-btn--sm hm-btn--ghost" data-slot="snack" onclick="setSlot(this)">snack</button>
+          <span class="fit-log__note" id="fit-slot-note" hidden></span>
+          <button type="button" class="hm-btn hm-btn--sm hm-btn--ghost fit-log__now" id="fit-slot-now" hidden onclick="snapSlotToClock()"></button>
+          <span class="fit-log__check" id="fit-check-count">all amounts checked</span>
+        </div>
+        <div class="fit-log__search">
+          <div class="fit-field">
+            <span class="hm-icon hm-icon--search" aria-hidden="true"></span>
+            <input type="search" id="log-search" name="q" autocomplete="off"
+                   placeholder="Type a food, &#8629; logs your usual portion"
+                   hx-get="/fitness/htmx/log-options" hx-trigger="input changed delay:200ms, load"
+                   hx-target="#log-options" hx-swap="innerHTML">
+            <kbd class="fit-field__kbd">/</kbd>
+          </div>
+          <button type="button" class="hm-btn hm-btn--md hm-btn--secondary" onclick="openAddSheet('scan')">Scan</button>
+        </div>
+        <div id="log-options"></div>
+        <div id="fit-meals" hx-get="/fitness/htmx/meals-section" hx-trigger="load"
+             hx-target="this" hx-swap="innerHTML"></div>
+      </div>
+
+      <!-- Day section: the meal slot cards, and nothing else. -->
+      <div id="day-section">
+        {{ day_slots_html|safe }}
+      </div>
+
+      <!-- Food library. The design collapses this card by default; here it
+           opens by default and remembers whichever the user picked — see the
+           CSS for why. -->
+      <section class="noc-card fit-lib">
+        <div class="fit-lib__head">
+          <div class="fit-lib__titles">
+            <span class="fit-log__kicker">FOOD LIBRARY</span>
+            <span class="fit-lib__count" id="library-count"></span>
+          </div>
+          <div class="fit-lib__actions">
+            <button type="button" class="hm-btn hm-btn--sm hm-btn--ghost" onclick="toggleAddForm()">+ Add food</button>
+            <button type="button" class="hm-btn hm-btn--sm hm-btn--ghost" id="library-toggle"
+                    aria-expanded="true" aria-controls="library-body" onclick="toggleLibrary()">Hide</button>
+          </div>
+        </div>
+
+        <div id="library-body">
+
+        <div class="fit-lib__search">
+          <div class="fit-field">
+            <span class="hm-icon hm-icon--search" aria-hidden="true"></span>
+            <input type="search" id="library-search" placeholder="Search your library…" oninput="filterLibrary(this.value)">
+          </div>
+        </div>
+
+        <!-- Add food form (hidden by default) -->
+        <form id="add-food-form" class="nutrient-form" hidden
+              hx-post="/api/nutrition/food-items"
+              hx-target="#food-library"
+              hx-swap="innerHTML"
+              hx-encoding="multipart/form-data"
+              hx-on::after-request="this.reset(); document.getElementById('add-food-form').hidden = true;">
+          <input type="text" name="name" placeholder="Name *" required>
+          <input type="text" name="brand" placeholder="Brand">
+          <input type="text" name="barcode" id="barcode-field" placeholder="Barcode">
+          <div class="nutrient-grid">
+            <label>Calories/100g<input type="number" name="calories" step="0.1" min="0" value="0"></label>
+            <label>Protein/100g<input type="number" name="protein" step="0.1" min="0" value="0"></label>
+            <label>Carbs/100g<input type="number" name="carbs" step="0.1" min="0" value="0"></label>
+            <label>Fat/100g<input type="number" name="fat" step="0.1" min="0" value="0"></label>
+            <label>Fiber/100g<input type="number" name="fiber" step="0.1" min="0" value="0"></label>
+            <label>Sugar/100g<input type="number" name="sugar" step="0.1" min="0" value="0"></label>
+            <label>Sodium/100g (mg)<input type="number" name="sodium" step="0.1" min="0" value="0"></label>
+            <label>Sat. fat/100g<input type="number" name="saturated_fat" step="0.1" min="0" value="0"></label>
+          </div>
+          <label class="package-size-label">Package / total size (g)<input type="number" name="package_size" id="package-size-field" step="0.1" min="0" placeholder="e.g. 565"></label>
+          <!-- Names the size above it. Without it a row's basis chip stays
+               blank, because a bare "100 g" beside the row's own amount reads
+               as a second quantity rather than the unit it is measured in. -->
+          <label class="package-size-label">What that size is called<input type="text" name="base_name" placeholder="e.g. pack, tin, slice"></label>
+          <label class="package-size-label">Custom portions (g, comma-separated)<input type="text" name="custom_portions" placeholder="e.g. 125, 250, 375"></label>
+          <label class="file-label">Image <input type="file" name="image" accept="image/jpeg,image/png,image/webp"></label>
+          <input type="hidden" name="image_url" id="image-url-field" value="">
+          <div class="form-actions">
+            <button type="submit" class="hm-btn hm-btn--md hm-btn--primary">Save food</button>
+            <button type="button" class="hm-btn hm-btn--md hm-btn--secondary" onclick="toggleAddForm()">Cancel</button>
+          </div>
+        </form>
+
+        <div class="lib-chips">
+          <button class="noc-tag noc-tag-accent" data-filter="all" onclick="libFilter(this)">All</button>
+          <button class="noc-tag noc-tag-outline" data-filter="fav" onclick="libFilter(this)">Favourites</button>
+          <button class="noc-tag noc-tag-outline" data-filter="recent" onclick="libFilter(this)">Recent</button>
+          <button class="noc-tag noc-tag-outline" data-filter="protein" onclick="libFilter(this)">High protein</button>
+          <button class="noc-tag noc-tag-outline" data-filter="nomacros" onclick="libFilter(this)">No macros yet</button>
+        </div>
+
+        <div id="food-library">
+          {{ library_html|safe }}
+        </div>
+
+        </div><!-- /#library-body -->
+      </section>
+
+    </div><!-- /.fit-col--right -->
+  </div><!-- /.fit-cols -->
+
+  <!-- The phone action bar. Hidden at >=900px, where the log card is already
+       on screen — see the CSS for why it is `fixed` and not the brief's
+       `sticky`. "Search" focuses the page's own search field rather than
+       opening the sheet's: they are two fields for one job, and the one on the
+       page is the one that logs in a single tap. -->
   <div id="fitness-actionbar">
-    <button id="bar-scan" class="noc-btn noc-btn-primary" onclick="openAddSheet('scan')">
-      <svg width="18" height="14" viewBox="0 0 18 14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M1 1v12M4.5 1v12M7.5 1v12M11 1v12M14 1v12M17 1v12"></path></svg>
-      Scan
+    <button id="bar-scan" class="hm-btn hm-btn--lg hm-btn--primary" onclick="openAddSheet('scan')">
+      <span class="hm-icon hm-icon--scan-line" aria-hidden="true"></span>Scan
     </button>
-    <button id="bar-search" class="noc-btn noc-btn-secondary" onclick="openAddSheet('search')">
-      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="7" cy="7" r="5"></circle><path d="M11 11l4 4"></path></svg>
-      Search
+    <button id="bar-search" class="hm-btn hm-btn--lg hm-btn--secondary" onclick="focusLogSearch()">
+      <span class="hm-icon hm-icon--search" aria-hidden="true"></span>Search
     </button>
-    <button id="bar-copy" class="noc-btn noc-btn-secondary noc-btn-icon" title="Copy yesterday"
+    <button id="bar-copy" class="hm-btn hm-btn--lg hm-btn--secondary fit-bar__icon"
+            title="Copy yesterday" aria-label="Copy yesterday"
             hx-post="/fitness/copy-day" hx-vals='js:{date: window.currentDate}' hx-target="#day-section" hx-swap="innerHTML">
-      <svg width="17" height="17" viewBox="0 0 17 17" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="9" height="11" rx="2"></rect><path d="M6 15h7a2 2 0 0 0 2-2V6"></path></svg>
+      <span class="hm-icon hm-icon--copy" aria-hidden="true"></span>
     </button>
+  </div>
+
+  <!-- Toast. Text is set via textContent, never innerHTML — it carries a food
+       name, which is user input. -->
+  <div id="fit-toast" hidden>
+    <span id="fit-toast-text"></span>
+    <button type="button" id="fit-toast-undo" onclick="undoLastBatch()">Undo</button>
   </div>
 
   <div id="add-sheet" hidden>
@@ -160,19 +268,15 @@
 window.currentDate = "{{ date }}";
 
 // Date navigation
+// These read `.lib-row`, which is what the library renders. They used to read
+// `.food-item-card`; when the library was regrouped by nutrition profile the
+// selector matched nothing, so every chip — including "All" — found no visible
+// rows in any group and hid the entire library.
 function filterLibrary(q) {
   const term = q.toLowerCase();
-  document.querySelectorAll('#food-library .food-item-card').forEach(card => {
+  document.querySelectorAll('#food-library .lib-row').forEach(card => {
     const text = card.textContent.toLowerCase();
     card.style.display = text.includes(term) ? '' : 'none';
-  });
-}
-
-function markSelectedDay(date) {
-  document.querySelectorAll('#week-strip .day-col').forEach(col => {
-    const sel = col.dataset.date === date;
-    col.querySelector('.day-letter').classList.toggle('selected', sel);
-    col.querySelector('.day-cell').classList.toggle('selected', sel);
   });
 }
 
@@ -182,7 +286,7 @@ function libFilter(btn) {
     b.classList.toggle('noc-tag-outline', b !== btn);
   });
   const mode = btn.dataset.filter;
-  document.querySelectorAll('#food-library .food-item-card').forEach(card => {
+  document.querySelectorAll('#food-library .lib-row').forEach(card => {
     const show =
       mode === 'all' ? true :
       mode === 'fav' ? card.dataset.fav === '1' :
@@ -192,7 +296,7 @@ function libFilter(btn) {
     card.style.display = show ? '' : 'none';
   });
   document.querySelectorAll('#food-library .lib-group').forEach(g => {
-    const any = [...g.querySelectorAll('.food-item-card')].some(c => c.style.display !== 'none');
+    const any = [...g.querySelectorAll('.lib-row')].some(c => c.style.display !== 'none');
     g.style.display = any ? '' : 'none';
   });
 }
@@ -205,7 +309,6 @@ function loadDay(date) {
     return;
   }
   window.currentDate = date;
-  markSelectedDay(date);
   htmx.ajax('GET', '/fitness/htmx/day?date=' + date, {target: '#day-section', swap: 'innerHTML'});
 }
 
@@ -235,35 +338,152 @@ function defaultSlot() {
   return 'snack';
 }
 
-function paintSlotChips(form) {
-  const val = form.querySelector('[name="slot"]').value;
-  form.querySelectorAll('[data-slot]').forEach(b => {
-    b.classList.toggle('noc-tag-accent', b.dataset.slot === val);
-    b.classList.toggle('noc-tag-outline', b.dataset.slot !== val);
-  });
+// The slot every one-tap action logs into. There is no hidden form field any
+// more — the dropdown-and-grams form is gone — so this variable IS the picker's
+// state, and every logging button reads it through hx-vals at request time.
+function effectiveSlot() {
+  return window.currentSlot || defaultSlot();
 }
+
+// The slot the "usual at <slot>" card was last told about. Seeded from the
+// clock so the first paint matches what the card's own `load` trigger fetches,
+// leaving the event for genuine changes only.
+let lastUsualSlot = defaultSlot();
+
+function paintSlotChips() {
+  const val = effectiveSlot();
+  document.querySelectorAll('.fit-log__slots [data-slot]').forEach(b => {
+    const on = b.dataset.slot === val;
+    b.classList.toggle('hm-btn--primary', on);
+    b.classList.toggle('hm-btn--ghost', !on);
+  });
+  // When the choice differs from the clock, say so and offer the way back.
+  const clock = defaultSlot();
+  const note = document.getElementById('fit-slot-note');
+  const now = document.getElementById('fit-slot-now');
+  if (note && now) {
+    const drifted = val !== clock;
+    note.hidden = !drifted;
+    now.hidden = !drifted;
+    if (drifted) {
+      note.textContent = 'staying on ' + val;
+      now.textContent = 'now: ' + clock;
+    }
+  }
+  updateCheckCount();
+
+  // Tell the "usual at <slot>" card to follow — but ONLY on a real change.
+  //
+  // Dispatching unconditionally built an unbounded request loop, and it needed
+  // no user action to start: this function runs from the body's htmx:afterSwap
+  // handler, the event makes #fit-usual-slot fetch, its response is a swap, and
+  // that swap re-enters this function. An idle page issued 1384 requests in
+  // three seconds. Seeding lastUsualSlot from the clock also keeps the first
+  // paint quiet, since the element's own `load` trigger already fetches once.
+  if (val !== lastUsualSlot) {
+    lastUsualSlot = val;
+    document.body.dispatchEvent(new Event('slot-changed'));
+  }
+}
+
+function snapSlotToClock() {
+  window.currentSlot = null;   // back to being led by the clock
+  paintSlotChips();
+}
+
+// The slot you chose, for as long as this page is open. Null until you choose
+// one, which is what lets the clock seed the very first render and nothing
+// after it — see initSlotDefault.
+window.currentSlot = null;
 
 function setSlot(btn) {
-  const form = btn.closest('form');
-  form.querySelector('[name="slot"]').value = btn.dataset.slot;
-  paintSlotChips(form);
+  window.currentSlot = btn.dataset.slot;
+  paintSlotChips();
 }
 
+// ── Logged-row amount controls ─────────────────────────────────────────────
+// The row's grams/kcal button opens its amount grid. State lives in the DOM
+// (the `hidden` attribute) rather than in a JS map, so a row that HTMX swaps
+// out takes its state with it instead of leaving a stale entry behind.
+
+function toggleAmounts(id) {
+  const panel = document.getElementById('amounts-' + id);
+  if (!panel) return;
+  const open = panel.hidden;
+  panel.hidden = !open;
+  if (!open) {
+    // Collapsing the grid collapses the nudge row with it — leaving it behind
+    // would strand a bare − [input] + with nothing above it.
+    const nudge = document.getElementById('nudge-' + id);
+    if (nudge) nudge.hidden = true;
+  }
+  const row = document.getElementById('entry-' + id);
+  const btn = row && row.querySelector('.fit-row__amount');
+  if (btn) btn.setAttribute('aria-expanded', String(open));
+  // Touching the amount is the acknowledgement the fresh flag waits for.
+  if (row) row.classList.remove('fit-row--fresh');
+  updateCheckCount();
+}
+
+function toggleCustom(id) {
+  const nudge = document.getElementById('nudge-' + id);
+  if (!nudge) return;
+  nudge.hidden = !nudge.hidden;
+  const row = document.getElementById('entry-' + id);
+  const btn = row && row.querySelector('.fit-amt--custom');
+  if (btn) btn.classList.toggle('fit-amt--on', !nudge.hidden);
+  if (!nudge.hidden) nudge.querySelector('input').focus();
+}
+
+function nudgeGrams(id, delta) {
+  const nudge = document.getElementById('nudge-' + id);
+  const input = nudge && nudge.querySelector('input');
+  if (!input) return;
+  const row = document.getElementById('entry-' + id);
+  // An emptied field parses as NaN, and NaN survives both the arithmetic and
+  // Math.max. Assigning it to a number input makes the browser drop the value,
+  // so the box went blank and the request that followed was rejected with
+  // nothing to show for it. Fall back to what the row actually holds — which
+  // is what `data-grams` on the <li> is for.
+  let base = parseFloat(input.value);
+  if (!Number.isFinite(base)) base = parseFloat(row && row.dataset.grams);
+  if (!Number.isFinite(base)) base = 1;
+  // Floor at 1g and round to 0.1 — the server enforces the same bounds, this
+  // just keeps the field from displaying something it would reject.
+  const next = Math.max(1, Math.round((base + delta) * 10) / 10);
+  input.value = next;
+  // `change` does not fire for a scripted value assignment, so the hx-trigger
+  // listens for this custom event too.
+  input.dispatchEvent(new Event('nudged'));
+}
+
+// `+ add` in a slot header. Same standing choice setSlot records — without it
+// the slot would survive until the next swap and then revert to the clock.
 function addToSlot(slot) {
-  const form = document.querySelector('.log-entry-form');
-  form.querySelector('[name="slot"]').value = slot;
-  paintSlotChips(form);
-  form.querySelector('[name="food_item_id"]').focus();
+  window.currentSlot = slot;
+  paintSlotChips();
+  const search = document.getElementById('log-search');
+  if (search) { search.focus(); search.scrollIntoView({block: 'center'}); }
 }
 
+// Repaints the picker after a swap.
+//
+// The original bug lived here: the slot was a hidden field the server re-sent
+// as "other" on every render, and this function ran on every htmx:afterSwap and
+// "corrected" it to the time of day. Pick lunch at 17:00, log, and the picker
+// jumped to dinner.
+//
+// It cannot recur now, because there is no field to correct. The chosen slot is
+// window.currentSlot, which nothing but the user's own taps writes; the clock
+// only fills in while that is still null. This function just repaints.
 function initSlotDefault() {
-  document.querySelectorAll('.log-entry-form').forEach(form => {
-    const input = form.querySelector('[name="slot"]');
-    if (input && input.value === 'other') { input.value = defaultSlot(); }
-    paintSlotChips(form);
-  });
+  paintSlotChips();
 }
-document.addEventListener('DOMContentLoaded', initSlotDefault);
+document.addEventListener('DOMContentLoaded', () => {
+  initSlotDefault();
+  applyLibraryState();
+  updateLibraryCount();
+});
 
 // Add sheet (Task 7)
 function openAddSheet(tab) {
@@ -331,39 +551,153 @@ window.onBarcodeMatch = function (code) {
   });
 };
 
-// Desktop quick-add (Task 10)
-function quickLogItem(id) {
-  htmx.ajax('POST', '/fitness/quick-log', {
-    target: '#day-section', swap: 'innerHTML',
-    values: { food_item_id: id, date: window.currentDate, slot: defaultSlot() }
-  });
-  document.getElementById('quickadd-input').value = '';
-  document.getElementById('quickadd-results').innerHTML = '';
+// A freshly logged row wears an amber edge and opens its amount grid, so the
+// one thing worth checking — did it log the amount you meant? — is already in
+// front of you. The server names the row via an HX-Trigger header; the flag
+// itself is client-side and dies with the page, which is the intended life.
+// How many freshly logged rows still have an unchecked amount. Derived from the
+// DOM rather than counted separately — the flag lives on the rows, so there is
+// nothing to keep in step.
+function updateCheckCount() {
+  const el = document.getElementById('fit-check-count');
+  if (!el) return;
+  const n = document.querySelectorAll('.fit-row--fresh').length;
+  el.textContent = n ? (n + ' to check') : 'all amounts checked';
+  el.classList.toggle('fit-log__check--pending', n > 0);
 }
 
-function initQuickAdd() {
-  const input = document.getElementById('quickadd-input');
-  if (!input || input.dataset.init) return;
-  input.dataset.init = '1';
-  input.addEventListener('keydown', e => {
-    if (e.key !== 'Enter') return;
-    e.preventDefault();
-    const first = document.querySelector('#quickadd-results .search-row');
-    if (first) quickLogItem(first.dataset.itemId);
-  });
-  // capture phase so the row's hx-get (sheet flow) doesn't also fire here
-  document.getElementById('quickadd-results').addEventListener('click', e => {
-    const row = e.target.closest('.search-row');
-    if (row) { e.preventDefault(); e.stopPropagation(); quickLogItem(row.dataset.itemId); }
-  }, true);
+// ── Meal builder ───────────────────────────────────────────────────────────
+// Composes a saved meal from any foods, not only from a slot already logged.
+// The picked list lives in JS because it is scratch state — nothing has been
+// created until Save, and abandoning the panel should leave nothing behind.
+
+window.mealItems = [];
+window.mealBuilderOpen = false;
+
+// The panel lives inside the day fragment, so every log destroys and re-creates
+// it while window.mealItems survives. That left the builder showing an empty
+// list with items still staged — and Save would write foods the user could not
+// see. The DOM is therefore rebuilt from the JS state after every swap rather
+// than being trusted to still hold it; see the #fit-meals hook below.
+function applyMealBuilderState() {
+  const panel = document.getElementById('fit-builder');
+  const btn = document.getElementById('fit-meal-toggle');
+  if (!panel) return;
+  panel.hidden = !window.mealBuilderOpen;
+  if (btn) btn.textContent = window.mealBuilderOpen ? 'Close' : 'New meal';
+  renderMealItems();
 }
-document.addEventListener('DOMContentLoaded', initQuickAdd);
+
+function toggleMealBuilder() {
+  window.mealBuilderOpen = !window.mealBuilderOpen;
+  // Closing abandons the draft — nothing was created, so nothing is kept.
+  if (!window.mealBuilderOpen) window.mealItems = [];
+  applyMealBuilderState();
+}
+
+function addMealItem(id, name, grams) {
+  if (window.mealItems.some(i => i.id === id)) return;   // one row per food
+  window.mealItems.push({id: id, name: name, grams: grams});
+  renderMealItems();
+}
+
+function removeMealItem(id) {
+  window.mealItems = window.mealItems.filter(i => i.id !== id);
+  renderMealItems();
+}
+
+function renderMealItems() {
+  const wrap = document.getElementById('fit-meal-picked');
+  if (!wrap) return;
+  wrap.textContent = '';
+  window.mealItems.forEach(item => {
+    // Built as nodes rather than an HTML string: the name is catalog text and
+    // this is the one place it would otherwise be concatenated into markup.
+    const tag = document.createElement('span');
+    tag.className = 'fit-tag';
+    tag.textContent = item.name + ' ' + item.grams + ' g';
+    const x = document.createElement('button');
+    x.type = 'button';
+    x.className = 'fit-tag__x';
+    x.textContent = '✕';
+    x.setAttribute('aria-label', 'Remove ' + item.name);
+    x.onclick = () => removeMealItem(item.id);
+    tag.appendChild(x);
+    wrap.appendChild(tag);
+  });
+  const total = document.getElementById('fit-meal-total');
+  if (total) total.textContent = window.mealItems.length + ' item' +
+    (window.mealItems.length === 1 ? '' : 's');
+}
+
+function saveMeal() {
+  const name = (document.getElementById('fit-meal-name').value || '').trim();
+  if (!name || !window.mealItems.length) return;
+  const items = window.mealItems.map(i => i.id + ':' + i.grams).join(',');
+  htmx.ajax('POST', '/api/nutrition/recipes/build', {
+    target: '#fit-meals', swap: 'innerHTML',
+    values: { name: name, items: items }
+  }).then(() => {
+    window.mealItems = [];
+    window.mealBuilderOpen = false;
+    applyMealBuilderState();
+    showToast('Saved meal · ' + name, null);
+  });
+}
+
+// ── Toast ──────────────────────────────────────────────────────────────────
+// Names what just landed and offers to take it back. The batch is a list of
+// entry ids rather than "the last N rows": those two disagree the moment
+// anything else is logged inside the five seconds the toast is up.
+
+window.lastBatch = null;
+let toastTimer = null;
+
+function showToast(text, ids) {
+  const toast = document.getElementById('fit-toast');
+  if (!toast) return;
+  window.lastBatch = (ids && ids.length) ? ids : null;
+  // textContent, not innerHTML: `text` contains a food name the user typed.
+  document.getElementById('fit-toast-text').textContent = text;
+  document.getElementById('fit-toast-undo').hidden = !window.lastBatch;
+  toast.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(hideToast, 5000);
+}
+
+function hideToast() {
+  const toast = document.getElementById('fit-toast');
+  if (toast) toast.hidden = true;
+  clearTimeout(toastTimer);
+}
+
+function undoLastBatch() {
+  if (!window.lastBatch) return;
+  const ids = window.lastBatch.join(',');
+  window.lastBatch = null;   // one undo per batch; a second tap must not re-fire
+  hideToast();
+  htmx.ajax('POST', '/api/nutrition/entries/undo', {
+    target: '#day-section', swap: 'innerHTML',
+    values: { ids: ids, date: window.currentDate }
+  });
+}
+
+function flagFreshRow(id) {
+  const row = document.getElementById('entry-' + id);
+  if (!row) return;
+  row.classList.add('fit-row--fresh');
+  const panel = document.getElementById('amounts-' + id);
+  if (panel) panel.hidden = false;
+  const btn = row.querySelector('.fit-row__amount');
+  if (btn) btn.setAttribute('aria-expanded', 'true');
+}
 
 // Body-level htmx listeners — registered once per tab: <body> survives
 // hx-boost swaps, so re-running this script on a boosted return visit must
 // not stack duplicates (CLAUDE.md hx-boost rule).
 if (!window.__fitnessBound) {
   window.__fitnessBound = true;
+  document.addEventListener('keydown', fitnessKeydown);
   // hx-boost swaps the body without unloading the page — stop a live camera
   // before navigating away (body target only: fragment swaps like the
   // week-strip refresh must not kill an active scan)
@@ -372,84 +706,189 @@ if (!window.__fitnessBound) {
       stopBarcodeScanner();
     }
   });
+  // Fired by the log route's HX-Trigger header. It arrives before the swap
+  // settles, so the flag is deferred a tick — otherwise it looks for a row
+  // that the incoming fragment has not put in the DOM yet.
+  document.body.addEventListener('row-logged', e => {
+    const ids = (e.detail && e.detail.ids) || [];
+    const text = (e.detail && e.detail.text) || '';
+    // Deferred a tick: the trigger arrives before the swap settles, so the rows
+    // it names are not in the DOM yet.
+    setTimeout(() => {
+      ids.forEach(flagFreshRow);
+      if (text) showToast(text, ids);
+      updateCheckCount();
+      clearLogQuery();
+    }, 0);
+  });
   document.body.addEventListener('htmx:afterSwap', e => {
+    // The meals section is re-fetched whenever the day re-renders, so the
+    // builder's panel and picked list have to be restored from JS state — the
+    // incoming markup always arrives closed and empty.
+    if (e.target && e.target.id === 'fit-meals') applyMealBuilderState();
     initSlotDefault();
     initSheetForms();
-    initQuickAdd();
-    // keep the week strip's selected bar in sync after any day mutation
-    if (e.target && e.target.id === 'day-section' && document.getElementById('week-strip')) {
-      htmx.ajax('GET', '/fitness/htmx/week-strip?date=' + window.currentDate,
-        {target: '#week-strip', swap: 'outerHTML'});
-    }
+    // Both unconditional, and not for tidiness. A boosted navigation back to
+    // /fitness swaps the body without firing DOMContentLoaded, so the markup
+    // arrives at its authored defaults — "Hide", aria-expanded, body visible,
+    // count span empty. Keyed on `#food-library` these would not run for that
+    // swap, and a library the user had closed would reopen itself with a blank
+    // tally beside it. Both are cheap and idempotent, so there is nothing to
+    // buy by guessing which swaps matter.
+    applyLibraryState();
+    updateLibraryCount();
+    // Keep the week strip's bar in sync after any day mutation.
+    //
+    // This used to test `e.target.id === 'day-section'`, which was sound while
+    // every mutation swapped the whole day. Changing an amount now swaps one
+    // row, so that test never fires and the strip would silently drift from
+    // the totals beside it. Anything that lands inside the day counts.
+    // The week strip used to be re-fetched here after any day mutation. It now
+    // rides along in the same response as an out-of-band block, so there is
+    // nothing left to chase — one request, both columns.
   });
+}
+
+// Every log action clears the query, which the brief's interaction table asks
+// for on chips, "usual at", and the library's Log alike. It matters most for
+// create-and-log: leaving the query in place leaves `+ Add "x" and log 100 g`
+// sitting there live, and a second tap on it creates a *second* food of the
+// same name in a catalog everybody shares. Re-fetching restores the "Log
+// again" list the empty query renders — one request, and only on a log.
+function clearLogQuery() {
+  const search = document.getElementById('log-search');
+  if (!search || !search.value) return;
+  search.value = '';
+  htmx.ajax('GET', '/fitness/htmx/log-options', {target: '#log-options', swap: 'innerHTML'});
+}
+
+// ── Keyboard ───────────────────────────────────────────────────────────────
+// `/` reaches the log field from anywhere on the page and Esc unwinds one layer
+// per press. Modelled on artfeed.js, palette guard included.
+
+function fitnessIsTyping(el) {
+  if (!el) return false;
+  const tag = el.tagName;
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable;
+}
+
+// palette.js's Escape handler does not stopPropagation, so without this one
+// press would close the palette AND a layer of this page at once.
+function fitnessPaletteOpen() {
+  const overlay = document.getElementById('palette-overlay');
+  return !!overlay && !overlay.hidden;
+}
+
+// Shared by `/` and the phone bar's Search button. Scrolls before focusing: on
+// a phone the log card sits below the whole left column, so a bare focus() puts
+// the caret somewhere off screen and the page looks like it ignored the tap.
+function focusLogSearch() {
+  const search = document.getElementById('log-search');
+  if (!search) return;
+  const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  search.scrollIntoView({ block: 'center', behavior: still ? 'auto' : 'smooth' });
+  search.focus();
+  search.select();
+}
+
+function fitnessKeydown(e) {
+  // Leave chords alone — Ctrl/Cmd-K belongs to the command palette.
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+
+  const search = document.getElementById('log-search');
+  const active = document.activeElement;
+
+  // Escape is handled before the typing guard on purpose: leaving a field is
+  // the one thing that has to work while that field has focus.
+  if (e.key === 'Escape' && !fitnessPaletteOpen()) {
+    // One layer per press, outermost first. The meal builder is deliberately
+    // NOT on this list — it holds items staged but never saved, and Esc is a
+    // reflex key. Discarding a half-built meal to a reflex would be a trap, so
+    // it keeps its visible toggle and nothing else.
+    const sheet = document.getElementById('add-sheet');
+    if (sheet && !sheet.hidden) { e.preventDefault(); closeAddSheet(); return; }
+    if (search && active === search) {
+      // preventDefault does more than stop the blur being undone: WebKit clears
+      // an <input type="search"> on Escape, and that fires `input`, which trips
+      // the field's 200ms hx-get for a query nobody typed.
+      e.preventDefault();
+      search.blur();
+      return;
+    }
+    return;
+  }
+
+  if (fitnessIsTyping(active)) return;
+
+  if (e.key === '/') {
+    // Without this the slash lands in the field it just focused.
+    e.preventDefault();
+    focusLogSearch();
+  }
+}
+
+// ── Food library ───────────────────────────────────────────────────────────
+// The design collapses this card by default. It opens by default here, and the
+// reason is the pack-4 review: collapsed, it buries the edit/delete/favourite
+// cluster that is the only way to finish or remove a food — worst of all for
+// the macro-less rows create-and-log produces on purpose. The choice is
+// remembered, so one click gets the design's compact Today screen for good.
+
+function libraryIsOpen() {
+  return localStorage.getItem('fitLibraryOpen') !== '0';
+}
+
+function applyLibraryState() {
+  const body = document.getElementById('library-body');
+  const btn = document.getElementById('library-toggle');
+  if (!body || !btn) return;
+  const open = libraryIsOpen();
+  body.hidden = !open;
+  btn.textContent = open ? 'Hide' : 'Open';
+  btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+}
+
+// `force` is for callers that need it open regardless of the stored choice.
+function toggleLibrary(force) {
+  const open = force === undefined ? !libraryIsOpen() : !!force;
+  localStorage.setItem('fitLibraryOpen', open ? '1' : '0');
+  applyLibraryState();
+}
+
+// Counted off the rendered rows rather than tracked separately — same reason as
+// updateCheckCount: the rows are the state, so an add or a delete cannot leave
+// a tally behind to drift.
+function updateLibraryCount() {
+  const el = document.getElementById('library-count');
+  if (!el) return;
+  const n = document.querySelectorAll('#food-library .lib-row').length;
+  el.textContent = n === 1 ? '1 food' : n + ' foods';
+}
+
+// The one way in to the add-food form. It lives inside the collapsible body,
+// so showing it means opening that too — a caller that only clears `hidden`
+// gets a form inside a `display: none` ancestor, i.e. nothing on screen and a
+// scrollIntoView that goes nowhere. barcode.js's OpenFoodFacts fallback calls
+// this rather than reaching for the attribute itself.
+function revealAddFoodForm() {
+  const form = document.getElementById('add-food-form');
+  if (!form) return null;
+  toggleLibrary(true);
+  form.hidden = false;
+  return form;
 }
 
 // Add food form toggle
 function toggleAddForm() {
   const form = document.getElementById('add-food-form');
-  form.hidden = !form.hidden;
-  if (!form.hidden) form.querySelector('[name="name"]').focus();
-}
-
-// Portion selector logic
-function onFoodSelect(select) {
-  const form = select.closest('form');
-  const portionSelect = form.querySelector('[name="portion"]');
-  const gramsInput = form.querySelector('[name="grams"]');
-  const opt = select.options[select.selectedIndex];
-  const pkg = opt ? opt.dataset.packageSize : null;
-  const customPortions = opt ? (opt.dataset.customPortions || '') : '';
-  const hasPkg = pkg && parseFloat(pkg) > 0;
-  const hasCustom = customPortions.trim().length > 0;
-
-  // Rebuild portion options
-  portionSelect.innerHTML = '<option value="custom">Custom</option>';
-  if (hasPkg) {
-    const p = parseFloat(pkg);
-    portionSelect.innerHTML +=
-      '<option value="1">Full (' + p + 'g)</option>' +
-      '<option value="0.5">Half (' + Math.round(p * 0.5 * 10) / 10 + 'g)</option>' +
-      '<option value="0.25">Quarter (' + Math.round(p * 0.25 * 10) / 10 + 'g)</option>' +
-      '<option value="0.125">Eighth (' + Math.round(p * 0.125 * 10) / 10 + 'g)</option>';
-  }
-  if (hasCustom) {
-    customPortions.split(',').forEach(function(s) {
-      var g = parseFloat(s.trim());
-      if (g > 0) {
-        portionSelect.innerHTML += '<option value="cp:' + g + '">' + g + 'g</option>';
-      }
-    });
-  }
-
-  if (hasPkg || hasCustom) {
-    portionSelect.disabled = false;
+  if (form.hidden) {
+    revealAddFoodForm();
+    form.querySelector('[name="name"]').focus();
   } else {
-    portionSelect.disabled = true;
-  }
-  portionSelect.value = 'custom';
-  gramsInput.readOnly = false;
-}
-
-function onPortionChange(select) {
-  const form = select.closest('form');
-  const foodSelect = form.querySelector('[name="food_item_id"]');
-  const gramsInput = form.querySelector('[name="grams"]');
-  const opt = foodSelect.options[foodSelect.selectedIndex];
-  const pkg = opt ? parseFloat(opt.dataset.packageSize) : 0;
-  const val = select.value;
-
-  if (val === 'custom') {
-    gramsInput.readOnly = false;
-    gramsInput.focus();
-  } else if (val.startsWith('cp:')) {
-    gramsInput.value = parseFloat(val.slice(3));
-    gramsInput.readOnly = true;
-  } else if (pkg > 0) {
-    var grams = Math.round(pkg * parseFloat(val) * 10) / 10;
-    gramsInput.value = grams;
-    gramsInput.readOnly = true;
+    form.hidden = true;
   }
 }
+
 </script>
 <script src="/static/barcode.js" defer></script>
 {% endblock %}

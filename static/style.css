@@ -320,43 +320,55 @@ main {
   background: #f0f0f0;
 }
 
-/* ── Nocturne tokens (fitness) ─────────────────── */
-/* Ported subset of docs/design/fitness-redesign/nocturne-tokens.css,
-   prefixed --noc- and scoped to the fitness pages via body.fitness-dark. */
-body.fitness-dark {
-  --noc-bg: #161826;
-  --noc-surface: #232532;
-  --noc-surface-2: #1c1e2b;
-  --noc-text: #e9e9ed;
-  --noc-accent: #9184d9;
-  --noc-accent-300: #d2cefd;
-  --noc-accent-400: #b5abfc;
-  --noc-accent-900: #2b2741;
-  --noc-n700: #595d6c;
-  --noc-n800: #3f424d;
-  --noc-n900: #292b31;
-  --noc-divider: color-mix(in srgb, #e9e9ed 16%, transparent);
-  --noc-muted: color-mix(in srgb, #e9e9ed 55%, transparent);
-  --noc-faint: color-mix(in srgb, #e9e9ed 45%, transparent);
-  --noc-radius-sm: 4px;
-  --noc-radius-md: 8px;
-  --noc-radius-lg: 14px;
-  --noc-shadow-card: 0 0 0 1px #3f424d;
-  --noc-shadow-pop: 0 0 0 1px #595d6c, 0 6px 18px rgba(0,0,0,0.55);
+/* ── Nocturne bridge (fitness) ─────────────────── */
+/* Nocturne used to declare its own hex values here. It now declares nothing:
+   every --noc-* name resolves to a design-system token instead. This is
+   tokens/legacy-nocturne.css from the handoff bundle, minus its unused
+   .legacy-nocturne alias.
 
-  background: var(--noc-bg);
-  color: var(--noc-text);
-  font-family: "Inter", system-ui, sans-serif;
+   The point of a bridge is that a page converts by DELETING rules rather than
+   rewriting them. The ~150 --noc-* reads below keep working untouched, and any
+   fitness rule that has been restyled against real tokens can simply drop out.
+   Nothing new should be written against --noc-*.
+
+   Three deliberate breaks, all ruled 2026-08-17 (see the manifest at
+   docs/manifests/2026-08-17-fitness-today-overhaul.md):
+     1. accent #9184d9 becomes the brighter #B48EF7 the drinking game ships.
+     2. radii 4/8/14 become 5/8/12.
+     3. --noc-shadow-card's 1px ring becomes a real border token, and
+        --noc-shadow-pop's ring-plus-18px becomes --shadow-3, a 48px shadow.
+        That third one is the largest visible change and it lands on every
+        popover across /fitness, /fitness/week and /fitness/account — the three
+        pages carrying body.fitness-dark.
+
+   background and color are gone from this block: the shared reset in the
+   design-system section owns them now, and it resolves to the same pixels. */
+body.fitness-dark {
+  --noc-bg: var(--surface-page);
+  --noc-surface: var(--surface-card);
+  --noc-surface-2: var(--surface-inset);
+  --noc-text: var(--text-strong);
+  --noc-accent: var(--accent);
+  --noc-accent-300: var(--violet-200);
+  --noc-accent-400: var(--violet-300);
+  --noc-accent-900: var(--violet-700);
+  --noc-n700: var(--ink-400);
+  --noc-n800: var(--ink-600);
+  --noc-n900: var(--ink-700);
+  --noc-divider: var(--border-subtle);
+  --noc-muted: var(--text-muted);
+  --noc-faint: var(--text-faint);
+  --noc-radius-sm: var(--radius-sm);
+  --noc-radius-md: var(--radius-md);
+  --noc-radius-lg: var(--radius-lg);
+  --noc-shadow-card: 0 0 0 1px var(--border-default);
+  --noc-shadow-pop: var(--shadow-3);
 }
-body.fitness-dark header {
-  background: var(--noc-bg);
-  border-bottom: 1px solid var(--noc-divider);
-}
-body.fitness-dark header .site-title,
-body.fitness-dark header nav a { color: var(--noc-text); }
-body.fitness-dark header nav a:hover { color: var(--noc-accent); }
-body.fitness-dark ::selection { background: color-mix(in srgb, var(--noc-accent) 30%, transparent); }
-body.fitness-dark :focus-visible { outline: 2px solid var(--noc-accent); outline-offset: 2px; }
+/* Five rules used to live here — a header background and border, two colour
+   rules for the wordmark and nav links, ::selection and :focus-visible. Every
+   one is now declared by the shared design-system block at equal specificity
+   and later in the file, so all five were dead on arrival and are deleted.
+   This is what the bridge buys: pages convert by deleting, not rewriting. */
 
 /* Nocturne primitives (fitness-scoped) */
 body.fitness-dark .noc-btn {
@@ -404,6 +416,85 @@ body.fitness-dark .noc-kicker {
 /* ── Fitness Tracker ─────────────────────────────────── */
 .fitness-page { max-width: 640px; margin: 0 auto; padding: 0 16px 90px; }
 
+/* ── Fitness Today shell (overhaul, pack 1 item 1.4) ──────────────────────
+   The frame the redesigned Today screen hangs in: page head, then a sticky
+   left rail beside a wider right column. Mobile-first — the single column is
+   the default and the two-column layout is the 900px override, which is also
+   the one breakpoint the design brief allows.
+
+   Scoped to .fitness-today, NOT .fitness-page. Two reasons, both learned the
+   hard way: body.fitness-dark keeps it out of /tasks, which uses the same
+   640px-page idiom; and .fitness-today keeps it off /fitness/week, whose root
+   is `.fitness-page week-page` and which this rule widened from 760px to
+   1180px when it was keyed on the shared name. The week view was ruled in for
+   a repaint, not for a re-layout. */
+body.fitness-dark .fitness-today {
+  max-width: var(--page-max);
+  padding: 0 var(--space-6) var(--space-12);
+}
+
+body.fitness-dark .fit-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-6);
+  flex-wrap: wrap;
+  padding: var(--space-6) 0 var(--space-5);
+}
+body.fitness-dark .fit-head__label {
+  font: var(--type-label);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: var(--space-2);
+}
+body.fitness-dark .fit-head h1 {
+  font: var(--type-h2);
+  letter-spacing: var(--tracking-tight);
+}
+body.fitness-dark .fit-head__actions { display: flex; gap: var(--space-4); }
+
+body.fitness-dark .fit-cols {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+body.fitness-dark .fit-col {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  /* A flex item defaults to min-width:auto, so a wide child — the week strip,
+     a long food name — would push the column past its basis instead of
+     scrolling or wrapping inside it. */
+  min-width: 0;
+}
+
+@media (min-width: 900px) {
+  body.fitness-dark .fitness-today { padding: 0 var(--gutter) var(--space-12); }
+  body.fitness-dark .fit-head {
+    padding: var(--space-9) 0 var(--space-8);
+    background-image: var(--texture-grid);
+    background-size: var(--texture-grid-size);
+  }
+  body.fitness-dark .fit-head h1 { font: var(--type-h1); }
+  body.fitness-dark .fit-cols {
+    flex-direction: row;
+    align-items: flex-start;
+    gap: var(--gutter);
+    flex-wrap: wrap;
+  }
+  body.fitness-dark .fit-col { gap: var(--space-6); }
+  body.fitness-dark .fit-col--left {
+    flex: 1 1 320px;
+    max-width: 360px;
+    position: sticky;
+    /* 80px = the 56px header plus a 24px gutter, so the rail clears the bar
+       it slides under rather than touching it. */
+    top: 80px;
+  }
+  body.fitness-dark .fit-col--right { flex: 2 1 480px; }
+}
+
 /* signed-in-as chip — /fitness shows one user's own log, so it names them */
 .fitness-whoami { display: flex; align-items: baseline; gap: 6px; padding-top: 14px; }
 body.fitness-dark .fitness-whoami-name {
@@ -412,6 +503,811 @@ body.fitness-dark .fitness-whoami-name {
 
 /* date header */
 .fitness-date-nav { display: flex; align-items: center; gap: 8px; margin: 14px 0; }
+
+/* ── The logged row (overhaul, pack 2) ───────────────────────────────────
+   The core unit of the redesign: what you ate, what it cost you, and the
+   control that changes the amount — all on one row, so adjusting a portion
+   never opens a form.
+
+   Written against design-system tokens, not --noc-*. The bridge keeps the
+   older rules below working; nothing new should be added to them. */
+body.fitness-dark .fit-slot { padding: 14px 16px; }
+body.fitness-dark .fit-slot__head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-4);
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+body.fitness-dark .fit-slot__name {
+  font: var(--type-label);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--text-strong);
+}
+body.fitness-dark .fit-slot__cal { font: var(--type-mono); color: var(--text-faint); }
+body.fitness-dark .fit-slot__add {
+  margin-left: auto;
+  height: var(--control-height-sm);
+  padding: 0 var(--space-5);
+  border: var(--border-width) solid transparent;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-accent);
+  font: var(--type-ui);
+  cursor: pointer;
+  transition: var(--transition-control);
+}
+body.fitness-dark .fit-slot__add:hover { background: var(--surface-hover); }
+body.fitness-dark .fit-slot__empty {
+  margin: 0;
+  padding: 12px 0;
+  font: var(--type-mono);
+  color: var(--text-faint);
+}
+
+body.fitness-dark .fit-rows { list-style: none; padding: 0; margin: 0; }
+body.fitness-dark .fit-row {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+body.fitness-dark .fit-row:last-child { border-bottom: none; }
+body.fitness-dark .fit-row__line { display: flex; align-items: flex-start; gap: var(--space-5); }
+
+body.fitness-dark .fit-thumb {
+  flex: none;
+  border-radius: var(--radius-sm);
+  background-color: var(--surface-chip);
+  object-fit: cover;
+}
+body.fitness-dark .fit-thumb--letter {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  /* The same blueprint grid as the page head, at a quarter of the pitch —
+     a tile with no photograph still reads as a deliberate mark. */
+  background-image: var(--texture-grid);
+  background-size: 8px 8px;
+  font: 800 13px/1 var(--font-display);
+  text-transform: uppercase;
+}
+
+body.fitness-dark .fit-row__body { flex: 1; min-width: 0; }
+body.fitness-dark .fit-row__name { font: var(--type-body); color: var(--text-strong); }
+body.fitness-dark .fit-row__brand { color: var(--text-faint); }
+body.fitness-dark .fit-row__meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-5);
+  margin-top: var(--space-2);
+  font: var(--type-label);
+}
+body.fitness-dark .fit-pie { flex: none; border-radius: var(--radius-pill); }
+/* A food whose macros nobody has filled in yet — a ring, not a slice, so it
+   reads as "unknown" rather than as one macro at 100%. */
+body.fitness-dark .fit-pie--empty {
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius-pill);
+  box-shadow: inset 0 0 0 1px var(--border-default);
+}
+body.fitness-dark .fit-row__macro--p { color: var(--status-warning); }
+body.fitness-dark .fit-row__macro--c { color: var(--status-info); }
+body.fitness-dark .fit-row__macro--f { color: var(--status-danger); }
+body.fitness-dark .fit-row__basis { color: var(--text-faint); }
+
+body.fitness-dark .fit-row__amount {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-4);
+  min-width: 56px;
+  padding: 0 var(--space-3);
+  border: var(--border-width) solid transparent;
+  border-radius: var(--radius-sm);
+  background: none;
+  cursor: pointer;
+  text-align: right;
+  transition: var(--transition-control);
+}
+body.fitness-dark .fit-row__amount:hover { background: var(--surface-hover); }
+body.fitness-dark .fit-row__grams { font: var(--type-mono); color: var(--text-body); }
+body.fitness-dark .fit-row__kcal {
+  font: var(--weight-regular) var(--text-15)/1.45 var(--font-mono);
+  color: var(--text-strong);
+}
+body.fitness-dark .fit-row__remove {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border: var(--border-width) solid transparent;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-faint);
+  cursor: pointer;
+  transition: var(--transition-control);
+}
+body.fitness-dark .fit-row__remove:hover { color: var(--status-danger); background: var(--surface-hover); }
+
+/* Amount grid. auto-fit rather than a fixed column count: the same markup has
+   to hold four fraction buttons on a phone and six beside a desktop rail, and
+   this reflows without a second breakpoint. */
+body.fitness-dark .fit-row__amounts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(76px, 1fr));
+  gap: var(--space-3);
+  width: 100%;
+  margin-top: 10px;
+  /* Indented past the thumbnail so the grid reads as belonging to the row
+     above it rather than as a new block. */
+  padding-left: 46px;
+}
+/* Giving either panel a `display` puts an author rule (0,2,1) against the UA's
+   `[hidden] { display: none }` (0,1,0) — the author rule wins, the attribute
+   stops meaning anything, and every row renders permanently expanded. That is
+   how this shipped for one commit: the toggles flipped an attribute with no
+   visual effect at all. Restate the hiding at author level.
+
+   Same trap as `.art-pop` further down this file. Any collapsible that gains a
+   `display` needs the matching `[hidden]` rule in the same breath. */
+body.fitness-dark .fit-row__amounts[hidden],
+body.fitness-dark .fit-row__nudge[hidden] { display: none; }
+body.fitness-dark .fit-amt {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  /* 34px minimum: these are the primary touch targets on this screen and the
+     brief forbids shrinking them on phones. */
+  min-height: var(--control-height-md);
+  padding: 5px 10px;
+  line-height: 1.2;
+  border: var(--border-width) solid var(--border-default);
+  border-radius: var(--radius-sm);
+  background: var(--surface-inset);
+  color: var(--text-body);
+  cursor: pointer;
+  transition: var(--transition-control);
+}
+body.fitness-dark .fit-amt:hover { border-color: var(--border-strong); }
+body.fitness-dark .fit-amt:active { transform: translateY(1px); }
+body.fitness-dark .fit-amt__label { font: var(--type-ui); }
+body.fitness-dark .fit-amt__grams { font: var(--type-label); opacity: .7; }
+body.fitness-dark .fit-amt--on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--text-on-accent);
+}
+body.fitness-dark .fit-amt--custom.fit-amt--on {
+  /* The custom toggle is a mode, not a value — it takes the accent outline
+     rather than the filled treatment the chosen amount wears. */
+  background: var(--surface-inset);
+  border-color: var(--border-accent);
+  color: var(--text-accent);
+}
+
+body.fitness-dark .fit-row__nudge {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+  padding-left: 46px;
+}
+body.fitness-dark .fit-nudge {
+  min-width: 44px;
+  height: var(--control-height-md);
+  border: var(--border-width) solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-body);
+  font: var(--type-ui);
+  cursor: pointer;
+  transition: var(--transition-control);
+}
+body.fitness-dark .fit-nudge:hover { background: var(--surface-hover); }
+body.fitness-dark .fit-nudge__input {
+  width: 88px;
+  height: var(--control-height-md);
+  padding: 0 var(--space-4);
+  border: var(--border-width) solid var(--border-default);
+  border-radius: var(--radius-sm);
+  background: var(--surface-inset);
+  color: var(--text-strong);
+  font: var(--type-mono);
+  text-align: center;
+}
+
+/* The log card — the entry point. A slot row, a search field, and whatever is
+   one tap away right now. */
+body.fitness-dark .fit-log { padding: 14px 16px; }
+body.fitness-dark .fit-log__kicker {
+  font: var(--type-label);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+body.fitness-dark .fit-log__slots {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+body.fitness-dark .fit-log__note { font: var(--type-label); color: var(--text-muted); }
+body.fitness-dark .fit-log__check {
+  margin-left: auto;
+  font: var(--type-label);
+  color: var(--text-faint);
+}
+/* Amber only while something is genuinely unchecked; the resting state is a
+   quiet "all amounts checked" rather than a permanent warning colour. */
+body.fitness-dark .fit-log__check--pending { color: var(--accent-warm); }
+body.fitness-dark .fit-log__note[hidden],
+body.fitness-dark .fit-log__now[hidden] { display: none; }
+
+body.fitness-dark .fit-log__search {
+  display: flex;
+  gap: var(--space-4);
+  margin-top: 14px;
+}
+body.fitness-dark .fit-field {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  flex: 1;
+  min-width: 0;
+  height: var(--control-height-md);
+  padding: 0 var(--space-5);
+  background: var(--surface-inset);
+  border: var(--border-width) solid var(--border-default);
+  border-radius: var(--radius-sm);
+  color: var(--text-faint);
+}
+body.fitness-dark .fit-field:focus-within { border-color: var(--border-accent); }
+body.fitness-dark .fit-field input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: none;
+  color: var(--text-strong);
+  font: var(--type-body-sm);
+}
+body.fitness-dark .fit-field__kbd {
+  flex: none;
+  min-width: 18px;
+  padding: 0 var(--space-2);
+  border: var(--border-width) solid var(--border-default);
+  border-radius: var(--radius-xs);
+  background: var(--ink-800);
+  color: var(--text-muted);
+  font: var(--type-label);
+  text-align: center;
+}
+body.fitness-dark .fit-log__hint {
+  margin: 12px 0 0;
+  font: var(--type-body-sm);
+  color: var(--text-faint);
+}
+body.fitness-dark #log-options > .fit-log__kicker { margin: 14px 0 var(--space-3); }
+body.fitness-dark .fit-chips { display: flex; flex-wrap: wrap; gap: var(--space-3); }
+/* A chip is a name plus the amount it will log — the amount is the reason it
+   is one tap rather than a form, so it is never abbreviated away. */
+body.fitness-dark .fit-chip { gap: var(--space-4); }
+body.fitness-dark .fit-chip__grams { font: var(--type-label); color: var(--text-faint); }
+body.fitness-dark .fit-chip.hm-btn--secondary:hover .fit-chip__grams { color: var(--text-muted); }
+body.fitness-dark .fit-log__create { width: 100%; margin-top: var(--space-3); }
+
+/* Summary card — where the day stands, without arithmetic. */
+body.fitness-dark .fit-summary { padding: 14px 16px; }
+body.fitness-dark .fit-summary__top {
+  display: flex;
+  align-items: center;
+  gap: var(--space-6);
+  margin-bottom: 14px;
+}
+/* Mobile-first, like the rest of the shell: the ring's own viewBox is 98 units
+   square, so both of these are pure scale — nothing inside it is re-laid out. */
+body.fitness-dark .fit-summary__top svg { flex: none; width: 104px; height: 104px; }
+@media (min-width: 900px) {
+  body.fitness-dark .fit-summary__top svg { width: 132px; height: 132px; }
+}
+body.fitness-dark .fit-summary__rails {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  flex: 1;
+  min-width: 0;
+}
+body.fitness-dark .fit-summary .rail-head {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-4);
+  font: var(--type-label);
+  color: var(--text-muted);
+  margin-bottom: var(--space-2);
+}
+body.fitness-dark .fit-summary .rail-nums { font: var(--type-mono); color: var(--text-faint); }
+body.fitness-dark .fit-summary__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+body.fitness-dark .fit-summary__kcal { font: var(--type-mono); color: var(--text-muted); }
+
+/* Food library, grouped by what a food is rather than by a category nobody
+   fills in. Rows are wide and quiet; the Log button is the only accent. */
+body.fitness-dark .lib-group__head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-4);
+  margin: 12px 0 6px;
+  font: var(--type-label);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+}
+body.fitness-dark .lib-group__count { font: var(--type-mono); color: var(--text-faint); }
+body.fitness-dark .lib-rows { list-style: none; margin: 0; padding: 0; }
+body.fitness-dark .lib-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-5);
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border-subtle);
+  font: var(--type-label);
+}
+body.fitness-dark .lib-row:last-child { border-bottom: none; }
+body.fitness-dark .lib-row__pie-empty { width: 18px; height: 18px; }
+body.fitness-dark .lib-row__name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: var(--type-body-sm);
+  color: var(--text-strong);
+}
+body.fitness-dark .lib-row__kcal { color: var(--text-muted); white-space: nowrap; }
+body.fitness-dark .lib-row__macros { display: flex; gap: var(--space-4); white-space: nowrap; }
+body.fitness-dark .lib-row__basis { font: var(--type-mono); color: var(--text-faint); }
+body.fitness-dark .lib-row__nomacros { color: var(--text-faint); }
+/* Management cluster. Quiet by default — the row is for reading and logging —
+   but always present: create-and-log makes macro-less foods on purpose, and
+   something has to be able to finish them. */
+/* 8px, not 4px: the icons carry a 34px hit area on a 26px box, so a 4px gap
+   left the expanded areas overlapping by 4px — and the icon they overlapped
+   into is Delete. At 8px the areas tile edge to edge instead. */
+body.fitness-dark .lib-row__manage { display: flex; gap: var(--space-4); flex: none; }
+body.fitness-dark .lib-row__icon {
+  position: relative;
+  width: 26px;
+  height: 26px;
+  border: var(--border-width) solid transparent;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-faint);
+  cursor: pointer;
+  transition: var(--transition-control);
+}
+/* A 34px tap target on a 26px button. Growing the button itself is what item
+   5.5 tried first, and it pushed the row 61px past a 360px viewport: three
+   icons at 34px plus their gaps is 110px of a 328px content width. The hit
+   area is what had to reach 34px, not the ink — so the hit area is what grew.
+
+   -5px, not -4px: `inset` resolves against the padding box and the button's
+   1px transparent border sits outside that, so -4px measures 32px. It probed
+   as a pass upwards and a miss downwards, which is what sub-pixel rounding on
+   a boundary looks like. */
+body.fitness-dark .lib-row__icon::after {
+  content: "";
+  position: absolute;
+  inset: -5px;
+}
+body.fitness-dark .lib-row__icon:hover { color: var(--text-strong); background: var(--surface-hover); }
+body.fitness-dark .lib-row__icon.is-fav { color: var(--accent-warm); }
+body.fitness-dark .lib-row__icon--danger:hover { color: var(--status-danger); }
+/* Below the two-column breakpoint the metadata is the first thing to go — the
+   name and the Log button are what the row is for. */
+@media (max-width: 899px) {
+  body.fitness-dark .lib-row__kcal,
+  body.fitness-dark .lib-row__basis,
+  /* The macro strip joins them. It is `white-space: nowrap` and ~90px wide, so
+     it cannot shrink to make room; with the management cluster restored beside
+     it the row had nowhere to put either. Same call as the other two — the
+     name and the Log button are what the row is for. */
+  body.fitness-dark .lib-row__macros { display: none; }
+}
+
+/* ── The library card (overhaul, pack 5) ─────────────────────────────────
+   The library kept its pre-overhaul header, search box and add-food form
+   through four packs while everything around it was redrawn. This is that
+   section joining the rest of the page.
+
+   The design collapses the card by default and this does not. Collapsed, the
+   only way to finish or delete a food is behind a disclosure — and worst for
+   exactly the macro-less rows create-and-log makes on purpose, which is the
+   regression pack 4's review had to undo. It opens by default and remembers
+   the choice instead, so the design's compact Today screen is one click away
+   and permanent for anyone who wants it. */
+body.fitness-dark .fit-lib { padding: 14px 16px; }
+body.fitness-dark .fit-lib__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+body.fitness-dark .fit-lib__titles { display: flex; align-items: baseline; gap: var(--space-4); }
+body.fitness-dark .fit-lib__count { font: var(--type-mono); color: var(--text-faint); }
+body.fitness-dark .fit-lib__actions { display: flex; gap: var(--space-3); }
+body.fitness-dark #library-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  margin-top: var(--space-5);
+}
+/* The pairing this file keeps re-learning: giving an element an author
+   `display` outranks the UA's `[hidden] { display: none }`, so the toggle
+   above would set the attribute and change nothing on screen. */
+body.fitness-dark #library-body[hidden] { display: none; }
+body.fitness-dark .fit-lib .lib-chips { margin-bottom: 0; }
+
+/* The add/edit food form, in design-system dress. Only the surface and the
+   type change — the 44px inputs stay 44px on phones, because shrinking tap
+   targets is the thing item 5.5 exists to prevent. */
+body.fitness-dark .fit-lib .nutrient-form {
+  gap: var(--space-4);
+  padding: 12px;
+  margin-bottom: 0;
+  background: var(--surface-inset);
+  border: var(--border-width) solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  box-shadow: none;
+}
+body.fitness-dark .fit-lib .nutrient-form input {
+  min-height: var(--control-height-md);
+  padding: 0 var(--space-5);
+  background: var(--surface-page);
+  border: var(--border-width) solid var(--border-default);
+  border-radius: var(--radius-xs);
+  color: var(--text-strong);
+  font: var(--type-body-sm);
+}
+body.fitness-dark .fit-lib .nutrient-form input:focus {
+  outline: none;
+  border-color: var(--border-accent);
+}
+body.fitness-dark .fit-lib .nutrient-grid label,
+body.fitness-dark .fit-lib .package-size-label,
+body.fitness-dark .fit-lib .file-label {
+  font: var(--type-label);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+@media (max-width: 899px) {
+  body.fitness-dark .fit-lib .nutrient-form input { min-height: 44px; }
+}
+
+/* Where the calories came from — the day pie and its legend. */
+body.fitness-dark .fit-comp {
+  display: flex;
+  align-items: center;
+  gap: var(--space-6);
+}
+/* Sized here rather than inline from the server, which is why composition_html
+   emits only the gradient — an inline width would outrank the media query. */
+body.fitness-dark .fit-comp__pie { flex: none; width: 64px; height: 64px; border-radius: var(--radius-pill); }
+@media (min-width: 900px) {
+  body.fitness-dark .fit-comp__pie { width: 76px; height: 76px; }
+}
+body.fitness-dark .fit-comp__legend {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+body.fitness-dark .fit-comp__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  font: var(--type-mono);
+}
+body.fitness-dark .fit-comp__swatch {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+}
+
+/* Left to hit today. */
+body.fitness-dark .fit-left { padding: 14px 16px; }
+body.fitness-dark .fit-left__grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: var(--space-4);
+}
+body.fitness-dark .fit-left__tile {
+  padding: 8px 10px;
+  background: var(--surface-inset);
+  border: var(--border-width) solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+}
+body.fitness-dark .fit-left__label {
+  font: var(--type-label);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+}
+body.fitness-dark .fit-left__value {
+  font: var(--weight-regular) var(--text-15)/1.45 var(--font-mono);
+  color: var(--text-strong);
+}
+/* Past the target, not short of it — the tile shows `+N` and turns, so the
+   sign is legible without reading the number. */
+body.fitness-dark .fit-left__value--over { color: var(--status-danger); }
+
+/* Streak. */
+body.fitness-dark .fit-streak {
+  display: flex;
+  align-items: center;
+  gap: var(--space-5);
+  padding: 14px 16px;
+  background: var(--surface-inset);
+}
+body.fitness-dark .fit-streak__n {
+  font: 800 40px/1 var(--font-display);
+  color: var(--accent-warm);
+}
+body.fitness-dark .fit-streak__label { font: var(--type-body-sm); color: var(--text-muted); }
+
+/* Saved meals and the builder. */
+body.fitness-dark .fit-log__rule {
+  border: none;
+  border-top: 1px solid var(--border-subtle);
+  margin: 14px 0;
+}
+body.fitness-dark .fit-log__meals-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  margin-bottom: var(--space-3);
+}
+body.fitness-dark .fit-builder {
+  margin-top: var(--space-5);
+  padding: 12px;
+  background: var(--surface-inset);
+  border: var(--border-width) solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+}
+body.fitness-dark .fit-builder[hidden] { display: none; }
+body.fitness-dark .fit-builder__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+body.fitness-dark .fit-builder__row .fit-field { flex: 1 1 160px; }
+body.fitness-dark .fit-builder__total { font: var(--type-mono); color: var(--text-muted); }
+body.fitness-dark .fit-builder__picked,
+body.fitness-dark .fit-builder__adds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+}
+body.fitness-dark .fit-builder__picked:empty { margin-top: 0; }
+body.fitness-dark .fit-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 3px var(--space-4);
+  border: var(--border-width) solid var(--border-default);
+  border-radius: var(--radius-pill);
+  background: var(--surface-chip);
+  font: var(--type-label);
+  color: var(--text-body);
+}
+body.fitness-dark .fit-tag__x {
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--text-faint);
+  cursor: pointer;
+  font: var(--type-label);
+}
+body.fitness-dark .fit-tag__x:hover { color: var(--status-danger); }
+
+/* "usual at <slot>" — the left rail's one-tap shortcut. */
+body.fitness-dark .fit-usual { padding: 14px 16px; }
+body.fitness-dark .fit-usual__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-4);
+  margin-bottom: var(--space-4);
+}
+body.fitness-dark .fit-usual__hint { font: var(--type-label); color: var(--text-faint); }
+body.fitness-dark .fit-usual__item {
+  width: 100%;
+  justify-content: flex-start;
+  gap: var(--space-4);
+  margin-bottom: var(--space-3);
+}
+body.fitness-dark .fit-usual__item:last-child { margin-bottom: 0; }
+body.fitness-dark .fit-usual__name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: left;
+}
+body.fitness-dark .fit-usual__grams { font: var(--type-label); color: var(--text-faint); }
+
+/* Toast. Bottom-right on desktop; on phones it clears the sticky action bar
+   rather than sitting under it. */
+body.fitness-dark #fit-toast {
+  position: fixed;
+  right: var(--gutter);
+  bottom: 96px;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: 10px 12px;
+  background: var(--surface-overlay);
+  border: var(--border-width) solid var(--border-default);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-3);
+  font: var(--type-body-sm);
+  color: var(--text-body);
+}
+/* The pairing this file keeps re-learning: an author `display` outweighs the
+   UA's `[hidden] { display: none }`, so every element given one needs this. */
+body.fitness-dark #fit-toast[hidden],
+body.fitness-dark #fit-toast-undo[hidden] { display: none; }
+body.fitness-dark #fit-toast-undo {
+  height: var(--control-height-sm);
+  padding: 0 var(--space-5);
+  border: var(--border-width) solid transparent;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-accent);
+  font: var(--type-ui);
+  cursor: pointer;
+  transition: var(--transition-control);
+}
+body.fitness-dark #fit-toast-undo:hover { background: var(--surface-hover); }
+/* ── The phone action bar (overhaul, pack 5) ─────────────────────────────
+   Scan / Search / copy-yesterday, always within thumb reach on a phone and
+   absent entirely on desktop — where the log card is already on screen and a
+   bar would be a second way to do what the page is showing you.
+
+   `fixed`, though the brief says `sticky`. The prototype draws a 390px
+   bordered div and sticks the bar to *that* box while the desktop page
+   scrolls; on a real phone the viewport is the box and this is the last
+   in-flow child of .fitness-today, so `bottom: 0` has nothing to stick
+   against and the bar would settle at the document end. Fixed is what the
+   sticky was drawing a picture of.
+
+   One height, three consumers: the bar's own box, the page's bottom padding
+   (without which the library's last row hides underneath it) and the toast's
+   offset. Declaring it once is what keeps those from drifting — the toast's
+   old 96px was a hand-measurement of a bar that no longer exists. */
+body.fitness-dark {
+  --fit-bar-h: calc(
+    var(--control-height-lg) + var(--space-5) + 20px + env(safe-area-inset-bottom)
+  );
+}
+body.fitness-dark #fitness-actionbar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 20;
+  display: flex;
+  gap: var(--space-4);
+  padding: var(--space-5) var(--space-6) calc(20px + env(safe-area-inset-bottom));
+  background: linear-gradient(
+    to top,
+    var(--surface-page) 70%,
+    color-mix(in srgb, var(--surface-page) 0%, transparent)
+  );
+}
+body.fitness-dark #fitness-actionbar .hm-btn { flex: 1; }
+/* Not a DS modifier — the square copy button is this bar's shape, not a
+   primitive anything else asks for. */
+body.fitness-dark #fitness-actionbar .fit-bar__icon { flex: none; width: var(--control-height-lg); padding: 0; }
+/* The bar floats over the page, so the page has to end above it. */
+body.fitness-dark .fitness-today { padding-bottom: calc(var(--fit-bar-h) + var(--space-6)); }
+body.fitness-dark #fit-toast { bottom: calc(var(--fit-bar-h) + var(--space-5)); }
+
+/* The head's copy-yesterday is the desktop half of that pair — below 900px the
+   bar carries it and this would be a second button for one job.
+
+   Scoped through .fit-head rather than written flat, and not for tidiness:
+   `:is(body.art-page, body.fitness-dark) .hm-btn` is (0,2,1) and sits ~800
+   lines later in this file, so a flat `body.fitness-dark .fit-head__copy` ties
+   it and loses on source order — the button would stay visible on phones. The
+   extra ancestor makes it (0,3,1) and order stops mattering. Pack 1 lost a fix
+   to this exact pairing. */
+body.fitness-dark .fit-head .fit-head__copy { display: none; }
+
+@media (min-width: 900px) {
+  body.fitness-dark #fitness-actionbar { display: none; }
+  body.fitness-dark .fit-head .fit-head__copy { display: inline-flex; }
+  body.fitness-dark .fitness-today { padding-bottom: var(--space-12); }
+  body.fitness-dark #fit-toast { bottom: var(--gutter); }
+}
+
+/* ── Press and hit targets (overhaul, pack 5) ────────────────────────────
+   Press is a 1px drop, never a scale. The design-system primitives already do
+   it; these are the page's own controls, which are not built from them. */
+body.fitness-dark .fit-nudge:active,
+body.fitness-dark .fit-row__amount:active,
+body.fitness-dark .fit-row__remove:active,
+body.fitness-dark .lib-row__icon:active,
+body.fitness-dark .fit-tag__x:active,
+body.fitness-dark #fit-toast-undo:active,
+body.fitness-dark .noc-btn:active,
+body.fitness-dark .noc-tag:active { transform: translateY(1px); }
+
+/* The brief names three controls at >=34px tall, nudge buttons also >=44px
+   wide. Measured on a 375px phone with a row open: amounts 42px, nudges 34x44
+   — but the slot chips came in at 28px, because they are `hm-btn--sm` and that
+   is what `sm` is. `min-height` rather than `height`: the used height is
+   clamped to at least the minimum, so it wins over the primitive's `height`
+   without having to unset it. Raised at every width — the brief states the
+   floor unconditionally, and a 28px chip is not a desktop virtue either. */
+body.fitness-dark .fit-log__slots .hm-btn { min-height: 34px; }
+
+/* These were outside the brief's list and failed the same measurement. They
+   are also the controls a thumb reaches for most: the row's own grams toggle,
+   at 23.8px, is the single most-tapped thing in the redesign. Phones only —
+   under a mouse the quiet 26px library cluster is precise enough, and growing
+   it on desktop would undo the recessive treatment Pack 4 gave it on purpose.
+   The two scoped selectors are (0,3,1), so they beat the design system's
+   `.hm-btn--sm` wherever it happens to sit in this file. */
+@media (max-width: 899px) {
+  body.fitness-dark .fit-row__amount { min-height: 34px; }
+  body.fitness-dark .fit-row__remove { min-height: 34px; min-width: 34px; }
+  body.fitness-dark .lib-row .hm-btn { min-height: 34px; }
+  body.fitness-dark .lib-chips .noc-tag { min-height: 34px; }
+}
+
+/* Belt and braces, matching the art page's. The duration tokens already zero
+   themselves under this query, but a transition or animation written literally
+   anywhere in the fitness sections — and the older Nocturne rules below are
+   full of them — would survive that. */
+@media (prefers-reduced-motion: reduce) {
+  body.fitness-dark *,
+  body.fitness-dark *::before,
+  body.fitness-dark *::after {
+    transition-duration: 0ms !important;
+    animation-duration: 0ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Freshly logged: an amber edge and dot until the amount is acknowledged.
+   Shares the amber with protein deliberately — the brief notes the flag and a
+   macro mark never appear on the same element. */
+body.fitness-dark .fit-row--fresh {
+  box-shadow: inset 2px 0 0 var(--accent-warm);
+  padding-left: 10px;
+}
+body.fitness-dark .fit-row--fresh .fit-row__line::before {
+  content: "";
+  flex: none;
+  align-self: center;
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-pill);
+  background: var(--accent-warm);
+}
 
 /* meal entries */
 body.fitness-dark .meal-list { list-style: none; padding: 0; margin: 0 0 12px; }
@@ -562,16 +1458,6 @@ body.fitness-dark .day-cell.future { background: var(--noc-surface-2); }
 body.fitness-dark .day-fill { width: 100%; background: var(--noc-n800); border-radius: var(--noc-radius-sm); }
 body.fitness-dark .day-fill.accent { background: var(--noc-accent); }
 
-/* bottom action bar (Task 6) */
-body.fitness-dark #fitness-actionbar {
-  position: fixed; bottom: 0; left: 0; right: 0; z-index: 40;
-  display: flex; gap: 10px; padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
-  max-width: 640px; margin: 0 auto;
-  background: linear-gradient(to top, var(--noc-bg) 60%, color-mix(in srgb, var(--noc-bg) 0%, transparent));
-}
-body.fitness-dark #fitness-actionbar .noc-btn { flex: 1; min-height: 50px; font-size: 15px; }
-body.fitness-dark #fitness-actionbar .noc-btn-icon { flex: none; width: 50px; }
-
 /* add sheet (Task 7) */
 body.fitness-dark #add-sheet {
   position: fixed; inset: 0; z-index: 50; overflow-y: auto;
@@ -655,14 +1541,12 @@ body.fitness-dark .meal-log-btn { width: 100%; justify-content: space-between; }
 body.fitness-dark .meal-cal { color: var(--noc-muted); font-size: 12px; }
 
 /* desktop + quick-add (Task 10) */
-body.fitness-dark #quickadd { display: none; position: relative; margin: 0 0 16px; }
-body.fitness-dark #quickadd-results { position: absolute; top: 100%; left: 0; right: 0; z-index: 30; background: var(--noc-surface-2); border-radius: var(--noc-radius-md); box-shadow: var(--noc-shadow-pop); }
-body.fitness-dark #quickadd-results .search-row { margin-top: 0; border-radius: 0; box-shadow: none; background: transparent; }
-body.fitness-dark #quickadd-results .search-row:first-child { background: var(--noc-surface); }
 @media (min-width: 900px) {
-  body.fitness-dark .fitness-page { max-width: 760px; padding-bottom: 40px; }
-  body.fitness-dark #quickadd { display: block; }
-  body.fitness-dark #fitness-actionbar { position: static; max-width: none; padding: 16px 0 0; background: none; }
+  /* This clamp used to read `.fitness-page` and so covered both fitness
+     screens. The Today shell above now owns its own width via .fitness-today,
+     leaving this to do what it always did for the week view — which is the
+     only page still relying on it. */
+  body.fitness-dark .week-page { max-width: 760px; padding-bottom: 40px; }
   body.fitness-dark #add-sheet { max-width: 560px; border-radius: var(--noc-radius-lg); inset: 40px auto auto 50%; transform: translateX(-50%); max-height: calc(100vh - 80px); box-shadow: var(--noc-shadow-pop); }
 }
 
@@ -822,25 +1706,29 @@ body.fitness-dark #quickadd-results .search-row:first-child { background: var(--
 .task-image-row .task-thumb { width: 40px; height: 40px; }
 .task-image-title { flex: 1; font-size: 0.9rem; }
 
-/* ── Drawing Portfolio ──────────────────────────────────────────────────────
-   The Hampter Design System, applied to /artportfolio only.
+/* ── Hampter Design System ──────────────────────────────────────────────────
+   Shared by /artportfolio and /fitness. Lifted from
+   docs/design/artportfolio-redesign/_ds/hampter-design-system-.../ with one
+   deliberate deviation, recorded in the slice-1 spec:
+     tokens/base.css is NOT lifted as-is. Its resets are unscoped and would turn
+     every page on the site dark; they are rewritten under the scope below.
 
-   Lifted from docs/design/artportfolio-redesign/_ds/hampter-design-system-.../
-   with two deliberate deviations, both recorded in the slice-1 spec:
-     1. tokens/base.css is NOT lifted as-is. Its resets are unscoped and would
-        turn every page on the site dark; they are rewritten under body.art-page.
-     2. tokens/legacy-nocturne.css is excluded entirely. It repoints every
-        --noc-* variable and would shift /fitness from #9184d9 to #B48EF7 as a
-        side effect of this slice.
+   The second deviation is now spent. Slice 1 excluded tokens/legacy-nocturne.css
+   because it repoints every --noc-* variable and would have shifted /fitness
+   from #9184d9 to #B48EF7 as a side effect of an artportfolio change. The
+   fitness Today overhaul adopts that shift deliberately — ruled 2026-08-17, see
+   docs/manifests/2026-08-17-fitness-today-overhaul.md — so the bridge now lives
+   with the Nocturne block above rather than being excluded here.
 
    Token declarations sit on bare :root because custom properties are inert —
-   nothing that does not read them is affected. Verified: the rest of this
-   stylesheet declares only --noc-* names and reads no token defined here.
+   nothing that does not read them is affected.
 
-   Everything that PAINTS is prefixed body.art-page. Comments from the source
-   files are stripped: CSS comments do not nest, and a lifted opening marker
-   inside this block would silently drop the next rule. Guarded by
-   tests/static_assets.rs.
+   Everything that PAINTS is scoped. The primitives — resets, icons, Button,
+   IconButton, Kbd, Field, utility surfaces — carry both page scopes; the site
+   chrome, the PostCard and the feed layout stay artportfolio-only. Comments
+   from the source files are stripped: CSS comments do not nest, and a lifted
+   opening marker inside this block would silently drop the next rule. Guarded
+   by tests/static_assets.rs.
    ────────────────────────────────────────────────────────────────────────── */
 
 /* Tokens: colors.css */
@@ -1075,13 +1963,23 @@ body.fitness-dark #quickadd-results .search-row:first-child { background: var(--
 @font-face { font-family:"IBM Plex Mono"; font-style:normal; font-weight:400; font-display:swap; src:url("/static/fonts/ibm-plex-mono-400.woff2") format("woff2"); }
 @font-face { font-family:"IBM Plex Mono"; font-style:normal; font-weight:500; font-display:swap; src:url("/static/fonts/ibm-plex-mono-500.woff2") format("woff2"); }
 
-/* Resets — tokens/base.css, rewritten under body.art-page. Linking that file
-   as-is would repaint every page on the site on the next request. */
-body.art-page,
-body.art-page *,
-body.art-page *::before,
-body.art-page *::after { box-sizing: border-box; }
-body.art-page {
+/* Resets — tokens/base.css, rewritten under the design-system scope. Linking
+   that file as-is would repaint every page on the site on the next request.
+
+   The scope is a two-page :is() list, not one class, because both surfaces
+   already carry their own body class and base.html re-derives those from
+   content markers on every boosted swap. Adding a third shared class would
+   mean a third thing that can fail to be re-derived. :is(a, b) X takes the
+   specificity of its most specific argument, so each of these still weighs
+   exactly what `body.art-page X` weighed — the cascade is unchanged.
+
+   Only the primitives below are shared. The site chrome, the PostCard and the
+   feed layout stay artportfolio-only, further down. */
+:is(body.art-page, body.fitness-dark),
+:is(body.art-page, body.fitness-dark) *,
+:is(body.art-page, body.fitness-dark) *::before,
+:is(body.art-page, body.fitness-dark) *::after { box-sizing: border-box; }
+:is(body.art-page, body.fitness-dark) {
   margin: 0;
   background: var(--surface-page);
   color: var(--text-body);
@@ -1090,48 +1988,57 @@ body.art-page {
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
-body.art-page h1,
-body.art-page h2,
-body.art-page h3,
-body.art-page h4 {
+:is(body.art-page, body.fitness-dark) h1,
+:is(body.art-page, body.fitness-dark) h2,
+:is(body.art-page, body.fitness-dark) h3,
+:is(body.art-page, body.fitness-dark) h4 {
   margin: 0;
   color: var(--text-strong);
   font-family: var(--font-display);
   letter-spacing: var(--tracking-tight);
   text-wrap: balance;
 }
-body.art-page p { margin: 0; text-wrap: pretty; }
-body.art-page a {
+:is(body.art-page, body.fitness-dark) p { margin: 0; text-wrap: pretty; }
+:is(body.art-page, body.fitness-dark) a {
   color: var(--text-link);
   text-decoration: none;
   text-underline-offset: 3px;
   transition: color var(--dur-fast) var(--ease-snap);
 }
-body.art-page a:hover { color: var(--text-link-hover); text-decoration: underline; }
-body.art-page code,
-body.art-page kbd,
-body.art-page pre,
-body.art-page samp { font-family: var(--font-mono); }
-body.art-page ::selection { background: var(--violet-a28); color: var(--ink-050); }
-body.art-page :focus-visible { outline: none; box-shadow: var(--focus-ring); }
-body.art-page button,
-body.art-page input,
-body.art-page select,
-body.art-page textarea { font: inherit; color: inherit; }
-body.art-page hr { border: none; border-top: 1px solid var(--border-subtle); margin: 0; }
+:is(body.art-page, body.fitness-dark) a:hover { color: var(--text-link-hover); text-decoration: underline; }
+:is(body.art-page, body.fitness-dark) code,
+:is(body.art-page, body.fitness-dark) kbd,
+:is(body.art-page, body.fitness-dark) pre,
+:is(body.art-page, body.fitness-dark) samp { font-family: var(--font-mono); }
+:is(body.art-page, body.fitness-dark) ::selection { background: var(--violet-a28); color: var(--ink-050); }
+:is(body.art-page, body.fitness-dark) :focus-visible { outline: none; box-shadow: var(--focus-ring); }
+:is(body.art-page, body.fitness-dark) button,
+:is(body.art-page, body.fitness-dark) input,
+:is(body.art-page, body.fitness-dark) select,
+:is(body.art-page, body.fitness-dark) textarea { font: inherit; color: inherit; }
+:is(body.art-page, body.fitness-dark) hr { border: none; border-top: 1px solid var(--border-subtle); margin: 0; }
 
-/* Site chrome from base.html, restyled in place. The markup is untouched.
+/* Site chrome from base.html, restyled in place on both design-system pages.
+   The markup is untouched — which is the whole point: base.html is shared with
+   /admin, /tasks and the hub, so the chrome is restyled rather than rewritten.
+
+   Consequence worth stating: /fitness therefore keeps the "Portfolio" wordmark
+   and the bare Ctrl/K keycaps. The overhaul prototype draws a "hampter"
+   wordmark with a violet full stop and a labelled Search button instead. Those
+   are markup changes to base.html AND admin.html, deliberately deferred — see
+   the manifest's Pack 1 notes.
 
    These two overrides are load-bearing, not cosmetic. The global rules earlier
    in this file set `main { max-width: 640px; margin: 2rem auto; padding: 0 1rem }`
    and `header { padding: 1rem 2rem }` — the first would clamp the 1180px feed to
-   640px and kill the masonry outright, and the second fights the 56px bar. */
-body.art-page main {
+   640px and kill the masonry outright, and the second fights the 56px bar. The
+   fitness shell needs exactly the same two escapes for the same two reasons. */
+:is(body.art-page, body.fitness-dark) main {
   max-width: none;
   margin: 0;
   padding: 0;
 }
-body.art-page header {
+:is(body.art-page, body.fitness-dark) header {
   position: sticky;
   top: 0;
   z-index: 40;
@@ -1143,7 +2050,7 @@ body.art-page header {
   -webkit-backdrop-filter: blur(10px);
   border-bottom: 1px solid var(--border-subtle);
 }
-body.art-page header .site-title {
+:is(body.art-page, body.fitness-dark) header .site-title {
   font: 800 17px/1 var(--font-display);
   letter-spacing: -0.035em;
   color: var(--text-strong);
@@ -1151,19 +2058,38 @@ body.art-page header .site-title {
 /* The shared stylesheet never gives `nav` a display or a gap, so its links are
    inline elements separated by one space of whitespace. At this type size they
    read as one run-on string; lay them out explicitly. */
-body.art-page header nav {
+:is(body.art-page, body.fitness-dark) header nav {
   display: flex;
   align-items: center;
   gap: var(--space-7);
 }
-body.art-page header nav a {
+/* This header is a single non-wrapping row — 24px padding either side, a 32px
+   gap, three nav links, then the Ctrl/K button. Below ~900px that row is wider
+   than the phone viewport, and because the row can no longer wrap the excess
+   becomes a horizontal scrollbar on the whole page: 423px of content in a
+   371px viewport at 390px wide. The design brief's phone layout says exactly
+   this — "Header nav links hidden; wordmark + Ctrl-K button remain."
+
+   It has to live HERE, immediately after the rule it overrides. Written up in
+   the fitness section it lost: `body.fitness-dark header nav` and
+   `:is(...) header nav` both weigh (0,1,3), a media query adds no specificity,
+   and the chrome rule is further down the file — so display:flex won and the
+   overflow survived the fix.
+
+   Scoped to fitness, not to the shared list: /artportfolio overflows the same
+   way and predates this work, and silently removing its mobile navigation is
+   not a fitness pack's call. */
+@media (max-width: 899px) {
+  body.fitness-dark header nav { display: none; }
+}
+:is(body.art-page, body.fitness-dark) header nav a {
   font: var(--weight-medium) var(--text-14)/1.2 var(--font-sans);
   color: var(--text-muted);
 }
-body.art-page header nav a:hover { color: var(--text-strong); text-decoration: none; }
+:is(body.art-page, body.fitness-dark) header nav a:hover { color: var(--text-strong); text-decoration: none; }
 
 /* The Ctrl-K affordance, which base.html renders as a bare <button> of <kbd>s. */
-body.art-page header .palette-hint {
+:is(body.art-page, body.fitness-dark) header .palette-hint {
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
@@ -1173,7 +2099,7 @@ body.art-page header .palette-hint {
   background: none;
   cursor: pointer;
 }
-body.art-page header .palette-hint kbd {
+:is(body.art-page, body.fitness-dark) header .palette-hint kbd {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1191,7 +2117,7 @@ body.art-page header .palette-hint kbd {
 
 /* Icons — Lucide as CSS masks, so a glyph inherits currentColor and needs no
    recolouring per context. */
-body.art-page .hm-icon {
+:is(body.art-page, body.fitness-dark) .hm-icon {
   display: inline-block;
   flex: none;
   width: 16px;
@@ -1201,12 +2127,16 @@ body.art-page .hm-icon {
   -webkit-mask-position: center; mask-position: center;
   -webkit-mask-size: 100% 100%; mask-size: 100% 100%;
 }
-body.art-page .hm-icon--search { -webkit-mask-image: url("/static/icons/search.svg"); mask-image: url("/static/icons/search.svg"); }
-body.art-page .hm-icon--chevron-down { -webkit-mask-image: url("/static/icons/chevron-down.svg"); mask-image: url("/static/icons/chevron-down.svg"); }
-body.art-page .hm-icon--x { -webkit-mask-image: url("/static/icons/x.svg"); mask-image: url("/static/icons/x.svg"); }
+:is(body.art-page, body.fitness-dark) .hm-icon--search { -webkit-mask-image: url("/static/icons/search.svg"); mask-image: url("/static/icons/search.svg"); }
+:is(body.art-page, body.fitness-dark) .hm-icon--chevron-down { -webkit-mask-image: url("/static/icons/chevron-down.svg"); mask-image: url("/static/icons/chevron-down.svg"); }
+:is(body.art-page, body.fitness-dark) .hm-icon--x { -webkit-mask-image: url("/static/icons/x.svg"); mask-image: url("/static/icons/x.svg"); }
+:is(body.art-page, body.fitness-dark) .hm-icon--chevron-left { -webkit-mask-image: url("/static/icons/chevron-left.svg"); mask-image: url("/static/icons/chevron-left.svg"); }
+:is(body.art-page, body.fitness-dark) .hm-icon--calendar-days { -webkit-mask-image: url("/static/icons/calendar-days.svg"); mask-image: url("/static/icons/calendar-days.svg"); }
+:is(body.art-page, body.fitness-dark) .hm-icon--scan-line { -webkit-mask-image: url("/static/icons/scan-line.svg"); mask-image: url("/static/icons/scan-line.svg"); }
+:is(body.art-page, body.fitness-dark) .hm-icon--copy { -webkit-mask-image: url("/static/icons/copy.svg"); mask-image: url("/static/icons/copy.svg"); }
 
 /* Button */
-body.art-page .hm-btn {
+:is(body.art-page, body.fitness-dark) .hm-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1221,28 +2151,37 @@ body.art-page .hm-btn {
   text-decoration: none;
   transition: var(--transition-control);
 }
-body.art-page .hm-btn:focus-visible { outline: none; box-shadow: var(--focus-ring); }
-body.art-page .hm-btn:active { transform: translateY(1px); }
-body.art-page .hm-btn[disabled],
-body.art-page .hm-btn[aria-disabled="true"] { opacity: .42; pointer-events: none; }
-body.art-page .hm-btn--sm { height: var(--control-height-sm); padding: 0 var(--space-5); font-size: var(--text-13); }
-body.art-page .hm-btn--md { height: var(--control-height-md); padding: 0 var(--space-6); }
-body.art-page .hm-btn--primary {
+/* A button built from an <a> — the head's Yesterday/Week, the feed's filter
+   reset — otherwise picks up the anchor reset's hover underline: `a:hover` is
+   (0,2,1) against `.hm-btn`'s (0,1,1), so `text-decoration: none` above loses
+   on hover no matter where it sits. Restating it at :hover parity fixes it for
+   every variant at once. */
+:is(body.art-page, body.fitness-dark) .hm-btn:hover { text-decoration: none; }
+:is(body.art-page, body.fitness-dark) .hm-btn:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+:is(body.art-page, body.fitness-dark) .hm-btn:active { transform: translateY(1px); }
+:is(body.art-page, body.fitness-dark) .hm-btn[disabled],
+:is(body.art-page, body.fitness-dark) .hm-btn[aria-disabled="true"] { opacity: .42; pointer-events: none; }
+:is(body.art-page, body.fitness-dark) .hm-btn--sm { height: var(--control-height-sm); padding: 0 var(--space-5); font-size: var(--text-13); }
+:is(body.art-page, body.fitness-dark) .hm-btn--md { height: var(--control-height-md); padding: 0 var(--space-6); }
+/* `lg` exists for one caller — the phone action bar, where the buttons are the
+   page's primary reach and a 34px target under a thumb is not enough. */
+:is(body.art-page, body.fitness-dark) .hm-btn--lg { height: var(--control-height-lg); padding: 0 var(--space-6); font-size: var(--text-15); }
+:is(body.art-page, body.fitness-dark) .hm-btn--primary {
   background: var(--accent);
   color: var(--text-on-accent);
   border-color: var(--violet-300);
   box-shadow: var(--shadow-inset-hairline);
 }
-body.art-page .hm-btn--primary:hover { background: var(--accent-hover); }
-body.art-page .hm-btn--primary:active { background: var(--accent-press); }
-body.art-page .hm-btn--secondary { background: var(--ink-800); color: var(--text-strong); border-color: var(--border-default); }
-body.art-page .hm-btn--secondary:hover { background: var(--ink-750); border-color: var(--border-strong); }
-body.art-page .hm-btn--secondary:active { background: var(--ink-800); }
-body.art-page .hm-btn--ghost { background: transparent; color: var(--text-muted); }
-body.art-page .hm-btn--ghost:hover { background: var(--surface-hover); color: var(--text-strong); }
+:is(body.art-page, body.fitness-dark) .hm-btn--primary:hover { background: var(--accent-hover); }
+:is(body.art-page, body.fitness-dark) .hm-btn--primary:active { background: var(--accent-press); }
+:is(body.art-page, body.fitness-dark) .hm-btn--secondary { background: var(--ink-800); color: var(--text-strong); border-color: var(--border-default); }
+:is(body.art-page, body.fitness-dark) .hm-btn--secondary:hover { background: var(--ink-750); border-color: var(--border-strong); }
+:is(body.art-page, body.fitness-dark) .hm-btn--secondary:active { background: var(--ink-800); }
+:is(body.art-page, body.fitness-dark) .hm-btn--ghost { background: transparent; color: var(--text-muted); }
+:is(body.art-page, body.fitness-dark) .hm-btn--ghost:hover { background: var(--surface-hover); color: var(--text-strong); }
 
 /* IconButton */
-body.art-page .hm-iconbtn {
+:is(body.art-page, body.fitness-dark) .hm-iconbtn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1253,14 +2192,14 @@ body.art-page .hm-iconbtn {
   cursor: pointer;
   transition: var(--transition-control);
 }
-body.art-page .hm-iconbtn:hover { background: var(--surface-hover); color: var(--text-strong); }
-body.art-page .hm-iconbtn:active { transform: translateY(1px); }
-body.art-page .hm-iconbtn:focus-visible { outline: none; box-shadow: var(--focus-ring); }
-body.art-page .hm-iconbtn--sm { width: var(--control-height-sm); height: var(--control-height-sm); }
-body.art-page .hm-iconbtn--md { width: var(--control-height-md); height: var(--control-height-md); }
+:is(body.art-page, body.fitness-dark) .hm-iconbtn:hover { background: var(--surface-hover); color: var(--text-strong); }
+:is(body.art-page, body.fitness-dark) .hm-iconbtn:active { transform: translateY(1px); }
+:is(body.art-page, body.fitness-dark) .hm-iconbtn:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+:is(body.art-page, body.fitness-dark) .hm-iconbtn--sm { width: var(--control-height-sm); height: var(--control-height-sm); }
+:is(body.art-page, body.fitness-dark) .hm-iconbtn--md { width: var(--control-height-md); height: var(--control-height-md); }
 
 /* Kbd */
-body.art-page .hm-kbd {
+:is(body.art-page, body.fitness-dark) .hm-kbd {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1277,7 +2216,7 @@ body.art-page .hm-kbd {
   font-size: var(--text-11);
   text-transform: uppercase;
 }
-body.art-page .hm-kbd-group {
+:is(body.art-page, body.fitness-dark) .hm-kbd-group {
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
@@ -1286,15 +2225,15 @@ body.art-page .hm-kbd-group {
 }
 
 /* Field primitives — the search field in the next slice is built from these. */
-body.art-page .hm-field { display: flex; flex-direction: column; gap: var(--space-3); }
-body.art-page .hm-field__label {
+:is(body.art-page, body.fitness-dark) .hm-field { display: flex; flex-direction: column; gap: var(--space-3); }
+:is(body.art-page, body.fitness-dark) .hm-field__label {
   font: var(--type-label);
   letter-spacing: var(--tracking-caps);
   text-transform: uppercase;
   color: var(--text-muted);
 }
-body.art-page .hm-field__hint { font: var(--type-body-sm); color: var(--text-faint); }
-body.art-page .hm-input-wrap {
+:is(body.art-page, body.fitness-dark) .hm-field__hint { font: var(--type-body-sm); color: var(--text-faint); }
+:is(body.art-page, body.fitness-dark) .hm-input-wrap {
   position: relative;
   display: flex;
   align-items: center;
@@ -1307,9 +2246,9 @@ body.art-page .hm-input-wrap {
   color: var(--text-faint);
   transition: var(--transition-control);
 }
-body.art-page .hm-input-wrap:hover { border-color: var(--border-strong); }
-body.art-page .hm-input-wrap:focus-within { border-color: var(--border-focus); box-shadow: 0 0 0 3px var(--violet-a14); }
-body.art-page .hm-input {
+:is(body.art-page, body.fitness-dark) .hm-input-wrap:hover { border-color: var(--border-strong); }
+:is(body.art-page, body.fitness-dark) .hm-input-wrap:focus-within { border-color: var(--border-focus); box-shadow: 0 0 0 3px var(--violet-a14); }
+:is(body.art-page, body.fitness-dark) .hm-input {
   flex: 1;
   min-width: 0;
   background: none;
@@ -1319,7 +2258,7 @@ body.art-page .hm-input {
   font: var(--type-body);
   font-size: var(--text-14);
 }
-body.art-page .hm-input::placeholder { color: var(--text-faint); }
+:is(body.art-page, body.fitness-dark) .hm-input::placeholder { color: var(--text-faint); }
 
 /* PostCard */
 body.art-page .hm-post {
@@ -1364,18 +2303,18 @@ body.art-page .hm-post__meta {
 }
 
 /* Utility surfaces */
-body.art-page .hm-grid-bg {
+:is(body.art-page, body.fitness-dark) .hm-grid-bg {
   background-color: var(--surface-page);
   background-image: var(--texture-grid);
   background-size: var(--texture-grid-size);
 }
-body.art-page .hm-eyebrow {
+:is(body.art-page, body.fitness-dark) .hm-eyebrow {
   font: var(--type-label);
   letter-spacing: var(--tracking-caps);
   text-transform: uppercase;
   color: var(--text-faint);
 }
-body.art-page .hm-rule { height: 1px; background: var(--border-subtle); }
+:is(body.art-page, body.fitness-dark) .hm-rule { height: 1px; background: var(--border-subtle); }
 
 /* Page layout */
 body.art-page .art-head {

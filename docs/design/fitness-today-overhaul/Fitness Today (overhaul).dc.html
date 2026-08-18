@@ -1,0 +1,818 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="_ds/hampter-design-system-03c25988-bba8-4fc5-801f-653a333b24c3/tokens/fonts.css">
+<link rel="stylesheet" href="_ds/hampter-design-system-03c25988-bba8-4fc5-801f-653a333b24c3/tokens/colors.css">
+<link rel="stylesheet" href="_ds/hampter-design-system-03c25988-bba8-4fc5-801f-653a333b24c3/tokens/typography.css">
+<link rel="stylesheet" href="_ds/hampter-design-system-03c25988-bba8-4fc5-801f-653a333b24c3/tokens/spacing.css">
+<link rel="stylesheet" href="_ds/hampter-design-system-03c25988-bba8-4fc5-801f-653a333b24c3/tokens/shape.css">
+<link rel="stylesheet" href="_ds/hampter-design-system-03c25988-bba8-4fc5-801f-653a333b24c3/tokens/motion.css">
+<link rel="stylesheet" href="_ds/hampter-design-system-03c25988-bba8-4fc5-801f-653a333b24c3/tokens/base.css">
+<link rel="stylesheet" href="_ds/hampter-design-system-03c25988-bba8-4fc5-801f-653a333b24c3/components/components.css">
+<link rel="stylesheet" href="_ds/hampter-design-system-03c25988-bba8-4fc5-801f-653a333b24c3/tokens/legacy-nocturne.css">
+<link rel="stylesheet" href="_ds/hampter-design-system-03c25988-bba8-4fc5-801f-653a333b24c3/styles.css">
+<script src="_ds/hampter-design-system-03c25988-bba8-4fc5-801f-653a333b24c3/_ds_bundle.js"></script>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  body { margin: 0; background: #0B0910; }
+  a { color: var(--text-link); text-decoration: none; }
+  a:hover { color: var(--text-link-hover); }
+  .amt { font-family: var(--font-mono); font-size: 13px; min-width: 52px; justify-content: center; }
+</style>
+</helmet>
+
+<div style="min-height:100vh;background:var(--surface-page);color:var(--text-body);font:var(--type-body);padding-bottom:64px">
+
+  <header style="position:sticky;top:0;z-index:30;height:56px;display:flex;align-items:center;gap:24px;padding:0 24px;background:rgba(14,12,20,.82);backdrop-filter:blur(10px);border-bottom:1px solid var(--border-subtle)">
+    <span style="font:800 18px/1 var(--font-display);letter-spacing:-.035em;color:var(--text-strong)">hampter<span style="color:var(--accent)">.</span></span>
+    <nav style="{{ navStyle }}">
+      <a href="#" style="color:var(--text-muted)">Drawing Portfolio</a>
+      <a href="#" style="color:var(--text-muted)">Drawing Tasks</a>
+      <a href="#" style="color:var(--text-strong);box-shadow:inset 0 -2px 0 var(--accent)">Fitness</a>
+    </nav>
+    <div style="margin-left:auto;display:flex;align-items:center;gap:12px">
+      <span style="font:var(--type-label);color:var(--text-faint)">hampter</span>
+      <x-import component-from-global-scope="HampterDesignSystem_03c259.Button" size="sm" variant="secondary" icon="command" shortcut="K" hint-size="auto,28px">Search</x-import>
+    </div>
+  </header>
+
+  <div style="{{ shellStyle }}">
+
+    <div style="{{ headStyle }}">
+      <div style="display:flex;flex-direction:column;gap:6px">
+        <span style="font:var(--type-label);letter-spacing:var(--tracking-caps);text-transform:uppercase;color:var(--text-muted)">{{ dateLabel }}</span>
+        <h1 style="{{ titleStyle }}">Today</h1>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button type="button" onClick="{{ toggleLayout }}" class="hm-btn hm-btn--md hm-btn--secondary">{{ layoutLabel }}</button>
+        <button type="button" onClick="{{ toggleNotes }}" class="hm-btn hm-btn--md hm-btn--ghost" style="border:1px solid var(--border-subtle)">{{ notesLabel }}</button>
+        <x-import component-from-global-scope="HampterDesignSystem_03c259.Button" size="md" variant="ghost" icon="chevron-left" hint-size="auto,34px">Yesterday</x-import>
+        <x-import component-from-global-scope="HampterDesignSystem_03c259.Button" size="md" variant="secondary" icon="calendar-days" hint-size="auto,34px">Week</x-import>
+      </div>
+    </div>
+
+    <div style="{{ bannerStyle }}">
+      <span style="font:var(--type-label);letter-spacing:var(--tracking-caps);text-transform:uppercase;color:var(--accent-warm)">Live demo</span>
+      <span style="font:var(--type-body-sm);color:var(--text-body);flex:1;min-width:240px;text-wrap:pretty">Everything works. Tap a food in <em>Log again</em>, then tap the grams on the row it creates to open its amount buttons — the ring, rails and slot totals follow. The violet notes explain what changed and why.</span>
+    </div>
+
+    <div style="{{ columnsStyle }}">
+
+      <div style="{{ leftColStyle }}">
+        <x-import component-from-global-scope="HampterDesignSystem_03c259.Card" hint-size="100%,320px">
+          <div style="display:flex;align-items:center;gap:20px">
+            <x-import component-from-global-scope="HampterDesignSystem_03c259.CalorieRing" value="{{ totalCal }}" target="{{ targetCal }}" size="{{ ringSize }}" label="left" hint-size="132px,132px"></x-import>
+            <div style="flex:1;display:flex;flex-direction:column;gap:12px">
+              <x-import component-from-global-scope="HampterDesignSystem_03c259.MacroRail" label="protein" value="{{ totalP }}" target="{{ targetP }}" color="var(--status-warning)" hint-size="100%,32px"></x-import>
+              <x-import component-from-global-scope="HampterDesignSystem_03c259.MacroRail" label="carbs" value="{{ totalC }}" target="{{ targetC }}" color="var(--status-info)" hint-size="100%,32px"></x-import>
+              <x-import component-from-global-scope="HampterDesignSystem_03c259.MacroRail" label="fat" value="{{ totalF }}" target="{{ targetF }}" color="var(--status-danger)" hint-size="100%,32px"></x-import>
+            </div>
+          </div>
+          <div style="display:flex;gap:4px;margin-top:16px">
+            <sc-for list="{{ week }}" as="day" hint-placeholder-count="7">
+              <button type="button" onClick="{{ day.onClick }}" style="{{ day.style }}">
+                <span style="font:var(--type-label)">{{ day.letter }}</span>
+                <span style="{{ day.barStyle }}"></span>
+              </button>
+            </sc-for>
+          </div>
+          <div style="display:flex;align-items:center;gap:16px;margin-top:14px;padding-top:14px;border-top:1px solid var(--border-subtle)">
+            <span style="{{ dayPieStyle }}"></span>
+            <div style="display:flex;flex-direction:column;gap:5px">
+              <span style="font:var(--type-label);letter-spacing:var(--tracking-caps);text-transform:uppercase;color:var(--text-muted)">Where the calories came from</span>
+              <span style="display:flex;align-items:center;gap:6px;font:var(--type-mono);color:var(--status-warning)"><span style="width:8px;height:8px;border-radius:2px;background:var(--status-warning)"></span>protein {{ dayShareP }}</span>
+              <span style="display:flex;align-items:center;gap:6px;font:var(--type-mono);color:var(--status-info)"><span style="width:8px;height:8px;border-radius:2px;background:var(--status-info)"></span>carbs {{ dayShareC }}</span>
+              <span style="display:flex;align-items:center;gap:6px;font:var(--type-mono);color:var(--status-danger)"><span style="width:8px;height:8px;border-radius:2px;background:var(--status-danger)"></span>fat {{ dayShareF }}</span>
+            </div>
+          </div>
+          <div style="display:flex;align-items:baseline;justify-content:space-between;margin-top:12px;padding-top:12px;border-top:1px solid var(--border-subtle)">
+            <span style="font:var(--type-mono);color:var(--text-muted)">{{ calCaption }}</span>
+            <x-import component-from-global-scope="HampterDesignSystem_03c259.Button" size="sm" variant="ghost" icon="sliders-horizontal" hint-size="auto,28px">Targets</x-import>
+          </div>
+        </x-import>
+
+        <x-import component-from-global-scope="HampterDesignSystem_03c259.Card" hint-size="100%,160px">
+          <span style="font:var(--type-label);letter-spacing:var(--tracking-caps);text-transform:uppercase;color:var(--text-muted)">Left to hit today</span>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px">
+            <sc-for list="{{ leftToday }}" as="lt" hint-placeholder-count="4">
+              <div style="display:flex;flex-direction:column;gap:2px;padding:8px 10px;background:var(--surface-inset);border:1px solid var(--border-subtle);border-radius:var(--radius-sm)">
+                <span style="{{ lt.labelStyle }}">{{ lt.label }}</span>
+                <span style="{{ lt.valueStyle }}">{{ lt.value }}</span>
+              </div>
+            </sc-for>
+          </div>
+        </x-import>
+
+        <x-import component-from-global-scope="HampterDesignSystem_03c259.Card" hint-size="100%,180px">
+          <div style="display:flex;align-items:baseline;justify-content:space-between;gap:8px">
+            <span style="font:var(--type-label);letter-spacing:var(--tracking-caps);text-transform:uppercase;color:var(--text-muted)">{{ usualHeading }}</span>
+            <span style="font:var(--type-label);color:var(--text-faint)">one tap</span>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:6px;margin-top:10px">
+            <sc-for list="{{ usualFoods }}" as="uf" hint-placeholder-count="3">
+              <button type="button" onClick="{{ uf.onClick }}" class="hm-btn hm-btn--md hm-btn--secondary" style="justify-content:flex-start;gap:10px;width:100%">
+                <span style="{{ uf.thumbStyle }}">{{ uf.initial }}</span>
+                <span style="flex:1;text-align:left">{{ uf.name }}</span>
+                <span style="font:var(--type-label);color:var(--text-faint)">{{ uf.grams }}</span>
+              </button>
+            </sc-for>
+          </div>
+        </x-import>
+
+        <x-import component-from-global-scope="HampterDesignSystem_03c259.Card" variant="inset" hint-size="100%,96px">
+          <div style="display:flex;align-items:baseline;gap:12px">
+            <span style="font:800 40px/1 var(--font-display);color:var(--accent-warm)">9</span>
+            <span style="font:var(--type-body-sm);color:var(--text-muted)">days logged in a row</span>
+          </div>
+        </x-import>
+      </div>
+
+      <div style="{{ rightColStyle }}">
+
+        <x-import component-from-global-scope="HampterDesignSystem_03c259.Card" hint-size="100%,180px">
+          <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+            <span style="font:var(--type-label);letter-spacing:var(--tracking-caps);text-transform:uppercase;color:var(--text-muted)">Log to</span>
+            <div style="display:flex;gap:4px">
+              <sc-for list="{{ slotPicker }}" as="pick" hint-placeholder-count="4">
+                <button type="button" onClick="{{ pick.onClick }}" class="{{ pick.cls }}" style="text-transform:lowercase">{{ pick.label }}</button>
+              </sc-for>
+            </div>
+            <span style="{{ slotNoteStyle }}">{{ slotNote }}<button type="button" onClick="{{ resetSlot }}" class="hm-btn hm-btn--sm hm-btn--ghost" style="font:var(--type-label)">{{ slotResetLabel }}</button></span>
+            <span style="margin-left:auto;font:var(--type-label);color:{{ uncheckedColor }}">{{ uncheckedLabel }}</span>
+          </div>
+
+          <div style="{{ noteStyle }}">
+            <span style="font:var(--type-label);color:var(--accent);flex:none">01</span>
+            <div>
+              <div style="font:var(--type-body-sm);color:var(--text-strong)">The slot you pick stays picked.</div>
+              <div style="font:var(--type-body-sm);color:var(--text-muted);text-wrap:pretty">The clock only seeds it on load. Today, <span style="font:var(--type-mono)">initSlotDefault()</span> re-runs on every <span style="font:var(--type-mono)">htmx:afterSwap</span> and the fragment re-renders <span style="font:var(--type-mono)">slot=other</span>, so each Log snaps you back to the time-of-day slot. Fix server-side: echo the submitted slot back in the day fragment.</div>
+            </div>
+          </div>
+
+          <div style="display:flex;align-items:center;gap:8px;margin-top:14px">
+            <div style="flex:1;display:flex;align-items:center;gap:8px;height:34px;padding:0 12px;background:var(--surface-inset);border:1px solid var(--border-default);border-radius:var(--radius-sm)">
+              <x-import component-from-global-scope="HampterDesignSystem_03c259.Icon" name="search" size="{{ iconSize }}" hint-size="14px,14px"></x-import>
+              <input type="text" value="{{ query }}" onInput="{{ onQuery }}" placeholder="Type a food, ↵ logs your usual portion" style="flex:1;min-width:0;background:none;border:none;outline:none;color:var(--text-strong);font:var(--type-body-sm)">
+              <x-import component-from-global-scope="HampterDesignSystem_03c259.Kbd" hint-size="auto,18px">/</x-import>
+            </div>
+            <x-import component-from-global-scope="HampterDesignSystem_03c259.Button" size="md" variant="secondary" icon="scan-line" hint-size="auto,34px">Scan</x-import>
+          </div>
+
+          <div style="display:flex;flex-direction:column;gap:8px;margin-top:14px">
+            <span style="font:var(--type-label);letter-spacing:var(--tracking-caps);text-transform:uppercase;color:var(--text-muted)">{{ quickHeading }}</span>
+            <div style="display:flex;gap:6px;flex-wrap:wrap">
+              <sc-for list="{{ quickFoods }}" as="qf" hint-placeholder-count="6">
+                <button type="button" onClick="{{ qf.onClick }}" class="hm-btn hm-btn--md hm-btn--secondary" style="gap:8px">
+                  <span>{{ qf.name }}</span>
+                  <span style="font:var(--type-label);color:var(--text-faint)">{{ qf.grams }}</span>
+                </button>
+              </sc-for>
+              <button type="button" onClick="{{ addNewFood }}" class="hm-btn hm-btn--md hm-btn--primary" style="{{ newFoodStyle }}">{{ newFoodLabel }}</button>
+            </div>
+            <div style="{{ noteStyle }}">
+              <span style="font:var(--type-label);color:var(--accent);flex:none">02</span>
+              <div>
+                <div style="font:var(--type-body-sm);color:var(--text-strong)">One tap logs a previous food at its last portion — no dialog, no dropdown.</div>
+                <div style="font:var(--type-body-sm);color:var(--text-muted);text-wrap:pretty">Type a name that isn't in the catalog and the primary button adds it and logs it immediately. Search, chips, library and the meal builder all read one list, so a new food is loggable the moment it exists. Today the log form's <span style="font:var(--type-mono)">&lt;option&gt;</span> list is baked into <span style="font:var(--type-mono)">day_section_html</span> while adding a food only swaps <span style="font:var(--type-mono)">#food-library</span> — which is why a new food never shows up in the dropdown.</div>
+              </div>
+            </div>
+          </div>
+
+          <div style="display:flex;flex-direction:column;gap:8px;margin-top:14px;padding-top:14px;border-top:1px solid var(--border-subtle)">
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+              <span style="font:var(--type-label);letter-spacing:var(--tracking-caps);text-transform:uppercase;color:var(--text-muted)">Saved meals</span>
+              <button type="button" onClick="{{ toggleBuilder }}" class="hm-btn hm-btn--sm hm-btn--ghost">{{ builderLabel }}</button>
+            </div>
+            <div style="display:flex;gap:6px;flex-wrap:wrap">
+              <sc-for list="{{ meals }}" as="meal" hint-placeholder-count="3">
+                <button type="button" onClick="{{ meal.onClick }}" class="hm-btn hm-btn--md hm-btn--secondary" style="gap:8px">
+                  <span>{{ meal.name }}</span>
+                  <span style="font:var(--type-label);color:var(--text-faint)">{{ meal.summary }}</span>
+                </button>
+              </sc-for>
+            </div>
+            <div style="{{ noteStyle }}">
+              <span style="font:var(--type-label);color:var(--accent);flex:none">04</span>
+              <div>
+                <div style="font:var(--type-body-sm);color:var(--text-strong)">A saved meal logs all its items into the selected slot at once.</div>
+                <div style="font:var(--type-body-sm);color:var(--text-muted);text-wrap:pretty">Every row lands flagged, so you can still adjust each amount afterwards. “New meal” builds a combination from scratch by picking foods — today meals can only be saved from a slot you already logged.</div>
+              </div>
+            </div>
+            <div style="{{ builderStyle }}">
+              <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                <input type="text" value="{{ builderName }}" onInput="{{ onBuilderName }}" placeholder="Meal name" style="flex:1;min-width:140px;height:34px;padding:0 12px;background:var(--surface-inset);border:1px solid var(--border-default);border-radius:var(--radius-sm);color:var(--text-strong);font:var(--type-body-sm);outline:none">
+                <span style="font:var(--type-mono);color:var(--text-muted)">{{ builderTotal }}</span>
+                <button type="button" onClick="{{ saveBuilder }}" class="hm-btn hm-btn--md hm-btn--primary">Save meal</button>
+              </div>
+              <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px">
+                <sc-for list="{{ builderPicked }}" as="bp" hint-placeholder-count="2">
+                  <span class="hm-tag" style="gap:6px">{{ bp.label }}<button type="button" onClick="{{ bp.onRemove }}" style="background:none;border:none;color:var(--text-faint);cursor:pointer;font:var(--type-label)">✕</button></span>
+                </sc-for>
+              </div>
+              <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px">
+                <sc-for list="{{ builderChoices }}" as="bc" hint-placeholder-count="6">
+                  <button type="button" onClick="{{ bc.onClick }}" class="hm-btn hm-btn--sm hm-btn--ghost" style="border:1px solid var(--border-subtle)">+ {{ bc.name }}</button>
+                </sc-for>
+              </div>
+            </div>
+          </div>
+        </x-import>
+
+        <div style="{{ noteStyle }}">
+          <span style="font:var(--type-label);color:var(--accent);flex:none">03</span>
+          <div>
+            <div style="font:var(--type-body-sm);color:var(--text-strong)">Quantity lives on the logged row, as fractions of the food's own basis.</div>
+            <div style="font:var(--type-body-sm);color:var(--text-muted);text-wrap:pretty">Each row divides the thing you actually hold — a 500 g pack, one breast, a scoop, a tbsp — into full · ½ · ⅓ · ¼, plus <em>last</em> (the amount you logged for it before) and <em>custom</em> with ±10 g. One tap per correction instead of select → portion select → grams field. Macros are colour-coded to the rails above — protein amber, carbs blue, fat rose — with a split bar per row, so a glance tells you what a row is made of. Rows logged this session carry an amber bar and count into “to check”.</div>
+          </div>
+        </div>
+
+        <sc-for list="{{ slots }}" as="slot" hint-placeholder-count="4">
+          <x-import component-from-global-scope="HampterDesignSystem_03c259.Card" hint-size="100%,140px">
+            <div style="display:flex;align-items:baseline;gap:12px;padding-bottom:10px;border-bottom:1px solid var(--border-subtle)">
+              <span style="font:var(--type-label);letter-spacing:var(--tracking-caps);text-transform:uppercase;color:var(--text-strong)">{{ slot.label }}</span>
+              <span style="font:var(--type-mono);color:var(--text-faint)">{{ slot.kcal }}</span>
+              <button type="button" onClick="{{ slot.onAdd }}" class="hm-btn hm-btn--sm hm-btn--ghost" style="margin-left:auto">+ add</button>
+            </div>
+
+            <sc-for list="{{ slot.rows }}" as="row" hint-placeholder-count="2">
+              <div style="{{ row.style }}">
+                <div style="display:flex;align-items:center;gap:12px">
+                  <span style="{{ row.dotStyle }}"></span>
+                  <span style="{{ row.thumbStyle }}">{{ row.initial }}</span>
+                  <div style="flex:1;min-width:0">
+                    <div style="font:var(--type-body);color:var(--text-strong)">{{ row.name }}</div>
+                    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:4px">
+                      <span style="{{ row.pieStyle }}"></span>
+                      <span style="font:var(--type-label);color:var(--status-warning)">P {{ row.pG }}</span>
+                      <span style="font:var(--type-label);color:var(--status-info)">C {{ row.cG }}</span>
+                      <span style="font:var(--type-label);color:var(--status-danger)">F {{ row.fG }}</span>
+                      <span style="{{ row.domStyle }}">{{ row.domLabel }}</span>
+                      <span style="font:var(--type-label);color:var(--text-faint)">{{ row.baseLabel }}</span>
+                    </div>
+                  </div>
+                  <button type="button" onClick="{{ row.onToggle }}" style="display:flex;align-items:baseline;gap:10px;background:none;border:none;cursor:pointer;padding:4px 0">
+                    <span style="font:var(--type-mono);color:var(--text-body)">{{ row.gramsLabel }}</span>
+                    <span style="font:var(--type-mono);font-size:15px;color:var(--text-strong);min-width:56px;text-align:right">{{ row.kcal }}</span>
+                  </button>
+                  <button type="button" onClick="{{ row.onRemove }}" title="Remove" style="width:28px;height:28px;display:inline-flex;align-items:center;justify-content:center;background:none;border:1px solid transparent;border-radius:var(--radius-sm);color:var(--text-faint);cursor:pointer">✕</button>
+                </div>
+                <div style="{{ row.controlsStyle }}">
+                  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(76px,1fr));gap:6px;width:100%">
+                    <sc-for list="{{ row.chips }}" as="chip" hint-placeholder-count="4">
+                      <button type="button" onClick="{{ chip.onClick }}" class="{{ chip.cls }}" style="{{ chip.style }}">
+                        <span style="font:var(--type-ui)">{{ chip.frac }}</span>
+                        <span style="font:var(--type-label);opacity:.7">{{ chip.grams }}</span>
+                      </button>
+                    </sc-for>
+                    <button type="button" onClick="{{ row.onCustom }}" class="{{ row.customCls }}" style="{{ row.customExtra }}">
+                      <span style="font:var(--type-ui)">custom</span>
+                      <span style="font:var(--type-label);opacity:.7">g</span>
+                    </button>
+                  </div>
+                  <div style="{{ row.customStyle }}">
+                    <button type="button" onClick="{{ row.onMinus }}" class="hm-btn hm-btn--md hm-btn--ghost" style="border:1px solid var(--border-subtle);min-width:44px">−</button>
+                    <input type="number" value="{{ row.gramsValue }}" onInput="{{ row.onGrams }}" style="flex:1;min-width:0;height:34px;padding:0 8px;text-align:center;background:var(--surface-inset);border:1px solid var(--border-default);border-radius:var(--radius-sm);color:var(--text-strong);font:var(--type-mono);outline:none">
+                    <button type="button" onClick="{{ row.onPlus }}" class="hm-btn hm-btn--md hm-btn--ghost" style="border:1px solid var(--border-subtle);min-width:44px">+</button>
+                  </div>
+                </div>
+              </div>
+            </sc-for>
+
+            <div style="{{ slot.emptyStyle }}">
+              <span style="font:var(--type-mono);color:var(--text-faint)">&gt; nothing logged</span>
+            </div>
+          </x-import>
+        </sc-for>
+
+        <x-import component-from-global-scope="HampterDesignSystem_03c259.Card" variant="inset" hint-size="100%,64px">
+          <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+            <span style="font:var(--type-label);letter-spacing:var(--tracking-caps);text-transform:uppercase;color:var(--text-muted)">Food library</span>
+            <span style="font:var(--type-mono);color:var(--text-faint)">{{ libraryCount }}</span>
+            <button type="button" onClick="{{ toggleLibrary }}" class="hm-btn hm-btn--sm hm-btn--ghost" style="margin-left:auto">{{ libraryLabel }}</button>
+          </div>
+          <div style="{{ noteStyle }}">
+            <span style="font:var(--type-label);color:var(--accent);flex:none">05</span>
+            <div>
+              <div style="font:var(--type-body-sm);color:var(--text-strong)">The library is collapsed, and grouped by what a food is made of.</div>
+              <div style="font:var(--type-body-sm);color:var(--text-muted);text-wrap:pretty">Mostly protein · mostly carbs · mostly fat · balanced, derived from each food's calorie split rather than a category you have to type. Each food carries a thumbnail whose ring repeats that colour mark, plus a pie of its own split. Thumbnails are placeholders here — the real ones come from each item's <span style="font:var(--type-mono)">image_url</span>, which the product already stores for uploads and OpenFoodFacts matches.</div>
+            </div>
+          </div>
+          <div style="{{ libraryStyle }}">
+            <sc-for list="{{ libraryGroups }}" as="group" hint-placeholder-count="3">
+              <div>
+                <div style="{{ group.headStyle }}">{{ group.label }}<span style="font:var(--type-mono);color:var(--text-faint)">{{ group.count }}</span></div>
+                <sc-for list="{{ group.items }}" as="li" hint-placeholder-count="3">
+                  <div style="display:flex;align-items:center;gap:12px;padding:8px 0;border-bottom:1px solid var(--border-subtle)">
+                    <span style="{{ li.thumbStyle }}">{{ li.initial }}</span>
+                    <span style="{{ li.pieStyle }}"></span>
+                    <div style="flex:1;min-width:0">
+                      <div style="font:var(--type-body-sm);color:var(--text-strong)">{{ li.name }}</div>
+                      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:2px">
+                        <span style="font:var(--type-label);color:var(--text-muted)">{{ li.kcal }}</span>
+                        <span style="font:var(--type-label);color:var(--status-warning)">{{ li.p }}</span>
+                        <span style="font:var(--type-label);color:var(--status-info)">{{ li.c }}</span>
+                        <span style="font:var(--type-label);color:var(--status-danger)">{{ li.fat }}</span>
+                      </div>
+                    </div>
+                    <span style="font:var(--type-mono);color:var(--text-faint)">{{ li.usual }}</span>
+                    <button type="button" onClick="{{ li.onLog }}" class="hm-btn hm-btn--sm hm-btn--secondary">Log</button>
+                  </div>
+                </sc-for>
+              </div>
+            </sc-for>
+          </div>
+        </x-import>
+
+      </div>
+    </div>
+
+    <div style="{{ barStyle }}">
+      <x-import component-from-global-scope="HampterDesignSystem_03c259.Button" size="lg" variant="primary" icon="scan-line" block="{{ trueVal }}" hint-size="100%,42px">Scan</x-import>
+      <x-import component-from-global-scope="HampterDesignSystem_03c259.Button" size="lg" variant="secondary" icon="search" block="{{ trueVal }}" hint-size="100%,42px">Search</x-import>
+      <x-import component-from-global-scope="HampterDesignSystem_03c259.Button" size="lg" variant="secondary" icon="copy" hint-size="auto,42px"></x-import>
+    </div>
+  </div>
+
+  <div style="{{ toastStyle }}">
+    <span style="font:var(--type-body-sm);color:var(--text-body)">{{ toastText }}</span>
+    <button type="button" onClick="{{ undo }}" class="hm-btn hm-btn--sm hm-btn--ghost" style="color:var(--text-accent)">Undo</button>
+  </div>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;showNotes&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Demo&quot;},&quot;showQuickLog&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Behaviour&quot;},&quot;stepGrams&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;5&quot;,&quot;10&quot;,&quot;25&quot;],&quot;default&quot;:&quot;10&quot;,&quot;tsType&quot;:&quot;number&quot;,&quot;section&quot;:&quot;Behaviour&quot;},&quot;freshHighlight&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Behaviour&quot;}}">
+/** base + baseName are the portion basis the fraction buttons divide:
+    a package where the food comes in one (a skyr pack), otherwise the unit
+    you actually serve it in (a breast, a scoop, a tbsp). */
+const FOODS = [
+  { id: 1, name: "Skyr natural", brand: "Arla", cal: 63, p: 11, c: 4, f: 0.2, base: 500, baseName: "pack", usual: 250 },
+  { id: 2, name: "Oats", brand: "", cal: 377, p: 13.5, c: 59, f: 7, base: 80, baseName: "serving", usual: 80 },
+  { id: 3, name: "Chicken breast", brand: "", cal: 165, p: 31, c: 0, f: 3.6, base: 180, baseName: "breast", usual: 180 },
+  { id: 4, name: "Rice, cooked", brand: "", cal: 130, p: 2.7, c: 28, f: 0.3, base: 250, baseName: "serving", usual: 250 },
+  { id: 5, name: "Peanut butter", brand: "Whole Earth", cal: 593, p: 25, c: 12, f: 48, base: 32, baseName: "spoon", usual: 32 },
+  { id: 6, name: "Banana", brand: "", cal: 89, p: 1.1, c: 23, f: 0.3, base: 120, baseName: "banana", usual: 120 },
+  { id: 7, name: "Olive oil", brand: "", cal: 884, p: 0, c: 0, f: 100, base: 15, baseName: "tbsp", usual: 10 },
+  { id: 8, name: "Whey protein", brand: "Bulk", cal: 375, p: 75, c: 7, f: 5, base: 30, baseName: "scoop", usual: 30 },
+  { id: 9, name: "Eggs", brand: "", cal: 143, p: 12.6, c: 0.7, f: 9.5, base: 110, baseName: "2 eggs", usual: 110 },
+  { id: 10, name: "Broccoli", brand: "", cal: 34, p: 2.8, c: 7, f: 0.4, base: 200, baseName: "serving", usual: 200 }
+];
+
+const SLOTS = [["breakfast", "breakfast"], ["lunch", "lunch"], ["dinner", "dinner"], ["snack", "snack"]];
+const LETTERS = ["S", "M", "T", "W", "T", "F", "S"];
+
+/** Clock-inferred slot — the same thresholds as defaultSlot() in fitness/feed.html.
+    It seeds the picker ONCE; it never overrides a slot the user chose. */
+function clockSlot() {
+  const h = new Date().getHours();
+  if (h < 11) return "breakfast";
+  if (h < 15) return "lunch";
+  if (h < 17) return "snack";
+  if (h < 22) return "dinner";
+  return "snack";
+}
+
+class Component extends DCLogic {
+  state = {
+    foods: FOODS.slice(),
+    nextFoodId: 11,
+    entries: [
+      { id: 1, food: 1, grams: 250, slot: "breakfast", fresh: false },
+      { id: 2, food: 2, grams: 80, slot: "breakfast", fresh: false },
+      { id: 3, food: 6, grams: 120, slot: "breakfast", fresh: false },
+      { id: 4, food: 3, grams: 180, slot: "lunch", fresh: false },
+      { id: 5, food: 4, grams: 250, slot: "lunch", fresh: false },
+      { id: 6, food: 10, grams: 200, slot: "lunch", fresh: false },
+      { id: 7, food: 5, grams: 32, slot: "snack", fresh: false }
+    ],
+    nextId: 8,
+    expanded: {},
+    slot: clockSlot(),
+    query: "",
+    libOpen: false,
+    builderOpen: false,
+    builderName: "",
+    builderItems: [],
+    weekDay: 1,
+    meals: [
+      { id: 1, name: "Post-gym shake", items: [{ f: 8, g: 30 }, { f: 6, g: 120 }, { f: 1, g: 250 }] },
+      { id: 2, name: "Chicken & rice", items: [{ f: 3, g: 180 }, { f: 4, g: 250 }, { f: 7, g: 10 }] },
+      { id: 3, name: "Oats + skyr", items: [{ f: 2, g: 80 }, { f: 1, g: 125 }] }
+    ],
+    toast: null,
+    lastBatch: null,
+    notes: true,
+    layout: "desktop",
+    custom: {},
+    lastGrams: { 1: 250, 2: 80, 3: 180, 4: 250, 5: 32, 6: 120, 7: 10, 8: 30, 9: 110, 10: 200 }
+  };
+
+  food(id) { return this.state.foods.find(f => f.id === id) || this.state.foods[0]; }
+
+  /** A food added here is in the same list the search, library and chips read,
+      so it is loggable the instant it exists — no stale option list to re-render. */
+  addFood(name) {
+    const id = this.state.nextFoodId;
+    const food = { id: id, name: name, brand: "", cal: 0, p: 0, c: 0, f: 0, portions: [100], usual: 100, needsMacros: true };
+    this.setState(s => ({ foods: s.foods.concat([food]), nextFoodId: s.nextFoodId + 1 }), () => this.logFood(id));
+  }
+  kcal(e) { return Math.round(this.food(e.food).cal * e.grams / 100); }
+  macro(e, key) { return this.food(e.food)[key] * e.grams / 100; }
+
+  step(grams) {
+    const s = this.props.stepGrams ?? 10;
+    return grams < 50 ? Math.max(1, Math.round(s / 2)) : s;
+  }
+
+  showToast(text, ids) {
+    clearTimeout(this._t);
+    this.setState({ toast: text, lastBatch: ids });
+    this._t = setTimeout(() => this.setState({ toast: null, lastBatch: null }), 5000);
+  }
+
+  componentWillUnmount() { clearTimeout(this._t); }
+
+  logFood(foodId, slot) {
+    const f = this.food(foodId);
+    const id = this.state.nextId;
+    const grams = this.state.lastGrams[foodId] || f.usual;
+    const entry = { id, food: foodId, grams: grams, slot: slot || this.state.slot, fresh: true };
+    this.setState(s => ({
+      entries: s.entries.concat([entry]),
+      nextId: s.nextId + 1,
+      expanded: Object.assign({}, s.expanded, { [id]: true }),
+      query: ""
+    }));
+    this.showToast("Logged " + f.name + " · " + grams + " g", [id]);
+  }
+
+  logMeal(meal) {
+    let id = this.state.nextId;
+    const added = [];
+    const rows = meal.items.map(it => {
+      const e = { id: id, food: it.f, grams: it.g, slot: this.state.slot, fresh: true };
+      added.push(id);
+      id += 1;
+      return e;
+    });
+    const exp = {};
+    added.forEach(a => { exp[a] = true; });
+    this.setState(s => ({
+      entries: s.entries.concat(rows),
+      nextId: id,
+      expanded: Object.assign({}, s.expanded, exp)
+    }));
+    this.showToast("Logged " + meal.name + " · " + rows.length + " items", added);
+  }
+
+  setGrams(entryId, grams) {
+    const g = Math.max(1, Math.round(grams * 10) / 10);
+    this.setState(s => {
+      const entry = s.entries.find(e => e.id === entryId);
+      const last = entry ? Object.assign({}, s.lastGrams, { [entry.food]: g }) : s.lastGrams;
+      return {
+        entries: s.entries.map(e => e.id === entryId ? Object.assign({}, e, { grams: g, fresh: false }) : e),
+        lastGrams: last
+      };
+    });
+  }
+
+  bump(entryId, dir) {
+    const e = this.state.entries.find(x => x.id === entryId);
+    if (!e) return;
+    this.setGrams(entryId, e.grams + dir * this.step(e.grams));
+  }
+
+  toggleCustom(entryId) {
+    this.setState(s => ({ custom: Object.assign({}, s.custom, { [entryId]: !s.custom[entryId] }) }));
+  }
+
+  remove(entryId) {
+    this.setState(s => ({ entries: s.entries.filter(e => e.id !== entryId) }));
+  }
+
+  toggleRow(entryId) {
+    this.setState(s => ({
+      expanded: Object.assign({}, s.expanded, { [entryId]: s.expanded[entryId] === false }),
+      entries: s.entries.map(e => e.id === entryId ? Object.assign({}, e, { fresh: false }) : e)
+    }));
+  }
+
+  undo() {
+    const ids = this.state.lastBatch || [];
+    clearTimeout(this._t);
+    this.setState(s => ({ entries: s.entries.filter(e => ids.indexOf(e.id) === -1), toast: null, lastBatch: null }));
+  }
+
+  /** Fractions of the food's own basis — full, half, third, quarter — plus the
+      amount last logged for it. One tap each; no dropdown, no typing. */
+  chipsFor(entry) {
+    const f = this.food(entry.food);
+    const base = f.base || f.usual || 100;
+    const out = [];
+    [["full", 1], ["\u00bd", 0.5], ["\u2153", 1 / 3], ["\u00bc", 0.25]].forEach(pair => {
+      const g = base * pair[1];
+      const grams = g >= 20 ? Math.round(g) : Math.round(g * 10) / 10;
+      if (grams < 3) return;
+      if (out.some(o => Math.abs(o.grams - grams) < 0.5)) return;
+      out.push({ label: pair[0], grams: grams });
+    });
+    const last = this.state.lastGrams[f.id];
+    if (last && !out.some(o => Math.abs(o.grams - last) < 0.5)) out.push({ label: "last", grams: last });
+    return out.map(o => {
+      const selected = Math.abs(o.grams - entry.grams) < 0.5;
+      return {
+        frac: o.label,
+        grams: o.grams + " g",
+        cls: "hm-btn hm-btn--md " + (selected ? "hm-btn--primary" : "hm-btn--secondary"),
+        style: "height:auto;min-width:56px;padding:5px 10px;flex-direction:column;gap:0;line-height:1.2",
+        onClick: () => this.setGrams(entry.id, o.grams)
+      };
+    });
+  }
+
+  /** Share of calories from each macro — protein and carbs at 4 kcal/g, fat at 9. */
+  shares(p, c, f) {
+    const pk = p * 4, ck = c * 4, fk = f * 9;
+    const t = pk + ck + fk || 1;
+    return { p: pk / t * 100, c: ck / t * 100, f: fk / t * 100 };
+  }
+
+  pieStyle(sh, size) {
+    const a = sh.p.toFixed(1);
+    const b = (sh.p + sh.c).toFixed(1);
+    return "width:" + size + "px;height:" + size + "px;border-radius:999px;flex:none;background:conic-gradient(var(--status-warning) 0 " + a + "%,var(--status-info) " + a + "% " + b + "%,var(--status-danger) " + b + "% 100%)";
+  }
+
+  /** What a food is mostly made of — the basis for its colour mark and library group. */
+  dominance(f) {
+    if (f.needsMacros) return { key: "unknown", label: "no macros", color: "var(--text-faint)" };
+    const sh = this.shares(f.p, f.c, f.f);
+    const max = Math.max(sh.p, sh.c, sh.f);
+    if (max < 45) return { key: "balanced", label: "balanced", color: "var(--text-muted)" };
+    if (max === sh.p) return { key: "protein", label: "protein", color: "var(--status-warning)" };
+    if (max === sh.c) return { key: "carbs", label: "carbs", color: "var(--status-info)" };
+    return { key: "fat", label: "fat", color: "var(--status-danger)" };
+  }
+
+  thumbStyle(f, size) {
+    const d = this.dominance(f);
+    return "width:" + size + "px;height:" + size + "px;flex:none;display:inline-flex;align-items:center;justify-content:center;border-radius:var(--radius-sm);background:var(--surface-chip);background-image:var(--texture-grid);background-size:8px 8px;box-shadow:inset 0 0 0 1px " + d.color + ";color:" + d.color + ";font:800 13px/1 var(--font-display);text-transform:uppercase";
+  }
+
+  renderVals() {
+    const st = this.state;
+    const targets = { cal: 2400, p: 165, c: 260, f: 72 };
+    const totalCal = st.entries.reduce((s, e) => s + this.kcal(e), 0);
+    const totalP = Math.round(st.entries.reduce((s, e) => s + this.macro(e, "p"), 0));
+    const totalC = Math.round(st.entries.reduce((s, e) => s + this.macro(e, "c"), 0));
+    const totalF = Math.round(st.entries.reduce((s, e) => s + this.macro(e, "f"), 0));
+    const fresh = st.entries.filter(e => e.fresh).length;
+    const showQuick = this.props.showQuickLog ?? true;
+    const highlight = this.props.freshHighlight ?? true;
+
+    const slots = SLOTS.map(([key, label]) => {
+      const rows = st.entries.filter(e => e.slot === key);
+      const open = id => st.expanded[id] !== false;
+      return {
+        label: label,
+        kcal: rows.length ? rows.reduce((s, e) => s + this.kcal(e), 0) + " kcal" : "—",
+        emptyStyle: rows.length ? "display:none" : "padding:12px 0",
+        onAdd: () => this.setState({ slot: key }),
+        rows: rows.map(e => {
+          const f = this.food(e.food);
+          const isFresh = e.fresh && highlight;
+          const round = v => v >= 10 ? Math.round(v) : Math.round(v * 10) / 10;
+          const customOpen = !!st.custom[e.id];
+          const dom = this.dominance(f);
+          return {
+            name: f.brand ? f.name + " · " + f.brand : f.name,
+            initial: f.name.slice(0, 1),
+            thumbStyle: this.thumbStyle(f, 34),
+            pieStyle: this.pieStyle(this.shares(this.macro(e, "p"), this.macro(e, "c"), this.macro(e, "f")), 22),
+            domLabel: dom.label,
+            domStyle: "font:var(--type-label);color:" + dom.color,
+            gramsLabel: e.grams + " g",
+            kcal: String(this.kcal(e)),
+            pG: round(this.macro(e, "p")) + " g",
+            cG: round(this.macro(e, "c")) + " g",
+            fG: round(this.macro(e, "f")) + " g",
+            baseLabel: f.baseName + " " + f.base + " g",
+            style: "padding:12px 0;border-bottom:1px solid var(--border-subtle);" + (isFresh ? "box-shadow:inset 2px 0 0 var(--accent-warm);padding-left:10px" : ""),
+            dotStyle: isFresh ? "width:6px;height:6px;border-radius:999px;background:var(--accent-warm);flex:none" : "display:none",
+            controlsStyle: open(e.id) ? "display:block;margin-top:10px;padding-left:46px" : "display:none",
+            customStyle: customOpen ? "display:flex;gap:6px;align-items:center;margin-top:6px" : "display:none",
+            customCls: "hm-btn hm-btn--md hm-btn--secondary",
+            customExtra: customOpen ? "height:auto;padding:5px 10px;flex-direction:column;gap:0;line-height:1.2;border-color:var(--border-accent);color:var(--text-accent)" : "height:auto;padding:5px 10px;flex-direction:column;gap:0;line-height:1.2",
+            gramsValue: String(e.grams),
+            chips: this.chipsFor(e),
+            onToggle: () => this.toggleRow(e.id),
+            onCustom: () => this.toggleCustom(e.id),
+            onGrams: ev => this.setGrams(e.id, parseFloat(ev.target.value) || 1),
+            onRemove: () => this.remove(e.id),
+            onMinus: () => this.bump(e.id, -1),
+            onPlus: () => this.bump(e.id, 1)
+          };
+        })
+      };
+    });
+
+    const q = st.query.trim().toLowerCase();
+    const matches = q ? st.foods.filter(f => f.name.toLowerCase().indexOf(q) !== -1).slice(0, 6) : st.foods.slice(0, 6);
+    const now = clockSlot();
+    const offClock = st.slot !== now;
+
+    const notesOn = st.notes && (this.props.showNotes ?? true);
+    const phone = st.layout === "phone";
+    const USUAL_BY_SLOT = { breakfast: [1, 2, 6], lunch: [3, 4, 10], dinner: [3, 4, 7], snack: [5, 8, 6] };
+    const left = [
+      { label: "kcal", value: targets.cal - totalCal, color: "var(--text-strong)", unit: "" },
+      { label: "protein", value: targets.p - totalP, color: "var(--status-warning)", unit: " g" },
+      { label: "carbs", value: targets.c - totalC, color: "var(--status-info)", unit: " g" },
+      { label: "fat", value: targets.f - totalF, color: "var(--status-danger)", unit: " g" }
+    ];
+
+    return {
+      trueVal: true,
+      layoutLabel: phone ? "Desktop layout" : "Phone layout",
+      toggleLayout: () => this.setState({ layout: phone ? "desktop" : "phone" }),
+      shellStyle: phone
+        ? "width:390px;margin:24px auto;padding:0 16px 24px;border:1px solid var(--ink-700);border-radius:var(--radius-xl);background:var(--surface-page)"
+        : "max-width:1180px;margin:0 auto;padding:0 24px",
+      columnsStyle: phone
+        ? "display:flex;flex-direction:column;gap:12px"
+        : "display:flex;gap:24px;align-items:flex-start;flex-wrap:wrap",
+      leftColStyle: phone
+        ? "display:flex;flex-direction:column;gap:12px"
+        : "flex:1 1 320px;max-width:360px;display:flex;flex-direction:column;gap:16px;position:sticky;top:80px",
+      rightColStyle: phone
+        ? "display:flex;flex-direction:column;gap:12px"
+        : "flex:2 1 480px;display:flex;flex-direction:column;gap:16px",
+      navStyle: phone ? "display:none" : "display:flex;gap:20px;font:var(--type-ui)",
+      headStyle: phone
+        ? "display:flex;align-items:flex-end;justify-content:space-between;gap:8px;flex-wrap:wrap;padding:16px 0 12px"
+        : "display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;padding:32px 0 24px;background-image:var(--texture-grid);background-size:var(--texture-grid-size)",
+      titleStyle: phone
+        ? "margin:0;font:var(--type-h2);letter-spacing:var(--tracking-tight);color:var(--text-strong)"
+        : "margin:0;font:var(--type-h1);letter-spacing:var(--tracking-tight);color:var(--text-strong)",
+      barStyle: phone
+        ? "position:sticky;bottom:0;z-index:20;display:flex;gap:8px;margin:12px -16px -24px;padding:12px 16px 20px;background:linear-gradient(to top,var(--surface-page) 70%,rgba(11,9,16,0))"
+        : "display:none",
+
+      leftToday: left.map(x => ({
+        label: x.label,
+        value: (x.value >= 0 ? Math.round(x.value) : "+" + Math.abs(Math.round(x.value))) + x.unit,
+        labelStyle: "font:var(--type-label);letter-spacing:var(--tracking-caps);text-transform:uppercase;color:" + x.color,
+        valueStyle: "font:var(--type-mono);font-size:15px;color:" + (x.value >= 0 ? "var(--text-strong)" : "var(--status-danger)")
+      })),
+      usualHeading: "usual at " + st.slot,
+      usualFoods: (USUAL_BY_SLOT[st.slot] || []).map(id => {
+        const f = this.food(id);
+        return {
+          name: f.name,
+          grams: (st.lastGrams[f.id] || f.usual) + " g",
+          thumbStyle: this.thumbStyle(f, 26),
+          initial: f.name.slice(0, 1),
+          onClick: () => this.logFood(f.id)
+        };
+      }),
+
+      notesLabel: notesOn ? "Hide notes" : "Show notes",
+      toggleNotes: () => this.setState({ notes: !st.notes }),
+      noteStyle: notesOn
+        ? "display:flex;gap:10px;align-items:flex-start;margin-top:12px;padding:10px 12px;background:var(--surface-inset);border:1px solid var(--border-subtle);border-left:2px solid var(--accent);border-radius:var(--radius-sm)"
+        : "display:none",
+      bannerStyle: notesOn
+        ? "display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:0 0 16px;padding:12px 14px;background:var(--surface-card);border:1px solid var(--border-subtle);border-radius:var(--radius-md)"
+        : "display:none",
+
+      dayPieStyle: this.pieStyle(this.shares(totalP, totalC, totalF), phone ? 64 : 76),
+      dayShareP: Math.round(this.shares(totalP, totalC, totalF).p) + "% · " + totalP + " g",
+      dayShareC: Math.round(this.shares(totalP, totalC, totalF).c) + "% · " + totalC + " g",
+      dayShareF: Math.round(this.shares(totalP, totalC, totalF).f) + "% · " + totalF + " g",
+
+      dateLabel: "Mon 17 Aug · 2026-08-17",
+      iconSize: 14,
+      ringSize: phone ? 104 : 132,
+      totalCal: totalCal,
+      targetCal: targets.cal,
+      totalP: totalP, targetP: targets.p,
+      totalC: totalC, targetC: targets.c,
+      totalF: totalF, targetF: targets.f,
+      calCaption: totalCal + " / " + targets.cal + " kcal",
+
+      week: [0, 1, 2, 3, 4, 5, 6].map(i => {
+        const sel = i === st.weekDay;
+        const future = i > 1;
+        const pct = [82, Math.round(totalCal / targets.cal * 100), 0, 0, 0, 0, 0][i];
+        return {
+          letter: LETTERS[i],
+          onClick: () => this.setState({ weekDay: i }),
+          style: "flex:1;height:44px;display:flex;flex-direction:column;align-items:center;justify-content:space-between;padding:4px;cursor:pointer;border-radius:var(--radius-sm);border:1px solid " + (sel ? "var(--border-accent)" : "var(--border-subtle)") + ";background:" + (sel ? "var(--accent-tint)" : future ? "transparent" : "var(--surface-inset)") + ";color:" + (sel ? "var(--text-accent)" : "var(--text-faint)"),
+          barStyle: "width:100%;height:" + Math.round(Math.min(pct, 100) * 0.18) + "px;border-radius:2px;background:" + (sel ? "var(--accent)" : "var(--ink-600)")
+        };
+      }),
+
+      slots: slots,
+      slotPicker: SLOTS.map(([key, label]) => ({
+        label: label,
+        cls: "hm-btn hm-btn--sm " + (st.slot === key ? "hm-btn--primary" : "hm-btn--ghost"),
+        onClick: () => this.setState({ slot: key })
+      })),
+
+      uncheckedLabel: fresh ? fresh + " to check" : "all amounts checked",
+      uncheckedColor: fresh ? "var(--accent-warm)" : "var(--text-faint)",
+
+      slotNoteStyle: offClock ? "display:inline-flex;align-items:center;gap:6px;font:var(--type-label);color:var(--text-muted)" : "display:none",
+      slotNote: "staying on " + st.slot,
+      slotResetLabel: "now: " + now,
+      resetSlot: () => this.setState({ slot: now }),
+
+      query: st.query,
+      onQuery: e => this.setState({ query: e.target.value }),
+      quickHeading: showQuick ? (q ? "Matches — tap to log" : "Log again") : "Search",
+      quickFoods: showQuick ? matches.map(f => ({
+        name: f.name,
+        grams: (st.lastGrams[f.id] || f.usual) + " g",
+        onClick: () => this.logFood(f.id)
+      })) : [],
+      newFoodStyle: q && !matches.length ? "display:inline-flex" : "display:none",
+      newFoodLabel: "+ Add \u201c" + st.query.trim() + "\u201d and log 100 g",
+      addNewFood: () => this.addFood(st.query.trim()),
+
+      meals: st.meals.map(m => ({
+        name: m.name,
+        summary: m.items.reduce((s, it) => s + Math.round(this.food(it.f).cal * it.g / 100), 0) + " kcal",
+        onClick: () => this.logMeal(m)
+      })),
+      builderLabel: st.builderOpen ? "Close" : "New meal",
+      toggleBuilder: () => this.setState({ builderOpen: !st.builderOpen }),
+      builderStyle: st.builderOpen ? "margin-top:12px;padding:12px;background:var(--surface-inset);border:1px solid var(--border-subtle);border-radius:var(--radius-sm)" : "display:none",
+      builderName: st.builderName,
+      onBuilderName: e => this.setState({ builderName: e.target.value }),
+      builderTotal: st.builderItems.reduce((s, it) => s + Math.round(this.food(it.f).cal * it.g / 100), 0) + " kcal",
+      builderPicked: st.builderItems.map((it, i) => ({
+        label: this.food(it.f).name + " " + it.g + " g",
+        onRemove: () => this.setState(s => ({ builderItems: s.builderItems.filter((_, j) => j !== i) }))
+      })),
+      builderChoices: st.foods.slice(0, 8).map(f => ({
+        name: f.name,
+        onClick: () => this.setState(s => ({ builderItems: s.builderItems.concat([{ f: f.id, g: f.usual }]) }))
+      })),
+      saveBuilder: () => {
+        if (!st.builderItems.length) return;
+        const name = st.builderName.trim() || "Untitled meal";
+        this.setState(s => ({
+          meals: s.meals.concat([{ id: Date.now(), name: name, items: s.builderItems }]),
+          builderItems: [], builderName: "", builderOpen: false
+        }));
+        this.showToast("Saved meal · " + name, []);
+      },
+
+      libraryCount: st.foods.length + " items",
+      libraryLabel: st.libOpen ? "Hide" : "Open",
+      toggleLibrary: () => this.setState({ libOpen: !st.libOpen }),
+      libraryStyle: st.libOpen ? "display:block;margin-top:12px" : "display:none",
+      libraryGroups: st.libOpen ? [
+        { key: "protein", label: "mostly protein", color: "var(--status-warning)" },
+        { key: "carbs", label: "mostly carbs", color: "var(--status-info)" },
+        { key: "fat", label: "mostly fat", color: "var(--status-danger)" },
+        { key: "balanced", label: "balanced", color: "var(--text-muted)" },
+        { key: "unknown", label: "macros missing", color: "var(--text-faint)" }
+      ].map(g => {
+        const items = st.foods.filter(f => this.dominance(f).key === g.key);
+        return {
+          label: g.label,
+          count: items.length + "",
+          headStyle: items.length ? "display:flex;align-items:center;gap:8px;margin:12px 0 6px;font:var(--type-label);letter-spacing:var(--tracking-caps);text-transform:uppercase;color:" + g.color : "display:none",
+          items: items.map(f => ({
+            name: f.brand ? f.name + " · " + f.brand : f.name,
+            initial: f.name.slice(0, 1),
+            thumbStyle: this.thumbStyle(f, 30),
+            pieStyle: this.pieStyle(this.shares(f.p, f.c, f.f), 18),
+            kcal: f.needsMacros ? "no macros yet" : f.cal + " kcal / 100 g",
+            p: "P " + f.p,
+            c: "C " + f.c,
+            fat: "F " + f.f,
+            usual: f.baseName + " " + f.base + " g",
+            onLog: () => this.logFood(f.id)
+          }))
+        };
+      }) : [],
+
+      toastStyle: st.toast ? "position:fixed;right:24px;bottom:24px;z-index:60;display:flex;align-items:center;gap:12px;padding:10px 12px;background:var(--surface-overlay);border:1px solid var(--border-default);border-radius:var(--radius-sm);box-shadow:var(--shadow-3)" : "display:none",
+      toastText: st.toast || "",
+      undo: () => this.undo()
+    };
+  }
+}
+
+</script>
+</body>
+</html>
