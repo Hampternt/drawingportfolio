@@ -4791,6 +4791,99 @@ mod tests {
         assert_ne!(back.rng, LcRng::default(), "the stream is reseeded");
     }
 
+    /// The reseed itself, isolated.
+    ///
+    /// `test_a_legacy_blob_is_reseeded_not_left_empty` asserts
+    /// `rng != LcRng::default()` after a rebuild — which passes even with the
+    /// reseed DELETED, because `open_deck` shuffles and a shuffle advances the
+    /// counter off zero all by itself. That assertion was satisfied
+    /// incidentally, so it caught nothing (verified by mutation: removing the
+    /// reseed left all 441 lib tests green).
+    ///
+    /// The property that actually matters is that two legacy blobs with
+    /// DIFFERENT seeds rebuild to DIFFERENT piles. Without the reseed both
+    /// start at state 0 and advance identically, so every legacy game in
+    /// existence would deal the same cards in the same order.
+    #[test]
+    fn test_the_legacy_reseed_makes_rebuilt_games_differ_by_seed() {
+        let legacy_blob = |seed: u64| {
+            let mut st = LastCallState::new(
+                vec![(1, "alice".into()), (2, "bob".into())],
+                seed,
+            );
+            st.set_vessel(1, Deck::Beer, "can").unwrap();
+            st.set_vessel(2, Deck::Cider, "bottle").unwrap();
+            // Strip the fields an old binary never wrote.
+            let mut v: serde_json::Value = serde_json::from_str(&st.to_json()).unwrap();
+            let o = v.as_object_mut().unwrap();
+            o.remove("table");
+            o.remove("rng");
+            LastCallState::from_json(&v.to_string())
+        };
+
+        let a = legacy_blob(1111);
+        let b = legacy_blob(2222);
+        let pile = |st: &LastCallState, d: Deck| -> Vec<String> {
+            st.table
+                .shoe(d)
+                .unwrap()
+                .draw_pile
+                .iter()
+                .map(|c| c.id.clone())
+                .collect()
+        };
+        assert_ne!(
+            pile(&a, Deck::Beer),
+            pile(&b, Deck::Beer),
+            "two legacy blobs with different seeds rebuilt to the SAME pile — \
+             the reseed is missing, so every rebuilt game deals identically"
+        );
+        // ...and the same seed still rebuilds reproducibly.
+        assert_eq!(pile(&a, Deck::Beer), pile(&legacy_blob(1111), Deck::Beer));
+    }
+
+    /// The lobby case, which is where a missing reseed does the most damage:
+    /// a legacy blob with seated players but NO vessels opens no decks, so
+    /// nothing incidentally advances the counter. Without the reseed `rng`
+    /// stays at state 0 and the FIRST shuffle of every such game — dealt
+    /// later, when somebody finally picks a drink — is identical across every
+    /// game on the server.
+    #[test]
+    fn test_a_legacy_lobby_blob_is_reseeded_before_anyone_picks_a_drink() {
+        let lobby_blob = |seed: u64| {
+            let st = LastCallState::new(
+                vec![(1, "alice".into()), (2, "bob".into())],
+                seed,
+            );
+            let mut v: serde_json::Value = serde_json::from_str(&st.to_json()).unwrap();
+            let o = v.as_object_mut().unwrap();
+            o.remove("table");
+            o.remove("rng");
+            LastCallState::from_json(&v.to_string())
+        };
+
+        let mut a = lobby_blob(1111);
+        let mut b = lobby_blob(2222);
+        assert!(a.table.shoes.is_empty(), "no vessels means no open decks");
+        assert_ne!(a.rng, LcRng::default(), "reseeded even with nothing to open");
+
+        // The damage only shows when they finally pick a drink.
+        a.set_vessel(1, Deck::Beer, "can").unwrap();
+        b.set_vessel(1, Deck::Beer, "can").unwrap();
+        let ids = |st: &LastCallState| -> Vec<String> {
+            st.players[0].hand.iter().map(|c| c.id.clone()).collect()
+        };
+        assert_ne!(
+            a.table.shoe(Deck::Beer).unwrap().draw_pile,
+            b.table.shoe(Deck::Beer).unwrap().draw_pile,
+            "two lobby blobs shuffled identically — the reseed never ran"
+        );
+        // The opening hand is a fixed named set, so it is the PILE that must
+        // differ, not the hand. Pin that too, so a future change that makes
+        // opening hands random does not silently weaken this test.
+        assert_eq!(ids(&a), ids(&b), "opening hands are a fixed set (F6)");
+    }
+
     #[test]
     fn test_the_reseed_never_re_runs_on_a_live_table() {
         // The guard that matters: re-running the rebuild on a table that
