@@ -235,9 +235,13 @@ pub struct LcPlayer {
     pub hand: Vec<Card>,
     pub armed: Vec<ArmedCard>,
     pub locked: bool,
-    /// Beat-scoped "I'm done here" for the open beats (Draw ≥ round 2,
-    /// Diplomacy, Reveal) — since the beat clock's removal (2026-08-13)
-    /// the all-ready advance is the ONLY thing that moves those beats.
+    /// Beat-scoped "I'm done here" for the ready-gated beats. Those are
+    /// Draw (round ≥ 2) and Reveal — and ONLY those: `set_ready` refuses
+    /// every other beat, Diplomacy included, which advances on all-locked
+    /// instead. (This comment used to name Diplomacy as well; it never
+    /// matched `set_ready`'s gate.) Since the beat clock's removal
+    /// (2026-08-13) the all-ready advance is the only thing that moves the
+    /// two beats it does cover.
     /// Field-level `#[serde(default)]`: the `damage_dealt` precedent — a
     /// blob written before this existed backfills `false`, not a hard error.
     #[serde(default)]
@@ -1311,17 +1315,34 @@ impl LastCallState {
                 SeatPhase::Waiting
             };
         }
+        // Each arm mirrors what actually ADVANCES that beat, which is the
+        // only definition of "holding it up" worth having. Note two stale
+        // comments elsewhere in the tree claim Diplomacy is ready-gated —
+        // `set_ready` refuses it (`matches!(beat, Draw | Reveal)`) and
+        // `lc_lock_handler` advances it on all-locked. The code is the
+        // authority; this follows the code.
         match self.beat {
-            // Open beats: the seat holds the beat up until it readies.
-            Beat::Draw | Beat::Diplomacy | Beat::Reveal => {
+            // The registration lobby. `set_ready` refuses it outright, so
+            // readiness is not the signal — having picked a drink is.
+            Beat::Draw if self.round == 1 => {
+                if p.vessels.is_empty() {
+                    SeatPhase::Acting
+                } else {
+                    SeatPhase::Ready
+                }
+            }
+            // Ready-gated: `set_ready` accepts these two, and the all-ready
+            // predicate is what advances them.
+            Beat::Draw | Beat::Reveal => {
                 if p.ready {
                     SeatPhase::Ready
                 } else {
                     SeatPhase::Acting
                 }
             }
-            // Lock: a locked seat is done for the round.
-            Beat::Lock => {
+            // The staging beat (Lock is the legacy-blob alias). Advances on
+            // every Alive seat being locked, not on ready.
+            Beat::Diplomacy | Beat::Lock => {
                 if p.locked {
                     SeatPhase::Locked
                 } else {
@@ -1401,12 +1422,25 @@ impl LastCallState {
         if self.players[seat].status != Status::Alive {
             return 0;
         }
+        self.heal_quiet(seat, amount);
+        self.push_log(LogEntry::Heal { seat, amount });
+        amount
+    }
+
+    /// `heal` without the log line, for the table-wide event hooks
+    /// (`on-the-house`, `toast`). Those are announced by the event banner
+    /// itself, so a per-seat `Heal` line each would be noise — but the stat
+    /// counter still has to move, which is why they go through here rather
+    /// than touching `hp` directly.
+    fn heal_quiet(&mut self, seat: usize, amount: i32) -> i32 {
+        if amount <= 0 || seat >= self.players.len() {
+            return 0;
+        }
+        if self.players[seat].status != Status::Alive {
+            return 0;
+        }
         self.players[seat].hp += amount;
         self.players[seat].healing_taken += amount as u32;
-        self.push_log(LogEntry::Heal {
-            seat,
-            amount,
-        });
         amount
     }
 
@@ -1423,10 +1457,30 @@ impl LastCallState {
         if self.players[seat].status != Status::Alive {
             return;
         }
+        self.shield_from(seat, magnitude, rounds, source, 0);
+    }
+
+    /// `shield` with an explicit `source_play`, for `resolve()`'s per-play
+    /// loop — which has an `order_key` to attribute the effect to and the
+    /// public entry point does not.
+    fn shield_from(
+        &mut self,
+        seat: usize,
+        magnitude: i32,
+        rounds: u32,
+        source: Option<usize>,
+        source_play: u32,
+    ) {
+        if magnitude <= 0 || seat >= self.players.len() {
+            return;
+        }
+        if self.players[seat].status != Status::Alive {
+            return;
+        }
         self.effects
             .retain(|e| !(e.op == EffectOp::Shield && e.subject == seat));
         self.effects.push(Effect {
-            source_play: 0,
+            source_play,
             subject: seat,
             op: EffectOp::Shield,
             magnitude,
@@ -2785,13 +2839,18 @@ impl LastCallState {
                 let def = crate::lc_events::event_for_round(self.rng_seed, self.round);
                 self.event = Some(def.id.to_string());
                 if let crate::lc_events::EventHook::Toast { drain, heal } = def.hook {
-                    for p in self
+                    let alive: Vec<usize> = self
                         .players
-                        .iter_mut()
+                        .iter()
                         .filter(|p| p.status == Status::Alive)
-                    {
-                        drain_pulls(p, drain); // fullest vessel, F4's helper
-                        p.hp += heal; // no ceiling (TBD-3)
+                        .map(|p| p.seat)
+                        .collect();
+                    for seat in alive {
+                        // Through the primitives so `drinks`/`healing_taken`
+                        // move; quiet, because the event banner announces
+                        // the toast and a per-seat line each would be noise.
+                        self.drain(seat, drain, None);
+                        self.heal_quiet(seat, heal); // no ceiling (TBD-3)
                     }
                 }
                 // H7: the §5 replacement deal. Every Alive player with an
@@ -2966,6 +3025,13 @@ impl LastCallState {
                 target,
             });
             self.players[seat].pulls_spent += cost;
+            // A pull spent on a card is still a pull drunk, so it counts
+            // toward `drinks` too. The two counters answer different
+            // questions: `pulls_spent` is "what did this seat choose to
+            // spend", `drinks` is "how much did this seat actually drink",
+            // and the gap between them is everything somebody else drained
+            // out of their glass.
+            self.players[seat].drinks += cost;
             self.players[seat].cards_played += 1;
         }
 
@@ -3378,60 +3444,30 @@ impl LastCallState {
                                         .get(&(play.order_key, subject))
                                         .copied()
                                         .unwrap_or(0);
-                                // J2/J5: `apply_damage` now returns the HP
-                                // actually removed (post-shield, post-clamp)
-                                // — the immediate-fx half of "per damage
-                                // actually applied"; the dot-tick half is at
-                                // Step 2 below. Logged/attributed only when
-                                // something actually landed, so a fully
-                                // shielded hit doesn't pad the log or the
-                                // counter with a no-op `Hit{amount: 0}`.
-                                let applied = self.apply_damage(subject, reduced.max(0));
-                                if applied > 0 {
-                                    self.push_log(LogEntry::Hit {
-                                        source: play.source_seat,
-                                        target: subject,
-                                        amount: applied,
-                                    });
-                                    self.players[play.source_seat].damage_dealt += applied as u32;
-                                }
+                                // `damage` owns shields, the HP clamp,
+                                // elimination, both stat counters and the
+                                // `Hit` line — and logs only when something
+                                // actually landed, so a fully shielded hit
+                                // doesn't pad the log with `Hit{amount: 0}`.
+                                self.damage(subject, reduced.max(0), Some(play.source_seat));
                             }
                             EffectOp::Heal => {
-                                self.players[subject].hp += f.magnitude; // TBD-3: no ceiling
-                                self.push_log(LogEntry::Heal {
-                                    seat: subject,
-                                    amount: f.magnitude,
-                                });
+                                self.heal(subject, f.magnitude);
                             }
                             EffectOp::PullDrain => {
-                                let drained = drain_pulls(&mut self.players[subject], f.magnitude);
-                                if drained > 0 {
-                                    self.push_log(LogEntry::Drain {
-                                        source: play.source_seat,
-                                        target: subject,
-                                        amount: drained,
-                                    });
-                                }
+                                self.drain(subject, f.magnitude, Some(play.source_seat));
                             }
                             // F8: shields register NOW (not queued), so they
                             // absorb later plays in this round's order.
                             // Replace-not-stack by (op, subject) — D10.
                             EffectOp::Shield => {
-                                self.effects.retain(|e| {
-                                    !(e.op == EffectOp::Shield && e.subject == subject)
-                                });
-                                self.effects.push(Effect {
-                                    source_play: play.order_key,
+                                self.shield_from(
                                     subject,
-                                    op: EffectOp::Shield,
-                                    magnitude: f.magnitude,
-                                    expires_round: self.round + f.rounds,
-                                    source_seat: play.source_seat,
-                                });
-                                self.push_log(LogEntry::Shield {
-                                    seat: subject,
-                                    amount: f.magnitude,
-                                });
+                                    f.magnitude,
+                                    f.rounds,
+                                    Some(play.source_seat),
+                                    play.order_key,
+                                );
                             }
                             // Dots still queue (appended at step 3): never
                             // tick in their own creation round. No log line
@@ -3503,17 +3539,11 @@ impl LastCallState {
             // exists, so the counter update is best-effort while the log
             // line — seat numbers only, resolved to a name at render time —
             // is emitted regardless).
-            let applied = self.apply_damage(subject, magnitude * dot_mult);
-            if applied > 0 {
-                self.push_log(LogEntry::Hit {
-                    source: source_seat,
-                    target: subject,
-                    amount: applied,
-                });
-                if let Some(p) = self.players.get_mut(source_seat) {
-                    p.damage_dealt += applied as u32;
-                }
-            }
+            // `damage` handles the attribution and the gate: it credits
+            // `source_seat` and logs the `Hit` only when HP actually moved,
+            // and is bounds-safe if a corrupt blob's `source_seat` names a
+            // seat that no longer exists.
+            self.damage(subject, magnitude * dot_mult, Some(source_seat));
         }
 
         // Step 2.5: the end-of-round event program (H4) — after dots,
@@ -3528,7 +3558,9 @@ impl LastCallState {
                     .filter(|&s| self.players[s].status == Status::Alive && !played_seats[s])
                     .collect();
                 for s in victims {
-                    self.apply_damage(s, dmg);
+                    // `None` source: an event has no author, so no `Hit`
+                    // line — but `damage_taken` still moves.
+                    self.damage(s, dmg, None);
                 }
             }
             Some(crate::lc_events::EventHook::TopSpenderHit { dmg }) => {
@@ -3540,19 +3572,21 @@ impl LastCallState {
                         .filter(|&s| self.players[s].status == Status::Alive && spent[s] == max)
                         .collect();
                     for s in victims {
-                        self.apply_damage(s, dmg);
+                        self.damage(s, dmg, None);
                     }
                 }
             }
             Some(crate::lc_events::EventHook::TableHeal { heal }) => {
                 // `on-the-house`: every Alive player heals, no ceiling
-                // (TBD-3).
-                for p in self
+                // (TBD-3). Quiet, like the toast — the banner says it.
+                let alive: Vec<usize> = self
                     .players
-                    .iter_mut()
+                    .iter()
                     .filter(|p| p.status == Status::Alive)
-                {
-                    p.hp += heal;
+                    .map(|p| p.seat)
+                    .collect();
+                for seat in alive {
+                    self.heal_quiet(seat, heal);
                 }
             }
             _ => {}
@@ -3609,7 +3643,12 @@ impl LastCallState {
                 continue;
             }
             match def.reward {
-                crate::lc_tabs::TabReward::Hp(n) => self.players[seat].hp += n, // TBD-3: no ceiling
+                // Quiet: the tab's own settle announcement is the record
+                // (H11), so no per-seat `Heal` line — but `healing_taken`
+                // still moves.
+                crate::lc_tabs::TabReward::Hp(n) => {
+                    self.heal_quiet(seat, n); // TBD-3: no ceiling
+                }
                 crate::lc_tabs::TabReward::Pulls(n) => refill_pulls(&mut self.players[seat], n),
             }
             self.tab_ledger.push(TabSettle {
@@ -3978,10 +4017,13 @@ impl LastCallState {
                         // shield card protects its holder from everything
                         // for its rounds, arguments included — pinned by
                         // test_shield_absorbs_challenge_penalty.
-                        self.apply_damage(loser, m);
+                        // `None` source is what keeps it unlogged and
+                        // uncredited; `damage_taken` still moves, since the
+                        // loser really did lose the HP.
+                        self.damage(loser, m, None);
                     }
                     crate::lc_cards::Penalty::Drain(m) => {
-                        drain_pulls(&mut self.players[loser], m);
+                        self.drain(loser, m, None);
                     }
                     // Real-life sips — the engine records nothing beyond
                     // the verdict; the card's own text names the price.
@@ -4393,6 +4435,539 @@ mod tests {
         st.discards().iter().map(|c| c.id.clone()).collect()
     }
 
+    // =============================================================
+    // The overhaul: phase tracking, table primitives, player
+    // primitives, card triggers and stat counters.
+    // =============================================================
+
+    #[test]
+    fn test_phase_walks_lobby_playing_finished() {
+        let mut st = seated();
+        assert_eq!(st.phase(), Phase::Lobby); // round 1 Draw = registration
+        st.beat = Beat::Diplomacy;
+        assert_eq!(st.phase(), Phase::Playing);
+        // Round 2's Draw is play, not lobby — the lobby is round 1 only.
+        st.round = 2;
+        st.beat = Beat::Draw;
+        assert_eq!(st.phase(), Phase::Playing);
+        // One player left standing ends it.
+        st.players[1].status = Status::Eliminated;
+        st.players[2].status = Status::Eliminated;
+        assert_eq!(st.phase(), Phase::Finished);
+    }
+
+    #[test]
+    fn test_challenge_phase_outranks_playing_but_not_finished() {
+        let mut st = seated();
+        st.beat = Beat::Resolve;
+        st.challenges.push(ChallengeState {
+            key: 1,
+            card_id: "liquor-09".into(),
+            instigator: 0,
+            opponent: Some(1),
+            electorate: vec![2],
+            votes: vec![],
+            round: 1,
+        });
+        assert_eq!(st.phase(), Phase::Challenge);
+        // A game that ended on a challenge round is over, not parked.
+        st.players[1].status = Status::Eliminated;
+        st.players[2].status = Status::Eliminated;
+        assert_eq!(st.phase(), Phase::Finished);
+    }
+
+    /// Each beat's `SeatPhase` must track what actually advances that beat.
+    /// Diplomacy is the one worth pinning: it is NOT ready-gated (two stale
+    /// comments in the tree say otherwise), it advances on all-locked.
+    #[test]
+    fn test_seat_phase_follows_each_beats_real_advance_rule() {
+        // The lobby: registration, not readiness. `set_ready` refuses here.
+        let mut st = seated();
+        assert_eq!(st.phase(), Phase::Lobby);
+        assert_eq!(st.seat_phase(0), SeatPhase::Acting); // no drink picked
+        st.set_vessel(1, Deck::Beer, "can").unwrap();
+        assert_eq!(st.seat_phase(0), SeatPhase::Ready);
+
+        // Diplomacy: lock-gated.
+        let mut st = at_diplomacy();
+        assert_eq!(st.set_ready(1), Err(LcError::WrongBeat), "not ready-gated");
+        assert_eq!(st.seat_phase(0), SeatPhase::Acting);
+        st.lock_in(1).unwrap();
+        assert_eq!(st.seat_phase(0), SeatPhase::Locked);
+
+        // Reveal: ready-gated.
+        let mut st = at_diplomacy();
+        st.beat = Beat::Reveal;
+        assert_eq!(st.seat_phase(0), SeatPhase::Acting);
+        st.set_ready(1).unwrap();
+        assert_eq!(st.seat_phase(0), SeatPhase::Ready);
+
+        // Auto beats ask nothing of anybody.
+        for beat in [Beat::Deal, Beat::Resolve] {
+            st.beat = beat;
+            assert_eq!(st.seat_phase(0), SeatPhase::Waiting, "{beat:?}");
+        }
+    }
+
+    #[test]
+    fn test_seat_phase_handles_ghosts_and_bad_seats() {
+        let mut st = at_diplomacy();
+        st.players[1].status = Status::Eliminated;
+        assert_eq!(st.seat_phase(1), SeatPhase::Ghost);
+        // Out of range is Waiting, not a panic — a stale render must not
+        // crash a room.
+        assert_eq!(st.seat_phase(99), SeatPhase::Waiting);
+        // Game over: nobody is expected to do anything.
+        st.players[2].status = Status::Eliminated;
+        st.players[3].status = Status::Eliminated;
+        assert_eq!(st.seat_phase(0), SeatPhase::Done);
+    }
+
+    #[test]
+    fn test_blocking_seats_narrows_as_the_table_commits() {
+        let mut st = at_diplomacy();
+        assert_eq!(st.blocking_seats(), vec![0, 1, 2, 3]);
+        st.lock_in(1).unwrap();
+        st.lock_in(2).unwrap();
+        assert_eq!(st.blocking_seats(), vec![2, 3]);
+        st.lock_in(3).unwrap();
+        st.lock_in(4).unwrap();
+        assert!(st.blocking_seats().is_empty());
+        // Ghosts never block.
+        let mut st = at_diplomacy();
+        st.players[0].status = Status::Eliminated;
+        assert_eq!(st.blocking_seats(), vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn test_public_view_carries_phase_and_seat_phase() {
+        // The desync fix: the same answer the engine uses reaches every
+        // viewer, rather than each client re-deriving it.
+        let mut st = at_diplomacy();
+        st.lock_in(1).unwrap();
+        let view = st.public_view();
+        assert_eq!(view.phase, Phase::Playing);
+        assert_eq!(view.seats[0].phase, SeatPhase::Locked);
+        assert_eq!(view.seats[1].phase, SeatPhase::Acting);
+    }
+
+    // ---- player primitives -------------------------------------
+
+    #[test]
+    fn test_damage_clamps_eliminates_and_attributes() {
+        let mut st = seated();
+        assert_eq!(st.damage(1, 5, Some(0)), 5);
+        assert_eq!(st.players[1].hp, STARTING_HP - 5);
+        assert_eq!(st.players[1].damage_taken, 5);
+        assert_eq!(st.players[0].damage_dealt, 5);
+
+        // Overkill is clamped at 0 and reports only the HP actually removed.
+        let applied = st.damage(1, 999, Some(0));
+        assert_eq!(applied, STARTING_HP - 5);
+        assert_eq!(st.players[1].hp, 0);
+        assert_eq!(st.players[1].status, Status::Eliminated);
+        assert_eq!(st.players[1].elim_order, Some(1));
+
+        // A ghost takes nothing more.
+        assert_eq!(st.damage(1, 3, Some(0)), 0);
+        // Non-positive and out-of-range are no-ops, not panics.
+        assert_eq!(st.damage(0, 0, None), 0);
+        assert_eq!(st.damage(0, -5, None), 0);
+        assert_eq!(st.damage(99, 5, None), 0);
+    }
+
+    #[test]
+    fn test_damage_without_a_source_moves_stats_but_writes_no_log() {
+        // Event damage and challenge penalties: the banner/verdict is the
+        // record, so no `Hit` line — but the HP really was lost.
+        let mut st = seated();
+        let log_before = st.log.len();
+        assert_eq!(st.damage(1, 4, None), 4);
+        assert_eq!(st.players[1].damage_taken, 4);
+        assert_eq!(st.log.len(), log_before, "an authorless hit is unlogged");
+    }
+
+    #[test]
+    fn test_heal_has_no_ceiling_and_skips_ghosts() {
+        let mut st = seated();
+        st.damage(1, 5, None);
+        assert_eq!(st.heal(1, 3), 3);
+        assert_eq!(st.players[1].hp, STARTING_HP - 2);
+        assert_eq!(st.players[1].healing_taken, 3);
+        // TBD-3: no ceiling — healing past the start is legal.
+        st.heal(1, 100);
+        assert_eq!(st.players[1].hp, STARTING_HP + 98);
+
+        // A ghost stays a ghost: healing one would resurrect a seat whose
+        // hand and effects were already swept off the board.
+        st.players[2].status = Status::Eliminated;
+        st.players[2].hp = 0;
+        assert_eq!(st.heal(2, 10), 0);
+        assert_eq!(st.players[2].hp, 0);
+        assert_eq!(st.players[2].status, Status::Eliminated);
+    }
+
+    #[test]
+    fn test_shield_absorbs_then_replaces_rather_than_stacking() {
+        let mut st = seated();
+        st.shield(1, 4, 1, Some(0));
+        assert_eq!(st.shield_total(1), 4);
+
+        // Absorbs first, HP after.
+        assert_eq!(st.damage(1, 6, Some(0)), 2);
+        assert_eq!(st.players[1].hp, STARTING_HP - 2);
+        assert_eq!(st.shield_total(1), 0);
+
+        // D10: a second shield REPLACES the first, it does not add to it.
+        st.shield(1, 3, 1, Some(0));
+        st.shield(1, 5, 1, Some(0));
+        assert_eq!(st.shield_total(1), 5, "shields must not stack");
+    }
+
+    #[test]
+    fn test_drain_takes_from_the_fullest_vessel_and_counts_as_drinking() {
+        let mut st = seated();
+        st.set_vessel(1, Deck::Beer, "can").unwrap(); // 8 pulls
+        st.set_vessel(1, Deck::Wine, "glass").unwrap(); // 6 pulls
+        assert_eq!(st.drain(0, 3, None), 3);
+        // Beer was fullest, so Beer paid.
+        let beer = st.players[0]
+            .vessels
+            .iter()
+            .find(|v| v.deck == Deck::Beer)
+            .unwrap();
+        assert_eq!(beer.pulls_left, 5);
+        assert_eq!(st.players[0].drinks, 3);
+
+        // Runs dry short rather than going negative.
+        let left: i32 = st.players[0]
+            .vessels
+            .iter()
+            .map(|v| v.pulls_left as i32)
+            .sum();
+        assert_eq!(st.drain(0, left + 10, None), left);
+        assert!(st.players[0].vessels.iter().all(|v| v.pulls_left == 0));
+    }
+
+    // ---- the table ----------------------------------------------
+
+    #[test]
+    fn test_deal_moves_cards_from_pile_to_hand() {
+        let mut st = seated();
+        st.open_deck(Deck::Beer);
+        let before = st.deck_count(Deck::Beer);
+        assert_eq!(st.deal(0, Deck::Beer, 3), 3);
+        assert_eq!(st.players[0].hand.len(), 3);
+        assert_eq!(st.players[0].cards_drawn, 3);
+        assert_eq!(st.deck_count(Deck::Beer), before - 3);
+    }
+
+    #[test]
+    fn test_discard_routes_to_the_cards_own_deck_and_counts() {
+        let mut st = seated();
+        st.open_deck(Deck::Beer);
+        st.open_deck(Deck::Wine);
+        st.deal(0, Deck::Beer, 2);
+        let hand = std::mem::take(&mut st.players[0].hand);
+        st.discard(Some(0), hand);
+        assert_eq!(st.players[0].cards_discarded, 2);
+        // Beer cards land on Beer's pile, never on the discarder's.
+        assert_eq!(st.table.shoe(Deck::Beer).unwrap().discarded(), 2);
+        assert_eq!(st.table.shoe(Deck::Wine).unwrap().discarded(), 0);
+    }
+
+    #[test]
+    fn test_cards_are_conserved_across_a_whole_round() {
+        // Nothing may create or destroy a card: every card is in a draw
+        // pile, a discard pile, a hand, an armed slot or a locked play.
+        let mut st = locked_table();
+        let census = |st: &LastCallState| -> usize {
+            st.table.total()
+                + st.players
+                    .iter()
+                    .map(|p| p.hand.len() + p.armed.len())
+                    .sum::<usize>()
+                + st.locked_plays.len()
+                + st.plays.len()
+                + st.reactions.len()
+        };
+        let before = census(&st);
+        st.advance_beat().unwrap(); // Reveal
+        assert_eq!(census(&st), before, "reveal must conserve cards");
+        st.advance_beat().unwrap(); // Resolve
+        st.resolve().unwrap();
+        assert_eq!(census(&st), before, "resolve must conserve cards");
+    }
+
+    #[test]
+    fn test_a_game_is_reproducible_from_its_seed() {
+        // The desync fix at engine level. Two states from the same seed,
+        // driven identically, must deal identical cards.
+        let run = |seed: u64| {
+            let mut st = LastCallState::new(vec![(1, "alice".into()), (2, "bob".into())], seed);
+            st.set_vessel(1, Deck::Beer, "can").unwrap();
+            st.set_vessel(2, Deck::Cider, "bottle").unwrap();
+            st.finish_and_draw(1, 0).unwrap();
+            st.finish_and_draw(2, 0).unwrap();
+            st.players
+                .iter()
+                .map(|p| p.hand.iter().map(|c| c.id.clone()).collect::<Vec<_>>())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(run(12345), run(12345), "same seed must deal the same game");
+        assert_ne!(run(12345), run(54321), "different seeds must diverge");
+    }
+
+    #[test]
+    fn test_the_stream_survives_a_snapshot() {
+        // A game snapshotted mid-round deals the same next card after a
+        // reload — the property the old per-request thread_rng could not
+        // have, and the reason `rng` lives in the blob.
+        let mut st = seated();
+        st.set_vessel(1, Deck::Beer, "can").unwrap();
+        let mut reloaded = LastCallState::from_json(&st.to_json());
+        assert_eq!(
+            st.draw_cards(Deck::Beer, 5),
+            reloaded.draw_cards(Deck::Beer, 5)
+        );
+    }
+
+    #[test]
+    fn test_a_legacy_blob_is_reseeded_not_left_empty() {
+        // Clean break: a blob written before `table` existed has no piles to
+        // restore, so `from_json` rebuilds a shoe for every deck a seated
+        // player is drinking from. Hands and HP survive; the piles are new.
+        let mut st = seated();
+        st.set_vessel(1, Deck::Beer, "can").unwrap();
+        st.set_vessel(2, Deck::Cider, "bottle").unwrap();
+        st.damage(2, 4, None);
+        let hand_before = st.players[0].hand.clone();
+
+        let mut v: serde_json::Value = serde_json::from_str(&st.to_json()).unwrap();
+        v.as_object_mut().unwrap().remove("table");
+        v.as_object_mut().unwrap().remove("rng");
+        let back = LastCallState::from_json(&v.to_string());
+
+        assert_eq!(back.players[0].hand, hand_before, "hands survive");
+        assert_eq!(back.players[2].hp, STARTING_HP - 4, "HP survives");
+        assert_eq!(
+            back.deck_count(Deck::Beer),
+            LC_DECK_SIZE,
+            "Beer rebuilt full"
+        );
+        assert_eq!(back.deck_count(Deck::Cider), LC_DECK_SIZE);
+        // Only decks somebody is drinking from are opened.
+        assert!(!back.table.is_open(Deck::Wine));
+        assert_ne!(back.rng, LcRng::default(), "the stream is reseeded");
+    }
+
+    #[test]
+    fn test_the_reseed_never_re_runs_on_a_live_table() {
+        // The guard that matters: re-running the rebuild on a table that
+        // already has shoes would deal 40 fresh cards per deck and duplicate
+        // every card already in a hand (migration 018's hazard, in miniature).
+        let mut st = seated();
+        st.set_vessel(1, Deck::Beer, "can").unwrap();
+        st.finish_and_draw(1, 0).unwrap();
+        let once = LastCallState::from_json(&st.to_json());
+        let twice = LastCallState::from_json(&once.to_json());
+        assert_eq!(once.table, twice.table);
+        assert_eq!(once.deck_count(Deck::Beer), twice.deck_count(Deck::Beer));
+    }
+
+    // ---- card triggers -------------------------------------------
+
+    /// Fire the worked-example trigger by hand — no catalog card carries it
+    /// yet, which is the point (the machinery ships, the content is a
+    /// separate call).
+    fn fire_example(st: &mut LastCallState) {
+        st.fire_trigger("beer-salute", TriggerWhen::OnDraw, 0);
+    }
+
+    #[test]
+    fn test_a_trigger_queues_targets_and_logs() {
+        let mut st = seated();
+        st.damage(1, 6, None); // bob down, so alice/cara lead
+        fire_example(&mut st);
+
+        let t = st.pending_trigger().expect("queued");
+        assert_eq!(t.id, "salute-the-leader");
+        assert_eq!(t.source, 0);
+        // Leader = highest HP among the Alive, ties to the lowest seat.
+        assert_eq!(t.target, Some(0));
+        assert_eq!(t.round, 1);
+        assert!(t.acked.is_empty());
+        assert!(st.log.iter().any(|e| matches!(
+            e,
+            LogEntry::Trigger { title, .. } if title == "SALUTE THE LEADER"
+        )));
+    }
+
+    #[test]
+    fn test_a_pending_trigger_holds_every_alive_seat() {
+        let mut st = at_diplomacy();
+        fire_example(&mut st);
+        // Outranks the beat: everybody who still owes an ack is Acting.
+        assert_eq!(st.blocking_seats(), vec![0, 1, 2, 3]);
+
+        let key = st.pending_trigger().unwrap().key;
+        st.ack_trigger(1, key).unwrap();
+        assert_eq!(st.seat_phase(0), SeatPhase::Waiting);
+        assert_eq!(st.blocking_seats(), vec![1, 2, 3]);
+
+        // A double-tap is idempotent, not an error.
+        st.ack_trigger(1, key).unwrap();
+        assert_eq!(st.pending_trigger().unwrap().acked, vec![0]);
+
+        for pid in [2, 3, 4] {
+            st.ack_trigger(pid, key).unwrap();
+        }
+        assert!(st.pending_trigger().is_none(), "clears on the last ack");
+    }
+
+    #[test]
+    fn test_ghosts_are_not_waited_on_for_a_trigger() {
+        let mut st = at_diplomacy();
+        st.players[3].status = Status::Eliminated;
+        fire_example(&mut st);
+        let key = st.pending_trigger().unwrap().key;
+        for pid in [1, 2, 3] {
+            st.ack_trigger(pid, key).unwrap();
+        }
+        assert!(
+            st.pending_trigger().is_none(),
+            "a ghost must not wedge the queue"
+        );
+    }
+
+    #[test]
+    fn test_a_stale_ack_cannot_dismiss_the_next_trigger() {
+        // The ChallengeState::key precedent: an ack posted from a screen
+        // showing the previous trigger must not clear the one after it.
+        let mut st = seated();
+        fire_example(&mut st);
+        fire_example(&mut st);
+        let first = st.pending_trigger().unwrap().key;
+        assert_eq!(st.triggers.len(), 2);
+        for pid in [1, 2, 3] {
+            st.ack_trigger(pid, first).unwrap();
+        }
+        let second = st.pending_trigger().unwrap().key;
+        assert_ne!(first, second);
+        assert_eq!(st.ack_trigger(1, first), Err(LcError::WrongBeat));
+        assert!(st.pending_trigger().is_some());
+    }
+
+    #[test]
+    fn test_ack_guards() {
+        let mut st = seated();
+        assert_eq!(st.ack_trigger(1, 1), Err(LcError::WrongBeat)); // nothing queued
+        fire_example(&mut st);
+        let key = st.pending_trigger().unwrap().key;
+        assert_eq!(st.ack_trigger(99, key), Err(LcError::NotSeated));
+    }
+
+    #[test]
+    fn test_trigger_actions_that_carry_state_apply_it() {
+        let mut st = seated();
+        st.set_vessel(1, Deck::Beer, "can").unwrap();
+        st.set_vessel(2, Deck::Beer, "can").unwrap();
+        let before: Vec<u8> = st.players[..2]
+            .iter()
+            .map(|p| p.vessels[0].pulls_left)
+            .collect();
+        st.apply_trigger_effect(TriggerAction::TableDrink { pulls: 2 }, 0, None);
+        assert_eq!(st.players[0].vessels[0].pulls_left, before[0] - 2);
+        assert_eq!(st.players[1].vessels[0].pulls_left, before[1] - 2);
+        assert_eq!(st.players[0].drinks, 2);
+
+        st.apply_trigger_effect(TriggerAction::DrawerDrinks { pulls: 1 }, 0, None);
+        assert_eq!(st.players[0].vessels[0].pulls_left, before[0] - 3);
+        // Real-life instructions change nothing.
+        let hp: Vec<i32> = st.players.iter().map(|p| p.hp).collect();
+        st.apply_trigger_effect(TriggerAction::Announce, 0, None);
+        assert_eq!(st.players.iter().map(|p| p.hp).collect::<Vec<_>>(), hp);
+    }
+
+    #[test]
+    fn test_triggers_reach_the_public_view() {
+        let mut st = seated();
+        fire_example(&mut st);
+        let view = st.public_view();
+        assert_eq!(view.triggers.len(), 1);
+        assert_eq!(view.triggers[0].id, "salute-the-leader");
+    }
+
+    #[test]
+    fn test_an_unknown_card_fires_nothing() {
+        let mut st = seated();
+        st.fire_trigger("beer-01", TriggerWhen::OnDraw, 0);
+        st.fire_trigger("no-such-card", TriggerWhen::OnDraw, 0);
+        assert!(st.triggers.is_empty());
+    }
+
+    // ---- stat counters -------------------------------------------
+
+    #[test]
+    fn test_drinks_counts_pulls_paid_as_well_as_pulls_drained() {
+        let mut st = locked_table(); // alice pays 3 pulls for two Beer cards
+        st.advance_beat().unwrap(); // Reveal — the charge lands here
+        assert_eq!(st.players[0].pulls_spent, 3);
+        assert_eq!(st.players[0].drinks, 3);
+
+        // A drain adds to `drinks` but never to `pulls_spent` — the gap
+        // between the two is what somebody else took out of your glass.
+        st.drain(0, 2, None);
+        assert_eq!(st.players[0].pulls_spent, 3);
+        assert_eq!(st.players[0].drinks, 5);
+    }
+
+    #[test]
+    fn test_stat_counters_survive_a_round_trip_and_reach_the_view() {
+        let mut st = seated();
+        st.set_vessel(1, Deck::Beer, "can").unwrap();
+        st.drain(0, 2, None);
+        st.damage(0, 3, None);
+        st.heal(0, 1);
+        st.shield(0, 4, 1, None);
+
+        let back = LastCallState::from_json(&st.to_json());
+        assert_eq!(back.players[0].drinks, 2);
+        assert_eq!(back.players[0].damage_taken, 3);
+        assert_eq!(back.players[0].healing_taken, 1);
+        assert!(back.players[0].cards_drawn > 0);
+
+        let view = back.public_view();
+        assert_eq!(view.seats[0].drinks, 2);
+        assert_eq!(view.seats[0].shield, 4);
+    }
+
+    #[test]
+    fn test_new_player_fields_backfill_on_an_older_blob() {
+        // The `damage_dealt` precedent: a blob written before these existed
+        // backfills each to its own Default rather than failing outright.
+        let st = seated();
+        let mut v: serde_json::Value = serde_json::from_str(&st.to_json()).unwrap();
+        for p in v["players"].as_array_mut().unwrap() {
+            let o = p.as_object_mut().unwrap();
+            for f in [
+                "drinks",
+                "cards_drawn",
+                "cards_discarded",
+                "damage_taken",
+                "healing_taken",
+            ] {
+                o.remove(f);
+            }
+        }
+        let back = LastCallState::from_json(&v.to_string());
+        assert!(back.players.iter().all(|p| p.drinks == 0
+            && p.cards_drawn == 0
+            && p.cards_discarded == 0
+            && p.damage_taken == 0
+            && p.healing_taken == 0));
+    }
+
     #[test]
     fn test_pull_table() {
         assert_eq!(Deck::Beer.pulls(), 8);
@@ -4516,7 +5091,10 @@ mod tests {
             expires_round: 3,
             source_seat: 0,
         });
-        push_discards(&mut st, vec![crate::lc_cards::card_by_id("cider-01").unwrap()]);
+        push_discards(
+            &mut st,
+            vec![crate::lc_cards::card_by_id("cider-01").unwrap()],
+        );
         st.beat = Beat::Lock;
         st.seq = 7;
         st.pacts.push(Pact {
@@ -5662,7 +6240,6 @@ mod tests {
         st
     }
 
-
     #[test]
     fn test_mulligan_swaps_cards_and_keeps_hand_size() {
         let mut st = lobby_with_hand();
@@ -5674,10 +6251,10 @@ mod tests {
         ];
         st.mulligan(1, &ids).unwrap();
         assert_eq!(st.players[0].hand.len(), hand_before); // size preserved
-        // Net shoe movement is zero: two cards went to the discard pile and
-        // two came off the draw pile, so `total()` is unchanged even though
-        // the draw count moved. That is the conservation the counter version
-        // could not express — it only ever decremented.
+                                                           // Net shoe movement is zero: two cards went to the discard pile and
+                                                           // two came off the draw pile, so `total()` is unchanged even though
+                                                           // the draw count moved. That is the conservation the counter version
+                                                           // could not express — it only ever decremented.
         assert_eq!(deck_count(&st, Deck::Beer), shoe_before - 2);
         assert_eq!(st.players[0].cards_discarded, 2);
         assert_eq!(st.log.last(), Some(&LogEntry::Mulligan { seat: 0, n: 2 }));
@@ -5987,11 +6564,7 @@ mod tests {
         );
 
         assert!(st.table.counts().iter().any(|&(_, c)| c == 0));
-        assert!(st
-            .table
-            .counts()
-            .iter()
-            .any(|&(_, c)| (1..5).contains(&c)));
+        assert!(st.table.counts().iter().any(|&(_, c)| (1..5).contains(&c)));
     }
 
     #[test]
@@ -6068,7 +6641,10 @@ mod tests {
         st.open_deck(Deck::Beer);
         let all = st.draw_cards(Deck::Beer, LC_DECK_SIZE as usize);
         assert_eq!(all.len(), LC_DECK_SIZE as usize);
-        for def in crate::lc_cards::CATALOG.iter().filter(|d| d.deck == Deck::Beer) {
+        for def in crate::lc_cards::CATALOG
+            .iter()
+            .filter(|d| d.deck == Deck::Beer)
+        {
             let n = all.iter().filter(|c| c.id == def.id).count();
             assert_eq!(n, def.copies as usize, "{}", def.id);
         }

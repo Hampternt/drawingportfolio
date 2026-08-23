@@ -1236,9 +1236,12 @@ pub async fn lc_lock_handler(
     StatusCode::NO_CONTENT.into_response()
 }
 
-/// `POST /room/{code}/lastcall/ready` — the open beats' advance, and since
-/// the clock's removal (2026-08-13) the only thing that moves Draw (round
-/// ≥ 2), Diplomacy and Reveal. `lc_lock_handler`'s exact shape: engine
+/// `POST /room/{code}/lastcall/ready` — the ready-gated beats' advance, and
+/// since the clock's removal (2026-08-13) the only thing that moves Draw
+/// (round ≥ 2) and Reveal. NOT Diplomacy, despite what this comment used to
+/// say: `set_ready` refuses that beat (`matches!(beat, Draw | Reveal)`) and
+/// `lc_lock_handler` above advances it on all-locked instead.
+/// `lc_lock_handler`'s exact shape: engine
 /// mutation, then the all-ready early advance under the same guard, then
 /// the full public broadcast (the ready tick is legible on the mini table
 /// and the big screen, like the lock tick).

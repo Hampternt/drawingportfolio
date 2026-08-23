@@ -162,7 +162,12 @@ mod tests {
     fn test_slugs_are_stable_and_distinct() {
         // These reach the DOM as data-attributes; a collision would style
         // two states identically.
-        let phases = [Phase::Lobby, Phase::Playing, Phase::Challenge, Phase::Finished];
+        let phases = [
+            Phase::Lobby,
+            Phase::Playing,
+            Phase::Challenge,
+            Phase::Finished,
+        ];
         let slugs: std::collections::HashSet<&str> = phases.iter().map(|p| p.slug()).collect();
         assert_eq!(slugs.len(), phases.len());
 

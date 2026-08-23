@@ -6161,11 +6161,11 @@ async fn test_lc_draw_deals_five_from_the_vessels_deck() {
     st.set_vessel(bob_id, Deck::Cider, "bottle").unwrap();
     st.round = 2;
     st.players[0].hand.truncate(4); // 4 cards in hand before the draw
-    // The pre-draw count is whatever the real pile holds after the opening
-    // deal, not a number a test can assign. Read it and assert relatively —
-    // the claim is "debited by exactly 5", which was always the point; the
-    // old absolute 36/31 pair only worked because `deck_counts` was a
-    // counter you could set to anything.
+                                    // The pre-draw count is whatever the real pile holds after the opening
+                                    // deal, not a number a test can assign. Read it and assert relatively —
+                                    // the claim is "debited by exactly 5", which was always the point; the
+                                    // old absolute 36/31 pair only worked because `deck_counts` was a
+                                    // counter you could set to anything.
     let beer_before = st.deck_count(Deck::Beer);
     let game_id = lc_game_id(&pool, &code).await;
     drinkinggame::db::set_game_state(&pool, game_id, &st.to_json()).await;

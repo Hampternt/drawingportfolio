@@ -240,7 +240,10 @@ impl LcTable {
     /// Every discarded card across all shoes — the flat view the old
     /// `LastCallState::discards` field had.
     pub fn all_discards(&self) -> Vec<&Card> {
-        self.shoes.iter().flat_map(|s| s.discard_pile.iter()).collect()
+        self.shoes
+            .iter()
+            .flat_map(|s| s.discard_pile.iter())
+            .collect()
     }
 
     /// Total discarded across the table — `PublicView::discard_count`.
@@ -356,7 +359,10 @@ mod tests {
             .take(3)
             .map(|c| c.id.clone())
             .collect();
-        let dropped = shoe.draw_pile.drain(..LC_DECK_SIZE as usize - 3).collect::<Vec<_>>();
+        let dropped = shoe
+            .draw_pile
+            .drain(..LC_DECK_SIZE as usize - 3)
+            .collect::<Vec<_>>();
         shoe.discard(dropped);
         assert_eq!(shoe.remaining(), 3);
 
@@ -446,7 +452,10 @@ mod tests {
         assert_eq!(t.total(), LC_DECK_SIZE as usize * 2);
 
         let hand = t.draw(Deck::Beer, 4, &mut r);
-        assert_eq!(t.counts(), vec![(Deck::Beer, LC_DECK_SIZE - 4), (Deck::Cider, LC_DECK_SIZE)]);
+        assert_eq!(
+            t.counts(),
+            vec![(Deck::Beer, LC_DECK_SIZE - 4), (Deck::Cider, LC_DECK_SIZE)]
+        );
         t.discard(hand);
         assert_eq!(t.discard_total(), 4);
         assert_eq!(t.discard_counts(), vec![(Deck::Beer, 4), (Deck::Cider, 0)]);

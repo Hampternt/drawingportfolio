@@ -1061,11 +1061,9 @@ fn log_line(view: &PublicView, entry: &LogEntry) -> String {
         // The trigger's own title, already uppercase from the catalog. The
         // seat is named because a trigger always has an author (whoever drew
         // or played the card) — unlike a reshuffle, which the table does.
-        LogEntry::Trigger { seat, title } => format!(
-            "{} — {}",
-            log_seat_name(view, *seat),
-            html_escape(title)
-        ),
+        LogEntry::Trigger { seat, title } => {
+            format!("{} — {}", log_seat_name(view, *seat), html_escape(title))
+        }
         // Fix wave (Important 1): a pact win names both winners, matching
         // the end card's/banner's "THE PACT HOLDS" framing on the same
         // screen instead of the solo-outlast copy for one of the two.
@@ -3167,9 +3165,9 @@ mod tests {
                 cards_played: 0,
                 elim_order: None,
                 phase: crate::lc_phase::SeatPhase::Waiting,
-            drinks: 0,
-            shield: 0,
-            hand_by_deck: Vec::new(),
+                drinks: 0,
+                shield: 0,
+                hand_by_deck: Vec::new(),
             })
             .collect();
         PublicView {
