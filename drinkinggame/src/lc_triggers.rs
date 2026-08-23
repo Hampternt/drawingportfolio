@@ -4,8 +4,22 @@
 //! event** (`lc_events`) is scheduled: one per round, chosen from the seed,
 //! announced at the Draw→Deal edge, applied by `resolve()`. A **trigger**
 //! (here) is reactive: it fires the moment a specific card is drawn, played
-//! or discarded, and it interrupts — the table has to look up and do
-//! something before the game moves on.
+//! or discarded.
+//!
+//! **What is and is not wired up.** The queue records, projects and clears
+//! triggers, and `LastCallState::seat_phase` reports a seat that still owes
+//! an acknowledgement as `Acting`. It does NOT yet halt the game: no route
+//! calls `ack_trigger`, and neither `advance_beat` nor the route layer's
+//! advance predicates (`all_ready`, the all-locked check) consult
+//! `triggers`. So a fired trigger is currently an announcement, not an
+//! interrupt — an earlier version of this note claimed otherwise.
+//!
+//! That gap is harmless only because the catalog below is inert: every entry
+//! points at a card id absent from `lc_cards::CATALOG`, so nothing can fire
+//! in a real game. Wiring a live trigger card up therefore takes THREE
+//! things, not one: the card in the catalog, a route that calls
+//! `ack_trigger`, and a gate on `pending_trigger()` in the advance path.
+//! Adding only the card would queue a trigger nobody can clear.
 //!
 //! The machinery is the deliverable; the catalog is deliberately thin.
 //! `TRIGGERS` carries one worked example (`salute`) wired to a card that

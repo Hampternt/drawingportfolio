@@ -508,12 +508,22 @@ pub enum LogEntry {
     Reshuffle {
         deck: Deck,
     },
-    /// A card-triggered table event fired (`lc_triggers`). Carries the
-    /// trigger's TITLE, not the card's — J2's rule is that only card titles
-    /// at-or-after reveal may appear, and an `OnDraw` trigger fires while
-    /// the card is still private. The title names the event the whole table
-    /// just watched happen, which is public by construction; the card that
-    /// caused it stays unnamed.
+    /// A card-triggered table event fired (`lc_triggers`).
+    ///
+    /// Carries the trigger's title rather than the card's, but do NOT read
+    /// that as satisfying J2 — an earlier version of this comment claimed the
+    /// causing card "stays unnamed", and that is false twice over. A
+    /// `TriggerDef` maps 1:1 onto a card id, so the title identifies the card
+    /// exactly as well as the id would; and `public_view()` projects
+    /// `LastCallState::triggers` verbatim, `TriggerEvent::card_id` included,
+    /// so the id is public anyway.
+    ///
+    /// This is a deliberate, narrow exception to J2, not compliance with it:
+    /// an `OnDraw` trigger fires while the card is still in a private hand,
+    /// and announcing it IS the mechanic — a "salute the leader" nobody can
+    /// see is not a card. The cost is that any card carrying an `OnDraw`
+    /// trigger has no hand privacy, which is why `lc_triggers`' module note
+    /// says such triggers must stay rare and loud.
     Trigger {
         seat: usize,
         title: String,
@@ -1627,8 +1637,16 @@ impl LastCallState {
         let Some(seat) = self.seat_of(player_id) else {
             return Err(LcError::NotSeated);
         };
+        // A key at-or-below the high-water mark named a trigger that existed
+        // and has since cleared, so a retry of an ack that already succeeded
+        // is a no-op rather than an error. Only a key naming a trigger that
+        // never existed (> `trigger_seq`) is rejected outright.
         let Some(active) = self.triggers.first() else {
-            return Err(LcError::WrongBeat);
+            return if key <= self.trigger_seq {
+                Ok(())
+            } else {
+                Err(LcError::WrongBeat)
+            };
         };
         if active.key != key {
             return Err(LcError::WrongBeat);
@@ -1868,6 +1886,14 @@ impl LastCallState {
         let deck = p.vessels[vessel_idx].deck;
 
         let p = &mut self.players[seat];
+        // "Finish & draw" means finishing the glass: whatever is still in it
+        // gets drunk before the refill. That is the single largest source of
+        // real drinking in the game, and `drinks` missed all of it — the
+        // counter moved only for pulls spent on cards and pulls drained by
+        // other players, so a player who finished a full pint every round and
+        // played nothing reported `drinks == 0`.
+        let finished = p.vessels[vessel_idx].pulls_left as u32;
+        p.drinks += finished;
         p.vessels[vessel_idx].pulls_left = p.vessels[vessel_idx].pulls_max;
         // The engine deals now. `deal` takes real cards off the pile, so a
         // short shoe produces a short draw (D7) without anybody computing a
@@ -2077,10 +2103,22 @@ impl LastCallState {
             round: self.round,
             beat: self.beat,
             first_seat: self.first_seat,
-            deck_counts: self.table.counts(),
+            // J11. Both of these are `Deck::ALL`-ordered, five entries, with
+            // `0` for a deck nobody has opened — which is what
+            // `lc_render::lc_screen_panel`'s positional zip requires, and what
+            // `lc_render`'s `pile_deck` (`deck_counts.first()`, documented
+            // there as "ordered, not filtered") assumes.
+            //
+            // Do NOT project `table.counts()` / `table.discard_counts()`
+            // here. Those are open-shoes-only, and using them cost two bugs at
+            // once: the zip paired one entry per OPEN deck against one entry
+            // per deck, so a table on Wine and Liquor rendered WINE's row with
+            // Beer's discard count; and `pile_deck` silently moved from
+            // always-Beer to first-open-deck. The engine's own view of the
+            // table is open-shoes-only; the PUBLIC view is padded to all five.
+            // Different shapes, on purpose.
+            deck_counts: Deck::ALL.iter().map(|&d| (d, self.deck_count(d))).collect(),
             discard_count: self.table.discard_total(),
-            // J11: `Deck::ALL` order, matching `deck_counts` above, so
-            // `lc_render::lc_screen_panel` can zip the two by position.
             discard_counts: Deck::ALL
                 .iter()
                 .map(|&d| (d, self.table.shoe(d).map(|sh| sh.discarded()).unwrap_or(0)))
@@ -2580,6 +2618,11 @@ impl LastCallState {
         }
 
         self.players[seat].vessels[bi].pulls_left -= cost;
+        // A reaction is paid for in pulls like any other card, so it moves
+        // both counters. This path used to debit the vessel and update
+        // neither, making Cancel/Reduce/Reflect free on every stats surface.
+        self.players[seat].pulls_spent += cost as u32;
+        self.players[seat].drinks += cost as u32;
         self.players[seat].hand.remove(idx);
         let title = card.title.clone();
         self.reactions.push(ReactionPlay {
@@ -4748,18 +4791,39 @@ mod tests {
         assert_ne!(run(12345), run(54321), "different seeds must diverge");
     }
 
+    /// The RNG stream itself must survive a snapshot — the property the old
+    /// per-request `thread_rng` could not have, and the reason `rng` lives in
+    /// the blob.
+    ///
+    /// Drawing off a stocked pile does NOT test this: `Shoe::draw` touches the
+    /// RNG only when the pile runs dry, so an earlier version (draw 5 off 35)
+    /// compared two `pop()`s of the same serialized vector and passed even
+    /// with `rng` dropped from the blob entirely. The RNG is consulted at
+    /// exactly one moment — the reshuffle — so the pile must be driven empty
+    /// first.
     #[test]
-    fn test_the_stream_survives_a_snapshot() {
-        // A game snapshotted mid-round deals the same next card after a
-        // reload — the property the old per-request thread_rng could not
-        // have, and the reason `rng` lives in the blob.
+    fn test_the_rng_stream_survives_a_snapshot() {
         let mut st = seated();
         st.set_vessel(1, Deck::Beer, "can").unwrap();
+        // Empty the draw pile into the discard pile, so the next draw MUST
+        // reshuffle and therefore must consult the RNG.
+        let all = st.draw_cards(Deck::Beer, LC_DECK_SIZE as usize);
+        assert!(!all.is_empty());
+        st.table.discard(all);
+        assert_eq!(st.deck_count(Deck::Beer), 0);
+        assert!(st.table.shoe(Deck::Beer).unwrap().discarded() > 0);
+
         let mut reloaded = LastCallState::from_json(&st.to_json());
+        let a = st.draw_cards(Deck::Beer, 5);
+        let b = reloaded.draw_cards(Deck::Beer, 5);
+        assert_eq!(a.len(), 5);
         assert_eq!(
-            st.draw_cards(Deck::Beer, 5),
-            reloaded.draw_cards(Deck::Beer, 5)
+            a.iter().map(|c| c.id.clone()).collect::<Vec<_>>(),
+            b.iter().map(|c| c.id.clone()).collect::<Vec<_>>(),
+            "the reshuffle after a reload dealt a different order — the RNG \
+             counter did not survive the snapshot"
         );
+        assert_eq!(st.rng, reloaded.rng);
     }
 
     #[test]
@@ -4807,10 +4871,7 @@ mod tests {
     #[test]
     fn test_the_legacy_reseed_makes_rebuilt_games_differ_by_seed() {
         let legacy_blob = |seed: u64| {
-            let mut st = LastCallState::new(
-                vec![(1, "alice".into()), (2, "bob".into())],
-                seed,
-            );
+            let mut st = LastCallState::new(vec![(1, "alice".into()), (2, "bob".into())], seed);
             st.set_vessel(1, Deck::Beer, "can").unwrap();
             st.set_vessel(2, Deck::Cider, "bottle").unwrap();
             // Strip the fields an old binary never wrote.
@@ -4851,10 +4912,7 @@ mod tests {
     #[test]
     fn test_a_legacy_lobby_blob_is_reseeded_before_anyone_picks_a_drink() {
         let lobby_blob = |seed: u64| {
-            let st = LastCallState::new(
-                vec![(1, "alice".into()), (2, "bob".into())],
-                seed,
-            );
+            let st = LastCallState::new(vec![(1, "alice".into()), (2, "bob".into())], seed);
             let mut v: serde_json::Value = serde_json::from_str(&st.to_json()).unwrap();
             let o = v.as_object_mut().unwrap();
             o.remove("table");
@@ -4865,7 +4923,11 @@ mod tests {
         let mut a = lobby_blob(1111);
         let mut b = lobby_blob(2222);
         assert!(a.table.shoes.is_empty(), "no vessels means no open decks");
-        assert_ne!(a.rng, LcRng::default(), "reseeded even with nothing to open");
+        assert_ne!(
+            a.rng,
+            LcRng::default(),
+            "reseeded even with nothing to open"
+        );
 
         // The damage only shows when they finally pick a drink.
         a.set_vessel(1, Deck::Beer, "can").unwrap();
@@ -4884,18 +4946,49 @@ mod tests {
         assert_eq!(ids(&a), ids(&b), "opening hands are a fixed set (F6)");
     }
 
+    /// Reloading a live table must not rebuild its piles.
+    ///
+    /// Note what actually provides that protection, because this comment used
+    /// to overstate it: the `table.shoes.is_empty()` half of `from_json`'s
+    /// guard can be deleted and this test still passes, because
+    /// `LcTable::open` is independently idempotent and returns early for an
+    /// already-open deck. The guard is a cheap early-out; `open`'s own
+    /// `is_open` check is the thing standing between a reload and 40 fresh
+    /// cards per deck. Both are asserted below, separately, so neither can
+    /// quietly become the only one.
     #[test]
-    fn test_the_reseed_never_re_runs_on_a_live_table() {
-        // The guard that matters: re-running the rebuild on a table that
-        // already has shoes would deal 40 fresh cards per deck and duplicate
-        // every card already in a hand (migration 018's hazard, in miniature).
+    fn test_reloading_a_live_table_never_rebuilds_its_piles() {
         let mut st = seated();
         st.set_vessel(1, Deck::Beer, "can").unwrap();
         st.finish_and_draw(1, 0).unwrap();
+
         let once = LastCallState::from_json(&st.to_json());
         let twice = LastCallState::from_json(&once.to_json());
         assert_eq!(once.table, twice.table);
         assert_eq!(once.deck_count(Deck::Beer), twice.deck_count(Deck::Beer));
+
+        // The guard's own precondition: a live table is never empty-shoed, so
+        // the rebuild branch is not entered on a reload at all.
+        assert!(
+            !once.table.shoes.is_empty(),
+            "a live table must fail the rebuild guard on its own"
+        );
+
+        // The backstop, asserted directly rather than inferred: opening a deck
+        // that is already open changes nothing.
+        let mut live = once.clone();
+        let before = live.table.clone();
+        let hand_before = live.players[0].hand.len();
+        live.open_deck(Deck::Beer);
+        live.open_deck(Deck::Beer);
+        assert_eq!(live.table, before, "re-opening a live deck must be inert");
+        assert_eq!(live.players[0].hand.len(), hand_before);
+
+        // Cards stayed conserved across the whole reload path.
+        let census = |st: &LastCallState| {
+            st.table.total() + st.players.iter().map(|p| p.hand.len()).sum::<usize>()
+        };
+        assert_eq!(census(&once), census(&twice));
     }
 
     // ---- card triggers -------------------------------------------
@@ -5064,6 +5157,141 @@ mod tests {
         assert_eq!(st.players[1].status, Status::Eliminated);
         assert!(st.pending_trigger().is_none());
         assert_eq!(st.players[1].cards_discarded, 0);
+    }
+
+    /// `deal()`'s `OnDraw` fire site, exercised through a real pile.
+    ///
+    /// Every other trigger test either calls `fire_trigger` directly or
+    /// rewrites a staged/discarded card's id, so none of them reach the hook
+    /// inside `deal()` — that block could be deleted with the whole suite
+    /// still green. Here the trigger card is planted in the actual draw pile
+    /// and then dealt, which is the only path a real trigger card would take.
+    #[test]
+    fn test_on_draw_fires_when_a_trigger_card_comes_off_the_pile() {
+        let mut st = seated();
+        st.open_deck(Deck::Beer);
+        // Plant a trigger card on top of the Beer pile (drawn from the back).
+        let mut planted = crate::lc_cards::card_by_id("beer-01").unwrap();
+        planted.id = "beer-salute".to_string();
+        st.table
+            .shoe_mut(Deck::Beer)
+            .unwrap()
+            .draw_pile
+            .push(planted);
+        assert!(st.triggers.is_empty());
+
+        let dealt = st.deal(0, Deck::Beer, 1);
+        assert_eq!(dealt, 1);
+        let t = st
+            .pending_trigger()
+            .expect("dealing a trigger card must fire its OnDraw trigger");
+        assert_eq!(t.when, TriggerWhen::OnDraw);
+        assert_eq!(t.card_id, "beer-salute");
+        assert_eq!(t.source, 0);
+        assert!(st.players[0].hand.iter().any(|c| c.id == "beer-salute"));
+    }
+
+    /// Finishing a vessel is the largest source of real drinking in the game,
+    /// and `drinks` used to miss all of it.
+    #[test]
+    fn test_finishing_a_vessel_counts_as_drinking() {
+        let mut st = seated();
+        st.set_vessel(1, Deck::Beer, "can").unwrap(); // 8 pulls
+        st.players[0].vessels[0].pulls_left = 6; // two already gone elsewhere
+        assert_eq!(st.players[0].drinks, 0);
+
+        st.finish_and_draw(1, 0).unwrap();
+        assert_eq!(
+            st.players[0].drinks, 6,
+            "the six pulls left in the glass were drunk to finish it"
+        );
+        assert_eq!(st.players[0].vessels[0].pulls_left, 8); // refilled
+        assert_eq!(st.players[0].pulls_spent, 0); // nothing spent on a card
+    }
+
+    /// A reaction is paid for in pulls like any other card, so it must move
+    /// both counters. This path used to debit the vessel and update neither,
+    /// making Cancel/Reduce/Reflect free on every stats surface.
+    #[test]
+    fn test_a_reaction_costs_pulls_that_reach_the_counters() {
+        // `at_reveal` is the fixture the other reaction tests use: bob holds
+        // cider-08 and alice's play is aimed at him, so the reaction is legal.
+        let mut st = at_reveal();
+        let before_pulls = st.players[1].vessels[0].pulls_left;
+        let spent_before = st.players[1].pulls_spent;
+        let drinks_before = st.players[1].drinks;
+
+        st.play_reaction(2, "cider-08", 1).unwrap();
+
+        let cost = (before_pulls - st.players[1].vessels[0].pulls_left) as u32;
+        assert!(cost > 0, "the reaction must actually cost pulls");
+        assert_eq!(
+            st.players[1].pulls_spent,
+            spent_before + cost,
+            "a reaction is a card played, so it is a pull spent"
+        );
+        assert_eq!(
+            st.players[1].drinks,
+            drinks_before + cost,
+            "and a pull spent is a pull drunk"
+        );
+    }
+
+    /// Both public deck projections must stay index-aligned: `lc_render`'s
+    /// big-screen panel zips them positionally, and its `pile_deck` reads
+    /// `deck_counts.first()`.
+    ///
+    /// The regression this pins: `deck_counts` briefly became "open shoes
+    /// only" while `discard_counts` still walked `Deck::ALL`, so a table on
+    /// Wine and Liquor rendered WINE's row against Beer's discard count.
+    #[test]
+    fn test_deck_and_discard_projections_stay_aligned() {
+        let mut st = seated();
+        // Deliberately NOT a prefix of Deck::ALL — that is what exposed it.
+        st.set_vessel(1, Deck::Wine, "glass").unwrap();
+        st.set_vessel(2, Deck::Liquor, "shot").unwrap();
+        let wine = crate::lc_cards::card_by_id("wine-01").unwrap();
+        st.table.discard([wine]);
+
+        let view = st.public_view();
+        assert_eq!(view.deck_counts.len(), Deck::ALL.len());
+        assert_eq!(view.discard_counts.len(), Deck::ALL.len());
+        for (&(a, _), &(b, _)) in view.deck_counts.iter().zip(view.discard_counts.iter()) {
+            assert_eq!(a, b, "positional zip pairs a deck with another's count");
+        }
+        // The Wine discard is reported against Wine — the misalignment put it
+        // on whichever deck happened to share Wine's index.
+        assert_eq!(
+            view.discard_counts
+                .iter()
+                .find(|&&(d, _)| d == Deck::Wine)
+                .map(|&(_, n)| n),
+            Some(1)
+        );
+        // Unopened decks are padded, not dropped: `pile_deck` reads
+        // `deck_counts.first()` and expects Beer to be there.
+        assert_eq!(view.deck_counts[0].0, Deck::Beer);
+        assert_eq!(view.deck_counts[0].1, 0);
+    }
+
+    /// Re-acking a trigger that already cleared is a no-op, not an error — a
+    /// retry of a request that succeeded must not report failure.
+    #[test]
+    fn test_acking_an_already_cleared_trigger_is_idempotent() {
+        let mut st = seated();
+        st.fire_trigger("beer-salute", TriggerWhen::OnDraw, 0);
+        let key = st.pending_trigger().unwrap().key;
+        for pid in [1, 2, 3] {
+            st.ack_trigger(pid, key).unwrap();
+        }
+        assert!(st.pending_trigger().is_none());
+        // The retry lands after the queue emptied.
+        assert_eq!(st.ack_trigger(1, key), Ok(()));
+        // A key that never named a trigger is still rejected.
+        assert_eq!(
+            st.ack_trigger(1, st.trigger_seq + 99),
+            Err(LcError::WrongBeat)
+        );
     }
 
     #[test]
@@ -6511,16 +6739,52 @@ mod tests {
     /// A hand can hold real duplicates now (a shoe carries `copies` of a
     /// card), so naming the same id twice must claim two distinct cards
     /// rather than the same one twice.
+    /// A hand can hold real duplicates (a shoe carries `copies` of a card),
+    /// so naming the same id twice must claim two DISTINCT hand slots rather
+    /// than the same slot twice.
+    ///
+    /// The property is "two slots were claimed", and it must be measured
+    /// without counting how many cards of that id remain afterwards — the
+    /// replacements come off the same pile, which still holds other copies,
+    /// so a correct engine can legitimately deal one straight back. An earlier
+    /// version asserted `after == before - 2` and therefore failed whenever a
+    /// replacement happened to be another copy: over seeds 0..200 with the
+    /// engine unmodified it failed on 55 of them, passing on `seated()`'s
+    /// seed 42 by luck.
+    ///
+    /// Hand SIZE is the seed-independent witness: two claimed, two replaced.
     #[test]
     fn test_mulligan_claims_distinct_hand_cards_for_a_repeated_id() {
+        for seed in [0u64, 1, 7, 42, 99, 1234, 65_535] {
+            let mut st = LastCallState::new(vec![(1, "alice".into()), (2, "bob".into())], seed);
+            st.set_vessel(1, Deck::Beer, "can").unwrap();
+            let dup = st.players[0].hand[0].clone();
+            st.players[0].hand.push(dup.clone());
+            let size_before = st.players[0].hand.len();
+
+            st.mulligan(1, &[dup.id.clone(), dup.id.clone()]).unwrap();
+
+            assert_eq!(
+                st.players[0].hand.len(),
+                size_before,
+                "seed {seed}: two slots claimed, two replacements dealt"
+            );
+            assert_eq!(st.players[0].cards_discarded, 2, "seed {seed}");
+            assert_eq!(
+                st.log.last(),
+                Some(&LogEntry::Mulligan { seat: 0, n: 2 }),
+                "seed {seed}: both discards counted"
+            );
+        }
+
+        // The failure this guards against is claiming the SAME slot twice —
+        // then only one card leaves and one arrives, a single-card swap.
         let mut st = lobby_with_hand();
-        let dup = st.players[0].hand[0].clone();
-        st.players[0].hand.push(dup.clone());
-        let before = st.players[0].hand.iter().filter(|c| c.id == dup.id).count();
-        assert!(before >= 2);
-        st.mulligan(1, &[dup.id.clone(), dup.id.clone()]).unwrap();
-        let after = st.players[0].hand.iter().filter(|c| c.id == dup.id).count();
-        assert_eq!(after, before - 2, "both copies must have been claimed");
+        let one = st.players[0].hand[0].id.clone();
+        let size_before = st.players[0].hand.len();
+        st.mulligan(1, &[one]).unwrap();
+        assert_eq!(st.players[0].hand.len(), size_before);
+        assert_eq!(st.players[0].cards_discarded, 1);
     }
 
     #[test]

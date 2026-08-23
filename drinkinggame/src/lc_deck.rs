@@ -23,9 +23,13 @@
 //! hands never changes — so "how many Beer cards are left" is now a fact
 //! about a pile rather than a counter that happened to be decremented.
 //!
-//! `counts()` still projects the old `Vec<(Deck, u16)>` shape, which is what
-//! `PublicView::deck_counts` carries and `lc_render` reads, so the whole
-//! render layer is untouched by this change.
+//! `counts()` projects a `Vec<(Deck, u16)>` over the OPEN shoes — the
+//! engine's own view of what is on the table. It is deliberately NOT what
+//! `PublicView::deck_counts` carries: that one is padded to all five
+//! `Deck::ALL` entries, because `lc_render` zips it positionally against
+//! `discard_counts` and reads `deck_counts.first()` as the pile's deck. Using
+//! the open-only shape there paired each deck's row with another deck's
+//! discard count. See `public_view()`'s comment for the full story.
 //!
 //! Confidentiality: a `Shoe`'s ORDER is the secret, not its size. Counts are
 //! public (DDv2 beat 6 — discards are open information), and
