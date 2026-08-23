@@ -15,7 +15,6 @@ use crate::db;
 use crate::error::GameError;
 use crate::last_call::{
     Beat, Card, CardKind, Deck, EffectOp, LastCallState, LcError, Play, PublicView, Status,
-    DRAW_PER_VESSEL,
 };
 use crate::lc_render::{self, ActionBarView, HandGroupView};
 use crate::models::{Game, Player, Room};
@@ -124,11 +123,12 @@ pub async fn lc_start_handler(
     if members.len() < 2 {
         return GameError::TooFewPlayers.into_response();
     }
-    // last_call.rs never generates its own randomness; the seed is taken
-    // once, here, and stored in the state blob for the shuffle/deal math it
-    // does with it. `lc_draw_handler` (below) is a second, independent
-    // rand::thread_rng() site — it samples drawn cards per request rather
-    // than seeding persisted state, so it doesn't go through this seed.
+    // THE entropy boundary for Last Call. The seed is taken once, here, and
+    // stored in the blob; from there the engine's own `LcRng` (`lc_rng`)
+    // drives every shuffle and every deal deterministically. `lc_draw_handler`
+    // used to be a second, independent `thread_rng()` site — it sampled card
+    // identity per request, which made a game unreplayable — and no longer
+    // is: it just calls the engine.
     let rng_seed = rand::thread_rng().gen::<u64>();
     let st = LastCallState::new(
         members.iter().map(|m| (m.id, m.name.clone())).collect(),
@@ -1274,20 +1274,21 @@ pub struct DrawForm {
 }
 
 /// `POST /room/{code}/lastcall/draw` — public: the shoe's deck count and the
-/// drawing pulse are both legible on the mini table / big screen. The one
-/// route with RNG: card identity is decided HERE (D6), never in the engine
-/// — `finish_and_draw` only validates that what the caller sampled matches
-/// the vessel's deck and the expected count. Pre-reads under the guard
-/// before touching the RNG: `seat_of` (else `NotYourCall`, this route's own
-/// gate since `finish_and_draw`'s `NotSeated` case is unreachable once
-/// `seat_of` has already succeeded), then the vessel at `form.vessel` (else
-/// a bare 422 — an out-of-range vessel index is a malformed request, not a
-/// "not now"), then that vessel's deck's shoe count. Samples from
-/// `lc_cards::shoe(deck)` — the real copy-weighted 40-card shoe (Plan F),
-/// not `deck_cards` — so higher-copy cards are proportionally more likely,
-/// matching the composition `deck_counts` is tracking down. Duplicates
-/// within one draw are expected (F11: shoe sampling is with replacement;
-/// nothing here removes a card once drawn).
+/// drawing pulse are both legible on the mini table / big screen.
+///
+/// **No RNG here any more.** This used to be "the one route with RNG": card
+/// identity was decided here with `rand::thread_rng()`, sampling
+/// `lc_cards::shoe(deck)` *with replacement*, and `finish_and_draw` only
+/// validated the count and decks (the "D6 split"). The engine now owns real
+/// piles and a seeded PRNG (`lc_deck`/`lc_rng`), so this handler does what
+/// every other action route does: lock, load, call one engine method, map
+/// the error, persist. A short shoe deals short inside the engine — the
+/// `min(DRAW_PER_VESSEL, count)` this route used to compute is now the
+/// pile's own business.
+///
+/// The out-of-range vessel pre-read stays: an index past the end is a
+/// malformed request (a bare 422), not a "not now", and `finish_and_draw`
+/// reports both as `BadDraw`.
 pub async fn lc_draw_handler(
     State(state): State<GameState>,
     PlayerSession(player): PlayerSession,
@@ -1306,26 +1307,10 @@ pub async fn lc_draw_handler(
     let Some(seat) = ctx.st.seat_of(player.id) else {
         return GameError::NotYourCall.into_response();
     };
-    let Some(vessel) = ctx.st.players[seat].vessels.get(form.vessel) else {
+    if ctx.st.players[seat].vessels.get(form.vessel).is_none() {
         return StatusCode::UNPROCESSABLE_ENTITY.into_response();
-    };
-    let deck = vessel.deck;
-    let shoe_count = ctx
-        .st
-        .deck_counts
-        .iter()
-        .find(|(d, _)| *d == deck)
-        .map(|&(_, c)| c)
-        .unwrap_or(0);
-    let need = DRAW_PER_VESSEL.min(shoe_count as usize);
-    let pool_cards = crate::lc_cards::shoe(deck);
-    let drawn: Vec<Card> = {
-        let mut rng = rand::thread_rng();
-        (0..need)
-            .map(|_| pool_cards[rng.gen_range(0..pool_cards.len())].clone())
-            .collect()
-    };
-    if let Err(e) = ctx.st.finish_and_draw(player.id, form.vessel, drawn) {
+    }
+    if let Err(e) = ctx.st.finish_and_draw(player.id, form.vessel) {
         return map_lc(e);
     }
     persist_and_broadcast_lc(&state, &ctx).await;
@@ -1361,9 +1346,9 @@ pub async fn lc_mulligan_handler(
         Ok(c) => c,
         Err(r) => return r,
     };
-    let Some(seat) = ctx.st.seat_of(player.id) else {
+    if ctx.st.seat_of(player.id).is_none() {
         return GameError::NotYourCall.into_response();
-    };
+    }
     let ids: Vec<String> = form
         .cards
         .split(',')
@@ -1374,33 +1359,9 @@ pub async fn lc_mulligan_handler(
     if ids.is_empty() {
         return StatusCode::UNPROCESSABLE_ENTITY.into_response();
     }
-    // Resolve each id to a distinct hand card to learn its deck — the same
-    // claim walk `st.mulligan` re-runs as the authority; an id that doesn't
-    // resolve here gets the engine's own `UnknownCard` shortly anyway.
-    let hand = &ctx.st.players[seat].hand;
-    let mut taken: Vec<usize> = Vec::with_capacity(ids.len());
-    for id in &ids {
-        let Some(idx) = hand
-            .iter()
-            .enumerate()
-            .find(|(i, c)| c.id == *id && !taken.contains(i))
-            .map(|(i, _)| i)
-        else {
-            return map_lc(crate::last_call::LcError::UnknownCard);
-        };
-        taken.push(idx);
-    }
-    let replacements: Vec<crate::last_call::Card> = {
-        let mut rng = rand::thread_rng();
-        taken
-            .iter()
-            .map(|&i| {
-                let pool = crate::lc_cards::shoe(hand[i].deck);
-                pool[rng.gen_range(0..pool.len())].clone()
-            })
-            .collect()
-    };
-    if let Err(e) = ctx.st.mulligan(player.id, &ids, replacements) {
+    // The engine validates ids against the hand and deals the replacements
+    // off the real piles — there is nothing left to pre-sample here.
+    if let Err(e) = ctx.st.mulligan(player.id, &ids) {
         return map_lc(e);
     }
     persist_and_broadcast_lc(&state, &ctx).await;

@@ -6161,11 +6161,12 @@ async fn test_lc_draw_deals_five_from_the_vessels_deck() {
     st.set_vessel(bob_id, Deck::Cider, "bottle").unwrap();
     st.round = 2;
     st.players[0].hand.truncate(4); // 4 cards in hand before the draw
-    for entry in st.deck_counts.iter_mut() {
-        if entry.0 == Deck::Beer {
-            entry.1 = 36;
-        }
-    }
+    // The pre-draw count is whatever the real pile holds after the opening
+    // deal, not a number a test can assign. Read it and assert relatively —
+    // the claim is "debited by exactly 5", which was always the point; the
+    // old absolute 36/31 pair only worked because `deck_counts` was a
+    // counter you could set to anything.
+    let beer_before = st.deck_count(Deck::Beer);
     let game_id = lc_game_id(&pool, &code).await;
     drinkinggame::db::set_game_state(&pool, game_id, &st.to_json()).await;
 
@@ -6199,13 +6200,11 @@ async fn test_lc_draw_deals_five_from_the_vessels_deck() {
         "the 5 newly-drawn cards must all come from the Beer shoe: {:?}",
         after.players[alice_seat].hand
     );
-    let beer_left = after
-        .deck_counts
-        .iter()
-        .find(|(d, _)| *d == Deck::Beer)
-        .unwrap()
-        .1;
-    assert_eq!(beer_left, 31, "the Beer shoe must be debited by exactly 5");
+    assert_eq!(
+        after.deck_count(Deck::Beer),
+        beer_before - 5,
+        "the Beer shoe must be debited by exactly 5"
+    );
 
     // Second draw the same round: TBD-5, one per player per round.
     let res = post_form(
@@ -6492,7 +6491,7 @@ async fn test_mulligan_swaps_a_card_in_the_lobby() {
     assert_eq!(res.status(), StatusCode::NO_CONTENT);
     let mid = lc_state(&pool, &code).await;
     assert_eq!(mid.players[0].hand.len(), hand_before); // size preserved
-    assert_eq!(mid.discards.len(), 1);
+    assert_eq!(mid.discard_count(), 1);
 
     // Lobby swaps are unlimited — another one is fine.
     let second_id = mid.players[0].hand[0].id.clone();

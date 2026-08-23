@@ -12,6 +12,10 @@
 //! `to_json`/`from_json` because later tasks snapshot it into a DB column
 //! between requests.
 
+use crate::lc_deck::LcTable;
+use crate::lc_phase::{Phase, SeatPhase};
+use crate::lc_rng::LcRng;
+use crate::lc_triggers::{SaluteTarget, TriggerAction, TriggerEvent, TriggerWhen};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
@@ -259,6 +263,28 @@ pub struct LcPlayer {
     pub pulls_spent: u32,
     #[serde(default)]
     pub cards_played: u32,
+    /// Cards this seat has been dealt all game — bumped by `deal`, the one
+    /// path a card takes into a hand. Distinct from `draws_this_round`,
+    /// which is round-scoped and reset at the rollover.
+    #[serde(default)]
+    pub cards_drawn: u32,
+    /// Cards this seat has discarded (mulligans, hand-cap trims, plays that
+    /// resolved) — bumped by `discard` when a source seat is named.
+    #[serde(default)]
+    pub cards_discarded: u32,
+    /// Pulls this seat has actually drunk: every pull removed from one of
+    /// its vessels, whether it paid for a card or was drained by somebody
+    /// else. THE drink count — `pulls_spent` counts only what this seat
+    /// chose to spend on its own plays, so a heavily drained player shows a
+    /// low `pulls_spent` and a high `drinks`.
+    #[serde(default)]
+    pub drinks: u32,
+    /// HP this seat has lost, post-shield — the mirror of `damage_dealt`.
+    #[serde(default)]
+    pub damage_taken: u32,
+    /// HP this seat has been healed for.
+    #[serde(default)]
+    pub healing_taken: u32,
     /// 1-based place in the elimination order (`None` while `Alive`, and
     /// permanently `None` for a game's eventual winner(s)) — set the instant
     /// `apply_damage` flips `status` to `Eliminated`, never elsewhere.
@@ -478,6 +504,16 @@ pub enum LogEntry {
     Reshuffle {
         deck: Deck,
     },
+    /// A card-triggered table event fired (`lc_triggers`). Carries the
+    /// trigger's TITLE, not the card's — J2's rule is that only card titles
+    /// at-or-after reveal may appear, and an `OnDraw` trigger fires while
+    /// the card is still private. The title names the event the whole table
+    /// just watched happen, which is public by construction; the card that
+    /// caused it stays unnamed.
+    Trigger {
+        seat: usize,
+        title: String,
+    },
     /// Plan J fix wave (Important 1): `winner` alone could not represent a
     /// shared pact win, so the log line named only the lower seat with
     /// solo-outlast phrasing while the end card, banner and felt centre all
@@ -563,8 +599,29 @@ pub struct LastCallState {
     /// `test_a_locked_play_is_absent_from_public_view_before_reveal`.
     pub locked_plays: Vec<Play>,
     pub effects: Vec<Effect>,
-    pub discards: Vec<Card>,
-    pub deck_counts: Vec<(Deck, u16)>,
+    /// The cards on the table — real draw piles and real discard piles, one
+    /// `Shoe` per opened deck (`lc_deck`). Replaces the old
+    /// `discards: Vec<Card>` + `deck_counts: Vec<(Deck, u16)>` pair, which
+    /// tracked *how many* cards a deck had left without tracking *which* —
+    /// card identity was sampled with replacement in `lc_routes` and the
+    /// count was decremented separately. Reads go through `deck_count`,
+    /// `discard_count` and `discards`; writes go through `draw_cards`,
+    /// `deal`, `discard` and `reshuffle_deck`, never by reaching into a
+    /// pile directly.
+    ///
+    /// Container-level `#[serde(default)]` (see the note on this struct)
+    /// backfills an EMPTY table for a blob written before this field
+    /// existed. `from_json` detects that case and reseeds — see there.
+    #[serde(default)]
+    pub table: LcTable,
+    /// The game's own deterministic PRNG, advanced by every shuffle and
+    /// every draw and stored in the blob so the stream survives a snapshot
+    /// (`lc_rng`). Seeded from `rng_seed` at construction. Before this, the
+    /// engine had no randomness at all and the routes reached for
+    /// `rand::thread_rng()` per request, so a game could not be replayed or
+    /// checked against itself.
+    #[serde(default)]
+    pub rng: LcRng,
     pub seq: u64,
     /// Unix ms when the current timed beat expires. `None` = untimed — the
     /// round-1 Draw registration lobby (E1), an auto beat (Deal/Resolve,
@@ -634,6 +691,19 @@ pub struct LastCallState {
     /// activated challenge, never reset (review wave). Container-level
     /// default backfills 0.
     pub challenge_seq: u64,
+    /// Card-triggered table events waiting on the room (`lc_triggers`) —
+    /// the front entry is the active one. Distinct from `event`, which is
+    /// the ONE scheduled round event: a trigger is reactive, fired the
+    /// moment a specific card is drawn/played/discarded, and any number can
+    /// queue up in a round. Public the instant one exists (the
+    /// `reactions`/`haunts` rule) — `public_view()` projects this verbatim.
+    /// Container-level default backfills empty on older blobs.
+    #[serde(default)]
+    pub triggers: Vec<TriggerEvent>,
+    /// Monotonic counter behind `TriggerEvent::key` — bumped once per fired
+    /// trigger, never reset (the `challenge_seq` precedent).
+    #[serde(default)]
+    pub trigger_seq: u64,
     /// J1/J3: the public round log, capped at `LC_LOG_CAP` (oldest evicted
     /// first) — every append goes through `push_log`, never `.push()`
     /// directly. Container-level `#[serde(default)]` (see the comment above)
@@ -736,6 +806,25 @@ pub struct PublicSeat {
     /// would leak which deck they are staging from.
     #[serde(default)]
     pub hand_by_deck: Vec<(Deck, u16)>,
+    /// What this seat is expected to be doing right now — `seat_phase()`,
+    /// computed server-side (`lc_phase`). The desync fix: every viewer reads
+    /// this one value instead of each client re-deriving "is the table
+    /// waiting on them?" from `locked`/`ready`/`drawing`/`status` and the
+    /// beat, which is five fields combined differently per beat and was
+    /// spelled out separately in the phone, the big screen and the engine.
+    #[serde(default)]
+    pub phase: SeatPhase,
+    /// Pulls this seat has actually drunk (`LcPlayer::drinks`) — public by
+    /// design, like the other J5 counters. The drink count, as distinct from
+    /// `pulls_spent`, which counts only what this seat chose to spend on its
+    /// own plays.
+    #[serde(default)]
+    pub drinks: u32,
+    /// Shield absorption remaining, summed (`shield_total()`). `0` when
+    /// unshielded. Shields are already public via their effect on damage;
+    /// this saves every surface recomputing the same fold.
+    #[serde(default)]
+    pub shield: i32,
 }
 
 impl PublicSeat {
@@ -789,6 +878,16 @@ pub struct PublicView {
     /// `LastCallState::log`. Already capped at `LC_LOG_CAP` at the source
     /// (`push_log`) — this projection does no further trimming.
     pub log: Vec<LogEntry>,
+    /// The game's top-level phase — `phase()`, derived (`lc_phase`).
+    /// Replaces the `round == 1 && beat == Draw` / `!challenges.is_empty()` /
+    /// `outcome.is_some()` tests each surface used to re-derive for itself.
+    #[serde(default)]
+    pub phase: Phase,
+    /// Card-triggered table events waiting on the room, front entry active
+    /// (`lc_triggers`). Projected verbatim from `LastCallState::triggers` —
+    /// public the instant one exists, the `reactions`/`haunts` rule.
+    #[serde(default)]
+    pub triggers: Vec<TriggerEvent>,
     /// Challenge-cards container: projected verbatim from
     /// `LastCallState::challenges` — contestants, tallies and votes are the
     /// spectacle, public the instant they exist (the `reactions`/`haunts`
@@ -935,6 +1034,11 @@ impl LastCallState {
                 damage_dealt: 0,
                 pulls_spent: 0,
                 cards_played: 0,
+                cards_drawn: 0,
+                cards_discarded: 0,
+                drinks: 0,
+                damage_taken: 0,
+                healing_taken: 0,
                 elim_order: None,
                 rules: Vec::new(),
             })
@@ -948,8 +1052,8 @@ impl LastCallState {
             plays: Vec::new(),
             locked_plays: Vec::new(),
             effects: Vec::new(),
-            discards: Vec::new(),
-            deck_counts: Deck::ALL.iter().map(|&d| (d, 0)).collect(),
+            table: LcTable::new(),
+            rng: LcRng::seeded(rng_seed),
             seq: 0,
             beat_deadline_ms: None, // E1: round 1's Draw is the untimed lobby
             pacts: Vec::new(),
@@ -962,6 +1066,8 @@ impl LastCallState {
             haunts: Vec::new(),
             challenges: Vec::new(),
             challenge_seq: 0,
+            triggers: Vec::new(),
+            trigger_seq: 0,
             log: Vec::new(),
         };
         state.push_log(LogEntry::Round { round: 1 });
@@ -993,7 +1099,502 @@ impl LastCallState {
         // not deserialize past the ring (seat_pos renders short and a real
         // player's plaque silently vanishes).
         st.players.truncate(MAX_SEATS);
+        // Clean break for the real-decks change (decision 2026-08-23). A blob
+        // written before `table` existed carried `deck_counts` (a number) and
+        // `discards` (a flat vec) — neither records WHICH cards were still in
+        // a deck, so the piles cannot be reconstructed, only rebuilt. The
+        // container-level `#[serde(default)]` leaves `table` empty; here we
+        // re-open a full shoe for every deck any seated player is actually
+        // drinking from, seeded off the blob's own `rng_seed` so the rebuild
+        // is itself reproducible.
+        //
+        // What survives: hands, HP, vessels, effects, pacts, the log — every
+        // durable fact about the game. What resets: the draw order and the
+        // discard piles. A room mid-round sees its deck counts jump back to
+        // full; nothing else moves.
+        //
+        // Guarded on `table.shoes.is_empty()` rather than on a version flag,
+        // and that guard is load-bearing in the same way migration 018's is
+        // (see the portfolio's CLAUDE.md): re-running this on a live table
+        // would deal every deck 40 fresh cards and duplicate every card
+        // already in a hand. An empty table with players who hold vessels is
+        // unambiguously a legacy blob — a real game opens a shoe the moment
+        // anyone picks a vessel.
+        // `!players.is_empty()` is the second half of the guard, and it is
+        // what keeps `from_json("{}")` equal to `Default::default()`: an
+        // empty blob is a degenerate value, not a legacy game, and has no
+        // seed worth deriving a stream from.
+        if !st.players.is_empty() && st.table.shoes.is_empty() {
+            if st.rng == LcRng::default() {
+                st.rng = LcRng::seeded(st.rng_seed);
+            }
+            let decks: Vec<Deck> = Deck::ALL
+                .into_iter()
+                .filter(|&d| {
+                    st.players
+                        .iter()
+                        .any(|p| p.vessels.iter().any(|v| v.deck == d))
+                })
+                .collect();
+            for deck in decks {
+                st.table.open(deck, &mut st.rng);
+            }
+        }
         st
+    }
+
+    // ---------------------------------------------------------------
+    // The table: decks, draws, deals, discards.
+    //
+    // Everything that moves a card between a pile and a hand goes through
+    // this block. Route handlers call these and never touch `self.table`
+    // directly — the point of moving RNG into the engine is that there is
+    // exactly one place where card identity is decided.
+    // ---------------------------------------------------------------
+
+    /// Cards left to draw in `deck`. `0` for a deck nobody has opened.
+    pub fn deck_count(&self, deck: Deck) -> u16 {
+        self.table.remaining(deck).min(u16::MAX as usize) as u16
+    }
+
+    /// Every discarded card on the table, across all decks.
+    pub fn discards(&self) -> Vec<&Card> {
+        self.table.all_discards()
+    }
+
+    /// Total cards in every discard pile.
+    pub fn discard_count(&self) -> usize {
+        self.table.discard_total()
+    }
+
+    /// Open `deck`'s shoe if it isn't already — a full, shuffled pile.
+    /// Idempotent (see `LcTable::open`).
+    pub fn open_deck(&mut self, deck: Deck) {
+        let mut rng = self.rng;
+        self.table.open(deck, &mut rng);
+        self.rng = rng;
+    }
+
+    /// **Draw** up to `n` cards off `deck`'s pile and return them, without
+    /// giving them to anybody. The low-level primitive: `deal` puts cards in
+    /// a hand, this only takes them off the table.
+    ///
+    /// Short results are legal and expected — an exhausted shoe (both piles
+    /// empty) returns fewer than `n`, which is D7's "the min is what makes a
+    /// short shoe legal" rule now enforced by the pile itself rather than by
+    /// a caller computing `min(want, count)`.
+    pub fn draw_cards(&mut self, deck: Deck, n: usize) -> Vec<Card> {
+        let mut rng = self.rng;
+        let out = self.table.draw(deck, n, &mut rng);
+        self.rng = rng;
+        out
+    }
+
+    /// **Deal** up to `n` cards from `deck` into `seat`'s hand, firing any
+    /// `OnDraw` triggers the dealt cards carry. Returns how many actually
+    /// landed.
+    ///
+    /// The one path by which a card enters a hand. Bumps `cards_drawn`, and
+    /// deliberately does NOT enforce `HAND_SOFT_CAP` — the cap is a
+    /// resolve-time trim (D12), not a draw-time refusal, and moving it here
+    /// would silently swallow cards a player paid a beat for.
+    pub fn deal(&mut self, seat: usize, deck: Deck, n: usize) -> usize {
+        if seat >= self.players.len() {
+            return 0;
+        }
+        let drawn = self.draw_cards(deck, n);
+        let count = drawn.len();
+        for card in &drawn {
+            self.fire_trigger(&card.id, TriggerWhen::OnDraw, seat);
+        }
+        let p = &mut self.players[seat];
+        p.cards_drawn += count as u32;
+        p.hand.extend(drawn);
+        count
+    }
+
+    /// **Discard** cards onto their own decks' piles, firing `OnDiscard`
+    /// triggers. `source` attributes the discard for trigger purposes.
+    ///
+    /// A card always returns to the deck it came from, never to the pile of
+    /// whoever held it: a Beer card in a Wine drinker's hand is still a Beer
+    /// card. Bumps `cards_discarded` when a seat is named.
+    pub fn discard(&mut self, source: Option<usize>, cards: impl IntoIterator<Item = Card>) {
+        let cards: Vec<Card> = cards.into_iter().collect();
+        if cards.is_empty() {
+            return;
+        }
+        if let Some(seat) = source {
+            if let Some(p) = self.players.get_mut(seat) {
+                p.cards_discarded += cards.len() as u32;
+            }
+            for card in &cards {
+                let id = card.id.clone();
+                self.fire_trigger(&id, TriggerWhen::OnDiscard, seat);
+            }
+        }
+        self.table.discard(cards);
+    }
+
+    /// Force `deck`'s discard pile back under its draw pile. Returns cards
+    /// reclaimed; `0` means nothing was recycled and no log line is earned.
+    pub fn reshuffle_deck(&mut self, deck: Deck) -> usize {
+        let mut rng = self.rng;
+        let n = self.table.reshuffle(deck, &mut rng);
+        self.rng = rng;
+        n
+    }
+
+    // ---------------------------------------------------------------
+    // Phase: where the game is, and what each seat is expected to do.
+    //
+    // Both derived, never stored — see `lc_phase`. These replace the
+    // open-coded `round == 1 && beat == Draw` / `!challenges.is_empty()` /
+    // `outcome().is_some()` tests that each call site used to spell out for
+    // itself.
+    // ---------------------------------------------------------------
+
+    /// The game's top-level phase.
+    ///
+    /// Order matters: `Finished` wins over everything (a game that ended on
+    /// a challenge round is over, not parked), and `Challenge` wins over
+    /// `Playing` because the parked table genuinely cannot advance.
+    pub fn phase(&self) -> Phase {
+        if self.outcome().is_some() {
+            return Phase::Finished;
+        }
+        if !self.challenges.is_empty() {
+            return Phase::Challenge;
+        }
+        if self.round == 1 && self.beat == Beat::Draw {
+            return Phase::Lobby;
+        }
+        Phase::Playing
+    }
+
+    /// What `seat` is expected to be doing right now.
+    ///
+    /// The desync fix: every viewer reads one server-computed answer instead
+    /// of each client re-deriving "is the table waiting on me?" from
+    /// `locked`/`ready`/`drawing`/`status` and the beat. Out-of-range seats
+    /// report `Waiting` rather than panicking — a stale render must not
+    /// crash a room.
+    pub fn seat_phase(&self, seat: usize) -> SeatPhase {
+        let Some(p) = self.players.get(seat) else {
+            return SeatPhase::Waiting;
+        };
+        if self.outcome().is_some() {
+            return SeatPhase::Done;
+        }
+        if p.status == Status::Eliminated {
+            return SeatPhase::Ghost;
+        }
+        // A pending trigger outranks the beat: the table is held up on the
+        // acknowledgement, so a seat that still owes one is Acting whatever
+        // beat it is.
+        if let Some(t) = self.triggers.first() {
+            return if t.awaiting(seat) {
+                SeatPhase::Acting
+            } else {
+                SeatPhase::Waiting
+            };
+        }
+        if let Some(ch) = self.challenges.first() {
+            // Contestants perform; the electorate votes. Anyone in neither
+            // role is a spectator.
+            let contestant = ch.instigator == seat || ch.opponent == Some(seat);
+            let elector = ch.electorate.contains(&seat);
+            let voted = ch.votes.iter().any(|v| v.voter == seat);
+            return if contestant || (elector && !voted) {
+                SeatPhase::Acting
+            } else {
+                SeatPhase::Waiting
+            };
+        }
+        match self.beat {
+            // Open beats: the seat holds the beat up until it readies.
+            Beat::Draw | Beat::Diplomacy | Beat::Reveal => {
+                if p.ready {
+                    SeatPhase::Ready
+                } else {
+                    SeatPhase::Acting
+                }
+            }
+            // Lock: a locked seat is done for the round.
+            Beat::Lock => {
+                if p.locked {
+                    SeatPhase::Locked
+                } else {
+                    SeatPhase::Acting
+                }
+            }
+            // Auto beats — nothing is asked of anybody; the engine advances.
+            Beat::Deal | Beat::Resolve => SeatPhase::Waiting,
+        }
+    }
+
+    /// The Alive seats currently holding the beat up. Empty means the beat
+    /// is ready to advance — `all_ready()`'s question, asked in the phase
+    /// vocabulary and with ghosts and acked triggers already accounted for.
+    pub fn blocking_seats(&self) -> Vec<usize> {
+        self.players
+            .iter()
+            .map(|p| p.seat)
+            .filter(|&s| self.seat_phase(s).is_blocking())
+            .collect()
+    }
+
+    // ---------------------------------------------------------------
+    // Player interaction primitives.
+    //
+    // The four things anything in the game can do to a player. Before this
+    // block, `apply_damage` was private and heal/shield/drain were written
+    // inline inside `resolve()`'s per-play match — so a heal was a bare
+    // `hp += n` in one place and nothing else could reach it. Every effect
+    // application, every event hook and every challenge penalty now funnels
+    // through these four, which means shields, clamping, elimination and
+    // stat attribution are decided once.
+    // ---------------------------------------------------------------
+
+    /// Deal `amount` damage to `seat`, through shields, clamped at 0 HP,
+    /// eliminating on reaching it. Returns HP actually removed (0 when fully
+    /// shielded, or when `seat` was already dead).
+    ///
+    /// `source` attributes the hit for the `damage_dealt` counter and the
+    /// log; `None` for damage with no author (an event, a dot whose author
+    /// is gone). Logs a `Hit` only when something actually landed — a fully
+    /// absorbed hit is not an event.
+    pub fn damage(&mut self, seat: usize, amount: i32, source: Option<usize>) -> i32 {
+        if amount <= 0 || seat >= self.players.len() {
+            return 0;
+        }
+        if self.players[seat].status != Status::Alive {
+            return 0;
+        }
+        let applied = self.apply_damage(seat, amount);
+        if applied > 0 {
+            self.players[seat].damage_taken += applied as u32;
+            if let Some(src) = source {
+                if let Some(p) = self.players.get_mut(src) {
+                    p.damage_dealt += applied as u32;
+                }
+                self.push_log(LogEntry::Hit {
+                    source: src,
+                    target: seat,
+                    amount: applied,
+                });
+            }
+        }
+        applied
+    }
+
+    /// Heal `seat` by `amount`. Returns HP actually restored.
+    ///
+    /// No ceiling (TBD-3) — deliberately, so a big heal is a real comeback
+    /// rather than overflow into a cap. Ghosts do not heal: elimination is
+    /// permanent (D11), and healing one would resurrect a seat whose hand
+    /// and effects were already discarded.
+    pub fn heal(&mut self, seat: usize, amount: i32) -> i32 {
+        if amount <= 0 || seat >= self.players.len() {
+            return 0;
+        }
+        if self.players[seat].status != Status::Alive {
+            return 0;
+        }
+        self.players[seat].hp += amount;
+        self.players[seat].healing_taken += amount as u32;
+        self.push_log(LogEntry::Heal {
+            seat,
+            amount,
+        });
+        amount
+    }
+
+    /// Give `seat` a shield of `magnitude`, lasting `rounds` more rounds.
+    ///
+    /// Replace-not-stack by subject (D10): a second shield on the same seat
+    /// REPLACES the first rather than adding to it, so a player cannot bank
+    /// arbitrary absorption by holding shields. Registers immediately (F8),
+    /// so it absorbs later plays within the same round's resolution order.
+    pub fn shield(&mut self, seat: usize, magnitude: i32, rounds: u32, source: Option<usize>) {
+        if magnitude <= 0 || seat >= self.players.len() {
+            return;
+        }
+        if self.players[seat].status != Status::Alive {
+            return;
+        }
+        self.effects
+            .retain(|e| !(e.op == EffectOp::Shield && e.subject == seat));
+        self.effects.push(Effect {
+            source_play: 0,
+            subject: seat,
+            op: EffectOp::Shield,
+            magnitude,
+            expires_round: self.round + rounds,
+            source_seat: source.unwrap_or(seat),
+        });
+        self.push_log(LogEntry::Shield {
+            seat,
+            amount: magnitude,
+        });
+    }
+
+    /// Drain `n` pulls from `seat`'s fullest vessel (F4). Returns pulls
+    /// actually removed — fewer than `n` when the vessels run dry.
+    ///
+    /// Never touches HP. Counts toward `drinks`: a drained pull is a drink
+    /// somebody actually took.
+    pub fn drain(&mut self, seat: usize, n: i32, source: Option<usize>) -> i32 {
+        if n <= 0 || seat >= self.players.len() {
+            return 0;
+        }
+        let drained = drain_pulls(&mut self.players[seat], n);
+        if drained > 0 {
+            self.players[seat].drinks += drained as u32;
+            if let Some(src) = source {
+                self.push_log(LogEntry::Drain {
+                    source: src,
+                    target: seat,
+                    amount: drained,
+                });
+            }
+        }
+        drained
+    }
+
+    /// Current shield absorption remaining on `seat`, summed. `0` when
+    /// unshielded — the figure a UI would print next to HP.
+    pub fn shield_total(&self, seat: usize) -> i32 {
+        self.effects
+            .iter()
+            .filter(|e| e.op == EffectOp::Shield && e.subject == seat)
+            .map(|e| e.magnitude)
+            .sum()
+    }
+
+    // ---------------------------------------------------------------
+    // Card-triggered events (`lc_triggers`).
+    // ---------------------------------------------------------------
+
+    /// The active trigger, if the table is holding on one.
+    pub fn pending_trigger(&self) -> Option<&TriggerEvent> {
+        self.triggers.first()
+    }
+
+    /// Fire `card_id`'s trigger for `when`, if it has one. No-op otherwise —
+    /// the overwhelmingly common case, and why this is cheap to call from
+    /// every deal and every discard.
+    ///
+    /// Resolves the action's target NOW, against the live table, so an
+    /// announced "salute the leader" keeps pointing at whoever led when the
+    /// card turned up even if the resolution that follows changes the
+    /// standings.
+    fn fire_trigger(&mut self, card_id: &str, when: TriggerWhen, source: usize) {
+        let Some(def) = crate::lc_triggers::trigger_for(card_id, when) else {
+            return;
+        };
+        let target = match def.action {
+            TriggerAction::Salute { target } => match target {
+                SaluteTarget::Leader => self.extreme_hp_seat(true),
+                SaluteTarget::Loser => self.extreme_hp_seat(false),
+                SaluteTarget::Drawer => Some(source),
+            },
+            TriggerAction::DrawerDrinks { .. } => Some(source),
+            TriggerAction::TableDrink { .. } | TriggerAction::Announce => None,
+        };
+        self.trigger_seq += 1;
+        let key = self.trigger_seq;
+        self.triggers.push(TriggerEvent {
+            key,
+            id: def.id.to_string(),
+            card_id: card_id.to_string(),
+            when,
+            action: def.action,
+            source,
+            target,
+            round: self.round,
+            title: def.title.to_string(),
+            text: def.text.to_string(),
+            acked: Vec::new(),
+        });
+        self.push_log(LogEntry::Trigger {
+            seat: source,
+            title: def.title.to_string(),
+        });
+        self.apply_trigger_effect(def.action, source, target);
+        self.seq += 1;
+    }
+
+    /// The state change a trigger action carries, if any. Real-life
+    /// instructions (`Salute`, `Announce`) change nothing — the engine
+    /// announces them and the table does the rest.
+    fn apply_trigger_effect(
+        &mut self,
+        action: TriggerAction,
+        source: usize,
+        _target: Option<usize>,
+    ) {
+        match action {
+            TriggerAction::TableDrink { pulls } => {
+                let seats: Vec<usize> = self
+                    .players
+                    .iter()
+                    .filter(|p| p.status == Status::Alive)
+                    .map(|p| p.seat)
+                    .collect();
+                for s in seats {
+                    self.drain(s, pulls as i32, None);
+                }
+            }
+            TriggerAction::DrawerDrinks { pulls } => {
+                self.drain(source, pulls as i32, None);
+            }
+            TriggerAction::Salute { .. } | TriggerAction::Announce => {}
+        }
+    }
+
+    /// Highest (`high`) or lowest HP among the Alive; ties break to the
+    /// lowest seat. `None` at an empty table.
+    fn extreme_hp_seat(&self, high: bool) -> Option<usize> {
+        self.players
+            .iter()
+            .filter(|p| p.status == Status::Alive)
+            .min_by_key(|p| (if high { -p.hp } else { p.hp }, p.seat as i64))
+            .map(|p| p.seat)
+    }
+
+    /// Acknowledge the active trigger for `player_id`. The trigger clears
+    /// once every Alive seat has acked — ghosts are not waited on, the same
+    /// rule the beat's all-ready advance uses.
+    ///
+    /// `key` must name the ACTIVE trigger: an ack posted from a screen that
+    /// was showing the previous one is dropped rather than dismissing the
+    /// next in the queue (the `ChallengeState::key` precedent).
+    pub fn ack_trigger(&mut self, player_id: i64, key: u64) -> Result<(), LcError> {
+        let Some(seat) = self.seat_of(player_id) else {
+            return Err(LcError::NotSeated);
+        };
+        let Some(active) = self.triggers.first() else {
+            return Err(LcError::WrongBeat);
+        };
+        if active.key != key {
+            return Err(LcError::WrongBeat);
+        }
+        if !active.awaiting(seat) {
+            return Ok(()); // idempotent: a double-tap is not an error
+        }
+        self.triggers[0].acked.push(seat);
+        let alive: Vec<usize> = self
+            .players
+            .iter()
+            .filter(|p| p.status == Status::Alive)
+            .map(|p| p.seat)
+            .collect();
+        if alive.iter().all(|s| self.triggers[0].acked.contains(s)) {
+            self.triggers.remove(0);
+        }
+        self.seq += 1;
+        Ok(())
     }
 
     /// DDv2 9.3. None while the game is undecided — or while fewer than two
@@ -1085,6 +1686,11 @@ impl LastCallState {
             damage_dealt: 0,
             pulls_spent: 0,
             cards_played: 0,
+            cards_drawn: 0,
+            cards_discarded: 0,
+            drinks: 0,
+            damage_taken: 0,
+            healing_taken: 0,
             elim_order: None,
             rules: Vec::new(),
         });
@@ -1119,17 +1725,12 @@ impl LastCallState {
         if self.beat != Beat::Draw {
             return Err(LcError::WrongBeat);
         }
-        if !self
-            .players
-            .iter()
-            .any(|p| p.vessels.iter().any(|v| v.deck == deck))
-        {
-            if let Some(entry) = self.deck_counts.iter_mut().find(|(d, _)| *d == deck) {
-                entry.1 = LC_DECK_SIZE;
-            } else {
-                self.deck_counts.push((deck, LC_DECK_SIZE));
-            }
-        }
+        // Opening a deck is now dealing a real, shuffled 40-card pile
+        // rather than setting a counter to 40. `open_deck` is idempotent, so
+        // a second player picking the same deck joins the pile in progress
+        // instead of resetting it — which the old counter branch had to
+        // spell out as an explicit "is anybody already on this deck" scan.
+        self.open_deck(deck);
         let p = &mut self.players[seat];
         p.vessels.retain(|v| v.deck != deck);
         p.vessels.push(Vessel {
@@ -1138,34 +1739,46 @@ impl LastCallState {
             pulls_left: deck.pulls(),
             container: container.to_string(),
         });
-        let mut dealt: u16 = 0;
-        for card in crate::lc_cards::opening_hand(deck) {
-            if !p.hand.iter().any(|c| c.id == card.id) {
-                p.hand.push(card);
-                dealt += 1;
+        // The opening hand is a fixed, named set (`lc_cards::opening_hand`),
+        // not a random draw — so it is pulled OUT of the shoe by identity
+        // rather than dealt off the top, keeping the pile honest about what
+        // it still contains. A copy the shoe cannot supply (already dealt to
+        // an earlier player on this deck) is simply skipped: hands stay
+        // deduplicated and no card is conjured.
+        let wanted: Vec<Card> = crate::lc_cards::opening_hand(deck)
+            .into_iter()
+            .filter(|card| !p.hand.iter().any(|c| c.id == card.id))
+            .collect();
+        let mut dealt: Vec<Card> = Vec::with_capacity(wanted.len());
+        if let Some(shoe) = self.table.shoe_mut(deck) {
+            for card in wanted {
+                if let Some(pos) = shoe.draw_pile.iter().position(|c| c.id == card.id) {
+                    dealt.push(shoe.draw_pile.remove(pos));
+                }
             }
         }
-        if let Some(entry) = self.deck_counts.iter_mut().find(|(d, _)| *d == deck) {
-            entry.1 = entry.1.saturating_sub(dealt);
-        }
+        let p = &mut self.players[seat];
+        p.cards_drawn += dealt.len() as u32;
+        p.hand.extend(dealt);
         self.seq += 1;
         self.push_log(LogEntry::Vessel { seat, deck });
         Ok(())
     }
 
     /// DDv2 4.3 finish-&-draw, beat 1 only, once per player per round
-    /// (TBD-5). `drawn` is decided by the caller (no RNG here): its length
-    /// MUST equal `min(DRAW_PER_VESSEL, shoe count for the vessel's deck)`
-    /// and every card MUST belong to that deck (D7: the min is what makes a
-    /// short shoe legal). Empties-and-refills the vessel to `pulls_max`,
-    /// debits the shoe, extends the hand, sets `drawing` and
-    /// `draws_this_round`.
-    pub fn finish_and_draw(
-        &mut self,
-        player_id: i64,
-        vessel_idx: usize,
-        drawn: Vec<Card>,
-    ) -> Result<(), LcError> {
+    /// (TBD-5). Empties-and-refills the vessel to `pulls_max`, then deals up
+    /// to `DRAW_PER_VESSEL` cards off that deck's pile into the hand,
+    /// setting `drawing` and `draws_this_round`.
+    ///
+    /// **The caller no longer supplies the cards.** This used to take a
+    /// `drawn: Vec<Card>` that `lc_routes` had sampled with
+    /// `rand::thread_rng()`, and only validated its length and decks (the
+    /// "D6 split"). That split is gone: the engine owns the pile and the
+    /// RNG, so there is nothing left to validate and no way for a caller to
+    /// name the cards it would like to receive. A short shoe still deals
+    /// short rather than failing — D7's rule, now enforced by the pile
+    /// itself.
+    pub fn finish_and_draw(&mut self, player_id: i64, vessel_idx: usize) -> Result<(), LcError> {
         let Some(seat) = self.seat_of(player_id) else {
             return Err(LcError::NotSeated);
         };
@@ -1183,26 +1796,17 @@ impl LastCallState {
             return Err(LcError::BadDraw);
         }
         let deck = p.vessels[vessel_idx].deck;
-        let shoe = self
-            .deck_counts
-            .iter()
-            .find(|(d, _)| *d == deck)
-            .map(|&(_, c)| c)
-            .unwrap_or(0);
-        let expected = (DRAW_PER_VESSEL as u16).min(shoe) as usize;
-        if drawn.len() != expected || drawn.iter().any(|c| c.deck != deck) {
-            return Err(LcError::BadDraw);
-        }
 
         let p = &mut self.players[seat];
         p.vessels[vessel_idx].pulls_left = p.vessels[vessel_idx].pulls_max;
-        let drawn_count = drawn.len() as u16;
-        p.hand.extend(drawn);
+        // The engine deals now. `deal` takes real cards off the pile, so a
+        // short shoe produces a short draw (D7) without anybody computing a
+        // `min` — and firing `OnDraw` triggers is part of dealing, so a
+        // trigger card cannot enter a hand unannounced.
+        let drawn_count = self.deal(seat, deck, DRAW_PER_VESSEL) as u16;
+        let p = &mut self.players[seat];
         p.draws_this_round += drawn_count;
         p.drawing = true;
-        if let Some(entry) = self.deck_counts.iter_mut().find(|(d, _)| *d == deck) {
-            entry.1 = entry.1.saturating_sub(drawn_count);
-        }
         self.seq += 1;
         self.push_log(LogEntry::Draw {
             seat,
@@ -1215,20 +1819,21 @@ impl LastCallState {
     /// The per-card discard/redraw (beat-restructure, 2026-08-13). Draw-beat
     /// gated; round 1 (the lobby, once hands are dealt at registration) is
     /// unlimited, every later round allows ONE use — `mulliganed`, reset at
-    /// the rollover. `finish_and_draw`'s D6 split: card identity is decided
-    /// by the route (shoe-sampled per discarded card's own deck), this only
-    /// validates — each discard id must name a distinct hand card, each
-    /// replacement must match its discard's deck pairwise, and each deck's
-    /// shoe must cover what it's asked for. Discards join `self.discards`
-    /// (they re-enter the shoe at a reshuffle like play discards); shoe
-    /// counts drop per replacement, so hand size is preserved and the only
-    /// public traces are the count-shaped ones (log line, deck counts).
-    pub fn mulligan(
-        &mut self,
-        player_id: i64,
-        discard_ids: &[String],
-        replacements: Vec<Card>,
-    ) -> Result<(), LcError> {
+    /// the rollover.
+    ///
+    /// **The caller no longer supplies the replacements.** Like
+    /// `finish_and_draw`, this used to take a `replacements: Vec<Card>` that
+    /// `lc_routes` had sampled per discarded card's deck, and validated the
+    /// pairing. The engine now discards each named card to its own pile and
+    /// deals a fresh one off that same pile, so a mulligan is genuinely a
+    /// redraw — the discarded card is in the pile it might be redrawn from,
+    /// which with-replacement sampling could never express.
+    ///
+    /// A deck too short to replace what it was asked for deals short: the
+    /// hand shrinks rather than the mulligan failing, the same D7 call
+    /// `finish_and_draw` makes. Public traces stay count-shaped (the log
+    /// line, the deck counts) — no card identity leaks.
+    pub fn mulligan(&mut self, player_id: i64, discard_ids: &[String]) -> Result<(), LcError> {
         let Some(seat) = self.seat_of(player_id) else {
             return Err(LcError::NotSeated);
         };
@@ -1238,14 +1843,15 @@ impl LastCallState {
         if self.beat != Beat::Draw {
             return Err(LcError::WrongBeat);
         }
-        if discard_ids.is_empty() || replacements.len() != discard_ids.len() {
+        if discard_ids.is_empty() {
             return Err(LcError::BadDraw);
         }
         if self.round >= 2 && self.players[seat].mulliganed {
             return Err(LcError::BadDraw);
         }
-        // Each id claims a DISTINCT hand index (a hand can hold duplicates
-        // — F11's with-replacement sampling — so ids alone are ambiguous).
+        // Each id claims a DISTINCT hand index — a hand can hold duplicates
+        // (a real shoe carries `copies` of a card), so ids alone are
+        // ambiguous.
         let p = &self.players[seat];
         let mut taken: Vec<usize> = Vec::with_capacity(discard_ids.len());
         for id in discard_ids {
@@ -1260,26 +1866,6 @@ impl LastCallState {
             };
             taken.push(idx);
         }
-        for (i, &idx) in taken.iter().enumerate() {
-            if replacements[i].deck != p.hand[idx].deck {
-                return Err(LcError::BadDraw);
-            }
-        }
-        for deck in Deck::ALL {
-            let need = taken.iter().filter(|&&i| p.hand[i].deck == deck).count() as u16;
-            if need == 0 {
-                continue;
-            }
-            let shoe = self
-                .deck_counts
-                .iter()
-                .find(|(d, _)| *d == deck)
-                .map(|&(_, c)| c)
-                .unwrap_or(0);
-            if shoe < need {
-                return Err(LcError::BadDraw);
-            }
-        }
 
         let n = taken.len() as u8;
         let mut removed: Vec<Card> = Vec::with_capacity(taken.len());
@@ -1289,15 +1875,16 @@ impl LastCallState {
         for idx in order {
             removed.push(p.hand.remove(idx));
         }
-        for card in &replacements {
-            if let Some(entry) = self.deck_counts.iter_mut().find(|(d, _)| *d == card.deck) {
-                entry.1 = entry.1.saturating_sub(1);
-            }
+        // Discard FIRST, then draw. That ordering is the mechanic: the card
+        // you throw back is in the pile you draw from, so a mulligan on the
+        // last Beer card can return that same card. Drawing first would make
+        // the discarded card unreachable and quietly shrink the live pool.
+        let wanted: Vec<Deck> = removed.iter().map(|c| c.deck).collect();
+        self.discard(Some(seat), removed);
+        for deck in wanted {
+            self.deal(seat, deck, 1);
         }
-        let p = &mut self.players[seat];
-        p.hand.extend(replacements);
-        p.mulliganed = true; // only ever *checked* from round 2 on
-        self.discards.extend(removed);
+        self.players[seat].mulliganed = true; // only ever *checked* from round 2 on
         self.seq += 1;
         self.push_log(LogEntry::Mulligan { seat, n });
         Ok(())
@@ -1398,6 +1985,9 @@ impl LastCallState {
                     elim_order: p.elim_order,
                     // D2: deck counts over the same hand+armed+locked set
                     // as hand_len — see the field's doc comment.
+                    phase: self.seat_phase(p.seat),
+                    drinks: p.drinks,
+                    shield: self.shield_total(p.seat),
                     hand_by_deck: Deck::ALL
                         .iter()
                         .map(|&d| {
@@ -1417,13 +2007,13 @@ impl LastCallState {
             round: self.round,
             beat: self.beat,
             first_seat: self.first_seat,
-            deck_counts: self.deck_counts.clone(),
-            discard_count: self.discards.len(),
+            deck_counts: self.table.counts(),
+            discard_count: self.table.discard_total(),
             // J11: `Deck::ALL` order, matching `deck_counts` above, so
             // `lc_render::lc_screen_panel` can zip the two by position.
             discard_counts: Deck::ALL
                 .iter()
-                .map(|&d| (d, self.discards.iter().filter(|c| c.deck == d).count()))
+                .map(|&d| (d, self.table.shoe(d).map(|sh| sh.discarded()).unwrap_or(0)))
                 .collect(),
             revealed: match self.beat {
                 Beat::Reveal | Beat::Resolve => self.plays.clone(),
@@ -1498,6 +2088,8 @@ impl LastCallState {
             // site is a public-or-later transition) — no gate, no filter,
             // the same verbatim clone as `reactions`/`haunts`.
             log: self.log.clone(),
+            phase: self.phase(),
+            triggers: self.triggers.clone(),
             challenges: self.challenges.clone(),
         }
     }
@@ -2561,13 +3153,13 @@ impl LastCallState {
             // that the same as an eliminated source — no effect, the card
             // still leaves play — rather than panic on `self.players[..]`.
             let Some(source) = self.players.get(play.source_seat) else {
-                self.discards.push(play.card);
+                self.table.discard([play.card]);
                 continue;
             };
             if source.status == Status::Eliminated {
                 // 7.6: a source eliminated earlier this resolve plays
                 // nothing, but the card still leaves play (8.4).
-                self.discards.push(play.card);
+                self.table.discard([play.card]);
                 continue;
             }
 
@@ -2645,7 +3237,7 @@ impl LastCallState {
                 // still discards and the pulls already spent at reveal stay
                 // spent (7.5 parity); any haunt votes on it are wasted
                 // (Task 3).
-                self.discards.push(play.card);
+                self.table.discard([play.card]);
                 continue;
             }
 
@@ -2669,7 +3261,7 @@ impl LastCallState {
                     play.card.id.clone(),
                     reflected.get(&play.order_key).copied(),
                 ));
-                self.discards.push(play.card);
+                self.table.discard([play.card]);
                 continue;
             }
 
@@ -2735,7 +3327,7 @@ impl LastCallState {
                                 seat: play.source_seat,
                                 title: play.card.title.clone(),
                             });
-                            self.discards.push(play.card);
+                            self.table.discard([play.card]);
                             continue;
                         }
                     },
@@ -2859,7 +3451,7 @@ impl LastCallState {
                     }
                 }
             }
-            self.discards.push(play.card);
+            self.table.discard([play.card]);
         }
 
         // I11/8.4 parity: reactions die with the round, resolved or wasted
@@ -2869,8 +3461,8 @@ impl LastCallState {
         // matching play left to fold against (there always is one, since
         // `play_reaction`'s `BadTarget` guard requires it — but the drain
         // doesn't need that invariant to hold to be correct).
-        self.discards
-            .extend(self.reactions.drain(..).map(|rp| rp.card));
+        let spent_reactions: Vec<Card> = self.reactions.drain(..).map(|rp| rp.card).collect();
+        self.table.discard(spent_reactions);
         // I10: votes are not cards — cleared, not drained into `discards`.
         // Alongside the reaction drain so eligibility refreshes with the
         // round for both systems in the same step.
@@ -2983,7 +3575,7 @@ impl LastCallState {
             let p = &mut self.players[seat];
             if p.status == Status::Alive && p.hand.len() > HAND_SOFT_CAP {
                 let overflow = p.hand.split_off(HAND_SOFT_CAP);
-                self.discards.extend(overflow);
+                self.discard(Some(seat), overflow);
             }
         }
 
@@ -3227,35 +3819,30 @@ impl LastCallState {
             // `round < expires_round` — prune the ones that just aged out.
             p.rules.retain(|r| r.expires_round > self.round);
         }
-        // Reshuffle (8.4/§12): the shoe is a count, so a deck sitting at 0
-        // reclaims every discarded card of that deck straight back into the
-        // count, and those cards leave `discards`.
+        // Reshuffle (8.4/§12). The shoe is a real pile now, so this is a
+        // real reshuffle: an exhausted deck's discard pile is shuffled back
+        // underneath what's left of its draw pile. `LcTable::reshuffle`
+        // keeps `copies: 0` challenge prototypes out of the recycle, the
+        // same rule the old counter version applied via `card_in_shoe`.
+        //
+        // Note `Shoe::draw` ALSO reshuffles on demand when it runs dry
+        // mid-draw, so this pass is no longer load-bearing for correctness —
+        // a table can never be unable to deal because nobody called it. It
+        // stays because reshuffling at the round boundary is what the log
+        // line describes and what the deck counts should show going into the
+        // next Draw beat.
         let empty_decks: Vec<Deck> = self
-            .deck_counts
+            .table
+            .shoes
             .iter()
-            .filter(|&&(_, count)| count == 0)
-            .map(|&(deck, _)| deck)
+            .filter(|sh| sh.remaining() == 0)
+            .map(|sh| sh.deck)
             .collect();
         for deck in empty_decks {
-            let mut reclaimed: u16 = 0;
-            self.discards.retain(|c| {
-                // copies:0 challenge prototypes stay in `discards` (review
-                // wave): reclaiming one would inflate the count with a card
-                // the copy-weighted sampler can never deal back out.
-                if c.deck == deck && crate::lc_cards::card_in_shoe(&c.id) {
-                    reclaimed += 1;
-                    false
-                } else {
-                    true
-                }
-            });
-            if let Some(entry) = self.deck_counts.iter_mut().find(|(d, _)| *d == deck) {
-                entry.1 = reclaimed;
-            }
             // J2: only a real reshuffle (something was actually reclaimed)
             // earns a log line — a deck that was already empty with nothing
-            // in `discards` to reclaim is a no-op, not an event.
-            if reclaimed > 0 {
+            // to reclaim is a no-op, not an event.
+            if self.reshuffle_deck(deck) > 0 {
                 self.push_log(LogEntry::Reshuffle { deck });
             }
         }
@@ -3519,7 +4106,12 @@ impl LastCallState {
             p.elim_order = Some(next);
             let mut discarded: Vec<Card> = std::mem::take(&mut p.hand);
             discarded.extend(std::mem::take(&mut p.armed).into_iter().map(|a| a.card));
-            self.discards.extend(discarded);
+            // Straight to the table, not through `discard`: this is a
+            // player's whole hand being swept off the board on elimination,
+            // not a discard they made — attributing it to them would inflate
+            // `cards_discarded` and fire `OnDiscard` triggers for a seat
+            // that no longer exists.
+            self.table.discard(discarded);
             self.effects.retain(|e| e.subject != subject);
             // H10: ghosts hold no objectives. Permanent — the Draw→Deal
             // replacement deal only refills Alive seats, so an eliminated
@@ -3696,17 +4288,26 @@ pub fn preview_state() -> LastCallState {
     st.players[0].draws_this_round = 3; // the plaque's draw badge
     st.set_vessel(8, Deck::Soft, "any").unwrap(); // 8th seat: MAX_SEATS ceiling
     st.beat = Beat::Lock;
-    st.deck_counts = vec![
-        (Deck::Beer, 21),
+    // The preview's deck row wants a spread of counts — a healthy deck, a
+    // low one (`DECK_LOW_THRESHOLD`) and an exhausted one — so the renderer
+    // has every DeckStack state to draw. Real piles, drawn down to size.
+    for (deck, want) in [
+        (Deck::Beer, 21usize),
         (Deck::Cider, 17),
         (Deck::Wine, 4),
         (Deck::Liquor, 0),
         (Deck::Soft, 12),
-    ];
-    st.discards = crate::lc_cards::deck_cards(Deck::Beer)
-        .into_iter()
-        .take(4)
-        .collect(); // discard count 4
+    ] {
+        st.open_deck(deck);
+        let have = st.table.remaining(deck);
+        let burn = have.saturating_sub(want);
+        let burned = st.draw_cards(deck, burn);
+        // Beer's burn doubles as the preview's discard pile (count 4); the
+        // rest leave the table entirely so the counts land exactly.
+        if deck == Deck::Beer {
+            st.table.discard(burned.into_iter().take(4));
+        }
+    }
     st.seq = 42;
     st
 }
@@ -3743,15 +4344,53 @@ mod tests {
     }
 
     fn deck_count(st: &LastCallState, deck: Deck) -> u16 {
-        st.deck_counts.iter().find(|(d, _)| *d == deck).unwrap().1
+        st.deck_count(deck)
     }
 
+    /// Drive a real pile down (or up, from its own discards) to `count`.
+    ///
+    /// The counter version of this just assigned a number. A pile can only
+    /// be resized by moving cards, so shrinking burns off the top into
+    /// nowhere and growing pulls back from the discard pile — which means a
+    /// test asking for more than the deck physically owns gets what the deck
+    /// has, and says so rather than inventing cards.
     fn set_deck_count(st: &mut LastCallState, deck: Deck, count: u16) {
-        st.deck_counts
-            .iter_mut()
-            .find(|(d, _)| *d == deck)
-            .unwrap()
-            .1 = count;
+        st.open_deck(deck);
+        let count = count as usize;
+        let shoe = st.table.shoe_mut(deck).unwrap();
+        if shoe.draw_pile.len() > count {
+            shoe.draw_pile.truncate(count);
+        } else {
+            while shoe.draw_pile.len() < count {
+                match shoe.discard_pile.pop() {
+                    Some(c) => shoe.draw_pile.push(c),
+                    None => panic!(
+                        "{deck:?} has only {} cards; cannot set count to {count}",
+                        shoe.total()
+                    ),
+                }
+            }
+        }
+    }
+
+    /// Total cards in every discard pile — the old `st.discards.len()`.
+    fn discard_count(st: &LastCallState) -> usize {
+        st.discard_count()
+    }
+
+    /// Put cards on their decks' discard piles, opening those decks first.
+    /// The old `st.discards.push(..)` needed no setup because `discards` was
+    /// one flat vec; a pile has to exist before a card can sit on it.
+    fn push_discards(st: &mut LastCallState, cards: Vec<Card>) {
+        for deck in cards.iter().map(|c| c.deck).collect::<Vec<_>>() {
+            st.open_deck(deck);
+        }
+        st.table.discard(cards);
+    }
+
+    /// Every discarded card's id, deck-pile order.
+    fn discard_ids(st: &LastCallState) -> Vec<String> {
+        st.discards().iter().map(|c| c.id.clone()).collect()
     }
 
     #[test]
@@ -3877,8 +4516,7 @@ mod tests {
             expires_round: 3,
             source_seat: 0,
         });
-        st.discards
-            .push(crate::lc_cards::card_by_id("cider-01").unwrap());
+        push_discards(&mut st, vec![crate::lc_cards::card_by_id("cider-01").unwrap()]);
         st.beat = Beat::Lock;
         st.seq = 7;
         st.pacts.push(Pact {
@@ -4549,7 +5187,10 @@ mod tests {
         let mut st = seated();
         let beer = crate::lc_cards::deck_cards(Deck::Beer);
         let cider = crate::lc_cards::deck_cards(Deck::Cider);
-        st.discards = vec![beer[0].clone(), beer[1].clone(), cider[0].clone()];
+        push_discards(
+            &mut st,
+            vec![beer[0].clone(), beer[1].clone(), cider[0].clone()],
+        );
 
         let view = st.public_view();
         assert_eq!(
@@ -5021,36 +5662,46 @@ mod tests {
         st
     }
 
-    /// A same-deck replacement for the card at alice's hand index `i`,
-    /// picked to be an id she doesn't currently hold so "the discard left
-    /// the hand" stays assertable (the engine itself is happy with
-    /// duplicates — F11 sampling).
-    fn replacement_for(st: &LastCallState, i: usize) -> Card {
-        let deck = st.players[0].hand[i].deck;
-        crate::lc_cards::shoe(deck)
-            .iter()
-            .find(|s| !st.players[0].hand.iter().any(|h| h.id == s.id))
-            .unwrap()
-            .clone()
-    }
 
     #[test]
     fn test_mulligan_swaps_cards_and_keeps_hand_size() {
         let mut st = lobby_with_hand();
         let hand_before = st.players[0].hand.len();
-        let discards_before = st.discards.len();
-        let shoe_before = st.deck_counts[0].1; // Beer
+        let shoe_before = deck_count(&st, Deck::Beer);
         let ids = vec![
             st.players[0].hand[0].id.clone(),
             st.players[0].hand[1].id.clone(),
         ];
-        let reps = vec![replacement_for(&st, 0), replacement_for(&st, 1)];
-        st.mulligan(1, &ids, reps).unwrap();
+        st.mulligan(1, &ids).unwrap();
         assert_eq!(st.players[0].hand.len(), hand_before); // size preserved
-        assert!(!st.players[0].hand.iter().any(|c| c.id == ids[0]));
-        assert_eq!(st.discards.len(), discards_before + 2);
-        assert_eq!(st.deck_counts[0].1, shoe_before - 2); // shoe debited
+        // Net shoe movement is zero: two cards went to the discard pile and
+        // two came off the draw pile, so `total()` is unchanged even though
+        // the draw count moved. That is the conservation the counter version
+        // could not express — it only ever decremented.
+        assert_eq!(deck_count(&st, Deck::Beer), shoe_before - 2);
+        assert_eq!(st.players[0].cards_discarded, 2);
         assert_eq!(st.log.last(), Some(&LogEntry::Mulligan { seat: 0, n: 2 }));
+    }
+
+    /// The mechanic the counter version could not have: a discarded card is
+    /// back in the pile it is redrawn from. Mulligan the whole hand on a
+    /// pile drained to nothing else, and the cards you get back can only be
+    /// the ones you just threw.
+    #[test]
+    fn test_a_mulligan_discards_before_it_draws() {
+        let mut st = lobby_with_hand();
+        set_deck_count(&mut st, Deck::Beer, 0); // nothing left to draw
+        let ids: Vec<String> = st.players[0].hand.iter().map(|c| c.id.clone()).collect();
+        let n = ids.len();
+        st.mulligan(1, &ids).unwrap();
+        // Every replacement came from the reshuffled discard pile, so the
+        // hand is the same size and made of the same multiset.
+        assert_eq!(st.players[0].hand.len(), n);
+        let mut got: Vec<String> = st.players[0].hand.iter().map(|c| c.id.clone()).collect();
+        let mut want = ids.clone();
+        got.sort();
+        want.sort();
+        assert_eq!(got, want);
     }
 
     #[test]
@@ -5059,20 +5710,17 @@ mod tests {
         let mut st = lobby_with_hand();
         for _ in 0..2 {
             let id = st.players[0].hand[0].id.clone();
-            let rep = replacement_for(&st, 0);
-            st.mulligan(1, &[id], vec![rep]).unwrap();
+            st.mulligan(1, &[id]).unwrap();
         }
 
         // Round 2: the first swap spends the round's one use.
         let mut st = lobby_with_hand();
         st.round = 2;
         let id = st.players[0].hand[0].id.clone();
-        let rep = replacement_for(&st, 0);
-        st.mulligan(1, &[id], vec![rep]).unwrap();
+        st.mulligan(1, &[id]).unwrap();
         let id = st.players[0].hand[0].id.clone();
-        let rep = replacement_for(&st, 0);
         assert_eq!(
-            st.mulligan(1, std::slice::from_ref(&id), vec![rep]),
+            st.mulligan(1, std::slice::from_ref(&id)),
             Err(LcError::BadDraw)
         );
 
@@ -5081,28 +5729,44 @@ mod tests {
         st.resolve().unwrap();
         assert!(!st.players[0].mulliganed);
         let id = st.players[0].hand[0].id.clone();
-        let rep = replacement_for(&st, 0);
-        st.mulligan(1, &[id], vec![rep]).unwrap();
+        st.mulligan(1, &[id]).unwrap();
     }
 
+    /// The wrong-deck-replacement case is gone with the `replacements`
+    /// parameter: the engine draws each replacement from the discarded
+    /// card's own pile, so a deck mismatch is no longer representable.
     #[test]
-    fn test_mulligan_validates_ids_decks_and_beat() {
+    fn test_mulligan_validates_ids_and_beat() {
         let mut st = lobby_with_hand();
         // Unknown id.
-        let rep = replacement_for(&st, 0);
         assert_eq!(
-            st.mulligan(1, &["no-such-card".into()], vec![rep]),
+            st.mulligan(1, &["no-such-card".into()]),
             Err(LcError::UnknownCard)
         );
-        // Wrong-deck replacement (alice's hand is Beer; hand a Wine back).
+        // Empty request.
+        assert_eq!(st.mulligan(1, &[]), Err(LcError::BadDraw));
+        // Not seated.
         let id = st.players[0].hand[0].id.clone();
-        let wrong = crate::lc_cards::shoe(Deck::Wine)[0].clone();
-        assert_eq!(st.mulligan(1, &[id], vec![wrong]), Err(LcError::BadDraw));
+        assert_eq!(st.mulligan(99, &[id]), Err(LcError::NotSeated));
         // Wrong beat.
         st.beat = Beat::Diplomacy;
         let id = st.players[0].hand[0].id.clone();
-        let rep = replacement_for(&st, 0);
-        assert_eq!(st.mulligan(1, &[id], vec![rep]), Err(LcError::WrongBeat));
+        assert_eq!(st.mulligan(1, &[id]), Err(LcError::WrongBeat));
+    }
+
+    /// A hand can hold real duplicates now (a shoe carries `copies` of a
+    /// card), so naming the same id twice must claim two distinct cards
+    /// rather than the same one twice.
+    #[test]
+    fn test_mulligan_claims_distinct_hand_cards_for_a_repeated_id() {
+        let mut st = lobby_with_hand();
+        let dup = st.players[0].hand[0].clone();
+        st.players[0].hand.push(dup.clone());
+        let before = st.players[0].hand.iter().filter(|c| c.id == dup.id).count();
+        assert!(before >= 2);
+        st.mulligan(1, &[dup.id.clone(), dup.id.clone()]).unwrap();
+        let after = st.players[0].hand.iter().filter(|c| c.id == dup.id).count();
+        assert_eq!(after, before - 2, "both copies must have been claimed");
     }
 
     #[test]
@@ -5322,8 +5986,12 @@ mod tests {
             1
         );
 
-        assert!(st.deck_counts.iter().any(|&(_, c)| c == 0));
-        assert!(st.deck_counts.iter().any(|&(_, c)| (1..5).contains(&c)));
+        assert!(st.table.counts().iter().any(|&(_, c)| c == 0));
+        assert!(st
+            .table
+            .counts()
+            .iter()
+            .any(|&(_, c)| (1..5).contains(&c)));
     }
 
     #[test]
@@ -5355,8 +6023,7 @@ mod tests {
         st.set_vessel(1, Deck::Beer, "can").unwrap(); // shoe 35, hand 5, 8/8
         st.players[0].vessels[0].pulls_left = 2; // most of the can is gone
         let before_seq = st.seq;
-        let drawn = crate::lc_cards::deck_cards(Deck::Beer)[..5].to_vec();
-        st.finish_and_draw(1, 0, drawn).unwrap();
+        st.finish_and_draw(1, 0).unwrap();
         let p = &st.players[0];
         assert_eq!(p.vessels[0].pulls_left, 8); // fresh can
         assert_eq!(p.hand.len(), 10);
@@ -5371,29 +6038,56 @@ mod tests {
         // TBD-5
         let mut st = seated();
         st.set_vessel(1, Deck::Beer, "can").unwrap();
-        let drawn = crate::lc_cards::deck_cards(Deck::Beer)[..5].to_vec();
-        st.finish_and_draw(1, 0, drawn.clone()).unwrap();
-        assert_eq!(st.finish_and_draw(1, 0, drawn), Err(LcError::BadDraw));
+        st.finish_and_draw(1, 0).unwrap();
+        assert_eq!(st.finish_and_draw(1, 0), Err(LcError::BadDraw));
     }
 
+    /// The batch-validation cases (too few cards, a foreign deck in the
+    /// batch) are gone with the `drawn` parameter — a caller can no longer
+    /// name the cards it receives, so there is nothing to validate. What is
+    /// left are the request-shape guards.
     #[test]
-    fn test_finish_and_draw_validates_the_batch() {
+    fn test_finish_and_draw_validates_the_request() {
         let mut st = seated();
-        st.set_vessel(1, Deck::Beer, "can").unwrap(); // shoe 35 → expects 5
-                                                      // Too few:
-        assert_eq!(
-            st.finish_and_draw(1, 0, crate::lc_cards::deck_cards(Deck::Beer)[..4].to_vec()),
-            Err(LcError::BadDraw)
-        );
-        // Right count, wrong deck in the batch:
-        let mut bad = crate::lc_cards::deck_cards(Deck::Beer)[..4].to_vec();
-        bad.push(crate::lc_cards::card_by_id("cider-01").unwrap());
-        assert_eq!(st.finish_and_draw(1, 0, bad), Err(LcError::BadDraw));
+        st.set_vessel(1, Deck::Beer, "can").unwrap();
         // Bad vessel index:
-        assert_eq!(st.finish_and_draw(1, 5, vec![]), Err(LcError::BadDraw));
+        assert_eq!(st.finish_and_draw(1, 5), Err(LcError::BadDraw));
+        // Not seated:
+        assert_eq!(st.finish_and_draw(99, 0), Err(LcError::NotSeated));
         // Wrong beat:
         st.beat = Beat::Deal;
-        assert_eq!(st.finish_and_draw(1, 0, vec![]), Err(LcError::WrongBeat));
+        assert_eq!(st.finish_and_draw(1, 0), Err(LcError::WrongBeat));
+    }
+
+    /// The old with-replacement sampler could deal the same card five times
+    /// from a "40-card shoe". A real pile cannot: drawing the whole Beer
+    /// deck reproduces the catalog's copy counts exactly.
+    #[test]
+    fn test_a_deck_deals_each_copy_once() {
+        let mut st = seated();
+        st.open_deck(Deck::Beer);
+        let all = st.draw_cards(Deck::Beer, LC_DECK_SIZE as usize);
+        assert_eq!(all.len(), LC_DECK_SIZE as usize);
+        for def in crate::lc_cards::CATALOG.iter().filter(|d| d.deck == Deck::Beer) {
+            let n = all.iter().filter(|c| c.id == def.id).count();
+            assert_eq!(n, def.copies as usize, "{}", def.id);
+        }
+        assert_eq!(deck_count(&st, Deck::Beer), 0);
+    }
+
+    /// Two seats on the same deck share one pile — the second `set_vessel`
+    /// must not re-open it and deal 40 fresh cards into circulation.
+    #[test]
+    fn test_two_players_on_one_deck_share_the_pile() {
+        let mut st = seated();
+        st.set_vessel(1, Deck::Beer, "can").unwrap();
+        let after_first = deck_count(&st, Deck::Beer);
+        st.set_vessel(2, Deck::Beer, "bottle").unwrap();
+        assert!(
+            deck_count(&st, Deck::Beer) < after_first,
+            "the second opening hand must come off the SAME pile"
+        );
+        assert_eq!(st.table.shoes.len(), 1);
     }
 
     #[test]
@@ -5401,13 +6095,14 @@ mod tests {
         // D7
         let mut st = seated();
         st.set_vessel(1, Deck::Beer, "can").unwrap();
-        set_deck_count(&mut st, Deck::Beer, 3); // shoe nearly out → expects 3
-        let five = crate::lc_cards::deck_cards(Deck::Beer)[..5].to_vec();
-        assert_eq!(st.finish_and_draw(1, 0, five), Err(LcError::BadDraw));
-        let three = crate::lc_cards::deck_cards(Deck::Beer)[..3].to_vec();
-        st.finish_and_draw(1, 0, three).unwrap();
+        set_deck_count(&mut st, Deck::Beer, 3); // shoe nearly out
+        let hand_before = st.players[0].hand.len();
+        // Asking for five off a pile of three deals three — short, not an
+        // error. The caller no longer computes the min; the pile does.
+        st.finish_and_draw(1, 0).unwrap();
         assert_eq!(deck_count(&st, Deck::Beer), 0);
-        assert_eq!(st.players[0].hand.len(), 8);
+        assert_eq!(st.players[0].hand.len(), hand_before + 3);
+        assert_eq!(st.players[0].draws_this_round, 3);
     }
 
     /// M7 (D7 taken to its edge): an empty shoe makes `expected = 0`, so an
@@ -5422,7 +6117,7 @@ mod tests {
         set_deck_count(&mut st, Deck::Beer, 0);
         st.players[0].vessels[0].pulls_left = 2; // most of the can is gone
         let hand_before = st.players[0].hand.len();
-        st.finish_and_draw(1, 0, vec![]).unwrap();
+        st.finish_and_draw(1, 0).unwrap();
         assert_eq!(st.players[0].vessels[0].pulls_left, 8); // still refills
         assert_eq!(st.players[0].hand.len(), hand_before); // nothing to draw
         assert_eq!(st.players[0].draws_this_round, 0);
@@ -5439,7 +6134,7 @@ mod tests {
         assert_eq!(st.players[1].hp, 9); // 15 - 2 (beer-01) - 4 (beer-02)
         assert_eq!(st.players[0].hp, 9); // 15 - 6 (cider-04)
         assert!(st.plays.is_empty()); // the queue empties every round (§14)
-        assert_eq!(st.discards.len(), 3);
+        assert_eq!(discard_count(&st), 3);
         assert_eq!(st.round, 2);
         assert_eq!(st.beat, Beat::Draw);
         assert_eq!(st.first_seat, 1); // rotated (D13)
@@ -5489,7 +6184,7 @@ mod tests {
         });
         st.resolve().unwrap();
         assert_eq!(st.players[1].hp, STARTING_HP); // untouched
-        assert_eq!(st.discards.len(), 1); // the card still leaves play (8.4)
+        assert_eq!(discard_count(&st), 1); // the card still leaves play (8.4)
     }
 
     /// M3: a `targets == "one"` play whose target seat no longer exists
@@ -5508,7 +6203,7 @@ mod tests {
         });
         st.resolve().unwrap();
         assert!(st.players.iter().all(|p| p.hp == STARTING_HP));
-        assert_eq!(st.discards.len(), 1);
+        assert_eq!(discard_count(&st), 1);
     }
 
     /// M3: a stored `Effect` naming a subject seat that no longer exists is
@@ -5572,7 +6267,7 @@ mod tests {
         assert!(st.players[1].hand.is_empty()); // ghosts hold no cards (9.2)
         assert_eq!(st.players[0].vessels[0].pulls_left, 5); // 7.5: no refund
                                                             // beer-01 + beer-02 + cider-04 + bob's 4 hand cards:
-        assert_eq!(st.discards.len(), 7);
+        assert_eq!(discard_count(&st), 7);
         assert_eq!(st.outcome(), None); // cara still stands
     }
 
@@ -5695,7 +6390,7 @@ mod tests {
             .collect(); // 16
         st.resolve().unwrap();
         assert_eq!(st.players[1].hand.len(), HAND_SOFT_CAP);
-        assert_eq!(st.discards.len(), 4);
+        assert_eq!(discard_count(&st), 4);
         // Survivors: all 8 of copy one plus copy two's first four
         // (cider-01..04 again); discards: copy two's last four
         // (cider-05..08) — the newest cards, dropped from the end of the
@@ -5710,9 +6405,8 @@ mod tests {
                 "cider-08", "cider-01", "cider-02", "cider-03", "cider-04",
             ]
         );
-        let discard_ids: Vec<&str> = st.discards.iter().map(|c| c.id.as_str()).collect();
         assert_eq!(
-            discard_ids,
+            discard_ids(&st),
             vec!["cider-05", "cider-06", "cider-07", "cider-08"]
         );
     }
@@ -5722,14 +6416,14 @@ mod tests {
         // 8.4, §12
         let mut st = at_lock();
         set_deck_count(&mut st, Deck::Beer, 0);
-        st.discards = crate::lc_cards::deck_cards(Deck::Beer)[..3].to_vec();
-        st.discards
-            .push(crate::lc_cards::card_by_id("cider-01").unwrap());
+        let mut seed = crate::lc_cards::deck_cards(Deck::Beer)[..3].to_vec();
+        seed.push(crate::lc_cards::card_by_id("cider-01").unwrap());
+        push_discards(&mut st, seed);
         st.advance_beat().unwrap();
         st.advance_beat().unwrap();
         st.resolve().unwrap();
         assert_eq!(deck_count(&st, Deck::Beer), 3);
-        assert_eq!(st.discards.len(), 1); // the cider card stays put
+        assert_eq!(discard_count(&st), 1); // the cider card stays put
     }
 
     #[test]
@@ -5867,7 +6561,7 @@ mod tests {
         st.beat = Beat::Resolve;
         st.resolve().unwrap();
         assert!(st.players.iter().all(|p| p.hp == 15));
-        assert_eq!(st.discards.len(), 1); // still discarded (8.4)
+        assert_eq!(discard_count(&st), 1); // still discarded (8.4)
     }
 
     #[test]
@@ -5942,7 +6636,7 @@ mod tests {
         st.beat = Beat::Resolve;
         st.resolve().unwrap();
         assert!(st.players.iter().all(|p| p.hp == 15)); // no subject resolved, nothing hit
-        assert_eq!(st.discards.len(), 1); // card still leaves play (8.4)
+        assert_eq!(discard_count(&st), 1); // card still leaves play (8.4)
     }
 
     // Plan H Task 2: events in the engine.
@@ -6301,6 +6995,11 @@ mod tests {
             damage_dealt: 0,
             pulls_spent: 0,
             cards_played: 0,
+            cards_drawn: 0,
+            cards_discarded: 0,
+            drinks: 0,
+            damage_taken: 0,
+            healing_taken: 0,
             elim_order: None,
             rules: Vec::new(),
         };
@@ -6642,7 +7341,7 @@ mod tests {
         st.resolve().unwrap();
         assert_eq!(st.players[1].hp, 15); // cancelled
         assert_eq!(st.players[0].vessels[0].pulls_left, 6); // 7.5: no refund
-        assert_eq!(st.discards.len(), 2); // beer-02 + cider-08
+        assert_eq!(discard_count(&st), 2); // beer-02 + cider-08
         assert!(st.reactions.is_empty());
         assert_eq!(st.round, 2); // rollover unbothered
     }
@@ -6754,7 +7453,7 @@ mod tests {
         st.advance_beat().unwrap();
         st.resolve().unwrap();
         assert_eq!(st.players[1].hp, 15); // cancelled once; the echo fizzled
-        assert_eq!(st.discards.len(), 3); // the play + both reactions
+        assert_eq!(discard_count(&st), 3); // the play + both reactions
     }
 
     /// Self-review: a reaction charged and folded in still gets wasted if
@@ -7231,7 +7930,7 @@ mod tests {
         assert!(ch.votes.is_empty());
         assert_eq!(ch.round, 1);
         // The card left play like any other resolved play.
-        assert!(st.discards.iter().any(|c| c.id == "liquor-09"));
+        assert!(st.discards().iter().any(|c| c.id == "liquor-09"));
         assert!(st.log.iter().any(|e| matches!(
             e,
             LogEntry::ChallengeOpen {
@@ -7725,10 +8424,13 @@ mod tests {
         let mut st = seated();
         st.set_vessel(1, Deck::Liquor, "glass").unwrap();
         set_deck_count(&mut st, Deck::Liquor, 0);
-        st.discards
-            .push(crate::lc_cards::card_by_id("liquor-09").unwrap());
-        st.discards
-            .push(crate::lc_cards::card_by_id("liquor-01").unwrap());
+        push_discards(
+            &mut st,
+            vec![
+                crate::lc_cards::card_by_id("liquor-09").unwrap(),
+                crate::lc_cards::card_by_id("liquor-01").unwrap(),
+            ],
+        );
         st.rollover(st.pact_breaks.len());
         assert_eq!(
             deck_count(&st, Deck::Liquor),
@@ -7736,7 +8438,7 @@ mod tests {
             "only the copies>=1 card reclaims"
         );
         assert!(
-            st.discards.iter().any(|c| c.id == "liquor-09"),
+            st.discards().iter().any(|c| c.id == "liquor-09"),
             "the prototype stays in discards"
         );
     }

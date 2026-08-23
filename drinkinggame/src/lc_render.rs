@@ -982,6 +982,7 @@ fn log_tag(entry: &LogEntry) -> &'static str {
         LogEntry::Fizzle { .. } => "fizzle",
         LogEntry::Eliminated { .. } => "eliminated",
         LogEntry::Reshuffle { .. } => "reshuffle",
+        LogEntry::Trigger { .. } => "trigger",
         LogEntry::GameOver { .. } => "game_over",
         LogEntry::PactBreak { .. } => "pact_break",
         LogEntry::TabSettle { .. } => "tab_settle",
@@ -1057,6 +1058,14 @@ fn log_line(view: &PublicView, entry: &LogEntry) -> String {
         LogEntry::Fizzle { title, .. } => format!("{} FIZZLES", html_escape(title)),
         LogEntry::Eliminated { seat } => format!("{} IS OUT", log_seat_name(view, *seat)),
         LogEntry::Reshuffle { deck } => format!("{} RESHUFFLES", deck.label()),
+        // The trigger's own title, already uppercase from the catalog. The
+        // seat is named because a trigger always has an author (whoever drew
+        // or played the card) — unlike a reshuffle, which the table does.
+        LogEntry::Trigger { seat, title } => format!(
+            "{} — {}",
+            log_seat_name(view, *seat),
+            html_escape(title)
+        ),
         // Fix wave (Important 1): a pact win names both winners, matching
         // the end card's/banner's "THE PACT HOLDS" framing on the same
         // screen instead of the solo-outlast copy for one of the two.
@@ -2581,6 +2590,9 @@ mod tests {
             pulls_spent: 0,
             cards_played: 0,
             elim_order: None,
+            phase: crate::lc_phase::SeatPhase::Waiting,
+            drinks: 0,
+            shield: 0,
             hand_by_deck: Vec::new(),
         };
         let plaque = player_plaque(&seat);
@@ -2783,6 +2795,9 @@ mod tests {
             pulls_spent: 0,
             cards_played: 0,
             elim_order: None,
+            phase: crate::lc_phase::SeatPhase::Waiting,
+            drinks: 0,
+            shield: 0,
             hand_by_deck: Vec::new(),
         };
         let html = player_plaque(&seat);
@@ -3151,7 +3166,10 @@ mod tests {
                 pulls_spent: 0,
                 cards_played: 0,
                 elim_order: None,
-                hand_by_deck: Vec::new(),
+                phase: crate::lc_phase::SeatPhase::Waiting,
+            drinks: 0,
+            shield: 0,
+            hand_by_deck: Vec::new(),
             })
             .collect();
         PublicView {
@@ -3160,6 +3178,8 @@ mod tests {
             beat: Beat::Draw,
             first_seat: 0,
             deck_counts: Deck::ALL.iter().map(|&d| (d, 0)).collect(),
+            phase: crate::lc_phase::Phase::Playing,
+            triggers: Vec::new(),
             discard_count: 0,
             discard_counts: Deck::ALL.iter().map(|&d| (d, 0)).collect(),
             revealed: Vec::new(),
