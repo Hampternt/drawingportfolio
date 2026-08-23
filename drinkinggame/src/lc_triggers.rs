@@ -103,20 +103,42 @@ pub struct TriggerDef {
 
 /// The trigger catalog.
 ///
-/// One entry, pointing at a card id that is **not** in `lc_cards::CATALOG`
-/// yet — the machinery is live and tested, the content is a separate call.
+/// Three entries, one per `TriggerWhen`, each pointing at a card id that is
+/// **not** in `lc_cards::CATALOG` yet. The machinery is live and tested; the
+/// content is a separate call. One per moment on purpose: a variant with no
+/// entry is a variant nothing exercises, and `OnPlay`/`OnDiscard` would have
+/// been dead code the first time somebody trusted them.
+///
 /// Wiring a real card up is: add the card to `lc_cards::CATALOG`, then point
 /// a `TriggerDef` at its id. Nothing in the engine changes.
-pub const TRIGGERS: [TriggerDef; 1] = [TriggerDef {
-    id: "salute-the-leader",
-    card_id: "beer-salute", // placeholder — no such card in CATALOG yet
-    when: TriggerWhen::OnDraw,
-    action: TriggerAction::Salute {
-        target: SaluteTarget::Leader,
+pub const TRIGGERS: [TriggerDef; 3] = [
+    TriggerDef {
+        id: "salute-the-leader",
+        card_id: "beer-salute", // placeholder — no such card in CATALOG yet
+        when: TriggerWhen::OnDraw,
+        action: TriggerAction::Salute {
+            target: SaluteTarget::Leader,
+        },
+        title: "SALUTE THE LEADER",
+        text: "Everyone salute whoever's ahead. Last hand up drinks.",
     },
-    title: "SALUTE THE LEADER",
-    text: "Everyone salute whoever's ahead. Last hand up drinks.",
-}];
+    TriggerDef {
+        id: "round-on-the-house",
+        card_id: "cider-round", // placeholder
+        when: TriggerWhen::OnPlay,
+        action: TriggerAction::TableDrink { pulls: 1 },
+        title: "A ROUND ON THE HOUSE",
+        text: "Everyone drinks one. You're paying, so make it count.",
+    },
+    TriggerDef {
+        id: "one-for-the-road",
+        card_id: "liquor-road", // placeholder
+        when: TriggerWhen::OnDiscard,
+        action: TriggerAction::DrawerDrinks { pulls: 1 },
+        title: "ONE FOR THE ROAD",
+        text: "Throwing this one away? Finish it first.",
+    },
+];
 
 /// The trigger a card fires at `when`, if any. Fail-soft: an unknown card id
 /// is `None`, never a panic.
@@ -202,9 +224,38 @@ mod tests {
     #[test]
     fn test_when_discriminates() {
         // The same card at a different moment is a different trigger — and
-        // absent here, since the example only fires on draw.
+        // absent here, since the salute example only fires on draw.
         assert!(trigger_for("beer-salute", TriggerWhen::OnPlay).is_none());
         assert!(trigger_for("beer-salute", TriggerWhen::OnDiscard).is_none());
+    }
+
+    /// Every `TriggerWhen` needs at least one entry, or the engine's firing
+    /// site for that moment is never exercised by anything.
+    #[test]
+    fn test_every_moment_has_a_worked_example() {
+        for when in [
+            TriggerWhen::OnDraw,
+            TriggerWhen::OnPlay,
+            TriggerWhen::OnDiscard,
+        ] {
+            assert!(
+                TRIGGERS.iter().any(|t| t.when == when),
+                "{when:?} has no example — its fire site is untested"
+            );
+        }
+    }
+
+    /// The examples must not collide with real cards: firing one in a live
+    /// game would be a balance change nobody asked for.
+    #[test]
+    fn test_examples_point_at_no_real_card() {
+        for t in TRIGGERS.iter() {
+            assert!(
+                crate::lc_cards::card_by_id(t.card_id).is_none(),
+                "{} points at a real card",
+                t.id
+            );
+        }
     }
 
     #[test]

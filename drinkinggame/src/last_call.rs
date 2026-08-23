@@ -1233,8 +1233,7 @@ impl LastCallState {
                 p.cards_discarded += cards.len() as u32;
             }
             for card in &cards {
-                let id = card.id.clone();
-                self.fire_trigger(&id, TriggerWhen::OnDiscard, seat);
+                self.fire_trigger(&card.id, TriggerWhen::OnDiscard, seat);
             }
         }
         self.table.discard(cards);
@@ -1793,21 +1792,38 @@ impl LastCallState {
             pulls_left: deck.pulls(),
             container: container.to_string(),
         });
-        // The opening hand is a fixed, named set (`lc_cards::opening_hand`),
-        // not a random draw — so it is pulled OUT of the shoe by identity
-        // rather than dealt off the top, keeping the pile honest about what
-        // it still contains. A copy the shoe cannot supply (already dealt to
-        // an earlier player on this deck) is simply skipped: hands stay
-        // deduplicated and no card is conjured.
-        let wanted: Vec<Card> = crate::lc_cards::opening_hand(deck)
-            .into_iter()
-            .filter(|card| !p.hand.iter().any(|c| c.id == card.id))
-            .collect();
-        let mut dealt: Vec<Card> = Vec::with_capacity(wanted.len());
+        // The opening hand is a fixed, named set (`lc_cards::opening_hand`,
+        // F6), not a random draw — so it is pulled OUT of the pile by
+        // identity rather than dealt off the top, which keeps the pile
+        // honest about what it still holds.
+        //
+        // Two ways a named opener can be unavailable, and they are handled
+        // differently on purpose:
+        //
+        // * This player already holds a copy (they are re-picking a deck
+        //   they were already on) — skipped, so hands stay deduplicated.
+        // * The pile is out of that card, because earlier players on this
+        //   deck took every copy. The scarcest opener is `cider-04` at 4
+        //   copies, so a FIFTH cider drinker hits this — well inside
+        //   `MAX_SEATS`, and a plausible table where everyone is drinking
+        //   the same thing. Substituting the top of the pile keeps the hand
+        //   at five rather than quietly short-changing the last person to
+        //   pick, which is the kind of thing nobody would notice and
+        //   everybody would resent.
+        let openers = crate::lc_cards::opening_hand(deck);
+        let mut dealt: Vec<Card> = Vec::with_capacity(openers.len());
         if let Some(shoe) = self.table.shoe_mut(deck) {
-            for card in wanted {
-                if let Some(pos) = shoe.draw_pile.iter().position(|c| c.id == card.id) {
-                    dealt.push(shoe.draw_pile.remove(pos));
+            for card in openers {
+                if p.hand.iter().any(|c| c.id == card.id) {
+                    continue; // already held — the re-pick case
+                }
+                match shoe.draw_pile.iter().position(|c| c.id == card.id) {
+                    Some(pos) => dealt.push(shoe.draw_pile.remove(pos)),
+                    None => {
+                        if let Some(sub) = shoe.draw_pile.pop() {
+                            dealt.push(sub);
+                        }
+                    }
                 }
             }
         }
@@ -3033,6 +3049,20 @@ impl LastCallState {
             // out of their glass.
             self.players[seat].drinks += cost;
             self.players[seat].cards_played += 1;
+        }
+
+        // `OnPlay` triggers fire HERE, at the reveal, and not at `arm` — a
+        // trigger is a public interruption, and firing one while the card is
+        // still staged would announce a play nobody has revealed yet (the
+        // §3.4.1 secrecy rule). By this point the play is public, so the
+        // trigger can be too.
+        let played: Vec<(String, usize)> = self
+            .locked_plays
+            .iter()
+            .map(|p| (p.card.id.clone(), p.source_seat))
+            .collect();
+        for (card_id, seat) in played {
+            self.fire_trigger(&card_id, TriggerWhen::OnPlay, seat);
         }
 
         // 4. Flip everything at once: this is the single point where plays
@@ -4889,6 +4919,60 @@ mod tests {
         assert_eq!(st.players.iter().map(|p| p.hp).collect::<Vec<_>>(), hp);
     }
 
+    /// `OnPlay` must fire at the reveal, not at `arm` — a trigger is a
+    /// public interruption, and firing one on a staged card would announce a
+    /// play nobody has revealed (§3.4.1).
+    #[test]
+    fn test_on_play_triggers_wait_for_the_reveal() {
+        let mut st = at_lock();
+        // Swap a staged card's id for the trigger card's, so a real play
+        // carries it. `beer-01` is in alice's opening hand.
+        st.arm(1, "beer-01").unwrap();
+        st.set_target(1, "beer-01", Some(1)).unwrap();
+        st.players[0]
+            .armed
+            .iter_mut()
+            .find(|a| a.card.id == "beer-01")
+            .unwrap()
+            .card
+            .id = "cider-round".to_string();
+        st.lock_in(1).unwrap();
+        assert!(st.triggers.is_empty(), "staging must not announce anything");
+
+        st.advance_beat().unwrap(); // Lock -> Reveal, which reveals
+        let t = st.pending_trigger().expect("fires at the reveal");
+        assert_eq!(t.when, TriggerWhen::OnPlay);
+        assert_eq!(t.source, 0);
+    }
+
+    /// `OnDiscard` fires through `discard`, which is the one path a card
+    /// takes onto a pile from a hand. An elimination sweep deliberately does
+    /// NOT go through it (see `apply_damage`) — a ghost's swept hand is not
+    /// a discard they made.
+    #[test]
+    fn test_on_discard_fires_for_a_players_own_discard_but_not_a_sweep() {
+        let mut st = seated();
+        st.open_deck(Deck::Liquor);
+        let mut card = crate::lc_cards::card_by_id("liquor-01").unwrap();
+        card.id = "liquor-road".to_string();
+        st.discard(Some(0), vec![card.clone()]);
+        assert_eq!(
+            st.pending_trigger().map(|t| t.when),
+            Some(TriggerWhen::OnDiscard)
+        );
+        assert_eq!(st.players[0].cards_discarded, 1);
+
+        // An elimination sweep is not a discard the player made: no trigger,
+        // no `cards_discarded`.
+        let mut st = seated();
+        st.open_deck(Deck::Liquor);
+        st.players[1].hand.push(card);
+        st.damage(1, 999, None);
+        assert_eq!(st.players[1].status, Status::Eliminated);
+        assert!(st.pending_trigger().is_none());
+        assert_eq!(st.players[1].cards_discarded, 0);
+    }
+
     #[test]
     fn test_triggers_reach_the_public_view() {
         let mut st = seated();
@@ -6649,6 +6733,36 @@ mod tests {
             assert_eq!(n, def.copies as usize, "{}", def.id);
         }
         assert_eq!(deck_count(&st, Deck::Beer), 0);
+    }
+
+    /// Five players on Cider exhausts `cider-04` (4 copies, the scarcest
+    /// opener), so the fifth cannot be dealt the named set. They must still
+    /// get five cards — substituted off the top of the pile — rather than a
+    /// silently short hand.
+    #[test]
+    fn test_a_crowded_deck_still_deals_five_opening_cards() {
+        let mut st = LastCallState::new((1..=5).map(|i| (i as i64, format!("p{i}"))).collect(), 42);
+        for pid in 1..=5i64 {
+            st.set_vessel(pid, Deck::Cider, "pint").unwrap();
+            assert_eq!(
+                st.players[(pid - 1) as usize].hand.len(),
+                5,
+                "player {pid} was short-changed"
+            );
+        }
+        // The pile paid for all 25 of them and nothing was conjured.
+        assert_eq!(st.deck_count(Deck::Cider), LC_DECK_SIZE - 25);
+        // `cider-04` really is exhausted — this test would pass vacuously
+        // if the scarcity it targets ever disappeared.
+        assert!(
+            !st.table
+                .shoe(Deck::Cider)
+                .unwrap()
+                .draw_pile
+                .iter()
+                .any(|c| c.id == "cider-04"),
+            "the scarcity this test targets is gone; re-pick the card"
+        );
     }
 
     /// Two seats on the same deck share one pile — the second `set_vessel`
