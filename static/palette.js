@@ -67,6 +67,25 @@ const COMMANDS = [
     action() { location.href = '/fitness/week'; },
   },
   {
+    label: 'Go to Sorting',
+    keywords: ['sorting', 'sort', 'crates', 'van', 'load', 'loading', 'route', 'delivery', 'pallet'],
+    action() { location.href = '/sorting'; },
+  },
+  {
+    label: 'New sorting session',
+    keywords: ['sorting', 'paste', 'plan', 'new', 'route', 'upload', 'crates'],
+    action() {
+      const box = document.getElementById('sort-payload');
+      if (box) {
+        const panel = box.closest('details');
+        if (panel) panel.open = true;
+        box.focus();
+      } else {
+        location.href = '/sorting';
+      }
+    },
+  },
+  {
     label: 'Go to Hub',
     keywords: ['home', 'hub', 'index', 'start', 'main'],
     action() { location.href = '/'; },

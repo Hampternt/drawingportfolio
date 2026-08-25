@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT OR IGNORE INTO sorting_step_state (session_id, step) VALUES (?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "0f9dedc5aacec4f40888befe2097182e5b7da0d41bba236a43a294bc02f977a6"
+}

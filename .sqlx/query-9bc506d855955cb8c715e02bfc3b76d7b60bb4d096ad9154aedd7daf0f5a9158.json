@@ -1,0 +1,50 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT s.id as \"id!\", s.route_name as \"route_name!\", s.session_date as \"session_date!\",\n                  s.total_steps as \"total_steps!\", s.total_crates as \"total_crates!\",\n                  (SELECT COUNT(*) FROM sorting_step_state st WHERE st.session_id = s.id) as \"completed_steps!: i64\"\n           FROM sorting_sessions s\n           WHERE s.user_id = ?\n           ORDER BY s.session_date DESC, s.id DESC",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "route_name!",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "session_date!",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "total_steps!",
+        "ordinal": 3,
+        "type_info": "Integer"
+      },
+      {
+        "name": "total_crates!",
+        "ordinal": 4,
+        "type_info": "Integer"
+      },
+      {
+        "name": "completed_steps!: i64",
+        "ordinal": 5,
+        "type_info": "Null"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      true,
+      false,
+      false,
+      false,
+      false,
+      null
+    ]
+  },
+  "hash": "9bc506d855955cb8c715e02bfc3b76d7b60bb4d096ad9154aedd7daf0f5a9158"
+}

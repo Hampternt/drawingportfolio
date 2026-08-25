@@ -24,6 +24,18 @@ from this file on 2026-08-12; `git log docs/WORKTREES.md` recovers them.
 
 ## Streams
 
+- **`claude/crate-counting-android-app-ewwc19`** (started 2026-08-25, from
+  `master`, in the main checkout — no separate worktree): the **Sorting &
+  Loading Assistant**, a new `/sorting` section. A generated crate-sort/van-load
+  plan is pasted in as JSON; the board that comes out is a pick checklist, a
+  live van diagram and a panel of sanity checks that re-derive the plan's
+  arithmetic rather than trusting it. Built for an Android tablet on the
+  warehouse floor: ticks are optimistic and queue in `localStorage` when there
+  is no signal. Migration 023, `src/routes/sorting.rs`, `static/sorting.js`,
+  `templates/sorting/`. Source spec: the user's
+  `sortingwebsitespec.md` (companion to `delivery-loading-reference.md` and
+  `van-loading-plan-generator.html`, neither of which is in this repo).
+  Open — not yet merged to `dev` or deployed.
 - **`feat/last-call-refinement`** (started 2026-08-13, from `dev`): refining
   the recently released Last Call game — many small changes expected, worked
   one issue at a time, each an item committed on this branch; merges into
