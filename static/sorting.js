@@ -497,7 +497,7 @@
       var cells = buildCells(rows, totalRows);
       applyPlaced(cells);
 
-      var GUT = 30, CW = 104, CH = 78, GAP = 8, PAD = 8;
+      var GUT = 30, CW = 104, CH = 92, GAP = 8, PAD = 8;
       var width = GUT + CW * 2 + GAP + PAD * 2;
       var height = PAD * 2 + 26 + totalRows * (CH + GAP) + 26;
 
@@ -573,6 +573,37 @@
             svg.appendChild(rect);
           });
 
+          // A position often holds two customers — a small order stacked on a
+          // larger one, the later delivery on top so it comes off first. Colour
+          // alone leaves you counting bands against a legend to see where one
+          // ends, so each customer's run gets a rule under it and, where there
+          // is room, its own tag. This is the thing the diagram is for.
+          runsOf(stack).forEach(function (run) {
+            var top = y + CH - (run.end + 1) * unit;
+            var tall = run.count * unit;
+            if (run.start > 0) {
+              svg.appendChild(
+                svgEl('line', {
+                  x1: x + 3,
+                  x2: x + CW - 3,
+                  y1: y + CH - run.start * unit,
+                  y2: y + CH - run.start * unit,
+                  class: 'sort-vansvg__split'
+                })
+              );
+            }
+            if (tall >= 18) {
+              svg.appendChild(
+                svgText(
+                  x + CW / 2,
+                  top + tall / 2 + 4,
+                  abbreviate(run.customer),
+                  'sort-vansvg__tag' + (run.placed ? '' : ' is-pending')
+                )
+              );
+            }
+          });
+
           if (cur && cur.to && cur.to.type === 'van' && cur.to.row === r && cur.to.column === col) {
             svg.appendChild(
               svgEl('rect', {
@@ -601,6 +632,37 @@
       host.appendChild(svg);
       host.appendChild(renderStandby());
       host.appendChild(renderLegend(cells));
+    }
+
+    // Consecutive crates in one position belonging to the same customer. The
+    // plan lists a position's entries in load order, so a run's start index is
+    // also its height off the floor of that stack.
+    function runsOf(stack) {
+      var runs = [];
+      for (var i = 0; i < stack.length; i++) {
+        var last = runs[runs.length - 1];
+        if (last && last.customer === stack[i].customer) {
+          last.end = i;
+          last.count++;
+          if (!stack[i].placed) last.placed = false;
+        } else {
+          runs.push({
+            customer: stack[i].customer,
+            start: i,
+            end: i,
+            count: 1,
+            placed: !!stack[i].placed
+          });
+        }
+      }
+      return runs;
+    }
+
+    // Three letters of the customer's first word — enough to tell the two
+    // halves of a shared stack apart at a glance without a trip to the legend.
+    function abbreviate(name) {
+      var word = String(name || '').replace(/[^\p{L}\p{N} ]/gu, ' ').trim().split(/\s+/)[0] || '';
+      return word.slice(0, 3).toUpperCase();
     }
 
     function svgText(x, y, text, cls) {
@@ -658,24 +720,42 @@
       var sideSlots = cfg.sideSlots === undefined ? 3 : cfg.sideSlots;
       var backSlots = cfg.backSlots === undefined ? 2 : cfg.backSlots;
 
-      var occupancy = {};
+      // A standby spot holds a small stack, not a set: crates go on top and
+      // come back off the top. Tracking it as an ordered pile rather than a
+      // tally is what lets the panel say which one you can actually reach —
+      // and a plan that tries to pull from underneath shows up as a pile that
+      // does not drain in the order it was built.
+      var piles = {};
       steps.forEach(function (s) {
         if (!done[s.step]) return;
         var qty = Math.max(0, s.quantity || 0);
         if (s.from && s.from.type === 'standby' && s.from.slot) {
-          var f = occupancy[s.from.slot] || {};
-          f[s.customer] = (f[s.customer] || 0) - qty;
-          if (f[s.customer] <= 0) delete f[s.customer];
-          occupancy[s.from.slot] = f;
+          var pile = piles[s.from.slot] || (piles[s.from.slot] = []);
+          var owed = qty;
+          while (owed > 0 && pile.length) {
+            var top = pile[pile.length - 1];
+            var take = Math.min(owed, top.count);
+            top.count -= take;
+            owed -= take;
+            if (top.count <= 0) pile.pop();
+          }
         }
         if (s.to && s.to.type === 'standby' && s.to.slot) {
-          var t = occupancy[s.to.slot] || {};
-          t[s.customer] = (t[s.customer] || 0) + qty;
-          occupancy[s.to.slot] = t;
+          var onto = piles[s.to.slot] || (piles[s.to.slot] = []);
+          var last = onto[onto.length - 1];
+          if (last && last.customer === s.customer) last.count += qty;
+          else onto.push({ customer: s.customer, count: qty });
         }
       });
 
-      wrap.appendChild(el('h3', 'sort-standby__title', 'Standby slots — right now'));
+      var inUse = Object.keys(piles).filter(function (k) { return piles[k].length; }).length;
+      wrap.appendChild(
+        el(
+          'h3',
+          'sort-standby__title',
+          inUse ? 'Standby — ' + inUse + ' of 5 in use' : 'Standby — all clear'
+        )
+      );
       var grid = el('div', 'sort-standby__grid');
       var names = [];
       for (var i = 1; i <= sideSlots; i++) names.push('side-' + i);
@@ -684,17 +764,22 @@
       names.forEach(function (slot) {
         var box = el('div', 'sort-slot');
         box.appendChild(el('span', 'sort-slot__name', slot));
-        var held = occupancy[slot] || {};
-        var customers = Object.keys(held);
-        if (!customers.length) {
+        var pile = piles[slot] || [];
+        if (!pile.length) {
           box.appendChild(el('span', 'sort-slot__empty', 'empty'));
         } else {
           box.classList.add('is-occupied');
-          customers.forEach(function (c) {
-            var chip = el('span', 'sort-slot__chip', held[c] + '× ' + c);
-            chip.style.borderColor = colorFor(c);
-            box.appendChild(chip);
-          });
+          // Top of the pile first — the same order the pallet reference uses,
+          // and the order you can actually take them off in.
+          pile
+            .slice()
+            .reverse()
+            .forEach(function (layer, i) {
+              var chip = el('span', 'sort-slot__chip', layer.count + '× ' + layer.customer);
+              chip.style.borderColor = colorFor(layer.customer);
+              if (i === 0 && pile.length > 1) chip.classList.add('is-top');
+              box.appendChild(chip);
+            });
         }
         grid.appendChild(box);
       });

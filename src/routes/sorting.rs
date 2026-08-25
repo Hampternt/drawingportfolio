@@ -388,45 +388,40 @@ fn column_heights(plan: &LoadingPlan) -> BTreeMap<i64, (i64, i64)> {
     out
 }
 
-/// The last row that has anything in it. Everything past this is the empty
-/// tail of a light load, not a hole in the middle of a heavy one.
-fn last_loaded_row(heights: &BTreeMap<i64, (i64, i64)>) -> i64 {
-    heights
-        .iter()
-        .filter(|(_, (l, r))| *l > 0 || *r > 0)
-        .map(|(row, _)| *row)
-        .max()
-        .unwrap_or(0)
-}
-
-/// The ±N rule: adjacent rows in the same column may not differ in height by
-/// more than `stability_limit`.
+/// The ±N rule, exactly as the methodology states it: within one column, a
+/// stack may be at most `stability_limit` taller or shorter than the stack
+/// **immediately in front of or behind it in that same column**.
 ///
-/// Only pairs up to the last loaded row are compared. Beyond it the van is
-/// simply empty, and comparing the last real row against a row that was never
-/// planned would report the end of the load as an instability on every light
-/// route.
+/// Two things this deliberately does not do, both of them ways an earlier
+/// version of this function cried wolf:
+///
+/// * **Left is never compared to right.** They are separate columns and may
+///   differ by any amount. Averaging the two into one "row height", or
+///   comparing across the aisle, invents violations that are not there.
+/// * **An empty position is not a stack.** A position with nothing in it has
+///   nothing to be unstable, so it is neither compared to its neighbours nor
+///   bridged across — two stacks with a gap between them are not touching, so
+///   neither supports the other. Only a pair where *both* positions hold
+///   crates is checked. That covers the empty tail of a light route and a
+///   genuinely empty row mid-van alike, without needing to know which is which.
 pub fn stability_violations(plan: &LoadingPlan, config: &VanConfig) -> Vec<String> {
     let heights = column_heights(plan);
-    let last = last_loaded_row(&heights);
     let limit = config.stability_limit.max(0);
     let mut out = Vec::new();
-    for row in 1..last {
+    for row in 1..config.total_rows.max(1) {
         let (al, ar) = heights.get(&row).copied().unwrap_or((0, 0));
         let (bl, br) = heights.get(&(row + 1)).copied().unwrap_or((0, 0));
-        if (al - bl).abs() > limit {
-            out.push(format!(
-                "left column: row {row} is {al} high, row {} is {bl} — a gap of {}, over the limit of {limit}",
-                row + 1,
-                (al - bl).abs()
-            ));
-        }
-        if (ar - br).abs() > limit {
-            out.push(format!(
-                "right column: row {row} is {ar} high, row {} is {br} — a gap of {}, over the limit of {limit}",
-                row + 1,
-                (ar - br).abs()
-            ));
+        for (name, a, b) in [("left", al, bl), ("right", ar, br)] {
+            if a == 0 || b == 0 {
+                continue;
+            }
+            if (a - b).abs() > limit {
+                out.push(format!(
+                    "{name} column: row {row} is {a} high, row {} is {b} — a gap of {}, over the limit of {limit}",
+                    row + 1,
+                    (a - b).abs()
+                ));
+            }
         }
     }
     out
@@ -531,20 +526,39 @@ pub fn geometry_violations(plan: &LoadingPlan, config: &VanConfig) -> Vec<String
     out
 }
 
+/// What the standby slots do over the course of the sort.
+#[derive(Debug, Default)]
+pub struct StandbyTrace {
+    /// Things that cannot happen as written.
+    pub problems: Vec<String>,
+    /// Slots still holding crates when the sequence runs out.
+    pub left_behind: BTreeMap<String, i64>,
+    /// The most slots occupied at any one moment.
+    pub peak_slots: usize,
+    /// The step number at which that peak was reached.
+    pub peak_at_step: i64,
+}
+
 /// Walks the pick sequence and reports what the standby slots do over it.
 ///
-/// Returns `(problems, ending_occupancy)`. Two things go wrong here and both
-/// are silent in the document itself: a crate taken out of a slot that nothing
-/// put anything into, and a crate parked in a slot that nothing ever comes
-/// back for. The second is the one that matters — it means the plan finishes
-/// with crates still standing on the floor of the van, and nobody notices
-/// until the round is short.
-pub fn standby_trace(plan: &SortingPlan) -> (Vec<String>, BTreeMap<String, i64>) {
+/// Three things go wrong here and all three are silent in the document itself:
+///
+/// * a crate taken out of a slot nothing put anything into;
+/// * a crate parked in a slot nothing ever comes back for — the one that
+///   matters most, because it means the plan finishes with crates still
+///   standing on the floor of the van and nobody notices until the round is
+///   short;
+/// * more slots wanted at once than the van has. That last one is why this
+///   tracks a running peak rather than just the ending state: a plan can park
+///   and retrieve perfectly, ending empty, and still call for six slots at a
+///   moment when only five exist. It is a problem to solve on the floor, not
+///   something to discover halfway through the pallet.
+pub fn standby_trace(plan: &SortingPlan) -> StandbyTrace {
     let mut steps: Vec<&PickStep> = plan.pick_sequence.iter().collect();
     steps.sort_by_key(|s| s.step);
 
     let mut occupancy: BTreeMap<String, i64> = BTreeMap::new();
-    let mut problems = Vec::new();
+    let mut out = StandbyTrace::default();
     let known = known_slots(&plan.van_config.standby);
 
     for s in steps {
@@ -553,7 +567,7 @@ pub fn standby_trace(plan: &SortingPlan) -> (Vec<String>, BTreeMap<String, i64>)
             let held = occupancy.entry(slot.clone()).or_insert(0);
             *held -= s.quantity.max(0);
             if *held < 0 {
-                problems.push(format!(
+                out.problems.push(format!(
                     "step {}: takes {} from {slot}, which is empty at that point",
                     s.step, s.quantity
                 ));
@@ -563,7 +577,7 @@ pub fn standby_trace(plan: &SortingPlan) -> (Vec<String>, BTreeMap<String, i64>)
         if s.to.kind == "standby" {
             let slot = slot_name(&s.to);
             if !known.contains(&slot) {
-                problems.push(format!(
+                out.problems.push(format!(
                     "step {}: parks in {slot}, which is not one of the {} standby slots",
                     s.step,
                     known.len()
@@ -571,10 +585,20 @@ pub fn standby_trace(plan: &SortingPlan) -> (Vec<String>, BTreeMap<String, i64>)
             }
             *occupancy.entry(slot).or_insert(0) += s.quantity.max(0);
         }
+
+        // Measured after every step, not only after a park: a step that empties
+        // a slot lowers the count, and the peak is about the worst moment, not
+        // the last one.
+        let in_use = occupancy.values().filter(|held| **held > 0).count();
+        if in_use > out.peak_slots {
+            out.peak_slots = in_use;
+            out.peak_at_step = s.step;
+        }
     }
 
     occupancy.retain(|_, held| *held > 0);
-    (problems, occupancy)
+    out.left_behind = occupancy;
+    out
 }
 
 fn slot_name(e: &Endpoint) -> String {
@@ -656,17 +680,18 @@ pub fn run_checks(plan: &SortingPlan) -> Vec<Check> {
         }
     }
 
-    // ── Standby: nothing parked and forgotten ──
-    let (standby_problems, left_behind) = standby_trace(plan);
-    for p in standby_problems {
+    // ── Standby: nothing parked and forgotten, and never more than fits ──
+    let standby = standby_trace(plan);
+    for p in standby.problems {
         out.push(Check {
             level: CheckLevel::Critical,
             title: "The standby slots do not add up".into(),
             detail: p,
         });
     }
-    if !left_behind.is_empty() {
-        let list: Vec<String> = left_behind
+    if !standby.left_behind.is_empty() {
+        let list: Vec<String> = standby
+            .left_behind
             .iter()
             .map(|(slot, n)| format!("{n} in {slot}"))
             .collect();
@@ -676,6 +701,17 @@ pub fn run_checks(plan: &SortingPlan) -> Vec<Check> {
             detail: format!(
                 "The sequence finishes with {}. Nothing picks them back up, so they never reach the van.",
                 list.join(", ")
+            ),
+        });
+    }
+    let slots_available = known_slots(&plan.van_config.standby).len();
+    if standby.peak_slots > slots_available {
+        out.push(Check {
+            level: CheckLevel::Critical,
+            title: "The sort needs more standby room than the van has".into(),
+            detail: format!(
+                "At step {} the plan has {} slots in use at once, and there are {}. This is a problem to solve on the floor before starting, not halfway through the pallet.",
+                standby.peak_at_step, standby.peak_slots, slots_available
             ),
         });
     }
@@ -1641,12 +1677,34 @@ mod tests {
     }
 
     #[test]
-    fn test_stability_still_catches_a_hole_in_the_middle() {
-        // A genuinely empty row *between* two loaded ones is the real thing
-        // the rule exists for, and must survive the empty-tail exemption.
+    fn test_stability_exempts_a_genuinely_empty_row_mid_van() {
+        // Straight from the methodology: the rule "only applies between two
+        // rows that both actually hold a stack" — an empty position has
+        // nothing in it to be unstable. This shipped the other way round
+        // first, reporting two violations here, which would have had someone
+        // restacking a van that was fine.
         let plan = plan_with_rows(&[(1, 6, 0), (2, 0, 0), (3, 6, 0)]);
+        assert!(stability_violations(&plan, &VanConfig::default()).is_empty());
+    }
+
+    #[test]
+    fn test_stability_skips_an_empty_column_but_not_its_loaded_neighbour() {
+        // Per column, independently: the left column here has a gap at row 2
+        // and is exempt across it, while the right column is loaded all the
+        // way through and its 6-to-1 drop is a real violation. Averaging the
+        // two into one row height, or comparing left against right, misses it.
+        let plan = plan_with_rows(&[(1, 6, 6), (2, 0, 1), (3, 6, 1)]);
         let v = stability_violations(&plan, &VanConfig::default());
-        assert_eq!(v.len(), 2, "both sides of the hole must be reported: {v:?}");
+        assert_eq!(v.len(), 1, "{v:?}");
+        assert!(v[0].starts_with("right column"), "{v:?}");
+    }
+
+    #[test]
+    fn test_stability_never_compares_left_against_right() {
+        // "Left and right stacks in the same row are never compared to each
+        // other. They can differ by any amount."
+        let plan = plan_with_rows(&[(1, 8, 1), (2, 8, 1)]);
+        assert!(stability_violations(&plan, &VanConfig::default()).is_empty());
     }
 
     #[test]
@@ -1755,7 +1813,8 @@ mod tests {
             ],
             ..Default::default()
         };
-        let (problems, left) = standby_trace(&plan);
+        let t = standby_trace(&plan);
+        let (problems, left) = (t.problems, t.left_behind);
         assert!(problems.is_empty(), "{problems:?}");
         assert!(left.is_empty(), "{left:?}");
     }
@@ -1771,7 +1830,7 @@ mod tests {
             ],
             ..Default::default()
         };
-        let (_, left) = standby_trace(&plan);
+        let left = standby_trace(&plan).left_behind;
         assert_eq!(left.get("side-2"), Some(&3));
     }
 
@@ -1781,7 +1840,7 @@ mod tests {
             pick_sequence: vec![step(1, 2, standby("side-1"), van(1, "left"))],
             ..Default::default()
         };
-        let (problems, _) = standby_trace(&plan);
+        let problems = standby_trace(&plan).problems;
         assert_eq!(problems.len(), 1, "{problems:?}");
         assert!(problems[0].contains("empty at that point"), "{problems:?}");
     }
@@ -1798,9 +1857,69 @@ mod tests {
             ],
             ..Default::default()
         };
-        let (problems, left) = standby_trace(&plan);
+        let t = standby_trace(&plan);
+        let (problems, left) = (t.problems, t.left_behind);
         assert!(problems.is_empty(), "{problems:?}");
         assert!(left.is_empty(), "{left:?}");
+    }
+
+    #[test]
+    fn test_standby_trace_reports_the_peak_slots_in_use_at_once() {
+        // Three blocking customers pulled off before the one that is needed —
+        // the shape every real pallet produces, and the number the methodology
+        // says to watch.
+        let plan = SortingPlan {
+            pick_sequence: vec![
+                step_for(1, "A", 2, pallet("B"), standby("side-1")),
+                step_for(2, "B", 3, pallet("B"), standby("side-2")),
+                step_for(3, "C", 4, pallet("C"), standby("side-3")),
+                step_for(4, "A", 2, standby("side-1"), van(3, "left")),
+            ],
+            ..Default::default()
+        };
+        let t = standby_trace(&plan);
+        assert_eq!(t.peak_slots, 3, "three slots were held at once");
+        assert_eq!(t.peak_at_step, 3, "the peak is reached at step 3");
+        assert!(t.problems.is_empty(), "{:?}", t.problems);
+    }
+
+    #[test]
+    fn test_a_plan_wanting_more_standby_room_than_exists_is_critical() {
+        // A plan can park and retrieve perfectly, end with every slot empty,
+        // and still call for six slots at a moment when five exist. Only a
+        // running peak sees it; the ending state says everything is fine.
+        let mut steps = Vec::new();
+        for i in 1..=6 {
+            steps.push(step_for(
+                i,
+                "A",
+                1,
+                pallet("P"),
+                standby(&format!("side-{i}")),
+            ));
+        }
+        let plan = SortingPlan {
+            van_config: VanConfig {
+                standby: Standby {
+                    side_slots: 3,
+                    back_slots: 2,
+                    slots_can_stack: true,
+                },
+                ..Default::default()
+            },
+            pick_sequence: steps,
+            ..Default::default()
+        };
+        let t = standby_trace(&plan);
+        assert_eq!(t.peak_slots, 6);
+
+        let checks = run_checks(&plan);
+        assert!(
+            checks
+                .iter()
+                .any(|c| c.level == CheckLevel::Critical && c.title.contains("more standby room")),
+            "{checks:?}"
+        );
     }
 
     #[test]
@@ -1809,7 +1928,7 @@ mod tests {
             pick_sequence: vec![step(1, 1, pallet("A"), standby("side-9"))],
             ..Default::default()
         };
-        let (problems, _) = standby_trace(&plan);
+        let problems = standby_trace(&plan).problems;
         assert!(
             problems.iter().any(|p| p.contains("side-9")),
             "{problems:?}"

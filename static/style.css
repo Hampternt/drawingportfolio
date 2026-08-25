@@ -3181,6 +3181,22 @@ body.fitness-dark .account-form input {
 .sort-vansvg__count { fill: var(--text-faint); font: var(--type-mono); font-size: 10px; }
 .sort-vansvg__cap { fill: var(--text-faint); font: var(--type-label); font-size: 9px; letter-spacing: var(--tracking-caps); }
 .sort-vansvg__door { fill: var(--accent-warm); }
+/* Where one customer's run ends and the next begins inside a shared position.
+   A position often holds two orders — the later delivery stacked on top so it
+   comes off first — and colour alone leaves you counting bands. */
+/* Light rather than dark, so it reads against both states of a band: a loaded
+   crate is painted in the customer's colour at full strength, an unloaded one
+   is the same colour at 18% over a near-black cell. A dark rule disappears
+   into the second. */
+.sort-vansvg__split { stroke: var(--ink-050); stroke-width: 2; opacity: 0.7; }
+.sort-vansvg__tag {
+  font: var(--type-label); font-size: 9px;
+  font-weight: var(--weight-bold); letter-spacing: var(--tracking-wide);
+  fill: var(--ink-1000);
+}
+/* Same reason. On an unloaded band the near-black tag is invisible, so the
+   pending state takes a light fill instead of a dimmed dark one. */
+.sort-vansvg__tag.is-pending { fill: var(--text-muted); }
 
 .sort-standby { display: grid; gap: var(--space-4); }
 .sort-standby__title,
@@ -3196,6 +3212,13 @@ body.fitness-dark .account-form input {
 .sort-slot__chip {
   font: var(--type-body-sm); color: var(--text-body);
   border-left: 3px solid var(--border-strong); padding-left: var(--space-4);
+}
+/* The reachable one, when a slot holds more than one order. */
+.sort-slot__chip.is-top { color: var(--text-strong); font-weight: var(--weight-semibold); }
+.sort-slot__chip.is-top::after {
+  content: 'top'; margin-left: var(--space-3);
+  font: var(--type-label); text-transform: uppercase; letter-spacing: var(--tracking-caps);
+  color: var(--accent-warm);
 }
 
 .sort-legend { display: grid; gap: var(--space-3); }
