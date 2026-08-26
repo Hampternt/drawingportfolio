@@ -788,8 +788,8 @@ function pushState(st, spotId, chosen) {
       return { kind: 'split', target: target, take: plan.heights[0], plan: plan,
         label: 'Push in ' + plan.heights[0] + ' of ' + held.n,
         why: 'All ' + held.n + ' will not stand at ' + posLabel(target) + ' — ' + w.hi
-           + ' is its ceiling. Split it ' + plan.heights.join(' + ') + ' down the '
-           + colOf(target) + ' column: ' + plan.cells.map(posLabel).join(', then ') + '.' };
+           + ' is its ceiling. Split it ' + plan.heights.join(' + ') + ': '
+           + plan.cells.map(posLabel).join(', then ') + '.' };
     }
     return { kind: 'nofit', target: target, label: 'Will not ramp',
       why: held.n + ' cannot be made to step down from ' + posLabel(target)

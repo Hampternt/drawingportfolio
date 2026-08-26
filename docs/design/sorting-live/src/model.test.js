@@ -172,7 +172,7 @@ eq(ps.plan.heights, [4, 4], 'four and four, so the column steps 2 → 4 → 4');
 // another at all.
 eq(ps.plan.cells, ['r2-left', 'r2-right'], 'the spill goes across the row, not down the column');
 eq(colOf(ps.plan.cells[0]) === colOf(ps.plan.cells[1]), false, 'so the two halves are in different columns');
-ok(/Split it 4 \+ 4/.test(ps.why), 'and the reason spells the split out');
+ok(/Split it 4 \+ 4: R2 · L, then R2 · R/.test(ps.why), 'and the reason names both halves and where they go');
 doPush(s2, 'side-2', ps.take, null, ps.plan.cells[1]);
 eq(heightOf(s2, 'r2-left'), 4, 'four went in');
 eq(s2.staged['side-2'].n, 4, 'four are still on the spot');
