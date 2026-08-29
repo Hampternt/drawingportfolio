@@ -24,42 +24,34 @@ from this file on 2026-08-12; `git log docs/WORKTREES.md` recovers them.
 
 ## Streams
 
-- **`feat/last-call-refinement`** (started 2026-08-13, from `dev`): refining
-  the recently released Last Call game — many small changes expected, worked
-  one issue at a time, each an item committed on this branch; merges into
-  `dev` when a coherent batch lands, then `dev → master`. First batch
-  (clock removal, beat restructure, test play mode, screen declutter +
-  installable app) merged to `master` 2026-08-13; the stream stays open for
-  the Reveal/Resolve visual passes and the table-screen card-play design.
+- **`feat/last-call-refinement`** — **CLOSED 2026-08-29**, branch deleted
+  (fully merged; first batch — clock removal, beat restructure, test play
+  mode, screen declutter + installable app — hit `master` 2026-08-13).
+  The Reveal/Resolve visual passes and the table-screen card-play design
+  remain unstarted; recreate a branch from `dev` when they resume.
 - **`feat/lc-challenge-cards`** (started 2026-08-14, from `dev`, in the
   main checkout — no separate worktree): challenge-card container — real-
   life party challenges as Last Call cards (vote-judged duels, solo dares,
   social penalties, challenge HUD). Three packs; manifest:
   `docs/manifests/2026-08-14-lc-challenge-cards.md`.
-- **`feat/fitness-today-overhaul`** — **MERGED TO `dev` 2026-08-18**, not yet on
-  `master` and not deployed. Rebuilt the `/fitness` Today screen from the design
-  handoff in `docs/design/fitness-today-overhaul/`: quantity moved onto the
-  logged row as one-tap fractions of the food's own basis, one-tap re-logging
-  and batch meals, day-level macro composition, and a phone layout with a
-  bottom action bar at a 900px breakpoint. All five packs complete; the
-  manifest `docs/manifests/2026-08-17-fitness-today-overhaul.md` holds the
-  ledgers, the per-pack walkthroughs and four recorded deviations from the
-  design. The worktree
-  `~/projects/drawingportfolio.worktrees/fitness-today-overhaul` can be removed.
-  **Decoy warning, still live:** the planning ran in a harness session worktree,
-  `.claude/worktrees/fitness-tracker-multi-user-54fb9b` on branch
-  `claude/fitness-tracker-multi-user-54fb9b`, which still holds the same two docs
-  commits under *different* SHAs (they were cherry-picked, so there is no ancestry
-  link). That worktree is **abandoned** — the copies now on `dev` are canonical.
-  Delete it and its branch.
+- **`feat/fitness-today-overhaul`** — **LANDED** (merged to `dev` 2026-08-18,
+  since released to `master`). Rebuilt the `/fitness` Today screen from the
+  design handoff in `docs/design/fitness-today-overhaul/`: one-tap quantity
+  fractions on the logged row, one-tap re-logging and batch meals, day-level
+  macro composition, phone layout with a bottom action bar. Manifest with
+  ledgers, walkthroughs and four recorded deviations:
+  `docs/manifests/2026-08-17-fitness-today-overhaul.md`. Branch and worktree
+  removed 2026-08-29; the decoy harness session worktree
+  (`claude/fitness-tracker-multi-user-54fb9b`, cherry-picked older copies of
+  the docs commits) was verified superseded and deleted with its branch.
 - **`feat/multi-user-fitness`** — **LANDED 2026-08-17**, merged `dev → master`
   and deployed. Multi-user container: several people each with their own
   fitness log over a shared food catalog, logging in by name + PIN alongside
   the owner's passkeys; art-portfolio admin became a grantable permission
   rather than a synonym for "logged in". All four packs complete; the manifest
   `docs/manifests/2026-08-16-multi-user-fitness.md` holds the ledgers, the
-  populated-database upgrade test and the no-rollback note. The worktree
-  `~/projects/drawingportfolio.worktrees/multi-user-fitness` can be removed.
+  populated-database upgrade test and the no-rollback note. Branch and
+  worktree removed 2026-08-29.
   Deploy-time discovery worth carrying forward: the server's nginx config was
   still the 2026-07-28 file and carried `listen [::]` lines the repo had
   dropped in April — read the `deploying` skill before copying `nginx.conf`.
