@@ -714,6 +714,14 @@ pub struct LastCallState {
     /// Container-level default backfills empty on older blobs.
     #[serde(default)]
     pub triggers: Vec<TriggerEvent>,
+    /// Rounds of drinks the resolve is parked on (the pour wave), front
+    /// entry active — the `challenges` shape exactly.
+    #[serde(default)]
+    pub pours: Vec<PourState>,
+    /// Monotonic identity for `PourState::key`, never reset (the
+    /// `challenge_seq` precedent).
+    #[serde(default)]
+    pub pour_seq: u64,
     /// Hands laid open by reveal cards (the reveal wave). A snapshot taken
     /// in round N is readable through round N+1, then pruned.
     ///
@@ -766,6 +774,42 @@ pub struct ChallengeState {
     pub votes: Vec<ChallengeVote>,
     /// The round the challenge was played in.
     pub round: u32,
+}
+
+/// A round of drinks the resolve is parked on (`lc_cards::PourDef`).
+///
+/// The drink already happened — it lands immediately at resolve, because
+/// nobody chooses how much they drink. What parks the round is the discard:
+/// which cards you pitch is your call, so the engine has to wait, the same
+/// way it waits on a challenge vote.
+///
+/// New with the pour wave: serde strictness is moot, no older blob has one.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct PourState {
+    /// Identity token from `LastCallState::pour_seq`, echoed by the settle
+    /// route — the `ChallengeState::key` precedent, so a discard posted
+    /// from a stale screen cannot land on the NEXT pour.
+    pub key: u64,
+    pub card_id: String,
+    /// Who poured. Kept for the log and for display; the debt list is what
+    /// actually gates the park.
+    pub source: usize,
+    /// Seats that still owe cards, and how many each. A seat is removed the
+    /// moment its debt is paid, and an empty list settles the pour — the
+    /// `haunts` pattern (presence IS the state, no separate counter).
+    ///
+    /// A seat is only listed if it owes at least one card, so a player
+    /// holding nothing never holds the table up: they cannot pay a debt
+    /// they were never given.
+    pub owed: Vec<PourDebt>,
+    pub round: u32,
+}
+
+/// One seat's outstanding cards on a pour.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PourDebt {
+    pub seat: usize,
+    pub cards: u8,
 }
 
 /// One table vote on the active challenge. `for_instigator` reads per
@@ -941,6 +985,13 @@ pub struct PublicView {
     /// public the instant one exists, the `reactions`/`haunts` rule.
     #[serde(default)]
     pub triggers: Vec<TriggerEvent>,
+    /// Rounds of drinks the table is parked on — projected verbatim from
+    /// `LastCallState::pours`. Public: who still owes cards is exactly the
+    /// "who are we waiting on" the room needs, the same reasoning that makes
+    /// challenge tallies public. The DEBT is public; which cards anyone
+    /// chooses to pitch stays private until they pitch it.
+    #[serde(default)]
+    pub pours: Vec<PourState>,
     /// Hands revealed to the WHOLE TABLE this round — the `seer: None`
     /// entries of `LastCallState::reveals`, and only those.
     ///
@@ -1136,6 +1187,8 @@ impl LastCallState {
             challenges: Vec::new(),
             challenge_seq: 0,
             triggers: Vec::new(),
+            pours: Vec::new(),
+            pour_seq: 0,
             reveals: Vec::new(),
             trigger_seq: 0,
             log: Vec::new(),
@@ -1335,6 +1388,12 @@ impl LastCallState {
         if !self.challenges.is_empty() {
             return Phase::Challenge;
         }
+        // Checked AFTER challenges: both can park the same round, and the
+        // challenge is the louder, more social of the two — it is what the
+        // table is actually looking at.
+        if !self.pours.is_empty() {
+            return Phase::Pour;
+        }
         if self.round == 1 && self.beat == Beat::Draw {
             return Phase::Lobby;
         }
@@ -1367,6 +1426,19 @@ impl LastCallState {
             } else {
                 SeatPhase::Waiting
             };
+        }
+        // A pour outranks the beat exactly like a trigger: the round cannot
+        // move until the debts are paid, so a seat that still owes cards is
+        // Acting. Checked before the challenge arm so that a seat which owes
+        // a discard AND has already voted still reads as Acting — it is
+        // genuinely holding the table up.
+        if let Some(po) = self.pours.first() {
+            if po.owed.iter().any(|d| d.seat == seat) {
+                return SeatPhase::Acting;
+            }
+            if self.challenges.is_empty() {
+                return SeatPhase::Waiting;
+            }
         }
         if let Some(ch) = self.challenges.first() {
             // Contestants perform; the electorate votes. Anyone in neither
@@ -1617,6 +1689,24 @@ impl LastCallState {
             // here reads defensive and is unreachable.
             .filter(|r| r.seer.is_none() || r.seer == seat)
             .collect()
+    }
+
+    /// Is the resolve parked on a human decision?
+    ///
+    /// Two things can park it now — a challenge waiting on votes and a pour
+    /// waiting on discards — and they can park the SAME round, because one
+    /// player can play a challenge card while another plays a pour. That is
+    /// what this predicate is for: whichever settles last runs the rollover,
+    /// and neither settle path may run it while the other is still
+    /// outstanding. A settle that rolled over unconditionally would advance
+    /// the round out from under the other park, stranding it forever.
+    pub fn parked(&self) -> bool {
+        !self.challenges.is_empty() || !self.pours.is_empty()
+    }
+
+    /// The active pour, if the table is parked on one.
+    pub fn pending_pour(&self) -> Option<&PourState> {
+        self.pours.first()
     }
 
     pub fn pending_trigger(&self) -> Option<&TriggerEvent> {
@@ -2303,6 +2393,7 @@ impl LastCallState {
             // as a filter on the ONE public value rather than a negation of
             // the private one, so a third scope added later is excluded by
             // default instead of leaking until somebody remembers it.
+            pours: self.pours.clone(),
             reveals: self
                 .reveals
                 .iter()
@@ -3291,7 +3382,12 @@ impl LastCallState {
         // (Step 7.5 below returned early with `challenges` populated) the
         // vote flow owns the rollover — a second resolve() here would
         // re-resolve an already-drained round.
-        if !self.challenges.is_empty() {
+        // ...and the pour wave parks the same way, so the guard asks the
+        // generalised question. `ChallengePending` covers both: it already
+        // means "the round is parked on people, come back when they're
+        // done", and a second near-identical error would only give routes a
+        // new way to disagree about what to display.
+        if self.parked() {
             return Err(LcError::ChallengePending);
         }
 
@@ -3355,6 +3451,9 @@ impl LastCallState {
         // Challenge plays collected by Step 1 for Step 7.5's activation:
         // (source seat, card id, reflector seat if the play was reflected).
         let mut collected_challenges: Vec<(usize, String, Option<usize>)> = Vec::new();
+        // Pour plays collected by Step 1 for Step 7.6: (source, card id, the
+        // seats it drank).
+        let mut collected_pours: Vec<(usize, String, Vec<usize>)> = Vec::new();
 
         // Step 0 (I11): fold `reactions` before any play resolves, per
         // answered play, in reverse played order (LIFO, §7.3): `Cancel`
@@ -3614,6 +3713,29 @@ impl LastCallState {
             // G4/G5/I-2: the betrayal check now runs earlier in this loop
             // (before the `cancelled` gate above) so a Cancel can't launder
             // it — see the comment there. Nothing left to do here.
+
+            // Pour wave: the drink lands NOW — nobody chooses how much they
+            // drink — and the debt is collected for Step 7.6, which
+            // activates it after every elimination has settled, so a seat
+            // that dies in this same resolve is never asked to pitch cards.
+            //
+            // Sits here rather than beside the challenge collection above
+            // because it needs `subjects`, which is derived below that
+            // point. Iterates by reference for the same reason the reveal
+            // block does: the numeric match moves `subjects`.
+            if let Some(po) = crate::lc_cards::card_pofx(&play.card.id) {
+                for &subject in &subjects {
+                    // Through `drain`, so it empties real pulls, respects
+                    // the vessel floor and moves `drinks` — a card that
+                    // "makes you drink" without moving pulls is decoration.
+                    // No source seat: a table-wide round is authorless, the
+                    // same convention the event hooks use.
+                    self.drain(subject, po.n as i32, None);
+                }
+                collected_pours.push((play.source_seat, play.card.id.clone(), subjects.clone()));
+                self.discard(Some(play.source_seat), [play.card]);
+                continue;
+            }
 
             // Reveal wave: an information effect, resolved by id from the
             // catalog exactly like `card_fx` below and for the same reason
@@ -4045,7 +4167,46 @@ impl LastCallState {
                 }
             }
         }
-        if !self.challenges.is_empty() {
+        // Step 7.6 (pour wave): turn each collected pour into a debt list.
+        // Derived HERE, after Step 7.5's eliminations, for the same reason
+        // challenges derive their contestants here: a seat that died in this
+        // resolve holds no cards and must not hold the table up.
+        //
+        // A seat owes `min(n, hand_len)` — you owe what you can pay — and a
+        // seat owing 0 is left off the list entirely rather than added and
+        // immediately removed. A pour where NOBODY can pay never parks at
+        // all: the drink already landed, and there is nothing to wait for.
+        for (source, card_id, subjects) in collected_pours {
+            let Some(po) = crate::lc_cards::card_pofx(&card_id) else {
+                continue; // version skew (F1)
+            };
+            let owed: Vec<PourDebt> = subjects
+                .into_iter()
+                .filter(|&seat| {
+                    self.players
+                        .get(seat)
+                        .is_some_and(|p| p.status == Status::Alive)
+                })
+                .filter_map(|seat| {
+                    let cards = (po.n as usize).min(self.players[seat].hand.len()) as u8;
+                    (cards > 0).then_some(PourDebt { seat, cards })
+                })
+                .collect();
+            if owed.is_empty() {
+                continue;
+            }
+            let key = self.pour_seq;
+            self.pour_seq += 1;
+            self.pours.push(PourState {
+                key,
+                card_id,
+                source,
+                owed,
+                round: self.round,
+            });
+        }
+
+        if self.parked() {
             // G5 during a park (review wave): the settle-time rollover
             // cannot re-stamp this resolve's breaks (it no longer knows
             // where they start), so stamp them for the round players will
@@ -4346,9 +4507,109 @@ impl LastCallState {
                 title,
             });
         }
-        // Queue empty: the parked round finally rolls over. Breaks from
+        // Challenge queue empty — but a pour played in the same round may
+        // still be parked, and rolling over now would advance the round out
+        // from under it and strand it forever. Whichever park settles LAST
+        // owns the rollover; `settle_pour` carries the mirror of this check.
+        if self.parked() {
+            return;
+        }
+        // Nothing left: the parked round finally rolls over. Breaks from
         // the resolve that parked us were already visible during the park,
         // so no re-stamp (pass the current end of the list).
+        self.rollover(self.pact_breaks.len());
+    }
+
+    /// Pay down a seat's debt on the active pour.
+    ///
+    /// Guard order mirrors `challenge_vote`: `NotSeated` -> `NotAlive` ->
+    /// no pour parked (`WrongBeat`) -> wrong `key` (a stale screen,
+    /// `WrongBeat`) -> this seat owes nothing (`WrongBeat`) -> the ids don't
+    /// resolve (`UnknownCard`) -> the wrong NUMBER of cards (`BadDraw`).
+    ///
+    /// The count must be exact. A player who owes 2 pitches 2 — not 1 and
+    /// then 1 again, which would let a slow client double-settle, and not 3,
+    /// which would let someone dump a hand they no longer want. The one
+    /// exception is a short hand: you owe what you can pay, so a seat
+    /// holding fewer cards than its debt pitches everything it has.
+    pub fn pour_discard(
+        &mut self,
+        player_id: i64,
+        key: u64,
+        card_ids: &[String],
+    ) -> Result<(), LcError> {
+        let Some(seat) = self.seat_of(player_id) else {
+            return Err(LcError::NotSeated);
+        };
+        if self.players[seat].status != Status::Alive {
+            return Err(LcError::NotAlive);
+        }
+        let Some(pour) = self.pours.first() else {
+            return Err(LcError::WrongBeat);
+        };
+        if pour.key != key {
+            return Err(LcError::WrongBeat);
+        }
+        let Some(debt) = pour.owed.iter().find(|d| d.seat == seat).copied() else {
+            return Err(LcError::WrongBeat);
+        };
+        // You owe what you can pay. `owed` was capped at hand size when the
+        // pour activated, but a hand can shrink under a seat between then
+        // and now (an elimination sweep, another pour settling first), so
+        // re-cap here rather than trusting the stored number.
+        let payable = (debt.cards as usize).min(self.players[seat].hand.len());
+        if card_ids.len() != payable {
+            return Err(LcError::BadDraw);
+        }
+
+        // Each id claims a DISTINCT hand index — the `mulligan` walk, and
+        // for the same reason: a hand can hold duplicates, so ids alone are
+        // ambiguous.
+        let p = &self.players[seat];
+        let mut taken: Vec<usize> = Vec::with_capacity(card_ids.len());
+        for id in card_ids {
+            let Some(idx) = p
+                .hand
+                .iter()
+                .enumerate()
+                .find(|(i, c)| c.id == *id && !taken.contains(i))
+                .map(|(i, _)| i)
+            else {
+                return Err(LcError::UnknownCard);
+            };
+            taken.push(idx);
+        }
+
+        let mut removed: Vec<Card> = Vec::with_capacity(taken.len());
+        taken.sort_unstable_by(|a, b| b.cmp(a)); // back-to-front removal
+        let p = &mut self.players[seat];
+        for idx in taken {
+            removed.push(p.hand.remove(idx));
+        }
+        let n = removed.len() as u8;
+        // Through the pile API, so the cards reach the right deck's discard,
+        // `cards_discarded` moves, and OnDiscard triggers fire — a pour is
+        // not a special case of card movement.
+        self.discard(Some(seat), removed);
+        self.push_log(LogEntry::Mulligan { seat, n });
+
+        self.pours[0].owed.retain(|d| d.seat != seat);
+        if self.pours[0].owed.is_empty() {
+            self.settle_pour();
+        }
+        self.seq += 1;
+        Ok(())
+    }
+
+    /// The last debt on the active pour is paid: drop it, and roll the round
+    /// over unless something else is still holding it.
+    fn settle_pour(&mut self) {
+        self.pours.remove(0);
+        // Mirror of `settle_challenge`'s tail: a challenge played the same
+        // round may still be parked, and it owns the rollover if so.
+        if self.parked() {
+            return;
+        }
         self.rollover(self.pact_breaks.len());
     }
 
@@ -7044,6 +7305,371 @@ mod tests {
         let json = st.to_json();
         let back = LastCallState::from_json(&json);
         assert_eq!(back.reveals, st.reveals);
+    }
+
+    /// Play a pour card and stop at the park.
+    fn play_pour(card: &str, target: Option<usize>) -> LastCallState {
+        let c = crate::lc_cards::card_by_id(card).expect("catalog card");
+        let mut st = LastCallState::new(
+            vec![
+                (1, "alice".into()),
+                (2, "bob".into()),
+                (3, "cara".into()),
+                (4, "dave".into()),
+            ],
+            42,
+        );
+        st.set_vessel(1, c.deck, "glass").unwrap();
+        st.set_vessel(2, Deck::Cider, "bottle").unwrap();
+        st.set_vessel(3, Deck::Soft, "glass").unwrap();
+        st.set_vessel(4, Deck::Wine, "glass").unwrap();
+        st.beat = Beat::Lock;
+        st.players[0].hand.push(c);
+        st.arm(1, card).unwrap();
+        if let Some(t) = target {
+            st.set_target(1, card, Some(t)).unwrap();
+        }
+        st.lock_in(1).unwrap();
+        st.advance_beat().unwrap();
+        st.advance_beat().unwrap();
+        st.resolve().unwrap();
+        st
+    }
+
+    /// The drink lands immediately; the discard parks the round.
+    #[test]
+    fn test_a_pour_drinks_now_and_parks_on_the_discard() {
+        let pulls_before: Vec<u8> = {
+            let st = play_pour("beer-10", None); // ONE FOR THE ROAD, n=1
+            assert_eq!(st.pours.len(), 1, "the round is parked");
+            assert_eq!(st.phase(), Phase::Pour);
+            // Every alive seat owes exactly 1.
+            assert_eq!(st.pours[0].owed.len(), 4);
+            assert!(st.pours[0].owed.iter().all(|d| d.cards == 1));
+            // ...and every alive seat already drank, the caster included.
+            assert!(st.players.iter().all(|p| p.drinks > 0));
+            st.players.iter().map(|p| p.vessels[0].pulls_left).collect()
+        };
+        assert!(!pulls_before.is_empty());
+    }
+
+    /// The round does not advance while anyone still owes cards.
+    #[test]
+    fn test_a_parked_pour_blocks_resolve_and_the_rollover() {
+        let mut st = play_pour("beer-10", None);
+        let round = st.round;
+        assert_eq!(st.resolve(), Err(LcError::ChallengePending));
+        // Three of four pay; still parked.
+        for pid in [1, 2, 3] {
+            let seat = st.seat_of(pid).unwrap();
+            let id = st.players[seat].hand[0].id.clone();
+            let key = st.pours[0].key;
+            st.pour_discard(pid, key, &[id]).unwrap();
+        }
+        assert_eq!(st.pours.len(), 1, "one debt outstanding");
+        assert_eq!(st.round, round, "the round has not moved");
+
+        let seat = st.seat_of(4).unwrap();
+        let id = st.players[seat].hand[0].id.clone();
+        let key = st.pours[0].key;
+        st.pour_discard(4, key, &[id]).unwrap();
+        assert!(st.pours.is_empty(), "settled");
+        assert_eq!(st.round, round + 1, "the last debt paid rolls the round");
+        assert_eq!(st.beat, Beat::Draw);
+    }
+
+    /// You owe what you can pay. A seat holding fewer cards than the pour
+    /// asks for pitches everything and owes nothing more — it must never be
+    /// left holding the table up over a debt it cannot settle.
+    #[test]
+    fn test_a_short_hand_owes_only_what_it_holds() {
+        let c = crate::lc_cards::card_by_id("liquor-10").unwrap(); // n = 3
+        let mut st = LastCallState::new(
+            vec![(1, "alice".into()), (2, "bob".into()), (3, "cara".into())],
+            42,
+        );
+        st.set_vessel(1, Deck::Liquor, "shot").unwrap();
+        st.set_vessel(2, Deck::Cider, "bottle").unwrap();
+        st.set_vessel(3, Deck::Soft, "glass").unwrap();
+        st.beat = Beat::Lock;
+        st.players[1].hand.truncate(1); // bob holds one card
+        st.players[2].hand.clear(); // cara holds none
+        st.players[0].hand.push(c);
+        st.arm(1, "liquor-10").unwrap();
+        st.lock_in(1).unwrap();
+        st.advance_beat().unwrap();
+        st.advance_beat().unwrap();
+        st.resolve().unwrap();
+
+        let owed = &st.pours[0].owed;
+        assert_eq!(
+            owed.iter().find(|d| d.seat == 1).map(|d| d.cards),
+            Some(1),
+            "bob owes only the one card he holds"
+        );
+        assert!(
+            owed.iter().all(|d| d.seat != 2),
+            "cara holds nothing and must not be listed at all"
+        );
+        // Cara still drank — an empty hand is not an exemption from the round.
+        assert!(st.players[2].drinks > 0);
+    }
+
+    /// A pour nobody can pay never parks: the drink landed, and there is
+    /// nothing left to wait for.
+    #[test]
+    fn test_a_pour_with_no_payers_does_not_park() {
+        let c = crate::lc_cards::card_by_id("beer-10").unwrap();
+        let mut st = LastCallState::new(
+            vec![(1, "alice".into()), (2, "bob".into()), (3, "cara".into())],
+            42,
+        );
+        st.set_vessel(1, Deck::Beer, "can").unwrap();
+        st.set_vessel(2, Deck::Cider, "bottle").unwrap();
+        st.set_vessel(3, Deck::Soft, "glass").unwrap();
+        st.beat = Beat::Lock;
+        st.players[0].hand.push(c);
+        st.arm(1, "beer-10").unwrap();
+        st.lock_in(1).unwrap();
+        let round = st.round;
+        // Empty every hand AFTER the lock, so the play still resolves.
+        st.advance_beat().unwrap();
+        st.advance_beat().unwrap();
+        for p in &mut st.players {
+            p.hand.clear();
+        }
+        st.resolve().unwrap();
+        assert!(st.pours.is_empty(), "nothing to wait for");
+        assert_eq!(st.round, round + 1, "the round rolled over normally");
+    }
+
+    /// Guard order and the stale-screen key.
+    #[test]
+    fn test_pour_discard_guards() {
+        let mut st = play_pour("beer-10", None);
+        let key = st.pours[0].key;
+        let seat = st.seat_of(1).unwrap();
+        let id = st.players[seat].hand[0].id.clone();
+
+        assert_eq!(
+            st.pour_discard(99, key, &[id.clone()]),
+            Err(LcError::NotSeated)
+        );
+        assert_eq!(
+            st.pour_discard(1, key + 7, &[id.clone()]),
+            Err(LcError::WrongBeat),
+            "a stale screen's key must not land"
+        );
+        assert_eq!(
+            st.pour_discard(1, key, &[]),
+            Err(LcError::BadDraw),
+            "owes 1, pitched 0"
+        );
+        assert_eq!(
+            st.pour_discard(1, key, &[id.clone(), id.clone()]),
+            Err(LcError::BadDraw),
+            "owes 1, pitched 2"
+        );
+        assert_eq!(
+            st.pour_discard(1, key, &["nope".into()]),
+            Err(LcError::UnknownCard)
+        );
+        st.pour_discard(1, key, &[id]).unwrap();
+        // Paid: a second attempt finds no debt.
+        let id2 = st.players[seat].hand[0].id.clone();
+        assert_eq!(
+            st.pour_discard(1, key, &[id2]),
+            Err(LcError::WrongBeat),
+            "a paid seat owes nothing, so a double-tap cannot pay twice"
+        );
+    }
+
+    /// The cards reach the right deck's discard pile and move the counter —
+    /// a pour is not a special case of card movement.
+    #[test]
+    fn test_a_poured_card_goes_through_the_pile_api() {
+        let mut st = play_pour("beer-10", None);
+        let key = st.pours[0].key;
+        let seat = st.seat_of(2).unwrap();
+        let card = st.players[seat].hand[0].clone();
+        let before = st.players[seat].cards_discarded;
+        let pile_before = st
+            .table
+            .shoe(card.deck)
+            .map(|sh| sh.discarded())
+            .unwrap_or(0);
+        st.pour_discard(2, key, &[card.id.clone()]).unwrap();
+        assert_eq!(st.players[seat].cards_discarded, before + 1);
+        assert_eq!(
+            st.table.shoe(card.deck).map(|sh| sh.discarded()),
+            Some(pile_before + 1),
+            "the card reached its own deck's discard pile"
+        );
+    }
+
+    /// A seat that still owes cards is `Acting` — it is genuinely holding
+    /// the table up, and the phone's "your turn" pulse reads this field.
+    #[test]
+    fn test_a_pour_debt_makes_a_seat_acting() {
+        let mut st = play_pour("beer-10", None);
+        assert_eq!(st.blocking_seats(), vec![0, 1, 2, 3]);
+        let key = st.pours[0].key;
+        let seat = st.seat_of(1).unwrap();
+        let id = st.players[seat].hand[0].id.clone();
+        st.pour_discard(1, key, &[id]).unwrap();
+        assert_eq!(st.seat_phase(0), SeatPhase::Waiting, "alice has paid");
+        assert_eq!(st.blocking_seats(), vec![1, 2, 3]);
+    }
+
+    /// **Both parks at once.** One player pours while another challenges:
+    /// each settle path must refuse to roll the round over while the other
+    /// is outstanding. A settle that rolled over unconditionally would
+    /// advance the round out from under the other park and strand it.
+    #[test]
+    fn test_a_pour_and_a_challenge_can_park_the_same_round() {
+        let mut st = LastCallState::new(
+            vec![
+                (1, "alice".into()),
+                (2, "bob".into()),
+                (3, "cara".into()),
+                (4, "dave".into()),
+            ],
+            42,
+        );
+        st.set_vessel(1, Deck::Beer, "can").unwrap();
+        st.set_vessel(2, Deck::Liquor, "shot").unwrap();
+        st.set_vessel(3, Deck::Soft, "glass").unwrap();
+        st.set_vessel(4, Deck::Wine, "glass").unwrap();
+        st.beat = Beat::Lock;
+        st.players[0]
+            .hand
+            .push(crate::lc_cards::card_by_id("beer-10").unwrap()); // pour
+        st.players[1]
+            .hand
+            .push(crate::lc_cards::card_by_id("liquor-09").unwrap()); // duel
+        st.arm(1, "beer-10").unwrap();
+        st.arm(2, "liquor-09").unwrap();
+        st.lock_in(1).unwrap();
+        st.lock_in(2).unwrap();
+        let round = st.round;
+        st.advance_beat().unwrap();
+        st.advance_beat().unwrap();
+        st.resolve().unwrap();
+
+        assert_eq!(st.pours.len(), 1, "parked on the pour");
+        assert_eq!(st.challenges.len(), 1, "and on the challenge");
+        assert_eq!(
+            st.phase(),
+            Phase::Challenge,
+            "the contest is the louder of the two"
+        );
+
+        // Settle the pour first. The round must NOT roll over.
+        let key = st.pours[0].key;
+        let payers: Vec<i64> = st.pours[0]
+            .owed
+            .iter()
+            .map(|d| st.players[d.seat].player_id)
+            .collect();
+        for pid in payers {
+            let seat = st.seat_of(pid).unwrap();
+            let id = st.players[seat].hand[0].id.clone();
+            st.pour_discard(pid, key, &[id]).unwrap();
+        }
+        assert!(st.pours.is_empty());
+        assert_eq!(
+            st.round, round,
+            "the challenge still holds the round — settle_pour must not roll over"
+        );
+
+        // Now settle the challenge; that is the last park, so it rolls.
+        let ckey = st.challenges[0].key;
+        let electorate = st.challenges[0].electorate.clone();
+        for seat in electorate {
+            let pid = st.players[seat].player_id;
+            st.challenge_vote(pid, ckey, true).unwrap();
+        }
+        assert!(!st.parked());
+        assert_eq!(st.round, round + 1, "the last park rolls the round over");
+    }
+
+    /// The mirror of the test above, settling in the OTHER order.
+    ///
+    /// Both are needed and neither covers the other: each settle path has
+    /// its own "is anything else still parked" guard, and a test that always
+    /// settles the pour first leaves `settle_challenge`'s guard free to be
+    /// deleted with the suite green. Mutation-testing caught exactly that.
+    #[test]
+    fn test_a_challenge_settling_first_does_not_strand_a_pour() {
+        let mut st = LastCallState::new(
+            vec![
+                (1, "alice".into()),
+                (2, "bob".into()),
+                (3, "cara".into()),
+                (4, "dave".into()),
+            ],
+            42,
+        );
+        st.set_vessel(1, Deck::Beer, "can").unwrap();
+        st.set_vessel(2, Deck::Liquor, "shot").unwrap();
+        st.set_vessel(3, Deck::Soft, "glass").unwrap();
+        st.set_vessel(4, Deck::Wine, "glass").unwrap();
+        st.beat = Beat::Lock;
+        st.players[0]
+            .hand
+            .push(crate::lc_cards::card_by_id("beer-10").unwrap());
+        st.players[1]
+            .hand
+            .push(crate::lc_cards::card_by_id("liquor-09").unwrap());
+        st.arm(1, "beer-10").unwrap();
+        st.arm(2, "liquor-09").unwrap();
+        st.lock_in(1).unwrap();
+        st.lock_in(2).unwrap();
+        let round = st.round;
+        st.advance_beat().unwrap();
+        st.advance_beat().unwrap();
+        st.resolve().unwrap();
+        assert_eq!(st.pours.len(), 1);
+        assert_eq!(st.challenges.len(), 1);
+
+        // Challenge first this time.
+        let ckey = st.challenges[0].key;
+        for seat in st.challenges[0].electorate.clone() {
+            let pid = st.players[seat].player_id;
+            st.challenge_vote(pid, ckey, true).unwrap();
+        }
+        assert!(st.challenges.is_empty());
+        assert_eq!(
+            st.round, round,
+            "the pour still holds the round — settle_challenge must not roll over"
+        );
+        assert_eq!(st.phase(), Phase::Pour, "now visibly parked on the pour");
+
+        // Then the pour, which is the last park and owns the rollover.
+        let key = st.pours[0].key;
+        let payers: Vec<i64> = st.pours[0]
+            .owed
+            .iter()
+            .map(|d| st.players[d.seat].player_id)
+            .collect();
+        for pid in payers {
+            let seat = st.seat_of(pid).unwrap();
+            let id = st.players[seat].hand[0].id.clone();
+            st.pour_discard(pid, key, &[id]).unwrap();
+        }
+        assert!(!st.parked());
+        assert_eq!(st.round, round + 1);
+    }
+
+    /// The blob round-trips with a pour parked, so a reload during one
+    /// resumes it rather than losing the debts.
+    #[test]
+    fn test_a_parked_pour_survives_a_snapshot() {
+        let st = play_pour("beer-10", None);
+        let back = LastCallState::from_json(&st.to_json());
+        assert_eq!(back.pours, st.pours);
+        assert_eq!(back.pour_seq, st.pour_seq);
+        assert!(back.parked());
     }
 
     #[test]

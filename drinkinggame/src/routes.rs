@@ -1089,6 +1089,10 @@ pub fn router() -> Router<GameState> {
             post(crate::lc_routes::lc_chvote_handler),
         )
         .route(
+            "/room/{code}/lastcall/pour-discard",
+            post(crate::lc_routes::lc_pour_discard_handler),
+        )
+        .route(
             "/room/{code}/lastcall/test/grant",
             post(crate::lc_routes::lc_test_grant_handler),
         )

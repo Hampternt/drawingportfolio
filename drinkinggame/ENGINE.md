@@ -22,6 +22,7 @@ list and it's worth knowing you already have them.
 | **A log** | `LogEntry` (20 variants), rendered by `lc_render::lc_log` | There is already a LOG tab in `lc_room.html`. It renders newest-first off `PublicView::log`. |
 | **Challenge win/lose selection** | `ChallengeState`, `challenge_vote()`, `settle_challenge()` | Duel (vs. the seat on your right) or Solo (perform, table votes pass/fail). Electorate frozen at activation; `key` stops a stale screen voting on the next challenge. Penalties are catalog-side: `Penalty::{Damage,Drain,Drink,Rule}`. |
 | **Health / shields / drains** | `damage`/`heal`/`shield`/`drain` | You said these are fine as-is. They are, and everything routes through them. |
+| **Rounds of drinks** | `lc_cards::PourDef`, `PourState`, `pour_discard()` | Drink `n`, pitch `n` cards of your choice. The drink lands at resolve; the discard parks the round, and `parked()` is now the one definition of "waiting on people" so a pour and a challenge can hold the same round without either rolling it over early. |
 | **Revealing a hand** | `lc_cards::RevealDef`, `LastCallState::reveals`, `reveals_for()` | Snapshot at resolve, readable through the following round. Two scopes: table (rides `PublicView`) and caster-only (served per viewer, never projected publicly). Three cards at `copies: 0`. |
 
 So the log and the challenge verdict flow **exist** — what's missing on both
@@ -56,7 +57,18 @@ it unlocks your "salute the leader" case.
 
 ## Not built yet
 
-### 0. Nothing renders a reveal
+### 0. Nothing renders a reveal or a pour
+
+The `Reveal` and `Pour` engines are built and tested, but no surface draws
+one: the per-viewer hand pane doesn't call `reveals_for()`, `PublicView`'s
+`reveals`/`pours` reach the big screen unread, and nothing offers the discard
+picker a parked pour needs.
+
+That last one is the sharp edge. A pour **parks the round**, and
+`test/grant` can push a `copies: 0` prototype into a hand, so a pour played
+without a picker is a room that never moves again. The `pour-discard` route
+exists and is tested end to end, so the way out is reachable — but until a UI
+calls it, these cards must stay at `copies: 0`.
 
 The `Reveal` engine is built and tested, but no surface draws one: the
 per-viewer hand pane doesn't call `reveals_for()`, and `PublicView::reveals`

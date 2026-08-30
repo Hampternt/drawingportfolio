@@ -6,9 +6,9 @@ more numbers on the HP pool. None of them are in a deck: they ship
 catalog-present so the engine can exercise them, shoe-absent until someone
 balances them into a deck.
 
-Status: **group A is built** (`targets: "other"` and the `Reveal` primitive,
-with three cards in the catalog at `copies: 0`). Groups B and C are still
-design only. Each group names the one engine primitive it needs; see the end
+Status: **groups A and C are built** (`targets: "other"`, the `Reveal`
+primitive and the `Pour` park, with six cards in the catalog at `copies: 0`).
+Group B is still design only. Each group names the one engine primitive it needs; see the end
 for what building those costs.
 
 > Because they ship `copies: 0`, none of these can be drawn in a real game
@@ -116,9 +116,25 @@ card is an attack wearing a bow. `gen-07` is strictly better than `gen-05`
 
 ## C. Drink-and-discard cards
 
-**Needs:** a `TableDiscard` pending interaction — every affected player picks
-which cards to pitch, so the engine parks on several choices at once rather
-than one.
+**Built**, as `PourDef` + `PourState`. The engine parks the round on several
+choices at once — the challenge vote's shape, but waiting on N players
+instead of an electorate.
+
+Three things the build settled:
+
+- **The drink lands immediately; only the discard parks.** Nobody chooses how
+  much they drink, so there is nothing to wait for there. It goes through
+  `drain`, so it empties real pulls and moves `drinks`.
+- **You owe what you can pay.** A seat holding fewer cards than `n` pitches
+  everything it has, and a seat holding nothing is left off the debt list
+  entirely — it can't pay a debt it was never given, and listing it would
+  park the room forever.
+- **Two parks can hold the same round.** One player pours while another
+  challenges. Whichever settles *last* runs the rollover; a settle that rolled
+  over unconditionally would advance the round out from under the other park
+  and strand it. Both guards exist, and both orders are tested — a test that
+  only ever settled the pour first left the challenge-side guard deletable
+  with the suite green.
 
 Your rule, made the whole mechanic: **the drink count and the discard count
 are the same number.** One parameter, N.
@@ -174,7 +190,7 @@ Four new primitives, roughly in ascending order of work:
 |---|---|---|
 | `targets: "other"` | all of B, D | **Built.** Not the "one guard arm" this doc first claimed — the class had to reach seven engine sites, the renderer and the seat picker. Only the self-rejection is genuinely one arm; the rest went through a new `targets_a_seat` predicate so a future class can't miss one. |
 | `Reveal { scope }` | A, D | **Built** for group A (`gen-04` still needs group C's machinery, `gen-11` needs a play parameter). The private channel **already exists**: `broadcast_lc` publishes only the public panel, and each phone re-fetches its own hand through `hand_pane_html(…, player_id)`, rendered server-side per viewer. A caster-only reveal is genuinely private there, not client-side hidden. |
-| `TableDiscard { n }` | C | Needs the engine to park on *several* players' choices at once. |
+| `TableDiscard { n }` | C | **Built** as `Pour`. Also needed a settle ROUTE, unlike the reveal wave: a pour parks the round, and `test/grant` can push a `copies: 0` prototype into a hand, so an unreachable settle path is a room that never moves again rather than a merely inert feature. |
 | `Swap` | B | Needs a pending interaction with a decline branch, and a random draw from another hand — which must come off the engine's `LcRng`, never a fresh one. |
 
 **`EffectOp` cannot express any of these.** Its five ops — `Damage`, `Heal`,

@@ -38,6 +38,11 @@ pub enum Phase {
     Lobby,
     /// The normal five-beat loop is running.
     Playing,
+    /// Parked at `Beat::Resolve` waiting on discards owed to a round of
+    /// drinks (`PourState`). Same freeze as `Challenge`, quieter socially —
+    /// which is why `phase()` reports `Challenge` when a round somehow parks
+    /// on both: a real-life contest is what the table is actually watching.
+    Pour,
     /// Parked at `Beat::Resolve` waiting on the table's votes for a real-life
     /// challenge. Nothing advances until `challenges` empties — the engine
     /// returns `LcError::ChallengePending` for anything that would try.
@@ -52,6 +57,7 @@ impl Phase {
         match self {
             Phase::Lobby => "lobby",
             Phase::Playing => "playing",
+            Phase::Pour => "pour",
             Phase::Challenge => "challenge",
             Phase::Finished => "finished",
         }
@@ -61,6 +67,7 @@ impl Phase {
         match self {
             Phase::Lobby => "LOBBY",
             Phase::Playing => "PLAYING",
+            Phase::Pour => "POUR",
             Phase::Challenge => "CHALLENGE",
             Phase::Finished => "FINISHED",
         }
@@ -137,7 +144,8 @@ mod tests {
     #[test]
     fn test_phase_orders_by_progression() {
         assert!(Phase::Lobby < Phase::Playing);
-        assert!(Phase::Playing < Phase::Challenge);
+        assert!(Phase::Playing < Phase::Pour);
+        assert!(Phase::Pour < Phase::Challenge);
         assert!(Phase::Challenge < Phase::Finished);
     }
 
@@ -145,7 +153,10 @@ mod tests {
     fn test_only_lobby_and_playing_accept_play() {
         assert!(Phase::Lobby.accepts_play());
         assert!(Phase::Playing.accepts_play());
+        // A parked round takes no plays, whichever thing parked it.
+        assert!(!Phase::Pour.accepts_play());
         assert!(!Phase::Challenge.accepts_play());
+        assert!(!Phase::Pour.is_over());
         assert!(!Phase::Finished.accepts_play());
         assert!(Phase::Finished.is_over());
         assert!(!Phase::Challenge.is_over());
@@ -172,6 +183,7 @@ mod tests {
         let phases = [
             Phase::Lobby,
             Phase::Playing,
+            Phase::Pour,
             Phase::Challenge,
             Phase::Finished,
         ];

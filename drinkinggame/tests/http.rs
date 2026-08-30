@@ -8511,6 +8511,96 @@ async fn lc_parked_rig() -> (
     (app, pool, code, alice, bob, cara)
 }
 
+/// Pour wave: the `pour-discard` route settles a parked round over HTTP.
+///
+/// Written even though no UI calls it yet, because a pour PARKS the round
+/// and `test/grant` can put a `copies: 0` prototype into a hand — so an
+/// unreachable settle path is a room that never moves again, not a merely
+/// inert feature. This is the end-to-end proof that the way out exists.
+#[tokio::test]
+async fn test_lc_pour_discard_route_settles_a_parked_round() {
+    let (app, pool) = test_app_with_pool().await;
+    let alice = login(&app, "alice", "1234").await;
+    let bob = login(&app, "bob", "5678").await;
+    let cara = login(&app, "cara", "9999").await;
+    let code = create_room(&app, &alice).await;
+    room_page_html(&app, &bob, &code).await;
+    room_page_html(&app, &cara, &code).await;
+    post_form(&app, &alice, &format!("/room/{code}/lastcall/start"), "").await;
+
+    let ids: Vec<i64> = {
+        let mut v = Vec::new();
+        for name in ["alice", "bob", "cara"] {
+            v.push(
+                drinkinggame::db::get_player_by_name(&pool, name)
+                    .await
+                    .unwrap()
+                    .id,
+            );
+        }
+        v
+    };
+    let mut st = LastCallState::new(
+        vec![
+            (ids[0], "alice".into()),
+            (ids[1], "bob".into()),
+            (ids[2], "cara".into()),
+        ],
+        7,
+    );
+    st.set_vessel(ids[0], Deck::Beer, "can").unwrap();
+    st.set_vessel(ids[1], Deck::Cider, "bottle").unwrap();
+    st.set_vessel(ids[2], Deck::Soft, "glass").unwrap();
+    st.players[0]
+        .hand
+        .push(drinkinggame::lc_cards::card_by_id("beer-10").unwrap());
+    st.beat = Beat::Lock;
+    st.arm(ids[0], "beer-10").unwrap();
+    st.lock_in(ids[0]).unwrap();
+    st.lock_in(ids[1]).unwrap();
+    st.lock_in(ids[2]).unwrap();
+    st.advance_beat().unwrap();
+    st.advance_beat().unwrap();
+    st.resolve().unwrap();
+    assert_eq!(st.pours.len(), 1, "rig must park");
+    let round = st.round;
+    let key = st.pours[0].key;
+    let owed: Vec<(usize, String)> = st.pours[0]
+        .owed
+        .iter()
+        .map(|d| (d.seat, st.players[d.seat].hand[0].id.clone()))
+        .collect();
+
+    let game_id = lc_game_id(&pool, &code).await;
+    drinkinggame::db::set_game_state(&pool, game_id, &st.to_json()).await;
+
+    let cookies = [&alice, &bob, &cara];
+    for (i, (seat, card_id)) in owed.iter().enumerate() {
+        let res = post_form(
+            &app,
+            cookies[*seat],
+            &format!("/room/{code}/lastcall/pour-discard"),
+            &format!("pour={key}&cards={card_id}"),
+        )
+        .await;
+        assert_eq!(res.status(), StatusCode::NO_CONTENT, "payer {i}");
+    }
+
+    let back = lc_state(&pool, &code).await;
+    assert!(back.pours.is_empty(), "every debt paid settles the pour");
+    assert_eq!(back.round, round + 1, "and rolls the round over");
+
+    // A replayed discard on the settled pour is refused, not applied again.
+    let res = post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/lastcall/pour-discard"),
+        &format!("pour={key}&cards=beer-01"),
+    )
+    .await;
+    assert_ne!(res.status(), StatusCode::NO_CONTENT);
+}
+
 /// The parked round's surfaces: the banner strip carries the public
 /// contestants + tally, the eligible voter's private hand fragment carries
 /// the two vote buttons, a contestant's carries the status copy instead —

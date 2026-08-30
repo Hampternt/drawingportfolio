@@ -1772,6 +1772,59 @@ pub async fn lc_chvote_handler(
 }
 
 #[derive(Deserialize)]
+pub struct PourDiscardForm {
+    /// The pour's identity token (`PourState::key`) — the
+    /// `ChallengeVoteForm::challenge` precedent, so a discard posted from a
+    /// stale screen cannot land on the next queued pour.
+    pub pour: u64,
+    /// Comma-separated hand card ids, the `MulliganForm::cards` shape.
+    pub cards: String,
+}
+
+/// `POST /room/{code}/lastcall/pour-discard` (pour wave) — public
+/// (`persist_and_broadcast_lc`): who still owes cards is on every surface,
+/// and the settling discard rolls the round over.
+///
+/// This route exists ahead of any UI that calls it, deliberately. A pour
+/// PARKS the round, and `test/grant` can push a `copies: 0` prototype into a
+/// hand, so a pour card without a settle route is not merely inert like the
+/// trigger queue — it is a room that never moves again. The engine carries
+/// every guard (`pour_discard`); this only splits the id list.
+///
+/// An empty `cards` is forwarded rather than rejected here: a seat whose
+/// hand emptied between the park and the tap genuinely owes zero cards, and
+/// the engine is the authority on that. `mulligan`'s route rejects empty
+/// because a zero-card mulligan is always meaningless; a zero-card pour
+/// payment is not.
+pub async fn lc_pour_discard_handler(
+    State(state): State<GameState>,
+    PlayerSession(player): PlayerSession,
+    Path(code): Path<String>,
+    Form(form): Form<PourDiscardForm>,
+) -> axum::response::Response {
+    let lock = match lc_lock(&state, &code).await {
+        Ok(l) => l,
+        Err(r) => return r,
+    };
+    let _guard = lock.lock().await;
+    let mut ctx = match load_lc(&state, &code, &player).await {
+        Ok(c) => c,
+        Err(r) => return r,
+    };
+    let ids: Vec<String> = form
+        .cards
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+    if let Err(e) = ctx.st.pour_discard(player.id, form.pour, &ids) {
+        return map_lc(e);
+    }
+    persist_and_broadcast_lc(&state, &ctx).await;
+    StatusCode::NO_CONTENT.into_response()
+}
+
+#[derive(Deserialize)]
 pub struct GrantForm {
     pub card_id: String,
 }
