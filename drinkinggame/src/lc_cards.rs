@@ -590,7 +590,7 @@ mod tests {
     fn test_targets_are_a_known_class() {
         for def in CATALOG.iter() {
             assert!(
-                ["self", "one", "all", "right"].contains(&def.targets),
+                ["self", "one", "other", "all", "right"].contains(&def.targets),
                 "{}",
                 def.id
             );

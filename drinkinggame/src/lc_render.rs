@@ -480,7 +480,7 @@ pub fn lc_table_stack(
             let slug = card.deck.slug();
             let (arrow_attrs, tgt_label) = match card.targets.as_str() {
                 "self" => (format!(r#" data-arrow="{me}""#), "YOU".to_string()),
-                "one" => match target {
+                "one" | "other" => match target {
                     Some(t) => (
                         format!(r#" data-arrow="{t}""#),
                         seat_name_upper(view, *t),
@@ -529,6 +529,7 @@ pub fn lc_inspect_sheet(hand: &[Card], staging: bool) -> String {
             let slug = card.deck.slug();
             let targets_label = match card.targets.as_str() {
                 "one" => "ONE PLAYER".to_string(),
+                "other" => "ANOTHER PLAYER".to_string(),
                 "all" => "EVERYONE".to_string(),
                 "self" => "YOURSELF".to_string(),
                 other => html_escape(&other.to_uppercase()),

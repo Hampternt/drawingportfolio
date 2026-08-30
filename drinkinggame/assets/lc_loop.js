@@ -308,7 +308,9 @@
   }
 
   // Stage a card and open the overlay showing only the rows its `targets`
-  // class admits: "one" -> every seat row, "self" -> the viewer's own row,
+  // class admits: "one" -> every seat row, "other" -> every seat row but
+  // the viewer's own (a card needing two different players), "self" -> the
+  // viewer's own row,
   // anything else ("all"/"table") -> the EVERYONE row. Reactions never arm
   // (the engine refuses them — they play in the Reveal response window), so
   // they get the note instead of a doomed POST.
@@ -328,8 +330,9 @@
     ov.querySelectorAll(".lc-tgt-row").forEach(function (row) {
       var t = row.dataset.target;
       var show = targets === "one" ? t !== "all"
-        : targets === "self" ? row.hasAttribute("data-me")
-          : t === "all";
+        : targets === "other" ? (t !== "all" && !row.hasAttribute("data-me"))
+          : targets === "self" ? row.hasAttribute("data-me")
+            : t === "all";
       row.hidden = !show;
       row.classList.remove("is-over");
     });
@@ -362,7 +365,7 @@
     var previewHTML = src ? src.innerHTML : "";
     post("arm", "card_id=" + encodeURIComponent(id)).then(function (ok) {
       if (!ok) return;
-      if (targets === "one" && targetVal !== "all") {
+      if ((targets === "one" || targets === "other") && targetVal !== "all") {
         post(
           "target",
           "card_id=" + encodeURIComponent(id) +

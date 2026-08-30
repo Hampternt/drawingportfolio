@@ -2398,9 +2398,20 @@ impl LastCallState {
         };
         let targets_class = self.players[seat].armed[idx].card.targets.clone();
         match targets_class.as_str() {
-            "one" => match target {
+            "one" | "other" => match target {
                 Some(t) => match self.players.get(t) {
-                    Some(tp) if tp.status == Status::Alive => {}
+                    Some(tp) if tp.status == Status::Alive => {
+                        // The whole difference between the two classes, and
+                        // the only site that cares: `"other"` needs two
+                        // DIFFERENT players, so a swap or a private reveal
+                        // aimed at yourself is refused rather than resolving
+                        // as an expensive no-op. `"one"` allows self-aim
+                        // deliberately — a heal or shield on yourself is a
+                        // real play.
+                        if targets_class == "other" && t == seat {
+                            return Err(LcError::BadTarget);
+                        }
+                    }
                     _ => return Err(LcError::BadTarget),
                 },
                 None => return Err(LcError::BadTarget),
@@ -2484,7 +2495,7 @@ impl LastCallState {
         if let Some(a) = p
             .armed
             .iter()
-            .find(|a| a.card.targets == "one" && a.target.is_none())
+            .find(|a| targets_a_seat(&a.card.targets) && a.target.is_none())
         {
             return Err(LcError::NeedsTarget(a.card.id.clone()));
         }
@@ -2499,7 +2510,7 @@ impl LastCallState {
                 source_seat: seat,
                 target: match a.card.targets.as_str() {
                     "self" => Some(seat), // D2
-                    "one" => a.target,    // validated Some
+                    "one" | "other" => a.target, // validated Some
                     _ => None,
                 },
                 paid_from: a.card.deck,
@@ -3358,7 +3369,7 @@ impl LastCallState {
             // check here now applies uniformly, so that case is no longer a
             // break either — G9 now holds the same for a reflected play as
             // for every other kind.
-            if play.card.targets == "one" {
+            if targets_a_seat(&play.card.targets) {
                 if let (Some(target), Some(partner)) =
                     (play.target, self.pact_partner(play.source_seat))
                 {
@@ -3454,7 +3465,7 @@ impl LastCallState {
                 vec![play.source_seat]
             } else {
                 match play.card.targets.as_str() {
-                    "one" => match play.target.and_then(|t| self.players.get(t)) {
+                    "one" | "other" => match play.target.and_then(|t| self.players.get(t)) {
                         Some(p) if p.status == Status::Alive => {
                             let target_seat = p.seat;
                             // `double-vision`'s `HostileRedirect` (H4): only
@@ -4341,9 +4352,21 @@ fn refill_pulls(player: &mut LcPlayer, n: u8) {
 /// this play possibly have named," a fact fixed the moment the play was
 /// locked in. `"all"` means every seat, alive or not — the brief's "includes
 /// everyone".
+/// Whether a `targets` class names a single seat the player picks — the one
+/// definition, because six sites used to spell `== "one"` out separately and
+/// adding a class meant finding all six.
+///
+/// `"one"` and `"other"` differ only in whether you may name yourself, and
+/// that difference is enforced in exactly one place (`set_target`). Every
+/// other site cares only "is there a seat in `play.target` to read", which is
+/// true of both.
+pub fn targets_a_seat(class: &str) -> bool {
+    matches!(class, "one" | "other")
+}
+
 fn play_subjects(play: &Play, num_seats: usize) -> Vec<usize> {
     match play.card.targets.as_str() {
-        "one" => play.target.into_iter().collect(),
+        "one" | "other" => play.target.into_iter().collect(),
         "self" => vec![play.source_seat],
         "all" => (0..num_seats).collect(),
         _ => Vec::new(),
@@ -6547,6 +6570,117 @@ mod tests {
             Err(LcError::BadTarget)
         );
         st.set_target(1, "beer-03", None).unwrap();
+    }
+
+    /// Retype a real catalog card's target class.
+    ///
+    /// `targets` is blob-carried — the engine reads `play.card.targets`, not
+    /// the catalog (unlike `fx`, which is always resolved by id) — so this
+    /// produces exactly the shape a real `"other"` card will have in a hand.
+    /// No catalog card carries the class yet: the cards that want it (swap,
+    /// private reveal) need engine primitives that don't exist, and the
+    /// class is worth landing on its own.
+    fn retype(st: &mut LastCallState, seat: usize, card_id: &str, class: &str) {
+        let c = st.players[seat]
+            .hand
+            .iter_mut()
+            .find(|c| c.id == card_id)
+            .expect("card in hand");
+        c.targets = class.to_string();
+    }
+
+    /// The entire difference between `"one"` and `"other"`: whether you may
+    /// name yourself. Both are pinned here together, because the value of
+    /// the pair is the contrast — `"one"` allowing self-aim is deliberate
+    /// (a heal on yourself is a real play), and a future tightening of it
+    /// should have to delete an assertion that says so.
+    #[test]
+    fn test_other_refuses_self_where_one_allows_it() {
+        let mut st = at_lock();
+        retype(&mut st, 0, "beer-01", "other");
+        st.arm(1, "beer-01").unwrap();
+        assert_eq!(
+            st.set_target(1, "beer-01", Some(0)),
+            Err(LcError::BadTarget),
+            "an \"other\" card must not name its own player"
+        );
+        st.set_target(1, "beer-01", Some(1)).unwrap();
+        assert_eq!(st.players[0].armed[0].target, Some(1));
+
+        // Same card, same seat, "one": the self-target is legal.
+        let mut st = at_lock();
+        st.arm(1, "beer-01").unwrap();
+        st.set_target(1, "beer-01", Some(0)).unwrap();
+    }
+
+    /// `"other"` inherits every other guard `"one"` has — it is not a
+    /// looser class, only a narrower one.
+    #[test]
+    fn test_other_keeps_the_rest_of_the_one_guards() {
+        let mut st = at_lock();
+        retype(&mut st, 0, "beer-01", "other");
+        st.arm(1, "beer-01").unwrap();
+        assert_eq!(st.set_target(1, "beer-01", None), Err(LcError::BadTarget));
+        assert_eq!(
+            st.set_target(1, "beer-01", Some(7)),
+            Err(LcError::BadTarget),
+            "out of range"
+        );
+        st.players[1].status = Status::Eliminated;
+        assert_eq!(
+            st.set_target(1, "beer-01", Some(1)),
+            Err(LcError::BadTarget),
+            "eliminated"
+        );
+    }
+
+    /// The lock gate reads the class through `targets_a_seat`, so an
+    /// untargeted `"other"` is refused by name exactly like an untargeted
+    /// `"one"`. Before the helper existed this site spelled `== "one"` out
+    /// and would have let the card through with no target at all.
+    #[test]
+    fn test_lock_refuses_an_untargeted_other() {
+        let mut st = at_lock();
+        retype(&mut st, 0, "beer-01", "other");
+        st.arm(1, "beer-01").unwrap();
+        assert_eq!(
+            st.lock_in(1),
+            Err(LcError::NeedsTarget("beer-01".into())),
+            "must name the card that is missing its seat"
+        );
+        st.set_target(1, "beer-01", Some(1)).unwrap();
+        st.lock_in(1).unwrap();
+    }
+
+    /// End to end: an `"other"` play resolves against the seat it named.
+    /// This is the site in `resolve()`'s subject derivation — without it the
+    /// class would fall through to the catch-all, produce no subjects, and
+    /// the card would silently do nothing while still charging its pulls.
+    #[test]
+    fn test_an_other_play_lands_on_the_seat_it_named() {
+        let mut st = at_lock();
+        retype(&mut st, 0, "beer-01", "other");
+        st.arm(1, "beer-01").unwrap(); // Damage 2
+        st.set_target(1, "beer-01", Some(1)).unwrap();
+        st.lock_in(1).unwrap();
+        let before = st.players[1].hp;
+        st.advance_beat().unwrap(); // Reveal
+        st.advance_beat().unwrap(); // Resolve
+        st.resolve().unwrap();
+        assert_eq!(
+            st.players[1].hp,
+            before - 2,
+            "an \"other\" play must reach its subject"
+        );
+    }
+
+    #[test]
+    fn test_targets_a_seat_names_both_seat_classes() {
+        assert!(targets_a_seat("one"));
+        assert!(targets_a_seat("other"));
+        for class in ["self", "all", "right", "table", ""] {
+            assert!(!targets_a_seat(class), "{class}");
+        }
     }
 
     /// D18: seq bumps on every successful mutating transition and on none

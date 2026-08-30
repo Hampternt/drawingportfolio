@@ -695,13 +695,13 @@ fn play_caption(st: &LastCallState, play: &Play) -> String {
 
 /// The route-side twin of `last_call::play_subjects` (private to that
 /// module, and not in this task's file list to touch): the answered play's
-/// subject seats, by its own `card.targets` — `"one"` is the play's single
-/// `target` if it has one, `"self"` is just the caster, `"all"` is every
+/// subject seats, by its own `card.targets` — `"one"`/`"other"` is the play's
+/// single `target` if it has one, `"self"` is just the caster, `"all"` is every
 /// seat, anything else names nobody. Used only by `scope_legal` below, to
 /// decide whether a `targets == "self"` reaction may answer this play (I5).
 fn play_subjects(play: &Play, num_seats: usize) -> Vec<usize> {
     match play.card.targets.as_str() {
-        "one" => play.target.into_iter().collect(),
+        "one" | "other" => play.target.into_iter().collect(),
         "self" => vec![play.source_seat],
         "all" => (0..num_seats).collect(),
         _ => Vec::new(),
