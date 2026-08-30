@@ -17,11 +17,12 @@ list and it's worth knowing you already have them.
 | **Player hands** | `LcPlayer::hand`, `LcPlayer::armed` | Cards move in only via `deal()`, out only via `discard()`. `hand_by_deck` is public (deck composition), card identity is private. |
 | **Decks on the table** | `lc_deck.rs` — `LcTable`/`Shoe` | Real `Vec<Card>` draw + discard piles per deck. Auto-reshuffles when dry. Cards are conserved. |
 | **Staged / readied cards** | `ArmedCard { card, target }`, `locked`, `ready` | Staging is private (`public_view()` never reads `armed`, only `locked`). |
-| **Targeting a specific player** | `set_target()`, `Card::targets` | `"one"` requires a live seat; `"self"`/`"all"`/`"right"` require `None`. Rejects with `BadTarget`. |
+| **Targeting a specific player** | `set_target()`, `Card::targets` | `"one"` requires a live seat and permits self-targeting; `"other"` is the same but refuses your own seat (for cards needing two different people); `"self"`/`"all"`/`"right"` require `None`. Rejects with `BadTarget`. Classes that name a seat go through `targets_a_seat()` — one definition, because six sites used to spell it out separately. |
 | **Per-seat phase** | `lc_phase.rs` — `seat_phase()`, `blocking_seats()` | Derived server-side, so no client re-derives "is the table waiting on me". |
 | **A log** | `LogEntry` (20 variants), rendered by `lc_render::lc_log` | There is already a LOG tab in `lc_room.html`. It renders newest-first off `PublicView::log`. |
 | **Challenge win/lose selection** | `ChallengeState`, `challenge_vote()`, `settle_challenge()` | Duel (vs. the seat on your right) or Solo (perform, table votes pass/fail). Electorate frozen at activation; `key` stops a stale screen voting on the next challenge. Penalties are catalog-side: `Penalty::{Damage,Drain,Drink,Rule}`. |
 | **Health / shields / drains** | `damage`/`heal`/`shield`/`drain` | You said these are fine as-is. They are, and everything routes through them. |
+| **Revealing a hand** | `lc_cards::RevealDef`, `LastCallState::reveals`, `reveals_for()` | Snapshot at resolve, readable through the following round. Two scopes: table (rides `PublicView`) and caster-only (served per viewer, never projected publicly). Three cards at `copies: 0`. |
 
 So the log and the challenge verdict flow **exist** — what's missing on both
 is described below, and it's narrower than "build the thing".
@@ -54,6 +55,13 @@ it unlocks your "salute the leader" case.
 ---
 
 ## Not built yet
+
+### 0. Nothing renders a reveal
+
+The `Reveal` engine is built and tested, but no surface draws one: the
+per-viewer hand pane doesn't call `reveals_for()`, and `PublicView::reveals`
+reaches the big screen unread. Same shape as the trigger queue above — the
+logic lands before the UI, deliberately.
 
 ### 1. Resolve-stage attribution — "whose card hit whom"
 

@@ -6,8 +6,14 @@ more numbers on the HP pool. None of them are in a deck: they ship
 catalog-present so the engine can exercise them, shoe-absent until someone
 balances them into a deck.
 
-Status: **design only.** None of these are implemented. Each group names the
-one engine primitive it needs; see the end for what building those costs.
+Status: **group A is built** (`targets: "other"` and the `Reveal` primitive,
+with three cards in the catalog at `copies: 0`). Groups B and C are still
+design only. Each group names the one engine primitive it needs; see the end
+for what building those costs.
+
+> Because they ship `copies: 0`, none of these can be drawn in a real game
+> yet — same status as the challenge prototypes. The engine resolves them;
+> nothing deals them, and nothing draws them on screen.
 
 ---
 
@@ -56,11 +62,19 @@ says more than a random card would.
 
 ### Two design decisions these force
 
-**Snapshot, not a live window.** A reveal should capture what the target held
-**at resolve** and show that until end of round — not a live view of their
-hand. A live window would leak the next draw beat and keep leaking as their
-hand changes, which is a much bigger card than the cost suggests. Snapshot is
-also what "reveal" means at a real table: you show, they look, you take it back.
+**Snapshot, not a live window.** A reveal captures what the target held **at
+resolve** — not a live view of their hand. A live window would leak the next
+draw beat and keep leaking as their hand changes, which is a much bigger card
+than the cost suggests. Snapshot is also what "reveal" means at a real table:
+you show, they look, you take it back.
+
+**It lasts the FOLLOWING round, not "the rest of this one."** This draft
+originally said "rest of the round" and that turned out to be unbuildable:
+reveals land during `resolve()`, and `resolve()` rolls the round over a few
+statements later, so a reveal pruned at the end of its own round is dropped
+the instant it is taken — a 2-pull no-op. A snapshot taken in round N is
+readable through round N+1, which is the Diplomacy where you actually act on
+it, and dropped at the rollover after that.
 
 **A private reveal must never touch the log.** `LogEntry` is public and
 permanent. `gen-02` may log *that* it was played (`Play` already names card
@@ -158,8 +172,8 @@ Four new primitives, roughly in ascending order of work:
 
 | Primitive | Cards | Notes |
 |---|---|---|
-| `targets: "other"` | all of B, D | Trivial — one guard arm, one test entry. |
-| `Reveal { scope }` | A, D | The private channel **already exists**: `broadcast_lc` publishes only the public panel, and each phone re-fetches its own hand through `hand_pane_html(…, player_id)`, rendered server-side per viewer. A caster-only reveal is genuinely private there, not client-side hidden. |
+| `targets: "other"` | all of B, D | **Built.** Not the "one guard arm" this doc first claimed — the class had to reach seven engine sites, the renderer and the seat picker. Only the self-rejection is genuinely one arm; the rest went through a new `targets_a_seat` predicate so a future class can't miss one. |
+| `Reveal { scope }` | A, D | **Built** for group A (`gen-04` still needs group C's machinery, `gen-11` needs a play parameter). The private channel **already exists**: `broadcast_lc` publishes only the public panel, and each phone re-fetches its own hand through `hand_pane_html(…, player_id)`, rendered server-side per viewer. A caster-only reveal is genuinely private there, not client-side hidden. |
 | `TableDiscard { n }` | C | Needs the engine to park on *several* players' choices at once. |
 | `Swap` | B | Needs a pending interaction with a decline branch, and a random draw from another hand — which must come off the engine's `LcRng`, never a fresh one. |
 

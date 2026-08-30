@@ -714,6 +714,17 @@ pub struct LastCallState {
     /// Container-level default backfills empty on older blobs.
     #[serde(default)]
     pub triggers: Vec<TriggerEvent>,
+    /// Hands laid open by reveal cards (the reveal wave). A snapshot taken
+    /// in round N is readable through round N+1, then pruned.
+    ///
+    /// Holds BOTH scopes. The split is made at projection time, not here:
+    /// `public_view()` takes only the `seer: None` entries, and
+    /// `reveals_for()` serves a single viewer their own. Storing them
+    /// together keeps the prune in one place and makes the confidentiality
+    /// rule a property of the projection, which is where every other secret
+    /// in this engine is enforced.
+    #[serde(default)]
+    pub reveals: Vec<Reveal>,
     /// Monotonic counter behind `TriggerEvent::key` — bumped once per fired
     /// trigger, never reset (the `challenge_seq` precedent).
     #[serde(default)]
@@ -764,6 +775,34 @@ pub struct ChallengeState {
 pub struct ChallengeVote {
     pub voter: usize,
     pub for_instigator: bool,
+}
+
+/// One hand laid open by a reveal card (`lc_cards::RevealDef`).
+///
+/// A **snapshot**, not a live window. `cards` is what `subject` held at the
+/// moment the card resolved, and it does not track their hand afterwards.
+/// That is the whole difference between a 2-pull card and a devastating one:
+/// a live view would keep leaking through the next Draw beat, so a reveal
+/// would silently be worth far more than it costs. It is also what "reveal"
+/// means at a table — you show, they look, you take it back.
+///
+/// New with the reveal wave: serde strictness is moot, no older blob has one.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct Reveal {
+    /// Whose hand was opened.
+    pub subject: usize,
+    /// Who may see it. `None` means the whole table — and `None` is the ONLY
+    /// value `public_view()` will project. A `Some(seat)` reveal reaching
+    /// `PublicView` would hand every spectator the private read the card
+    /// charges 2 pulls for; `test_a_private_reveal_never_reaches_the_public_view`
+    /// is what stands between that and a regression.
+    pub seer: Option<usize>,
+    /// The snapshot.
+    pub cards: Vec<Card>,
+    /// The round the snapshot was taken in. A reveal is readable through the
+    /// FOLLOWING round and dropped at the rollover after that — see the
+    /// prune in `rollover()` for why it cannot be its own round.
+    pub round: u32,
 }
 
 /// One settled tab — who, which one, and when. New in Task 3: serde
@@ -902,6 +941,17 @@ pub struct PublicView {
     /// public the instant one exists, the `reactions`/`haunts` rule.
     #[serde(default)]
     pub triggers: Vec<TriggerEvent>,
+    /// Hands revealed to the WHOLE TABLE this round — the `seer: None`
+    /// entries of `LastCallState::reveals`, and only those.
+    ///
+    /// A caster-scoped reveal must never appear here. This field is a
+    /// broadcast: it reaches every phone and the spectator screen alike, so
+    /// a `Some(seat)` entry landing in it would publish the private read
+    /// that `Barman's Eye` charges for. The filter lives in `public_view()`
+    /// and is pinned by
+    /// `test_a_private_reveal_never_reaches_the_public_view`.
+    #[serde(default)]
+    pub reveals: Vec<Reveal>,
     /// Challenge-cards container: projected verbatim from
     /// `LastCallState::challenges` — contestants, tallies and votes are the
     /// spectacle, public the instant they exist (the `reactions`/`haunts`
@@ -1086,6 +1136,7 @@ impl LastCallState {
             challenges: Vec::new(),
             challenge_seq: 0,
             triggers: Vec::new(),
+            reveals: Vec::new(),
             trigger_seq: 0,
             log: Vec::new(),
         };
@@ -1545,6 +1596,29 @@ impl LastCallState {
     // ---------------------------------------------------------------
 
     /// The active trigger, if the table is holding on one.
+    /// The reveals one viewer may see: every table reveal, plus the private
+    /// ones bought for their own seat.
+    ///
+    /// This is the read the per-viewer hand fetch uses. It is a real
+    /// confidentiality boundary rather than a client-side hide: the hand
+    /// pane is rendered server-side against the caller's `player_id`, so a
+    /// viewer is never sent a snapshot they may not see and cannot recover
+    /// one by reading the page source.
+    ///
+    /// An unseated viewer (a spectator) gets the table reveals only, which
+    /// is exactly what the big screen should show.
+    pub fn reveals_for(&self, player_id: i64) -> Vec<&Reveal> {
+        let seat = self.seat_of(player_id);
+        self.reveals
+            .iter()
+            // `r.seer == seat` alone is enough for the private half: every
+            // private reveal has `seer: Some(_)`, so it is already false for
+            // an unseated viewer's `None`. An extra `seat.is_some()` guard
+            // here reads defensive and is unreachable.
+            .filter(|r| r.seer.is_none() || r.seer == seat)
+            .collect()
+    }
+
     pub fn pending_trigger(&self) -> Option<&TriggerEvent> {
         self.triggers.first()
     }
@@ -2223,6 +2297,18 @@ impl LastCallState {
             log: self.log.clone(),
             phase: self.phase(),
             triggers: self.triggers.clone(),
+            // THE confidentiality filter for the reveal wave. `seer: None`
+            // is a table reveal and public by design; `Some(seat)` is one
+            // player's private read and must not ride a broadcast. Written
+            // as a filter on the ONE public value rather than a negation of
+            // the private one, so a third scope added later is excluded by
+            // default instead of leaking until somebody remembers it.
+            reveals: self
+                .reveals
+                .iter()
+                .filter(|r| r.seer.is_none())
+                .cloned()
+                .collect(),
             challenges: self.challenges.clone(),
         }
     }
@@ -2509,7 +2595,7 @@ impl LastCallState {
                 card: a.card.clone(),
                 source_seat: seat,
                 target: match a.card.targets.as_str() {
-                    "self" => Some(seat), // D2
+                    "self" => Some(seat),        // D2
                     "one" | "other" => a.target, // validated Some
                     _ => None,
                 },
@@ -3529,6 +3615,44 @@ impl LastCallState {
             // (before the `cancelled` gate above) so a Cancel can't launder
             // it — see the comment there. Nothing left to do here.
 
+            // Reveal wave: an information effect, resolved by id from the
+            // catalog exactly like `card_fx` below and for the same reason
+            // (a retune reaches games in flight; an unrecognised id resolves
+            // inert rather than panicking).
+            //
+            // Runs BEFORE the numeric match because that match moves
+            // `subjects`. Order is otherwise immaterial — a reveal card
+            // carries no `fx`, pinned by `test_fx_matches_kind`.
+            //
+            // No log line. `LogEntry::Play` already named this card and its
+            // target when the reveal beat published the play, so the table
+            // already knows Alice looked at Bob's hand — the ACT is public
+            // for every play. What must never be logged is the CONTENTS: the
+            // log is public and permanent, so a private read written into it
+            // would outlive the round it was bought for.
+            if let Some(rv) = crate::lc_cards::card_rvfx(&play.card.id) {
+                let seer = match rv.scope {
+                    crate::lc_cards::RevealScope::Table => None,
+                    crate::lc_cards::RevealScope::Caster => Some(play.source_seat),
+                };
+                for &subject in &subjects {
+                    let cards = self.players[subject].hand.clone();
+                    self.reveals.push(Reveal {
+                        subject,
+                        seer,
+                        cards,
+                        round: self.round,
+                    });
+                }
+                // The draw rider, paid from the card's own deck — the same
+                // deck its pulls came out of. Through `deal`, so it moves
+                // `cards_drawn`, fires `OnDraw` triggers and comes off the
+                // real pile like every other draw. A short pile deals short.
+                if rv.draw > 0 {
+                    self.deal(play.source_seat, play.card.deck, rv.draw as usize);
+                }
+            }
+
             // Plan F: effects come from the binary's catalog, keyed by card
             // id — never from the card's own (possibly blob-carried) kind.
             // A reaction's id maps to `fx: None` in the catalog (D9/F5); an
@@ -3964,6 +4088,18 @@ impl LastCallState {
         for brk in &mut self.pact_breaks[pact_breaks_start..] {
             brk.round = self.round;
         }
+        // Reveal wave: a snapshot taken during round N's resolve is readable
+        // through all of round N+1, then dropped.
+        //
+        // NOT "the round it was taken in" — that was the first cut of this
+        // line and it dropped every reveal the instant it was taken, because
+        // reveals land during `resolve()` and `resolve()` rolls the round
+        // over a few statements later. A reveal is bought to be acted on,
+        // and the beat where you act on it is the NEXT round's Diplomacy.
+        // `self.round` is already incremented here, so keeping `r.round + 1
+        // >= self.round` keeps round N's reveals through round N+1 and drops
+        // them at the rollover into N+2.
+        self.reveals.retain(|r| r.round + 1 >= self.round);
         self.beat = Beat::Draw;
         for p in &mut self.players {
             p.locked = false;
@@ -6674,6 +6810,242 @@ mod tests {
         );
     }
 
+    /// Drive a reveal card through a full resolve and hand back the state.
+    /// `card` must be a `copies: 0` reveal prototype, so it is planted into
+    /// the hand directly rather than drawn — nothing can deal it.
+    fn play_reveal(card: &str, target: Option<usize>) -> LastCallState {
+        let c = crate::lc_cards::card_by_id(card).expect("catalog card");
+        // Built from scratch rather than `at_lock()`: the caster needs a
+        // vessel of the CARD's deck to pay for it, and vessels only register
+        // at Draw (D15), which `at_lock()` is already past.
+        let mut st = LastCallState::new(
+            vec![
+                (1, "alice".into()),
+                (2, "bob".into()),
+                (3, "cara".into()),
+                (4, "dave".into()),
+            ],
+            42,
+        );
+        st.set_vessel(1, c.deck, "glass").unwrap();
+        st.set_vessel(2, Deck::Cider, "bottle").unwrap();
+        st.set_vessel(3, Deck::Soft, "glass").unwrap();
+        st.set_vessel(4, Deck::Liquor, "shot").unwrap();
+        st.beat = Beat::Lock;
+        st.players[0].hand.push(c);
+        st.arm(1, card).unwrap();
+        if let Some(t) = target {
+            st.set_target(1, card, Some(t)).unwrap();
+        }
+        st.lock_in(1).unwrap();
+        st.advance_beat().unwrap(); // Reveal
+        st.advance_beat().unwrap(); // Resolve
+        st.resolve().unwrap();
+        st
+    }
+
+    /// A table reveal snapshots the named seat's hand for everybody.
+    #[test]
+    fn test_a_table_reveal_snapshots_the_named_hand() {
+        let st = play_reveal("wine-10", Some(1)); // OPEN BOOK -> bob
+        assert_eq!(st.reveals.len(), 1);
+        let r = &st.reveals[0];
+        assert_eq!(r.subject, 1);
+        assert_eq!(r.seer, None, "a table reveal is seen by everyone");
+        assert_eq!(
+            r.cards, st.players[1].hand,
+            "the snapshot is bob's hand as it stood at resolve"
+        );
+        assert!(!r.cards.is_empty(), "an opening hand is not empty");
+    }
+
+    /// **The confidentiality boundary.** A caster-scoped reveal must not
+    /// ride the broadcast: `PublicView` reaches every phone and the
+    /// spectator screen, so an entry here would publish the private read the
+    /// card charges for. Asserted on the serialized payload as well as the
+    /// struct, because that is what actually leaves the server.
+    #[test]
+    fn test_a_private_reveal_never_reaches_the_public_view() {
+        let st = play_reveal("cider-10", Some(1)); // BARMAN'S EYE -> bob
+        assert_eq!(st.reveals.len(), 1);
+        assert_eq!(st.reveals[0].seer, Some(0), "bought by alice, for alice");
+        let secret = &st.reveals[0].cards[0].id;
+
+        let view = st.public_view();
+        assert!(
+            view.reveals.is_empty(),
+            "a caster-scoped reveal must never be projected publicly"
+        );
+        let json = serde_json::to_string(&view).unwrap();
+        assert!(
+            !json.contains(secret.as_str()),
+            "the revealed card id reached the public payload: {json}"
+        );
+    }
+
+    /// The same table reveal DOES ride the broadcast — otherwise the filter
+    /// above would pass by projecting nothing at all.
+    #[test]
+    fn test_a_table_reveal_does_reach_the_public_view() {
+        let st = play_reveal("wine-10", Some(1));
+        let view = st.public_view();
+        assert_eq!(view.reveals.len(), 1);
+        assert_eq!(view.reveals[0].subject, 1);
+    }
+
+    /// The per-viewer read: the buyer sees their private snapshot, nobody
+    /// else does, and a spectator sees only what the table can see.
+    #[test]
+    fn test_reveals_for_serves_the_buyer_and_nobody_else() {
+        let st = play_reveal("cider-10", Some(1)); // alice buys a look at bob
+        assert_eq!(st.reveals_for(1).len(), 1, "alice bought it");
+        assert!(st.reveals_for(2).is_empty(), "bob must not see it");
+        assert!(st.reveals_for(3).is_empty(), "cara must not see it");
+        assert!(
+            st.reveals_for(999).is_empty(),
+            "an unseated spectator sees no private reveal"
+        );
+
+        // A table reveal is visible to every one of them, seated or not.
+        let st = play_reveal("wine-10", Some(1));
+        for viewer in [1, 2, 3, 999] {
+            assert_eq!(st.reveals_for(viewer).len(), 1, "viewer {viewer}");
+        }
+    }
+
+    /// The draw rider comes off the real pile, through `deal` — so it moves
+    /// the stat counter and conserves cards like any other draw.
+    #[test]
+    fn test_the_self_reveal_draws_its_rider() {
+        let c = crate::lc_cards::card_by_id("soft-10").unwrap();
+        let mut st = LastCallState::new(
+            vec![(1, "alice".into()), (2, "bob".into()), (3, "cara".into())],
+            42,
+        );
+        st.set_vessel(1, Deck::Soft, "glass").unwrap();
+        st.set_vessel(2, Deck::Cider, "bottle").unwrap();
+        st.set_vessel(3, Deck::Beer, "can").unwrap();
+        st.beat = Beat::Lock;
+        let hand_before = st.players[0].hand.len();
+        let pile_before = st.deck_count(Deck::Soft);
+        let drawn_before = st.players[0].cards_drawn;
+        st.players[0].hand.push(c);
+        st.arm(1, "soft-10").unwrap();
+        st.lock_in(1).unwrap();
+        st.advance_beat().unwrap();
+        st.advance_beat().unwrap();
+        st.resolve().unwrap();
+
+        assert_eq!(st.reveals.len(), 1);
+        assert_eq!(
+            st.reveals[0].subject, 0,
+            "a self-reveal opens your own hand"
+        );
+        assert_eq!(st.reveals[0].seer, None, "...to the whole table");
+        // +2 drawn, -1 for the card itself leaving the hand to be discarded.
+        assert_eq!(st.players[0].hand.len(), hand_before + 2);
+        assert_eq!(st.players[0].cards_drawn, drawn_before + 2);
+        assert_eq!(
+            st.deck_count(Deck::Soft),
+            pile_before - 2,
+            "the rider comes off the real pile"
+        );
+    }
+
+    /// A reveal is a snapshot, not a live window: it holds what the hand was
+    /// at resolve, and does not follow the hand afterwards. This is what
+    /// keeps a 2-pull card from being worth vastly more than it costs by
+    /// leaking through the next Draw beat.
+    #[test]
+    fn test_a_reveal_is_a_snapshot_not_a_live_window() {
+        let mut st = play_reveal("wine-10", Some(1));
+        let snapshot = st.reveals[0].cards.clone();
+        st.players[1].hand.clear();
+        st.players[1]
+            .hand
+            .push(crate::lc_cards::card_by_id("beer-01").unwrap());
+        assert_eq!(
+            st.reveals[0].cards, snapshot,
+            "the snapshot must not track the hand it copied"
+        );
+    }
+
+    /// A reveal survives the rollover that immediately follows it, and dies
+    /// at the next one — one full round of readability.
+    ///
+    /// The first cut of the prune dropped it in its own resolve, which made
+    /// every reveal card a 2-pull no-op: reveals land during `resolve()`,
+    /// and `resolve()` rolls the round over moments later. Both halves are
+    /// pinned here, because only the pair distinguishes "lasts a round" from
+    /// "lasts forever" and from "lasts no time at all".
+    #[test]
+    fn test_a_reveal_lasts_exactly_one_following_round() {
+        let mut st = play_reveal("wine-10", Some(1));
+        assert_eq!(
+            st.reveals.len(),
+            1,
+            "must survive the rollover in its own resolve, or it is never readable"
+        );
+        let taken_in = st.reveals[0].round;
+        assert_eq!(st.round, taken_in + 1, "we are now in the round it is for");
+
+        // Run the table through one more full round.
+        st.beat = Beat::Resolve;
+        st.resolve().unwrap();
+        assert!(
+            st.reveals.is_empty(),
+            "the next rollover drops it — a reveal is not permanent"
+        );
+    }
+
+    /// Nothing about a private reveal reaches the public, permanent log —
+    /// not the contents, which would outlive the round they were bought for.
+    /// The ACT is public (`LogEntry::Play` names card and target for every
+    /// play), and that is deliberate; the contents are not.
+    #[test]
+    fn test_a_private_reveal_writes_no_contents_to_the_log() {
+        let c = crate::lc_cards::card_by_id("cider-10").unwrap();
+        let mut st = LastCallState::new(
+            vec![(1, "alice".into()), (2, "bob".into()), (3, "cara".into())],
+            42,
+        );
+        st.set_vessel(1, Deck::Cider, "glass").unwrap();
+        st.set_vessel(2, Deck::Beer, "can").unwrap();
+        st.set_vessel(3, Deck::Soft, "glass").unwrap();
+        st.beat = Beat::Lock;
+        st.players[0].hand.push(c);
+        st.arm(1, "cider-10").unwrap();
+        st.set_target(1, "cider-10", Some(1)).unwrap();
+        let secret: Vec<String> = st.players[1].hand.iter().map(|c| c.id.clone()).collect();
+        st.lock_in(1).unwrap();
+        st.advance_beat().unwrap();
+        st.advance_beat().unwrap();
+        st.resolve().unwrap();
+
+        let log = serde_json::to_string(&st.log).unwrap();
+        for id in &secret {
+            assert!(!log.contains(id.as_str()), "{id} leaked into the log");
+        }
+        // ...but the act itself is on the record, by title.
+        assert!(log.contains("Barman's Eye"), "the play is public: {log}");
+    }
+
+    /// The whole blob round-trips, reveals included.
+    #[test]
+    fn test_reveals_survive_a_snapshot() {
+        let mut st = play_reveal("cider-10", Some(1));
+        // Re-seat one so it survives the rollover prune above.
+        st.reveals.push(Reveal {
+            subject: 2,
+            seer: Some(0),
+            cards: vec![crate::lc_cards::card_by_id("beer-01").unwrap()],
+            round: st.round,
+        });
+        let json = st.to_json();
+        let back = LastCallState::from_json(&json);
+        assert_eq!(back.reveals, st.reveals);
+    }
+
     #[test]
     fn test_targets_a_seat_names_both_seat_classes() {
         assert!(targets_a_seat("one"));
@@ -7664,9 +8036,17 @@ mod tests {
                                     // discard copy one's first four ids (cider-01..04) instead of copy
                                     // two's last four (cider-05..08), and those two id sets are disjoint
                                     // enough to catch it without any suffixing trick.
-        st.players[1].hand = std::iter::repeat_n(crate::lc_cards::deck_cards(Deck::Cider), 2)
-            .flatten()
-            .collect(); // 16
+                                    // Shoe cards only. `deck_cards` also returns the deck's `copies: 0`
+                                    // prototypes (the challenge and reveal waves), and this test's whole
+                                    // argument rests on two disjoint four-id sets falling either side of
+                                    // the cap — a ninth id per copy shifts that split and the assertion
+                                    // below stops testing newest-first at all.
+        let cider: Vec<Card> = crate::lc_cards::deck_cards(Deck::Cider)
+            .into_iter()
+            .filter(|c| crate::lc_cards::card_in_shoe(&c.id))
+            .collect();
+        assert_eq!(cider.len(), 8, "eight shoe-carrying Cider cards");
+        st.players[1].hand = std::iter::repeat_n(cider, 2).flatten().collect(); // 16
         st.resolve().unwrap();
         assert_eq!(st.players[1].hand.len(), HAND_SOFT_CAP);
         assert_eq!(discard_count(&st), 4);

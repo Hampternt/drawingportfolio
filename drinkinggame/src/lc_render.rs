@@ -3179,6 +3179,7 @@ mod tests {
             deck_counts: Deck::ALL.iter().map(|&d| (d, 0)).collect(),
             phase: crate::lc_phase::Phase::Playing,
             triggers: Vec::new(),
+            reveals: Vec::new(),
             discard_count: 0,
             discard_counts: Deck::ALL.iter().map(|&d| (d, 0)).collect(),
             revealed: Vec::new(),
