@@ -15,7 +15,6 @@ use crate::db;
 use crate::error::GameError;
 use crate::last_call::{
     Beat, Card, CardKind, Deck, EffectOp, LastCallState, LcError, Play, PublicView, Status,
-    DRAW_PER_VESSEL,
 };
 use crate::lc_render::{self, ActionBarView, HandGroupView};
 use crate::models::{Game, Player, Room};
@@ -124,11 +123,12 @@ pub async fn lc_start_handler(
     if members.len() < 2 {
         return GameError::TooFewPlayers.into_response();
     }
-    // last_call.rs never generates its own randomness; the seed is taken
-    // once, here, and stored in the state blob for the shuffle/deal math it
-    // does with it. `lc_draw_handler` (below) is a second, independent
-    // rand::thread_rng() site — it samples drawn cards per request rather
-    // than seeding persisted state, so it doesn't go through this seed.
+    // THE entropy boundary for Last Call. The seed is taken once, here, and
+    // stored in the blob; from there the engine's own `LcRng` (`lc_rng`)
+    // drives every shuffle and every deal deterministically. `lc_draw_handler`
+    // used to be a second, independent `thread_rng()` site — it sampled card
+    // identity per request, which made a game unreplayable — and no longer
+    // is: it just calls the engine.
     let rng_seed = rand::thread_rng().gen::<u64>();
     let st = LastCallState::new(
         members.iter().map(|m| (m.id, m.name.clone())).collect(),
@@ -695,13 +695,13 @@ fn play_caption(st: &LastCallState, play: &Play) -> String {
 
 /// The route-side twin of `last_call::play_subjects` (private to that
 /// module, and not in this task's file list to touch): the answered play's
-/// subject seats, by its own `card.targets` — `"one"` is the play's single
-/// `target` if it has one, `"self"` is just the caster, `"all"` is every
+/// subject seats, by its own `card.targets` — `"one"`/`"other"` is the play's
+/// single `target` if it has one, `"self"` is just the caster, `"all"` is every
 /// seat, anything else names nobody. Used only by `scope_legal` below, to
 /// decide whether a `targets == "self"` reaction may answer this play (I5).
 fn play_subjects(play: &Play, num_seats: usize) -> Vec<usize> {
     match play.card.targets.as_str() {
-        "one" => play.target.into_iter().collect(),
+        "one" | "other" => play.target.into_iter().collect(),
         "self" => vec![play.source_seat],
         "all" => (0..num_seats).collect(),
         _ => Vec::new(),
@@ -1236,9 +1236,12 @@ pub async fn lc_lock_handler(
     StatusCode::NO_CONTENT.into_response()
 }
 
-/// `POST /room/{code}/lastcall/ready` — the open beats' advance, and since
-/// the clock's removal (2026-08-13) the only thing that moves Draw (round
-/// ≥ 2), Diplomacy and Reveal. `lc_lock_handler`'s exact shape: engine
+/// `POST /room/{code}/lastcall/ready` — the ready-gated beats' advance, and
+/// since the clock's removal (2026-08-13) the only thing that moves Draw
+/// (round ≥ 2) and Reveal. NOT Diplomacy, despite what this comment used to
+/// say: `set_ready` refuses that beat (`matches!(beat, Draw | Reveal)`) and
+/// `lc_lock_handler` above advances it on all-locked instead.
+/// `lc_lock_handler`'s exact shape: engine
 /// mutation, then the all-ready early advance under the same guard, then
 /// the full public broadcast (the ready tick is legible on the mini table
 /// and the big screen, like the lock tick).
@@ -1274,20 +1277,21 @@ pub struct DrawForm {
 }
 
 /// `POST /room/{code}/lastcall/draw` — public: the shoe's deck count and the
-/// drawing pulse are both legible on the mini table / big screen. The one
-/// route with RNG: card identity is decided HERE (D6), never in the engine
-/// — `finish_and_draw` only validates that what the caller sampled matches
-/// the vessel's deck and the expected count. Pre-reads under the guard
-/// before touching the RNG: `seat_of` (else `NotYourCall`, this route's own
-/// gate since `finish_and_draw`'s `NotSeated` case is unreachable once
-/// `seat_of` has already succeeded), then the vessel at `form.vessel` (else
-/// a bare 422 — an out-of-range vessel index is a malformed request, not a
-/// "not now"), then that vessel's deck's shoe count. Samples from
-/// `lc_cards::shoe(deck)` — the real copy-weighted 40-card shoe (Plan F),
-/// not `deck_cards` — so higher-copy cards are proportionally more likely,
-/// matching the composition `deck_counts` is tracking down. Duplicates
-/// within one draw are expected (F11: shoe sampling is with replacement;
-/// nothing here removes a card once drawn).
+/// drawing pulse are both legible on the mini table / big screen.
+///
+/// **No RNG here any more.** This used to be "the one route with RNG": card
+/// identity was decided here with `rand::thread_rng()`, sampling
+/// `lc_cards::shoe(deck)` *with replacement*, and `finish_and_draw` only
+/// validated the count and decks (the "D6 split"). The engine now owns real
+/// piles and a seeded PRNG (`lc_deck`/`lc_rng`), so this handler does what
+/// every other action route does: lock, load, call one engine method, map
+/// the error, persist. A short shoe deals short inside the engine — the
+/// `min(DRAW_PER_VESSEL, count)` this route used to compute is now the
+/// pile's own business.
+///
+/// The out-of-range vessel pre-read stays: an index past the end is a
+/// malformed request (a bare 422), not a "not now", and `finish_and_draw`
+/// reports both as `BadDraw`.
 pub async fn lc_draw_handler(
     State(state): State<GameState>,
     PlayerSession(player): PlayerSession,
@@ -1306,26 +1310,10 @@ pub async fn lc_draw_handler(
     let Some(seat) = ctx.st.seat_of(player.id) else {
         return GameError::NotYourCall.into_response();
     };
-    let Some(vessel) = ctx.st.players[seat].vessels.get(form.vessel) else {
+    if ctx.st.players[seat].vessels.get(form.vessel).is_none() {
         return StatusCode::UNPROCESSABLE_ENTITY.into_response();
-    };
-    let deck = vessel.deck;
-    let shoe_count = ctx
-        .st
-        .deck_counts
-        .iter()
-        .find(|(d, _)| *d == deck)
-        .map(|&(_, c)| c)
-        .unwrap_or(0);
-    let need = DRAW_PER_VESSEL.min(shoe_count as usize);
-    let pool_cards = crate::lc_cards::shoe(deck);
-    let drawn: Vec<Card> = {
-        let mut rng = rand::thread_rng();
-        (0..need)
-            .map(|_| pool_cards[rng.gen_range(0..pool_cards.len())].clone())
-            .collect()
-    };
-    if let Err(e) = ctx.st.finish_and_draw(player.id, form.vessel, drawn) {
+    }
+    if let Err(e) = ctx.st.finish_and_draw(player.id, form.vessel) {
         return map_lc(e);
     }
     persist_and_broadcast_lc(&state, &ctx).await;
@@ -1361,9 +1349,9 @@ pub async fn lc_mulligan_handler(
         Ok(c) => c,
         Err(r) => return r,
     };
-    let Some(seat) = ctx.st.seat_of(player.id) else {
+    if ctx.st.seat_of(player.id).is_none() {
         return GameError::NotYourCall.into_response();
-    };
+    }
     let ids: Vec<String> = form
         .cards
         .split(',')
@@ -1374,33 +1362,9 @@ pub async fn lc_mulligan_handler(
     if ids.is_empty() {
         return StatusCode::UNPROCESSABLE_ENTITY.into_response();
     }
-    // Resolve each id to a distinct hand card to learn its deck — the same
-    // claim walk `st.mulligan` re-runs as the authority; an id that doesn't
-    // resolve here gets the engine's own `UnknownCard` shortly anyway.
-    let hand = &ctx.st.players[seat].hand;
-    let mut taken: Vec<usize> = Vec::with_capacity(ids.len());
-    for id in &ids {
-        let Some(idx) = hand
-            .iter()
-            .enumerate()
-            .find(|(i, c)| c.id == *id && !taken.contains(i))
-            .map(|(i, _)| i)
-        else {
-            return map_lc(crate::last_call::LcError::UnknownCard);
-        };
-        taken.push(idx);
-    }
-    let replacements: Vec<crate::last_call::Card> = {
-        let mut rng = rand::thread_rng();
-        taken
-            .iter()
-            .map(|&i| {
-                let pool = crate::lc_cards::shoe(hand[i].deck);
-                pool[rng.gen_range(0..pool.len())].clone()
-            })
-            .collect()
-    };
-    if let Err(e) = ctx.st.mulligan(player.id, &ids, replacements) {
+    // The engine validates ids against the hand and deals the replacements
+    // off the real piles — there is nothing left to pre-sample here.
+    if let Err(e) = ctx.st.mulligan(player.id, &ids) {
         return map_lc(e);
     }
     persist_and_broadcast_lc(&state, &ctx).await;
@@ -1561,10 +1525,20 @@ pub(crate) fn lc_advance_chain(st: &mut LastCallState) {
     if st.players.is_empty() {
         return; // M3: nothing to advance; resolve() no-ops here and would spin
     }
-    if st.challenge_pending() {
-        // Parked in the challenge phase (challenge-cards container): the
-        // vote flow owns the rollover; entering resolve() here would panic
-        // its expect on ChallengePending.
+    if st.parked() {
+        // The round is parked on people — a challenge vote, a pour's
+        // discards or a trade's choice. Whoever settles LAST owns the
+        // rollover; entering resolve() here would panic its expect on
+        // ChallengePending.
+        //
+        // This asks `parked()`, not `challenge_pending()`. It asked the
+        // narrow question until the pour and swap waves landed, which made
+        // every pour and every trade a panic on the very next chain entry:
+        // `resolve()` refuses on `parked()`, so a park this guard cannot see
+        // reaches the `expect` below. The two predicates must stay the same
+        // question — `resolve()`'s refusal and this guard's permission are
+        // two halves of one contract, and a fourth thing that parks the
+        // round has to reach both.
         return;
     }
     if st.beat == Beat::Resolve {
@@ -1579,10 +1553,12 @@ pub(crate) fn lc_advance_chain(st: &mut LastCallState) {
             st.beat_deadline_ms = None; // frozen final tableau (D16)
             return;
         }
-        if st.challenge_pending() {
+        if st.parked() {
             // resolve() just parked the round — same freeze shape as the
             // outcome gate above; without this the Resolve arm below would
-            // re-enter resolve() forever.
+            // re-enter resolve() and panic on its refusal. `parked()` for
+            // the reason the entry guard gives: this is the site that
+            // actually panicked for a pour.
             st.beat_deadline_ms = None;
             return;
         }
@@ -1808,6 +1784,148 @@ pub async fn lc_chvote_handler(
 }
 
 #[derive(Deserialize)]
+pub struct PourDiscardForm {
+    /// The pour's identity token (`PourState::key`) — the
+    /// `ChallengeVoteForm::challenge` precedent, so a discard posted from a
+    /// stale screen cannot land on the next queued pour.
+    pub pour: u64,
+    /// Comma-separated hand card ids, the `MulliganForm::cards` shape.
+    pub cards: String,
+}
+
+/// `POST /room/{code}/lastcall/pour-discard` (pour wave) — public
+/// (`persist_and_broadcast_lc`): who still owes cards is on every surface,
+/// and the settling discard rolls the round over.
+///
+/// This route exists ahead of any UI that calls it, deliberately. A pour
+/// PARKS the round, and `test/grant` can push a `copies: 0` prototype into a
+/// hand, so a pour card without a settle route is not merely inert like the
+/// trigger queue — it is a room that never moves again. The engine carries
+/// every guard (`pour_discard`); this only splits the id list.
+///
+/// An empty `cards` is forwarded rather than rejected here: a seat whose
+/// hand emptied between the park and the tap genuinely owes zero cards, and
+/// the engine is the authority on that. `mulligan`'s route rejects empty
+/// because a zero-card mulligan is always meaningless; a zero-card pour
+/// payment is not.
+pub async fn lc_pour_discard_handler(
+    State(state): State<GameState>,
+    PlayerSession(player): PlayerSession,
+    Path(code): Path<String>,
+    Form(form): Form<PourDiscardForm>,
+) -> axum::response::Response {
+    let lock = match lc_lock(&state, &code).await {
+        Ok(l) => l,
+        Err(r) => return r,
+    };
+    let _guard = lock.lock().await;
+    let mut ctx = match load_lc(&state, &code, &player).await {
+        Ok(c) => c,
+        Err(r) => return r,
+    };
+    let ids: Vec<String> = form
+        .cards
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+    if let Err(e) = ctx.st.pour_discard(player.id, form.pour, &ids) {
+        return map_lc(e);
+    }
+    persist_and_broadcast_lc(&state, &ctx).await;
+    StatusCode::NO_CONTENT.into_response()
+}
+
+#[derive(Deserialize)]
+pub struct ResolutionAckForm {
+    /// The report's identity token (`Resolution::key`) — the
+    /// `PourDiscardForm`/`SwapForm` precedent. Echoed back so a tap from a
+    /// screen still showing last round's receipt cannot confirm this round's.
+    pub resolution: u64,
+}
+
+/// `POST /room/{code}/lastcall/resolution-ack` (report wave) — public
+/// (`persist_and_broadcast_lc`): who has confirmed is on every surface, and
+/// the last confirmation rolls the round over.
+///
+/// This is the settle route for the park that fires on nearly every round,
+/// which makes it the most load-bearing of the four. The pour and trade waves
+/// shipped their routes ahead of any UI on the reasoning that a park without
+/// a settle path is a frozen room rather than an inert feature; that
+/// reasoning applies here with no `copies: 0` safety net at all, because
+/// there is no card to withhold — every round that lands anything builds a
+/// report.
+///
+/// The engine owns every guard (`ack_resolution`), including the one that
+/// matters most: a seat that owed nothing still gets `Ok`. The receipt renders
+/// on every phone, so a spectator's thumb is a real request, and answering it
+/// with a 409 would make a working button look broken to the one player it
+/// cost nothing.
+pub async fn lc_resolution_ack_handler(
+    State(state): State<GameState>,
+    PlayerSession(player): PlayerSession,
+    Path(code): Path<String>,
+    Form(form): Form<ResolutionAckForm>,
+) -> axum::response::Response {
+    let lock = match lc_lock(&state, &code).await {
+        Ok(l) => l,
+        Err(r) => return r,
+    };
+    let _guard = lock.lock().await;
+    let mut ctx = match load_lc(&state, &code, &player).await {
+        Ok(c) => c,
+        Err(r) => return r,
+    };
+    if let Err(e) = ctx.st.ack_resolution(player.id, form.resolution) {
+        return map_lc(e);
+    }
+    persist_and_broadcast_lc(&state, &ctx).await;
+    StatusCode::NO_CONTENT.into_response()
+}
+
+#[derive(Deserialize)]
+pub struct SwapForm {
+    /// The trade's identity token (`SwapState::key`) — the `PourDiscardForm`
+    /// precedent.
+    pub swap: u64,
+    /// Keep what was taken. Ignored by a give-only card, which has nothing
+    /// to decline.
+    pub keep: bool,
+    /// The card handed over. Absent on a decline.
+    pub give: Option<String>,
+}
+
+/// `POST /room/{code}/lastcall/swap` (trade wave) — public
+/// (`persist_and_broadcast_lc`): the park is on every surface and answering
+/// it rolls the round over. WHAT was taken stays private, which is
+/// `PublicView`'s job, not this route's.
+///
+/// Exists ahead of its UI for the same reason `pour-discard` does: a trade
+/// parks the round, so an unreachable settle path is a frozen room.
+pub async fn lc_swap_handler(
+    State(state): State<GameState>,
+    PlayerSession(player): PlayerSession,
+    Path(code): Path<String>,
+    Form(form): Form<SwapForm>,
+) -> axum::response::Response {
+    let lock = match lc_lock(&state, &code).await {
+        Ok(l) => l,
+        Err(r) => return r,
+    };
+    let _guard = lock.lock().await;
+    let mut ctx = match load_lc(&state, &code, &player).await {
+        Ok(c) => c,
+        Err(r) => return r,
+    };
+    let give = form.give.as_deref().filter(|s| !s.is_empty());
+    if let Err(e) = ctx.st.swap_resolve(player.id, form.swap, form.keep, give) {
+        return map_lc(e);
+    }
+    persist_and_broadcast_lc(&state, &ctx).await;
+    StatusCode::NO_CONTENT.into_response()
+}
+
+#[derive(Deserialize)]
 pub struct GrantForm {
     pub card_id: String,
 }
@@ -1931,6 +2049,87 @@ mod tests {
         assert_eq!(st.outcome(), Some(crate::last_call::LcOutcome::Winner(0)));
         assert_eq!(st.beat, Beat::Resolve);
         assert_eq!(st.beat_deadline_ms, None);
+    }
+
+    /// A pour parks the round mid-chain, and the chain must STOP there
+    /// rather than re-entering `resolve()`.
+    ///
+    /// This is a regression test for a real panic, not a hypothetical.
+    /// `lc_advance_chain` guarded on `challenge_pending()` while `resolve()`
+    /// refuses on `parked()` — the wider predicate — so from the moment the
+    /// pour wave landed, every pour that reached Resolve through the normal
+    /// ready path hit `resolve()` twice: once to park, then again on the
+    /// loop's next turn, where the refusal met
+    /// `.expect("resolve() at Beat::Resolve cannot fail")`. A panic inside a
+    /// route handler, holding the room mutex.
+    ///
+    /// Unreached in production only by luck: the pour cards are `copies: 0`
+    /// and `test/grant` is `test_mode`-gated. It would have shipped with the
+    /// first UI that raised `copies` above zero.
+    #[test]
+    fn test_advance_chain_stops_on_a_pour_park_instead_of_panicking() {
+        let mut st = LastCallState::new(
+            vec![(1, "alice".into()), (2, "bob".into()), (3, "cara".into())],
+            7,
+        );
+        st.set_vessel(1, Deck::Beer, "can").unwrap();
+        st.set_vessel(2, Deck::Cider, "bottle").unwrap();
+        st.set_vessel(3, Deck::Soft, "glass").unwrap();
+        st.players[0]
+            .hand
+            .push(crate::lc_cards::card_by_id("beer-10").unwrap());
+        st.beat = Beat::Lock;
+        st.arm(1, "beer-10").unwrap();
+        st.lock_in(1).unwrap();
+        st.lock_in(2).unwrap();
+        st.lock_in(3).unwrap();
+        let round = st.round;
+
+        lc_advance_chain(&mut st); // Lock -> Reveal
+        assert_eq!(st.beat, Beat::Reveal);
+        lc_advance_chain(&mut st); // Reveal -> Resolve -> resolve() parks
+
+        assert_eq!(st.pours.len(), 1, "the pour must be parked, not resolved");
+        assert_eq!(st.beat, Beat::Resolve, "a parked round holds at Resolve");
+        assert_eq!(
+            st.round, round,
+            "the settle owns the rollover, not the chain"
+        );
+        assert_eq!(st.beat_deadline_ms, None);
+
+        // And a SECOND chain entry (the ticker, or another seat's tap
+        // landing on the parked room) must be just as inert.
+        lc_advance_chain(&mut st);
+        assert_eq!(st.pours.len(), 1);
+        assert_eq!(st.round, round);
+    }
+
+    /// The trade half of the same guard. Worth its own test rather than a
+    /// loop over both: `parked()` ors three containers, and a guard narrowed
+    /// back to `!challenges.is_empty() || !pours.is_empty()` would pass a
+    /// pour-only test while still panicking on every trade.
+    #[test]
+    fn test_advance_chain_stops_on_a_swap_park_instead_of_panicking() {
+        let mut st = LastCallState::new(vec![(1, "alice".into()), (2, "bob".into())], 7);
+        st.set_vessel(1, Deck::Cider, "bottle").unwrap();
+        st.set_vessel(2, Deck::Beer, "can").unwrap();
+        st.players[0]
+            .hand
+            .push(crate::lc_cards::card_by_id("cider-11").unwrap());
+        st.beat = Beat::Lock;
+        st.arm(1, "cider-11").unwrap();
+        st.set_target(1, "cider-11", Some(1)).unwrap();
+        st.lock_in(1).unwrap();
+        st.lock_in(2).unwrap();
+        let round = st.round;
+
+        lc_advance_chain(&mut st); // Lock -> Reveal
+        assert_eq!(st.beat, Beat::Reveal);
+        lc_advance_chain(&mut st); // Reveal -> Resolve -> resolve() parks
+
+        assert_eq!(st.swaps.len(), 1, "the trade must be parked");
+        assert_eq!(st.beat, Beat::Resolve);
+        assert_eq!(st.round, round);
     }
 
     /// I1 (review): `resolve()`'s M3 hardening makes an empty-`players`
@@ -2094,7 +2293,13 @@ mod tests {
         st.lock_in(1).unwrap();
         st.advance_beat().unwrap(); // Reveal
         st.advance_beat().unwrap(); // Resolve
-        st.resolve().unwrap(); // non-terminal: bob survives, round rolls over
+        st.resolve().unwrap(); // non-terminal: bob survives
+                               // The round report parks this resolve (alice's hit is a blow), so the
+                               // rollover waits on bob's confirmation. Worth noting what this test
+                               // now also proves: the G5 park re-stamp already handled a parked
+                               // resolve — the break is stamped for the round players LAND on, and
+                               // the report park is simply another way to reach it.
+        st.confirm_report();
 
         let brk = *st.pact_breaks.last().unwrap();
         assert_eq!(

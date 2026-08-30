@@ -6161,11 +6161,12 @@ async fn test_lc_draw_deals_five_from_the_vessels_deck() {
     st.set_vessel(bob_id, Deck::Cider, "bottle").unwrap();
     st.round = 2;
     st.players[0].hand.truncate(4); // 4 cards in hand before the draw
-    for entry in st.deck_counts.iter_mut() {
-        if entry.0 == Deck::Beer {
-            entry.1 = 36;
-        }
-    }
+                                    // The pre-draw count is whatever the real pile holds after the opening
+                                    // deal, not a number a test can assign. Read it and assert relatively —
+                                    // the claim is "debited by exactly 5", which was always the point; the
+                                    // old absolute 36/31 pair only worked because `deck_counts` was a
+                                    // counter you could set to anything.
+    let beer_before = st.deck_count(Deck::Beer);
     let game_id = lc_game_id(&pool, &code).await;
     drinkinggame::db::set_game_state(&pool, game_id, &st.to_json()).await;
 
@@ -6199,13 +6200,11 @@ async fn test_lc_draw_deals_five_from_the_vessels_deck() {
         "the 5 newly-drawn cards must all come from the Beer shoe: {:?}",
         after.players[alice_seat].hand
     );
-    let beer_left = after
-        .deck_counts
-        .iter()
-        .find(|(d, _)| *d == Deck::Beer)
-        .unwrap()
-        .1;
-    assert_eq!(beer_left, 31, "the Beer shoe must be debited by exactly 5");
+    assert_eq!(
+        after.deck_count(Deck::Beer),
+        beer_before - 5,
+        "the Beer shoe must be debited by exactly 5"
+    );
 
     // Second draw the same round: TBD-5, one per player per round.
     let res = post_form(
@@ -6492,7 +6491,7 @@ async fn test_mulligan_swaps_a_card_in_the_lobby() {
     assert_eq!(res.status(), StatusCode::NO_CONTENT);
     let mid = lc_state(&pool, &code).await;
     assert_eq!(mid.players[0].hand.len(), hand_before); // size preserved
-    assert_eq!(mid.discards.len(), 1);
+    assert_eq!(mid.discard_count(), 1);
 
     // Lobby swaps are unlimited — another one is fine.
     let second_id = mid.players[0].hand[0].id.clone();
@@ -8058,12 +8057,17 @@ async fn test_lc_react_route_is_guarded_against_non_members() {
 /// The race this task's Class C exists for, from the outside: subscribe SSE
 /// (this is what puts the room in `active_rooms()`, so the 1 Hz ticker
 /// notices the stale pre-removal deadline and runs its migration sweep),
-/// then WAIT for the ticker's own chain to actually land (`data-beat="draw"`
-/// — Reveal -> Resolve -> resolve() rolls straight into round 2's Draw,
-/// since nothing was locked to answer). Only once that frame has arrived
-/// does the route fire: `lc_react_handler` relocks, `load_lc` reloads the
-/// now-post-resolution state, and `play_reaction`'s own `WrongBeat` guard
-/// refuses — a clean 409, never a resolve-time surprise.
+/// then WAIT for the ticker's own chain to actually land. Only once that
+/// frame has arrived does the route fire: `lc_react_handler` relocks,
+/// `load_lc` reloads the now-post-resolution state, and `play_reaction`'s own
+/// `WrongBeat` guard refuses — a clean 409, never a resolve-time surprise.
+///
+/// The frame waited on is `data-beat="resolve"`, not `"draw"`. It used to be
+/// `"draw"`, on the reasoning that the chain rolls straight into round 2 —
+/// but the rig arms a real hit at bob, so the round report parks the resolve
+/// and the beat stays put until somebody confirms. What this test is about is
+/// unchanged: Resolve is past Reveal, which is all `play_reaction` needs to
+/// refuse.
 #[tokio::test]
 async fn test_lc_react_that_loses_the_race_gets_a_409() {
     let (app, _pool, code, _alice, bob, _cara, _alice_id, _bob_id, _cara_id) =
@@ -8071,7 +8075,7 @@ async fn test_lc_react_that_loses_the_race_gets_a_409() {
 
     let res = get(&app, &format!("/room/{code}/sse")).await;
     let mut body = res.into_body().into_data_stream();
-    read_sse_until(&mut body, r#"data-beat="draw""#).await;
+    read_sse_until(&mut body, r#"data-beat="resolve""#).await;
 
     let res = post_form(
         &app,
@@ -8510,6 +8514,334 @@ async fn lc_parked_rig() -> (
     drinkinggame::db::set_game_state(&pool, game_id, &st.to_json()).await;
 
     (app, pool, code, alice, bob, cara)
+}
+
+/// Pour wave: the `pour-discard` route settles a parked round over HTTP.
+///
+/// Written even though no UI calls it yet, because a pour PARKS the round
+/// and `test/grant` can put a `copies: 0` prototype into a hand — so an
+/// unreachable settle path is a room that never moves again, not a merely
+/// inert feature. This is the end-to-end proof that the way out exists.
+#[tokio::test]
+async fn test_lc_pour_discard_route_settles_a_parked_round() {
+    let (app, pool) = test_app_with_pool().await;
+    let alice = login(&app, "alice", "1234").await;
+    let bob = login(&app, "bob", "5678").await;
+    let cara = login(&app, "cara", "9999").await;
+    let code = create_room(&app, &alice).await;
+    room_page_html(&app, &bob, &code).await;
+    room_page_html(&app, &cara, &code).await;
+    post_form(&app, &alice, &format!("/room/{code}/lastcall/start"), "").await;
+
+    let ids: Vec<i64> = {
+        let mut v = Vec::new();
+        for name in ["alice", "bob", "cara"] {
+            v.push(
+                drinkinggame::db::get_player_by_name(&pool, name)
+                    .await
+                    .unwrap()
+                    .id,
+            );
+        }
+        v
+    };
+    let mut st = LastCallState::new(
+        vec![
+            (ids[0], "alice".into()),
+            (ids[1], "bob".into()),
+            (ids[2], "cara".into()),
+        ],
+        7,
+    );
+    st.set_vessel(ids[0], Deck::Beer, "can").unwrap();
+    st.set_vessel(ids[1], Deck::Cider, "bottle").unwrap();
+    st.set_vessel(ids[2], Deck::Soft, "glass").unwrap();
+    st.players[0]
+        .hand
+        .push(drinkinggame::lc_cards::card_by_id("beer-10").unwrap());
+    st.beat = Beat::Lock;
+    st.arm(ids[0], "beer-10").unwrap();
+    st.lock_in(ids[0]).unwrap();
+    st.lock_in(ids[1]).unwrap();
+    st.lock_in(ids[2]).unwrap();
+    st.advance_beat().unwrap();
+    st.advance_beat().unwrap();
+    st.resolve().unwrap();
+    assert_eq!(st.pours.len(), 1, "rig must park");
+    let round = st.round;
+    let key = st.pours[0].key;
+    let owed: Vec<(usize, String)> = st.pours[0]
+        .owed
+        .iter()
+        .map(|d| (d.seat, st.players[d.seat].hand[0].id.clone()))
+        .collect();
+
+    let game_id = lc_game_id(&pool, &code).await;
+    drinkinggame::db::set_game_state(&pool, game_id, &st.to_json()).await;
+
+    let cookies = [&alice, &bob, &cara];
+    for (i, (seat, card_id)) in owed.iter().enumerate() {
+        let res = post_form(
+            &app,
+            cookies[*seat],
+            &format!("/room/{code}/lastcall/pour-discard"),
+            &format!("pour={key}&cards={card_id}"),
+        )
+        .await;
+        assert_eq!(res.status(), StatusCode::NO_CONTENT, "payer {i}");
+    }
+
+    let back = lc_state(&pool, &code).await;
+    assert!(back.pours.is_empty(), "every debt paid settles the pour");
+    // The pour is settled, but the round report parks the same round and now
+    // owns the rollover — whoever settles LAST. Confirming it over the real
+    // route is what actually advances the round.
+    assert_eq!(back.round, round, "the report still holds the round");
+    let rkey = back.resolutions[0].key;
+    for (i, ck) in [&alice, &bob, &cara].iter().enumerate() {
+        let res = post_form(
+            &app,
+            ck,
+            &format!("/room/{code}/lastcall/resolution-ack"),
+            &format!("resolution={rkey}"),
+        )
+        .await;
+        assert_eq!(res.status(), StatusCode::NO_CONTENT, "confirmer {i}");
+    }
+    let back = lc_state(&pool, &code).await;
+    assert!(back.resolutions.is_empty(), "every seat confirmed");
+    assert_eq!(
+        back.round,
+        round + 1,
+        "and the last park rolls the round over"
+    );
+
+    // A replayed discard on the settled pour is refused, not applied again.
+    let res = post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/lastcall/pour-discard"),
+        &format!("pour={key}&cards=beer-01"),
+    )
+    .await;
+    assert_ne!(res.status(), StatusCode::NO_CONTENT);
+}
+
+/// Report wave, end to end: a round parks on its report, the strip renders
+/// with the card that caused each blow, and the `resolution-ack` route is
+/// what actually rolls the round over.
+///
+/// Driven entirely over HTTP — no hand-built parked blob. That is the gap
+/// the pour and swap route tests left: both persisted a state that was
+/// already parked and posted straight to the settle route, so neither ever
+/// exercised the path where a round BECOMES parked during play. That gap is
+/// exactly where the `lc_advance_chain` panic lived.
+#[tokio::test]
+async fn test_lc_resolution_ack_route_gates_and_rolls_the_round() {
+    let (app, pool) = test_app_with_pool().await;
+    let alice = login(&app, "alice", "1234").await;
+    let bob = login(&app, "bob", "5678").await;
+    let code = create_room(&app, &alice).await;
+    room_page_html(&app, &bob, &code).await;
+    post_form(&app, &alice, &format!("/room/{code}/lastcall/start"), "").await;
+
+    let mut ids = Vec::new();
+    for name in ["alice", "bob"] {
+        ids.push(
+            drinkinggame::db::get_player_by_name(&pool, name)
+                .await
+                .unwrap()
+                .id,
+        );
+    }
+    let mut st = LastCallState::new(vec![(ids[0], "alice".into()), (ids[1], "bob".into())], 7);
+    st.set_vessel(ids[0], Deck::Beer, "can").unwrap();
+    st.set_vessel(ids[1], Deck::Cider, "bottle").unwrap();
+    st.beat = Beat::Lock;
+    st.arm(ids[0], "beer-01").unwrap();
+    st.set_target(ids[0], "beer-01", Some(1)).unwrap();
+    st.lock_in(ids[0]).unwrap();
+    st.lock_in(ids[1]).unwrap();
+    // Persist at Reveal, which is where READY is actually accepted
+    // (`set_ready` takes Draw and Reveal only). Locking is the beat before.
+    st.advance_beat().unwrap();
+    assert_eq!(st.beat, Beat::Reveal);
+    let round = st.round;
+    let game_id = lc_game_id(&pool, &code).await;
+    drinkinggame::db::set_game_state(&pool, game_id, &st.to_json()).await;
+
+    // Both seats tap READY at Reveal — the ordinary way a round resolves.
+    // The chain advances to Resolve, resolves, and parks on the report.
+    for ck in [&alice, &bob] {
+        post_form(&app, ck, &format!("/room/{code}/lastcall/ready"), "").await;
+    }
+    let parked = lc_state(&pool, &code).await;
+    assert_eq!(parked.resolutions.len(), 1, "the round parks on its report");
+    assert_eq!(parked.round, round, "and does NOT roll over yet");
+    assert_eq!(parked.resolutions[0].owed, vec![1], "only bob was hit");
+
+    // The strip renders on the public surface, naming the card.
+    let shell = body_string(get_shell(&app, &bob, &code).await).await;
+    assert!(
+        shell.contains(r#"data-lc-post="resolution-ack""#),
+        "the confirm button renders on the public shell"
+    );
+    assert!(
+        shell.contains(r#"data-card="beer-01""#),
+        "the card is named"
+    );
+    assert!(
+        shell.contains("WAITING ON"),
+        "and who is holding the round up"
+    );
+
+    // Alice owed nothing. Her tap is accepted and settles nothing.
+    let key = parked.resolutions[0].key;
+    let res = post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/lastcall/resolution-ack"),
+        &format!("resolution={key}"),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT, "a spectator may tap");
+    let still = lc_state(&pool, &code).await;
+    assert_eq!(still.resolutions.len(), 1, "and it settles nothing");
+    assert_eq!(still.round, round);
+
+    // Bob's does.
+    let res = post_form(
+        &app,
+        &bob,
+        &format!("/room/{code}/lastcall/resolution-ack"),
+        &format!("resolution={key}"),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+    let done = lc_state(&pool, &code).await;
+    assert!(done.resolutions.is_empty(), "confirmed");
+    assert_eq!(done.round, round + 1, "and the round rolls over");
+    assert_eq!(done.beat, Beat::Draw);
+
+    // A replayed tap on the settled report is a no-op, not a 500 and not a
+    // confirmation of whatever parks next.
+    let res = post_form(
+        &app,
+        &bob,
+        &format!("/room/{code}/lastcall/resolution-ack"),
+        &format!("resolution={key}"),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+    assert_eq!(lc_state(&pool, &code).await.round, round + 1);
+}
+
+/// Trade wave: the `swap` route answers a parked trade over HTTP, and the
+/// taken card never appears on a public surface.
+#[tokio::test]
+async fn test_lc_swap_route_settles_and_keeps_the_take_private() {
+    let (app, pool) = test_app_with_pool().await;
+    let alice = login(&app, "alice", "1234").await;
+    let bob = login(&app, "bob", "5678").await;
+    let cara = login(&app, "cara", "9999").await;
+    let code = create_room(&app, &alice).await;
+    room_page_html(&app, &bob, &code).await;
+    room_page_html(&app, &cara, &code).await;
+    post_form(&app, &alice, &format!("/room/{code}/lastcall/start"), "").await;
+
+    let mut ids = Vec::new();
+    for name in ["alice", "bob", "cara"] {
+        ids.push(
+            drinkinggame::db::get_player_by_name(&pool, name)
+                .await
+                .unwrap()
+                .id,
+        );
+    }
+    let mut st = LastCallState::new(
+        vec![
+            (ids[0], "alice".into()),
+            (ids[1], "bob".into()),
+            (ids[2], "cara".into()),
+        ],
+        7,
+    );
+    st.set_vessel(ids[0], Deck::Cider, "bottle").unwrap();
+    st.set_vessel(ids[1], Deck::Beer, "can").unwrap();
+    st.set_vessel(ids[2], Deck::Soft, "glass").unwrap();
+    st.players[0]
+        .hand
+        .push(drinkinggame::lc_cards::card_by_id("cider-11").unwrap());
+    st.beat = Beat::Lock;
+    st.arm(ids[0], "cider-11").unwrap();
+    st.set_target(ids[0], "cider-11", Some(1)).unwrap();
+    st.lock_in(ids[0]).unwrap();
+    st.lock_in(ids[1]).unwrap();
+    st.lock_in(ids[2]).unwrap();
+    st.advance_beat().unwrap();
+    st.advance_beat().unwrap();
+    st.resolve().unwrap();
+    assert_eq!(st.swaps.len(), 1, "rig must park");
+    let key = st.swaps[0].key;
+    let taken = st.swaps[0].taken.clone().unwrap().id;
+    let give = st.players[0].hand[0].id.clone();
+    let round = st.round;
+
+    let game_id = lc_game_id(&pool, &code).await;
+    drinkinggame::db::set_game_state(&pool, game_id, &st.to_json()).await;
+
+    // The public shell must not name what alice pulled — not even to bob,
+    // whose card it was.
+    let shell = body_string(get_shell(&app, &bob, &code).await).await;
+    assert!(
+        !shell.contains(&taken),
+        "the taken card leaked to the shell"
+    );
+
+    // The target cannot answer for the caster.
+    let res = post_form(
+        &app,
+        &bob,
+        &format!("/room/{code}/lastcall/swap"),
+        &format!("swap={key}&keep=true&give={give}"),
+    )
+    .await;
+    assert_ne!(res.status(), StatusCode::NO_CONTENT);
+
+    let res = post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/lastcall/swap"),
+        &format!("swap={key}&keep=true&give={give}"),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+
+    let back = lc_state(&pool, &code).await;
+    assert!(back.swaps.is_empty(), "answered");
+    // The trade is answered but the round report still holds the round —
+    // `Swap You For It` lands a `Taken` blow on its target, so there is a
+    // receipt to confirm. Whoever settles last owns the rollover.
+    assert_eq!(back.round, round, "the report still holds the round");
+    let rkey = back.resolutions[0].key;
+    for ck in [&alice, &bob, &cara] {
+        let res = post_form(
+            &app,
+            ck,
+            &format!("/room/{code}/lastcall/resolution-ack"),
+            &format!("resolution={rkey}"),
+        )
+        .await;
+        assert_eq!(res.status(), StatusCode::NO_CONTENT);
+    }
+    let back = lc_state(&pool, &code).await;
+    assert_eq!(
+        back.round,
+        round + 1,
+        "and the last park rolled the round over"
+    );
+    assert!(back.players[0].hand.iter().any(|c| c.id == taken));
+    assert!(back.players[1].hand.iter().any(|c| c.id == give));
 }
 
 /// The parked round's surfaces: the banner strip carries the public

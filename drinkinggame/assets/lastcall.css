@@ -406,6 +406,51 @@ body.lc { margin: 0; min-height: 100vh; display: flex; flex-direction: column;
 .lc-event-text { font-family: var(--font-ui); font-size: 11px; color: var(--lc-faint);
                  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+/* ---------------------------------------------------------------------
+   The round report (`lc_report`) — the receipt the table confirms before
+   the round rolls over. Rides the `.lc-event` strip slot, so it inherits
+   that rule's border and flex-basis; everything below is the list and the
+   confirm row it adds on top.
+
+   `flex-direction: column` overrides `.lc-event`'s baseline row: this strip
+   is several lines tall by nature, and the one-line ellipsis treatment the
+   event text gets would hide most of a busy round.
+   --------------------------------------------------------------------- */
+.lc-report { flex-direction: column; align-items: stretch; gap: 4px;
+             padding-bottom: 6px; }
+.lc-blows { list-style: none; margin: 0; padding: 0; display: flex;
+            flex-direction: column; gap: 2px; }
+.lc-blow { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap;
+           font-family: var(--font-ui); font-size: 11px; color: var(--lc-faint); }
+.lc-blow-src, .lc-blow-subject { font-weight: 800; letter-spacing: .06em;
+                                 color: var(--lc-text); white-space: nowrap; }
+/* An authorless blow (an event, a table-wide pour) reads as a dash, and it
+   must not look like a name that failed to render. */
+.lc-blow-noone { color: var(--lc-faint); font-weight: 400; }
+.lc-blow-card { font-weight: 700; color: var(--lc-text); }
+.lc-blow-arrow { color: var(--lc-faint); }
+.lc-blow-amount { margin-left: auto; font-variant-numeric: tabular-nums;
+                  font-weight: 800; white-space: nowrap; }
+/* Hostile is a property of the blow KIND, decided server-side in
+   `BlowKind::is_hostile` — never re-derived here from the amount's sign,
+   which would paint a 0-damage BLOCKED the same as a heal. */
+.lc-blow[data-hostile] .lc-blow-amount { color: var(--lc-bad, #e2686d); }
+.lc-blow:not([data-hostile]) .lc-blow-amount { color: var(--lc-good, #6fcf97); }
+.lc-blow[data-kind="blocked"] .lc-blow-amount,
+.lc-blow[data-kind="fizzled"] .lc-blow-amount,
+.lc-blow[data-kind="cancelled"] .lc-blow-amount { color: var(--lc-faint);
+                                                  font-weight: 700; }
+.lc-blow-soak { flex-basis: 100%; padding-left: 2px; font-size: 10px;
+                color: var(--lc-faint); font-style: italic; }
+.lc-report-foot { display: flex; align-items: center; gap: 10px;
+                  padding-top: 3px; border-top: 1px solid var(--lc-hair); }
+.lc-report-waiting { font-family: var(--font-ui); font-size: 10px;
+                     letter-spacing: .1em; font-weight: 800;
+                     color: var(--lc-faint); overflow: hidden;
+                     text-overflow: ellipsis; white-space: nowrap; }
+.lc-report-ok { margin-left: auto; }
+.lc-report-ok[disabled] { opacity: .45; }
+
 .lc-tabs { padding: 0 18px; display: flex; border-bottom: 1px solid var(--lc-hair); }
 /* Pack 2 (lc-mobile-play-flow): the tab row's right side — mode badge +
    pull count. The badge's fixed modes carry their colours here (CSS owns

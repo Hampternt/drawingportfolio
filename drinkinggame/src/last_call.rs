@@ -12,6 +12,10 @@
 //! `to_json`/`from_json` because later tasks snapshot it into a DB column
 //! between requests.
 
+use crate::lc_deck::LcTable;
+use crate::lc_phase::{Phase, SeatPhase};
+use crate::lc_rng::LcRng;
+use crate::lc_triggers::{SaluteTarget, TriggerAction, TriggerEvent, TriggerWhen};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
@@ -231,9 +235,13 @@ pub struct LcPlayer {
     pub hand: Vec<Card>,
     pub armed: Vec<ArmedCard>,
     pub locked: bool,
-    /// Beat-scoped "I'm done here" for the open beats (Draw ≥ round 2,
-    /// Diplomacy, Reveal) — since the beat clock's removal (2026-08-13)
-    /// the all-ready advance is the ONLY thing that moves those beats.
+    /// Beat-scoped "I'm done here" for the ready-gated beats. Those are
+    /// Draw (round ≥ 2) and Reveal — and ONLY those: `set_ready` refuses
+    /// every other beat, Diplomacy included, which advances on all-locked
+    /// instead. (This comment used to name Diplomacy as well; it never
+    /// matched `set_ready`'s gate.) Since the beat clock's removal
+    /// (2026-08-13) the all-ready advance is the only thing that moves the
+    /// two beats it does cover.
     /// Field-level `#[serde(default)]`: the `damage_dealt` precedent — a
     /// blob written before this existed backfills `false`, not a hard error.
     #[serde(default)]
@@ -259,6 +267,28 @@ pub struct LcPlayer {
     pub pulls_spent: u32,
     #[serde(default)]
     pub cards_played: u32,
+    /// Cards this seat has been dealt all game — bumped by `deal`, the one
+    /// path a card takes into a hand. Distinct from `draws_this_round`,
+    /// which is round-scoped and reset at the rollover.
+    #[serde(default)]
+    pub cards_drawn: u32,
+    /// Cards this seat has discarded (mulligans, hand-cap trims, plays that
+    /// resolved) — bumped by `discard` when a source seat is named.
+    #[serde(default)]
+    pub cards_discarded: u32,
+    /// Pulls this seat has actually drunk: every pull removed from one of
+    /// its vessels, whether it paid for a card or was drained by somebody
+    /// else. THE drink count — `pulls_spent` counts only what this seat
+    /// chose to spend on its own plays, so a heavily drained player shows a
+    /// low `pulls_spent` and a high `drinks`.
+    #[serde(default)]
+    pub drinks: u32,
+    /// HP this seat has lost, post-shield — the mirror of `damage_dealt`.
+    #[serde(default)]
+    pub damage_taken: u32,
+    /// HP this seat has been healed for.
+    #[serde(default)]
+    pub healing_taken: u32,
     /// 1-based place in the elimination order (`None` while `Alive`, and
     /// permanently `None` for a game's eventual winner(s)) — set the instant
     /// `apply_damage` flips `status` to `Eliminated`, never elsewhere.
@@ -365,6 +395,18 @@ pub struct Effect {
     /// fields: `Effect` otherwise stays strict.
     #[serde(default)]
     pub source_seat: usize,
+    /// The card id this effect came from — attribution for a `Dot`'s tick,
+    /// which fires rounds after the `Play` that laid it is gone.
+    ///
+    /// This is the honest version of what `source_play` above only looks
+    /// like it does. `order_key` is not an identity and cannot be made into
+    /// one; a card id is, it is stable across rounds, and it is what a
+    /// report and a sound cue both key off. Field-level `#[serde(default)]`,
+    /// the `source_seat` precedent: an older blob's dot ticks with an empty
+    /// id and renders as its subject's own lingering damage rather than
+    /// naming a card that was never recorded.
+    #[serde(default)]
+    pub source_card: String,
 }
 
 /// A formed pact between two seats — mutual and symmetric; the invariant
@@ -478,6 +520,26 @@ pub enum LogEntry {
     Reshuffle {
         deck: Deck,
     },
+    /// A card-triggered table event fired (`lc_triggers`).
+    ///
+    /// Carries the trigger's title rather than the card's, but do NOT read
+    /// that as satisfying J2 — an earlier version of this comment claimed the
+    /// causing card "stays unnamed", and that is false twice over. A
+    /// `TriggerDef` maps 1:1 onto a card id, so the title identifies the card
+    /// exactly as well as the id would; and `public_view()` projects
+    /// `LastCallState::triggers` verbatim, `TriggerEvent::card_id` included,
+    /// so the id is public anyway.
+    ///
+    /// This is a deliberate, narrow exception to J2, not compliance with it:
+    /// an `OnDraw` trigger fires while the card is still in a private hand,
+    /// and announcing it IS the mechanic — a "salute the leader" nobody can
+    /// see is not a card. The cost is that any card carrying an `OnDraw`
+    /// trigger has no hand privacy, which is why `lc_triggers`' module note
+    /// says such triggers must stay rare and loud.
+    Trigger {
+        seat: usize,
+        title: String,
+    },
     /// Plan J fix wave (Important 1): `winner` alone could not represent a
     /// shared pact win, so the log line named only the lower seat with
     /// solo-outlast phrasing while the end card, banner and felt centre all
@@ -563,8 +625,29 @@ pub struct LastCallState {
     /// `test_a_locked_play_is_absent_from_public_view_before_reveal`.
     pub locked_plays: Vec<Play>,
     pub effects: Vec<Effect>,
-    pub discards: Vec<Card>,
-    pub deck_counts: Vec<(Deck, u16)>,
+    /// The cards on the table — real draw piles and real discard piles, one
+    /// `Shoe` per opened deck (`lc_deck`). Replaces the old
+    /// `discards: Vec<Card>` + `deck_counts: Vec<(Deck, u16)>` pair, which
+    /// tracked *how many* cards a deck had left without tracking *which* —
+    /// card identity was sampled with replacement in `lc_routes` and the
+    /// count was decremented separately. Reads go through `deck_count`,
+    /// `discard_count` and `discards`; writes go through `draw_cards`,
+    /// `deal`, `discard` and `reshuffle_deck`, never by reaching into a
+    /// pile directly.
+    ///
+    /// Container-level `#[serde(default)]` (see the note on this struct)
+    /// backfills an EMPTY table for a blob written before this field
+    /// existed. `from_json` detects that case and reseeds — see there.
+    #[serde(default)]
+    pub table: LcTable,
+    /// The game's own deterministic PRNG, advanced by every shuffle and
+    /// every draw and stored in the blob so the stream survives a snapshot
+    /// (`lc_rng`). Seeded from `rng_seed` at construction. Before this, the
+    /// engine had no randomness at all and the routes reached for
+    /// `rand::thread_rng()` per request, so a game could not be replayed or
+    /// checked against itself.
+    #[serde(default)]
+    pub rng: LcRng,
     pub seq: u64,
     /// Unix ms when the current timed beat expires. `None` = untimed — the
     /// round-1 Draw registration lobby (E1), an auto beat (Deal/Resolve,
@@ -634,6 +717,58 @@ pub struct LastCallState {
     /// activated challenge, never reset (review wave). Container-level
     /// default backfills 0.
     pub challenge_seq: u64,
+    /// Card-triggered table events waiting on the room (`lc_triggers`) —
+    /// the front entry is the active one. Distinct from `event`, which is
+    /// the ONE scheduled round event: a trigger is reactive, fired the
+    /// moment a specific card is drawn/played/discarded, and any number can
+    /// queue up in a round. Public the instant one exists (the
+    /// `reactions`/`haunts` rule) — `public_view()` projects this verbatim.
+    /// Container-level default backfills empty on older blobs.
+    #[serde(default)]
+    pub triggers: Vec<TriggerEvent>,
+    /// Trades the resolve is parked on (the trade wave), front entry active.
+    #[serde(default)]
+    pub swaps: Vec<SwapState>,
+    /// Monotonic identity for `SwapState::key` (the `challenge_seq`
+    /// precedent).
+    #[serde(default)]
+    pub swap_seq: u64,
+    /// Rounds of drinks the resolve is parked on (the pour wave), front
+    /// entry active — the `challenges` shape exactly.
+    #[serde(default)]
+    pub pours: Vec<PourState>,
+    /// Monotonic identity for `PourState::key`, never reset (the
+    /// `challenge_seq` precedent).
+    #[serde(default)]
+    pub pour_seq: u64,
+    /// Hands laid open by reveal cards (the reveal wave). A snapshot taken
+    /// in round N is readable through round N+1, then pruned.
+    ///
+    /// Holds BOTH scopes. The split is made at projection time, not here:
+    /// `public_view()` takes only the `seer: None` entries, and
+    /// `reveals_for()` serves a single viewer their own. Storing them
+    /// together keeps the prune in one place and makes the confidentiality
+    /// rule a property of the projection, which is where every other secret
+    /// in this engine is enforced.
+    #[serde(default)]
+    pub reveals: Vec<Reveal>,
+    /// Monotonic counter behind `TriggerEvent::key` — bumped once per fired
+    /// trigger, never reset (the `challenge_seq` precedent).
+    #[serde(default)]
+    pub trigger_seq: u64,
+    /// The round resolution report the table is confirming (`lc_report`),
+    /// front entry active — the `challenges`/`pours`/`swaps` shape.
+    ///
+    /// A `Vec` rather than an `Option` for one reason: every other park in
+    /// this engine is a `Vec` whose front entry is active, and `parked()`
+    /// asks all four the same way. A lone `Option` would be a fifth spelling
+    /// of the same idea and the one nobody remembers to check.
+    #[serde(default)]
+    pub resolutions: Vec<crate::lc_report::Resolution>,
+    /// Monotonic identity for `Resolution::key`, never reset (the
+    /// `challenge_seq` precedent).
+    #[serde(default)]
+    pub resolution_seq: u64,
     /// J1/J3: the public round log, capped at `LC_LOG_CAP` (oldest evicted
     /// first) — every append goes through `push_log`, never `.push()`
     /// directly. Container-level `#[serde(default)]` (see the comment above)
@@ -673,6 +808,76 @@ pub struct ChallengeState {
     pub round: u32,
 }
 
+/// A round of drinks the resolve is parked on (`lc_cards::PourDef`).
+///
+/// The drink already happened — it lands immediately at resolve, because
+/// nobody chooses how much they drink. What parks the round is the discard:
+/// which cards you pitch is your call, so the engine has to wait, the same
+/// way it waits on a challenge vote.
+///
+/// New with the pour wave: serde strictness is moot, no older blob has one.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct PourState {
+    /// Identity token from `LastCallState::pour_seq`, echoed by the settle
+    /// route — the `ChallengeState::key` precedent, so a discard posted
+    /// from a stale screen cannot land on the NEXT pour.
+    pub key: u64,
+    pub card_id: String,
+    /// Who poured. Kept for the log and for display; the debt list is what
+    /// actually gates the park.
+    pub source: usize,
+    /// Seats that still owe cards, and how many each. A seat is removed the
+    /// moment its debt is paid, and an empty list settles the pour — the
+    /// `haunts` pattern (presence IS the state, no separate counter).
+    ///
+    /// A seat is only listed if it owes at least one card, so a player
+    /// holding nothing never holds the table up: they cannot pay a debt
+    /// they were never given.
+    pub owed: Vec<PourDebt>,
+    pub round: u32,
+}
+
+/// A trade the resolve is parked on, waiting on the caster's choice
+/// (`lc_cards::SwapDef`).
+///
+/// One decider, unlike a pour's several — but the same park, the same key
+/// discipline, and the same rule that whoever settles last rolls the round.
+///
+/// New with the trade wave: serde strictness is moot, no older blob has one.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct SwapState {
+    /// Identity token from `LastCallState::swap_seq` — the `PourState::key`
+    /// and `ChallengeState::key` precedent.
+    pub key: u64,
+    pub card_id: String,
+    /// Who played the card, and the only seat that may answer.
+    pub source: usize,
+    pub target: usize,
+    /// The card taken at random from `target`, held here rather than in
+    /// either hand while the caster decides.
+    ///
+    /// It is NOT in the target's hand any more — so their `hand_len` has
+    /// already dropped, which is public and correct: something left their
+    /// hand. It is not in the caster's hand either, so declining puts it
+    /// back rather than un-drawing it. `None` for a give-only card
+    /// (`A Gift`), which takes nothing.
+    ///
+    /// PRIVATE. `public_view()` projects the park but never this field: the
+    /// whole point of `Swap You For It` is that only the caster sees what
+    /// they pulled.
+    pub taken: Option<Card>,
+    /// Whether the caster owes the target a card of their choosing.
+    pub must_give: bool,
+    pub round: u32,
+}
+
+/// One seat's outstanding cards on a pour.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PourDebt {
+    pub seat: usize,
+    pub cards: u8,
+}
+
 /// One table vote on the active challenge. `for_instigator` reads per
 /// contest: in a Duel, "the instigator wins"; in a Solo, "the performer
 /// passes".
@@ -682,6 +887,34 @@ pub struct ChallengeVote {
     pub for_instigator: bool,
 }
 
+/// One hand laid open by a reveal card (`lc_cards::RevealDef`).
+///
+/// A **snapshot**, not a live window. `cards` is what `subject` held at the
+/// moment the card resolved, and it does not track their hand afterwards.
+/// That is the whole difference between a 2-pull card and a devastating one:
+/// a live view would keep leaking through the next Draw beat, so a reveal
+/// would silently be worth far more than it costs. It is also what "reveal"
+/// means at a table — you show, they look, you take it back.
+///
+/// New with the reveal wave: serde strictness is moot, no older blob has one.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct Reveal {
+    /// Whose hand was opened.
+    pub subject: usize,
+    /// Who may see it. `None` means the whole table — and `None` is the ONLY
+    /// value `public_view()` will project. A `Some(seat)` reveal reaching
+    /// `PublicView` would hand every spectator the private read the card
+    /// charges 2 pulls for; `test_a_private_reveal_never_reaches_the_public_view`
+    /// is what stands between that and a regression.
+    pub seer: Option<usize>,
+    /// The snapshot.
+    pub cards: Vec<Card>,
+    /// The round the snapshot was taken in. A reveal is readable through the
+    /// FOLLOWING round and dropped at the rollover after that — see the
+    /// prune in `rollover()` for why it cannot be its own round.
+    pub round: u32,
+}
+
 /// One settled tab — who, which one, and when. New in Task 3: serde
 /// strictness is moot here, no old blob has one to be missing a field on.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -689,6 +922,23 @@ pub struct TabSettle {
     pub seat: usize,
     pub tab: String,
     pub round: u32, // the round it settled in
+}
+
+/// A parked trade as the room sees it — `SwapState` minus the taken card.
+///
+/// A separate type rather than a `#[serde(skip)]` on `SwapState::taken`,
+/// because skip would also drop it from the BLOB, and the park has to
+/// survive a reload. The projection is the right place for a secret to be
+/// dropped; that is where every other secret in this engine is enforced.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct PublicSwap {
+    pub key: u64,
+    pub card_id: String,
+    pub source: usize,
+    pub target: usize,
+    /// Whether a card is being held mid-trade. Never which card.
+    pub holding: bool,
+    pub must_give: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -736,6 +986,25 @@ pub struct PublicSeat {
     /// would leak which deck they are staging from.
     #[serde(default)]
     pub hand_by_deck: Vec<(Deck, u16)>,
+    /// What this seat is expected to be doing right now — `seat_phase()`,
+    /// computed server-side (`lc_phase`). The desync fix: every viewer reads
+    /// this one value instead of each client re-deriving "is the table
+    /// waiting on them?" from `locked`/`ready`/`drawing`/`status` and the
+    /// beat, which is five fields combined differently per beat and was
+    /// spelled out separately in the phone, the big screen and the engine.
+    #[serde(default)]
+    pub phase: SeatPhase,
+    /// Pulls this seat has actually drunk (`LcPlayer::drinks`) — public by
+    /// design, like the other J5 counters. The drink count, as distinct from
+    /// `pulls_spent`, which counts only what this seat chose to spend on its
+    /// own plays.
+    #[serde(default)]
+    pub drinks: u32,
+    /// Shield absorption remaining, summed (`shield_total()`). `0` when
+    /// unshielded. Shields are already public via their effect on damage;
+    /// this saves every surface recomputing the same fold.
+    #[serde(default)]
+    pub shield: i32,
 }
 
 impl PublicSeat {
@@ -789,6 +1058,58 @@ pub struct PublicView {
     /// `LastCallState::log`. Already capped at `LC_LOG_CAP` at the source
     /// (`push_log`) — this projection does no further trimming.
     pub log: Vec<LogEntry>,
+    /// The game's top-level phase — `phase()`, derived (`lc_phase`).
+    /// Replaces the `round == 1 && beat == Draw` / `!challenges.is_empty()` /
+    /// `outcome.is_some()` tests each surface used to re-derive for itself.
+    #[serde(default)]
+    pub phase: Phase,
+    /// Card-triggered table events waiting on the room, front entry active
+    /// (`lc_triggers`). Projected verbatim from `LastCallState::triggers` —
+    /// public the instant one exists, the `reactions`/`haunts` rule.
+    #[serde(default)]
+    pub triggers: Vec<TriggerEvent>,
+    /// Trades the table is parked on — WITHOUT the card that was taken.
+    ///
+    /// `PublicSwap` exists precisely so `SwapState::taken` cannot be
+    /// projected by accident. Who is trading with whom is public (the room
+    /// has to know who it is waiting on); WHAT was pulled is the caster's
+    /// alone until they decide. Projecting `SwapState` verbatim, the way
+    /// `pours` and `challenges` are, would publish it — which is why this
+    /// one field gets its own type instead.
+    #[serde(default)]
+    pub swaps: Vec<PublicSwap>,
+    /// Rounds of drinks the table is parked on — projected verbatim from
+    /// `LastCallState::pours`. Public: who still owes cards is exactly the
+    /// "who are we waiting on" the room needs, the same reasoning that makes
+    /// challenge tallies public. The DEBT is public; which cards anyone
+    /// chooses to pitch stays private until they pitch it.
+    #[serde(default)]
+    pub pours: Vec<PourState>,
+    /// The round report the table is confirming (`lc_report`), front entry
+    /// active. Projected verbatim — and verbatim is SAFE here only because
+    /// of how `Blow` is built, not because nothing was checked.
+    ///
+    /// `Blow::card_id` always names the card that caused a blow, never one
+    /// that moved because of it: a `Pickpocket` records its own id against
+    /// its victim, and the card it stole has no field here to live in. A
+    /// reveal records how many cards were shown, never which. So the type
+    /// carries no secret to strip — which is a stronger guarantee than a
+    /// filter, since a filter has to be remembered when a field is added and
+    /// this cannot be got wrong without inventing a place to put the secret
+    /// first. `test_no_blow_can_name_a_moved_card` holds the line.
+    #[serde(default)]
+    pub resolutions: Vec<crate::lc_report::Resolution>,
+    /// Hands revealed to the WHOLE TABLE this round — the `seer: None`
+    /// entries of `LastCallState::reveals`, and only those.
+    ///
+    /// A caster-scoped reveal must never appear here. This field is a
+    /// broadcast: it reaches every phone and the spectator screen alike, so
+    /// a `Some(seat)` entry landing in it would publish the private read
+    /// that `Barman's Eye` charges for. The filter lives in `public_view()`
+    /// and is pinned by
+    /// `test_a_private_reveal_never_reaches_the_public_view`.
+    #[serde(default)]
+    pub reveals: Vec<Reveal>,
     /// Challenge-cards container: projected verbatim from
     /// `LastCallState::challenges` — contestants, tallies and votes are the
     /// spectacle, public the instant they exist (the `reactions`/`haunts`
@@ -900,9 +1221,14 @@ impl LastCallState {
     /// unlocked and not drawing, `Status::Alive`. Tabs are NOT empty at
     /// seating (DDv2 §2.6, H7): every seat is dealt its opening tab,
     /// `tab_for(rng_seed, seat, 0).id`, as part of this constructor. Round 1,
-    /// `Beat::Draw`, `first_seat = 0`, `seq = 0`. `deck_counts` is
-    /// initialized from `Deck::ALL` at `0` — settable but never set by this
-    /// slice (spec §4.1).
+    /// `Beat::Draw`, `first_seat = 0`, `seq = 0`. The table starts with no
+    /// open shoes — a deck's pile is built the first time somebody picks it as
+    /// a vessel (`set_vessel` -> `open_deck`).
+    ///
+    /// This is also where the engine's RNG is seeded from `rng_seed`, which is
+    /// the entropy handoff the whole determinism story rests on: the seed
+    /// enters once, here, and every shuffle and deal afterwards is a pure
+    /// function of it.
     ///
     /// Caps at `MAX_SEATS`: a room with more members than that (everyone
     /// pressed join before anyone pressed START) seats only the first
@@ -935,6 +1261,11 @@ impl LastCallState {
                 damage_dealt: 0,
                 pulls_spent: 0,
                 cards_played: 0,
+                cards_drawn: 0,
+                cards_discarded: 0,
+                drinks: 0,
+                damage_taken: 0,
+                healing_taken: 0,
                 elim_order: None,
                 rules: Vec::new(),
             })
@@ -948,8 +1279,8 @@ impl LastCallState {
             plays: Vec::new(),
             locked_plays: Vec::new(),
             effects: Vec::new(),
-            discards: Vec::new(),
-            deck_counts: Deck::ALL.iter().map(|&d| (d, 0)).collect(),
+            table: LcTable::new(),
+            rng: LcRng::seeded(rng_seed),
             seq: 0,
             beat_deadline_ms: None, // E1: round 1's Draw is the untimed lobby
             pacts: Vec::new(),
@@ -962,6 +1293,15 @@ impl LastCallState {
             haunts: Vec::new(),
             challenges: Vec::new(),
             challenge_seq: 0,
+            triggers: Vec::new(),
+            pours: Vec::new(),
+            pour_seq: 0,
+            swaps: Vec::new(),
+            swap_seq: 0,
+            reveals: Vec::new(),
+            trigger_seq: 0,
+            resolutions: Vec::new(),
+            resolution_seq: 0,
             log: Vec::new(),
         };
         state.push_log(LogEntry::Round { round: 1 });
@@ -993,7 +1333,810 @@ impl LastCallState {
         // not deserialize past the ring (seat_pos renders short and a real
         // player's plaque silently vanishes).
         st.players.truncate(MAX_SEATS);
+        // Clean break for the real-decks change (decision 2026-08-23). A blob
+        // written before `table` existed carried `deck_counts` (a number) and
+        // `discards` (a flat vec) — neither records WHICH cards were still in
+        // a deck, so the piles cannot be reconstructed, only rebuilt. The
+        // container-level `#[serde(default)]` leaves `table` empty; here we
+        // re-open a full shoe for every deck any seated player is actually
+        // drinking from, seeded off the blob's own `rng_seed` so the rebuild
+        // is itself reproducible.
+        //
+        // What survives: hands, HP, vessels, effects, pacts, the log — every
+        // durable fact about the game. What resets: the draw order and the
+        // discard piles. A room mid-round sees its deck counts jump back to
+        // full; nothing else moves.
+        //
+        // Guarded on `table.shoes.is_empty()` rather than on a version flag,
+        // and that guard is load-bearing in the same way migration 018's is
+        // (see the portfolio's CLAUDE.md): re-running this on a live table
+        // would deal every deck 40 fresh cards and duplicate every card
+        // already in a hand. An empty table with players who hold vessels is
+        // unambiguously a legacy blob — a real game opens a shoe the moment
+        // anyone picks a vessel.
+        // `!players.is_empty()` is the second half of the guard, and it is
+        // what keeps `from_json("{}")` equal to `Default::default()`: an
+        // empty blob is a degenerate value, not a legacy game, and has no
+        // seed worth deriving a stream from.
+        if !st.players.is_empty() && st.table.shoes.is_empty() {
+            if st.rng == LcRng::default() {
+                st.rng = LcRng::seeded(st.rng_seed);
+            }
+            let decks: Vec<Deck> = Deck::ALL
+                .into_iter()
+                .filter(|&d| {
+                    st.players
+                        .iter()
+                        .any(|p| p.vessels.iter().any(|v| v.deck == d))
+                })
+                .collect();
+            for deck in decks {
+                st.table.open(deck, &mut st.rng);
+            }
+        }
         st
+    }
+
+    // ---------------------------------------------------------------
+    // The table: decks, draws, deals, discards.
+    //
+    // Everything that moves a card between a pile and a hand goes through
+    // this block. Route handlers call these and never touch `self.table`
+    // directly — the point of moving RNG into the engine is that there is
+    // exactly one place where card identity is decided.
+    // ---------------------------------------------------------------
+
+    /// Cards left to draw in `deck`. `0` for a deck nobody has opened.
+    pub fn deck_count(&self, deck: Deck) -> u16 {
+        self.table.remaining(deck).min(u16::MAX as usize) as u16
+    }
+
+    /// Every discarded card on the table, across all decks.
+    pub fn discards(&self) -> Vec<&Card> {
+        self.table.all_discards()
+    }
+
+    /// Total cards in every discard pile.
+    pub fn discard_count(&self) -> usize {
+        self.table.discard_total()
+    }
+
+    /// Open `deck`'s shoe if it isn't already — a full, shuffled pile.
+    /// Idempotent (see `LcTable::open`).
+    pub fn open_deck(&mut self, deck: Deck) {
+        let mut rng = self.rng;
+        self.table.open(deck, &mut rng);
+        self.rng = rng;
+    }
+
+    /// **Draw** up to `n` cards off `deck`'s pile and return them, without
+    /// giving them to anybody. The low-level primitive: `deal` puts cards in
+    /// a hand, this only takes them off the table.
+    ///
+    /// Short results are legal and expected — an exhausted shoe (both piles
+    /// empty) returns fewer than `n`, which is D7's "the min is what makes a
+    /// short shoe legal" rule now enforced by the pile itself rather than by
+    /// a caller computing `min(want, count)`.
+    pub fn draw_cards(&mut self, deck: Deck, n: usize) -> Vec<Card> {
+        let mut rng = self.rng;
+        let out = self.table.draw(deck, n, &mut rng);
+        self.rng = rng;
+        out
+    }
+
+    /// **Deal** up to `n` cards from `deck` into `seat`'s hand, firing any
+    /// `OnDraw` triggers the dealt cards carry. Returns how many actually
+    /// landed.
+    ///
+    /// The one path by which a card enters a hand. Bumps `cards_drawn`, and
+    /// deliberately does NOT enforce `HAND_SOFT_CAP` — the cap is a
+    /// resolve-time trim (D12), not a draw-time refusal, and moving it here
+    /// would silently swallow cards a player paid a beat for.
+    pub fn deal(&mut self, seat: usize, deck: Deck, n: usize) -> usize {
+        if seat >= self.players.len() {
+            return 0;
+        }
+        let drawn = self.draw_cards(deck, n);
+        let count = drawn.len();
+        for card in &drawn {
+            self.fire_trigger(&card.id, TriggerWhen::OnDraw, seat);
+        }
+        let p = &mut self.players[seat];
+        p.cards_drawn += count as u32;
+        p.hand.extend(drawn);
+        count
+    }
+
+    /// **Discard** cards onto their own decks' piles, firing `OnDiscard`
+    /// triggers. `source` attributes the discard for trigger purposes.
+    ///
+    /// A card always returns to the deck it came from, never to the pile of
+    /// whoever held it: a Beer card in a Wine drinker's hand is still a Beer
+    /// card. Bumps `cards_discarded` when a seat is named.
+    pub fn discard(&mut self, source: Option<usize>, cards: impl IntoIterator<Item = Card>) {
+        let cards: Vec<Card> = cards.into_iter().collect();
+        if cards.is_empty() {
+            return;
+        }
+        if let Some(seat) = source {
+            if let Some(p) = self.players.get_mut(seat) {
+                p.cards_discarded += cards.len() as u32;
+            }
+            for card in &cards {
+                self.fire_trigger(&card.id, TriggerWhen::OnDiscard, seat);
+            }
+        }
+        self.table.discard(cards);
+    }
+
+    /// Force `deck`'s discard pile back under its draw pile. Returns cards
+    /// reclaimed; `0` means nothing was recycled and no log line is earned.
+    pub fn reshuffle_deck(&mut self, deck: Deck) -> usize {
+        let mut rng = self.rng;
+        let n = self.table.reshuffle(deck, &mut rng);
+        self.rng = rng;
+        n
+    }
+
+    // ---------------------------------------------------------------
+    // Phase: where the game is, and what each seat is expected to do.
+    //
+    // Both derived, never stored — see `lc_phase`. These replace the
+    // open-coded `round == 1 && beat == Draw` / `!challenges.is_empty()` /
+    // `outcome().is_some()` tests that each call site used to spell out for
+    // itself.
+    // ---------------------------------------------------------------
+
+    /// The game's top-level phase.
+    ///
+    /// Order matters: `Finished` wins over everything (a game that ended on
+    /// a challenge round is over, not parked), and `Challenge` wins over
+    /// `Playing` because the parked table genuinely cannot advance.
+    pub fn phase(&self) -> Phase {
+        if self.outcome().is_some() {
+            return Phase::Finished;
+        }
+        if !self.challenges.is_empty() {
+            return Phase::Challenge;
+        }
+        // Checked AFTER challenges: both can park the same round, and the
+        // challenge is the louder, more social of the two — it is what the
+        // table is actually looking at.
+        if !self.pours.is_empty() {
+            return Phase::Pour;
+        }
+        // A trade parks quietly and on one person; it reports as `Pour`
+        // rather than earning a fourth variant, because every consumer of
+        // `Phase` wants the same thing from both — "the round is frozen on
+        // somebody's choice, not on a beat". `PublicView::swaps` is what a
+        // surface reads to tell them apart.
+        if !self.swaps.is_empty() {
+            return Phase::Pour;
+        }
+        if self.round == 1 && self.beat == Beat::Draw {
+            return Phase::Lobby;
+        }
+        Phase::Playing
+    }
+
+    /// What `seat` is expected to be doing right now.
+    ///
+    /// The desync fix: every viewer reads one server-computed answer instead
+    /// of each client re-deriving "is the table waiting on me?" from
+    /// `locked`/`ready`/`drawing`/`status` and the beat. Out-of-range seats
+    /// report `Waiting` rather than panicking — a stale render must not
+    /// crash a room.
+    pub fn seat_phase(&self, seat: usize) -> SeatPhase {
+        let Some(p) = self.players.get(seat) else {
+            return SeatPhase::Waiting;
+        };
+        if self.outcome().is_some() {
+            return SeatPhase::Done;
+        }
+        if p.status == Status::Eliminated {
+            return SeatPhase::Ghost;
+        }
+        // A round report outranks everything: it parks at the end of the
+        // resolve that built it, so any other park it shares a round with is
+        // still open underneath it.
+        //
+        // Note the missing `else`. Every arm below returns BOTH ways — a
+        // trigger answers `Waiting` for a seat that has acked, a trade
+        // answers `Waiting` for anyone but the caster — because each of those
+        // parks alone. This one coexists with all three, so answering
+        // `Waiting` here would tell a seat it has nothing to do while its own
+        // pour debt sits unpaid two arms below. It only ever speaks up.
+        if let Some(r) = self.resolutions.first() {
+            if r.awaiting(seat) {
+                return SeatPhase::Acting;
+            }
+        }
+        // A pending trigger outranks the beat: the table is held up on the
+        // acknowledgement, so a seat that still owes one is Acting whatever
+        // beat it is.
+        if let Some(t) = self.triggers.first() {
+            return if t.awaiting(seat) {
+                SeatPhase::Acting
+            } else {
+                SeatPhase::Waiting
+            };
+        }
+        // A trade parks on ONE seat: the caster. Everyone else waits.
+        if let Some(sw) = self.swaps.first() {
+            return if sw.source == seat {
+                SeatPhase::Acting
+            } else {
+                SeatPhase::Waiting
+            };
+        }
+        // A pour outranks the beat exactly like a trigger: the round cannot
+        // move until the debts are paid, so a seat that still owes cards is
+        // Acting. Checked before the challenge arm so that a seat which owes
+        // a discard AND has already voted still reads as Acting — it is
+        // genuinely holding the table up.
+        if let Some(po) = self.pours.first() {
+            if po.owed.iter().any(|d| d.seat == seat) {
+                return SeatPhase::Acting;
+            }
+            if self.challenges.is_empty() {
+                return SeatPhase::Waiting;
+            }
+        }
+        if let Some(ch) = self.challenges.first() {
+            // Contestants perform; the electorate votes. Anyone in neither
+            // role is a spectator.
+            let contestant = ch.instigator == seat || ch.opponent == Some(seat);
+            let elector = ch.electorate.contains(&seat);
+            let voted = ch.votes.iter().any(|v| v.voter == seat);
+            return if contestant || (elector && !voted) {
+                SeatPhase::Acting
+            } else {
+                SeatPhase::Waiting
+            };
+        }
+        // Each arm mirrors what actually ADVANCES that beat, which is the
+        // only definition of "holding it up" worth having. Note two stale
+        // comments elsewhere in the tree claim Diplomacy is ready-gated —
+        // `set_ready` refuses it (`matches!(beat, Draw | Reveal)`) and
+        // `lc_lock_handler` advances it on all-locked. The code is the
+        // authority; this follows the code.
+        match self.beat {
+            // The registration lobby. `set_ready` refuses it outright, so
+            // readiness is not the signal — having picked a drink is.
+            Beat::Draw if self.round == 1 => {
+                if p.vessels.is_empty() {
+                    SeatPhase::Acting
+                } else {
+                    SeatPhase::Ready
+                }
+            }
+            // Ready-gated: `set_ready` accepts these two, and the all-ready
+            // predicate is what advances them.
+            Beat::Draw | Beat::Reveal => {
+                if p.ready {
+                    SeatPhase::Ready
+                } else {
+                    SeatPhase::Acting
+                }
+            }
+            // The staging beat (Lock is the legacy-blob alias). Advances on
+            // every Alive seat being locked, not on ready.
+            Beat::Diplomacy | Beat::Lock => {
+                if p.locked {
+                    SeatPhase::Locked
+                } else {
+                    SeatPhase::Acting
+                }
+            }
+            // Auto beats — nothing is asked of anybody; the engine advances.
+            Beat::Deal | Beat::Resolve => SeatPhase::Waiting,
+        }
+    }
+
+    /// The Alive seats currently holding the beat up. Empty means the beat
+    /// is ready to advance — `all_ready()`'s question, asked in the phase
+    /// vocabulary and with ghosts and acked triggers already accounted for.
+    pub fn blocking_seats(&self) -> Vec<usize> {
+        self.players
+            .iter()
+            .map(|p| p.seat)
+            .filter(|&s| self.seat_phase(s).is_blocking())
+            .collect()
+    }
+
+    // ---------------------------------------------------------------
+    // Player interaction primitives.
+    //
+    // The four things anything in the game can do to a player. Before this
+    // block, `apply_damage` was private and heal/shield/drain were written
+    // inline inside `resolve()`'s per-play match — so a heal was a bare
+    // `hp += n` in one place and nothing else could reach it. Every effect
+    // application, every event hook and every challenge penalty now funnels
+    // through these four, which means shields, clamping, elimination and
+    // stat attribution are decided once.
+    // ---------------------------------------------------------------
+
+    /// Deal `amount` damage to `seat`, through shields, clamped at 0 HP,
+    /// eliminating on reaching it. Returns HP actually removed (0 when fully
+    /// shielded, or when `seat` was already dead).
+    ///
+    /// `source` attributes the hit for the `damage_dealt` counter and the
+    /// log; `None` for damage with no author (an event, a dot whose author
+    /// is gone). Logs a `Hit` only when something actually landed — a fully
+    /// absorbed hit is not an event.
+    pub fn damage(&mut self, seat: usize, amount: i32, source: Option<usize>) -> i32 {
+        if amount <= 0 || seat >= self.players.len() {
+            return 0;
+        }
+        if self.players[seat].status != Status::Alive {
+            return 0;
+        }
+        let applied = self.apply_damage(seat, amount);
+        if applied > 0 {
+            self.players[seat].damage_taken += applied as u32;
+            if let Some(src) = source {
+                if let Some(p) = self.players.get_mut(src) {
+                    p.damage_dealt += applied as u32;
+                }
+                self.push_log(LogEntry::Hit {
+                    source: src,
+                    target: seat,
+                    amount: applied,
+                });
+            }
+        }
+        applied
+    }
+
+    /// Heal `seat` by `amount`. Returns HP actually restored.
+    ///
+    /// No ceiling (TBD-3) — deliberately, so a big heal is a real comeback
+    /// rather than overflow into a cap. Ghosts do not heal: elimination is
+    /// permanent (D11), and healing one would resurrect a seat whose hand
+    /// and effects were already discarded.
+    pub fn heal(&mut self, seat: usize, amount: i32) -> i32 {
+        if amount <= 0 || seat >= self.players.len() {
+            return 0;
+        }
+        if self.players[seat].status != Status::Alive {
+            return 0;
+        }
+        self.heal_quiet(seat, amount);
+        self.push_log(LogEntry::Heal { seat, amount });
+        amount
+    }
+
+    /// `heal` without the log line, for the table-wide event hooks
+    /// (`on-the-house`, `toast`). Those are announced by the event banner
+    /// itself, so a per-seat `Heal` line each would be noise — but the stat
+    /// counter still has to move, which is why they go through here rather
+    /// than touching `hp` directly.
+    fn heal_quiet(&mut self, seat: usize, amount: i32) -> i32 {
+        if amount <= 0 || seat >= self.players.len() {
+            return 0;
+        }
+        if self.players[seat].status != Status::Alive {
+            return 0;
+        }
+        self.players[seat].hp += amount;
+        self.players[seat].healing_taken += amount as u32;
+        amount
+    }
+
+    /// Give `seat` a shield of `magnitude`, lasting `rounds` more rounds.
+    ///
+    /// Replace-not-stack by subject (D10): a second shield on the same seat
+    /// REPLACES the first rather than adding to it, so a player cannot bank
+    /// arbitrary absorption by holding shields. Registers immediately (F8),
+    /// so it absorbs later plays within the same round's resolution order.
+    pub fn shield(&mut self, seat: usize, magnitude: i32, rounds: u32, source: Option<usize>) {
+        if magnitude <= 0 || seat >= self.players.len() {
+            return;
+        }
+        if self.players[seat].status != Status::Alive {
+            return;
+        }
+        self.shield_from(seat, magnitude, rounds, source, 0, "");
+    }
+
+    /// `shield` with an explicit `source_play`, for `resolve()`'s per-play
+    /// loop — which has an `order_key` to attribute the effect to and the
+    /// public entry point does not.
+    fn shield_from(
+        &mut self,
+        seat: usize,
+        magnitude: i32,
+        rounds: u32,
+        source: Option<usize>,
+        source_play: u32,
+        source_card: &str,
+    ) {
+        if magnitude <= 0 || seat >= self.players.len() {
+            return;
+        }
+        if self.players[seat].status != Status::Alive {
+            return;
+        }
+        self.effects
+            .retain(|e| !(e.op == EffectOp::Shield && e.subject == seat));
+        self.effects.push(Effect {
+            source_play,
+            subject: seat,
+            op: EffectOp::Shield,
+            magnitude,
+            expires_round: self.round + rounds,
+            source_seat: source.unwrap_or(seat),
+            source_card: source_card.to_string(),
+        });
+        self.push_log(LogEntry::Shield {
+            seat,
+            amount: magnitude,
+        });
+    }
+
+    /// Drain `n` pulls from `seat`'s fullest vessel (F4). Returns pulls
+    /// actually removed — fewer than `n` when the vessels run dry.
+    ///
+    /// Never touches HP. Counts toward `drinks`: a drained pull is a drink
+    /// somebody actually took.
+    pub fn drain(&mut self, seat: usize, n: i32, source: Option<usize>) -> i32 {
+        if n <= 0 || seat >= self.players.len() {
+            return 0;
+        }
+        let drained = drain_pulls(&mut self.players[seat], n);
+        if drained > 0 {
+            self.players[seat].drinks += drained as u32;
+            if let Some(src) = source {
+                self.push_log(LogEntry::Drain {
+                    source: src,
+                    target: seat,
+                    amount: drained,
+                });
+            }
+        }
+        drained
+    }
+
+    /// `damage`, with the blow recorded for the round report.
+    ///
+    /// The shield delta is measured ACROSS the call because `absorbed` is
+    /// not recoverable afterwards: `damage` returns what got through, and
+    /// "what got through" cannot be subtracted from "what was asked for" to
+    /// find the shield's share — a hit on a seat at 1 HP clamps, so the
+    /// difference is mostly the clamp. Two `shield_total` reads are the only
+    /// honest way to get it.
+    ///
+    /// Records nothing when nothing happened (`applied` and `absorbed` both
+    /// 0): an attack on an already-dead seat, or one blunted to zero by a
+    /// Reduce before it ever reached a shield. A receipt line reading "0
+    /// damage, 0 absorbed" tells its reader less than its absence does.
+    fn damage_reported(
+        &mut self,
+        blows: &mut Vec<crate::lc_report::Blow>,
+        subject: usize,
+        amount: i32,
+        source: Option<usize>,
+        card_id: &str,
+        title: &str,
+        landed: crate::lc_report::BlowKind,
+    ) -> i32 {
+        let before = self.shield_total(subject);
+        let applied = self.damage(subject, amount, source);
+        let absorbed = (before - self.shield_total(subject)).max(0);
+        if applied > 0 || absorbed > 0 {
+            blows.push(crate::lc_report::Blow {
+                card_id: card_id.to_string(),
+                title: title.to_string(),
+                source,
+                subject,
+                kind: if applied > 0 {
+                    landed
+                } else {
+                    crate::lc_report::BlowKind::Blocked
+                },
+                amount: applied,
+                absorbed,
+            });
+        }
+        applied
+    }
+
+    /// Current shield absorption remaining on `seat`, summed. `0` when
+    /// unshielded — the figure a UI would print next to HP.
+    pub fn shield_total(&self, seat: usize) -> i32 {
+        self.effects
+            .iter()
+            .filter(|e| e.op == EffectOp::Shield && e.subject == seat)
+            .map(|e| e.magnitude)
+            .sum()
+    }
+
+    // ---------------------------------------------------------------
+    // Card-triggered events (`lc_triggers`).
+    // ---------------------------------------------------------------
+
+    /// The active trigger, if the table is holding on one.
+    /// The reveals one viewer may see: every table reveal, plus the private
+    /// ones bought for their own seat.
+    ///
+    /// This is the read the per-viewer hand fetch uses. It is a real
+    /// confidentiality boundary rather than a client-side hide: the hand
+    /// pane is rendered server-side against the caller's `player_id`, so a
+    /// viewer is never sent a snapshot they may not see and cannot recover
+    /// one by reading the page source.
+    ///
+    /// An unseated viewer (a spectator) gets the table reveals only, which
+    /// is exactly what the big screen should show.
+    pub fn reveals_for(&self, player_id: i64) -> Vec<&Reveal> {
+        let seat = self.seat_of(player_id);
+        self.reveals
+            .iter()
+            // `r.seer == seat` alone is enough for the private half: every
+            // private reveal has `seer: Some(_)`, so it is already false for
+            // an unseated viewer's `None`. An extra `seat.is_some()` guard
+            // here reads defensive and is unreachable.
+            .filter(|r| r.seer.is_none() || r.seer == seat)
+            .collect()
+    }
+
+    /// Is the resolve parked on a human decision?
+    ///
+    /// Two things can park it now — a challenge waiting on votes and a pour
+    /// waiting on discards — and they can park the SAME round, because one
+    /// player can play a challenge card while another plays a pour. That is
+    /// what this predicate is for: whichever settles last runs the rollover,
+    /// and neither settle path may run it while the other is still
+    /// outstanding. A settle that rolled over unconditionally would advance
+    /// the round out from under the other park, stranding it forever.
+    pub fn parked(&self) -> bool {
+        !self.challenges.is_empty()
+            || !self.pours.is_empty()
+            || !self.swaps.is_empty()
+            || !self.resolutions.is_empty()
+    }
+
+    /// The active trade, if the table is parked on one.
+    pub fn pending_swap(&self) -> Option<&SwapState> {
+        self.swaps.first()
+    }
+
+    /// The active pour, if the table is parked on one.
+    pub fn pending_pour(&self) -> Option<&PourState> {
+        self.pours.first()
+    }
+
+    /// The round report the table is confirming, if any (`lc_report`).
+    pub fn pending_resolution(&self) -> Option<&crate::lc_report::Resolution> {
+        self.resolutions.first()
+    }
+
+    /// Acknowledge the active round report on behalf of `player_id`, naming
+    /// it by `key`. Settles — and rolls the round over — once every seat that
+    /// owed one has tapped.
+    ///
+    /// Guard order and staleness semantics are `ack_trigger`'s exactly, and
+    /// for the same reasons: a `key` at or below the high-water mark named a
+    /// report that existed and has since cleared, so a retry of a tap that
+    /// already worked is a no-op rather than an error, while a key naming a
+    /// report that never existed is rejected. Copied rather than shared
+    /// because the two acks settle differently — a trigger just clears, a
+    /// report owns a rollover — and folding them together would put a branch
+    /// inside the one function whose job is to be obvious.
+    ///
+    /// A seat that owed nothing taps successfully and changes nothing. That
+    /// is not a courtesy: the receipt is on every phone, so a spectator's tap
+    /// is a real thing a real thumb will do, and answering it with an error
+    /// would make the button look broken to the one player it cost nothing.
+    pub fn ack_resolution(&mut self, player_id: i64, key: u64) -> Result<(), LcError> {
+        let Some(seat) = self.seat_of(player_id) else {
+            return Err(LcError::NotSeated);
+        };
+        let Some(active) = self.resolutions.first() else {
+            return if key < self.resolution_seq {
+                Ok(())
+            } else {
+                Err(LcError::WrongBeat)
+            };
+        };
+        if key < active.key {
+            return Ok(());
+        }
+        if active.key != key {
+            return Err(LcError::WrongBeat);
+        }
+        if !active.awaiting(seat) {
+            return Ok(()); // idempotent, and free for a seat that owed nothing
+        }
+        self.resolutions[0].acked.push(seat);
+        self.seq += 1;
+        if self.resolutions[0].settled() {
+            self.settle_resolution();
+        }
+        Ok(())
+    }
+
+    /// Test-only: tap the active report on behalf of every seat that owes
+    /// one, settling it exactly as a table of real thumbs would.
+    ///
+    /// Exists so the ~seventeen tests that predate the confirm gate can keep
+    /// asserting what they were written to assert — that a dot ticks, that a
+    /// betrayal bars a seat, that damage rolls the round over — without each
+    /// one growing an ack loop that has nothing to do with its subject. It
+    /// goes through the real `ack_resolution`, so a report that could not be
+    /// settled still fails those tests rather than being waved past: this is
+    /// a shortcut through the KEYSTROKES, not through the gate.
+    #[cfg(test)]
+    pub(crate) fn confirm_report(&mut self) {
+        let Some(r) = self.resolutions.first() else {
+            return;
+        };
+        let key = r.key;
+        let ids: Vec<i64> = r
+            .owed
+            .iter()
+            .filter_map(|&seat| self.players.get(seat).map(|p| p.player_id))
+            .collect();
+        for id in ids {
+            self.ack_resolution(id, key)
+                .expect("a seat that owes an ack can always give it");
+        }
+        assert!(
+            self.resolutions.is_empty(),
+            "every owed seat tapped and the report did not settle"
+        );
+    }
+
+    /// Clear the confirmed report and, if nothing else still holds the round,
+    /// roll it over.
+    ///
+    /// The `settle_pour`/`settle_challenge` tail, and it must stay that shape:
+    /// the report parks on almost every round, so it is very often the LAST
+    /// park to settle and therefore the one that owns the rollover. Rolling
+    /// over unconditionally here would advance the round out from under a
+    /// pour or a challenge that is still waiting on somebody.
+    fn settle_resolution(&mut self) {
+        self.resolutions.remove(0);
+        if self.parked() {
+            return;
+        }
+        self.rollover(self.pact_breaks.len());
+    }
+
+    pub fn pending_trigger(&self) -> Option<&TriggerEvent> {
+        self.triggers.first()
+    }
+
+    /// Fire `card_id`'s trigger for `when`, if it has one. No-op otherwise —
+    /// the overwhelmingly common case, and why this is cheap to call from
+    /// every deal and every discard.
+    ///
+    /// Resolves the action's target NOW, against the live table, so an
+    /// announced "salute the leader" keeps pointing at whoever led when the
+    /// card turned up even if the resolution that follows changes the
+    /// standings.
+    fn fire_trigger(&mut self, card_id: &str, when: TriggerWhen, source: usize) {
+        let Some(def) = crate::lc_triggers::trigger_for(card_id, when) else {
+            return;
+        };
+        let target = match def.action {
+            TriggerAction::Salute { target } => match target {
+                SaluteTarget::Leader => self.extreme_hp_seat(true),
+                SaluteTarget::Loser => self.extreme_hp_seat(false),
+                SaluteTarget::Drawer => Some(source),
+            },
+            TriggerAction::DrawerDrinks { .. } => Some(source),
+            TriggerAction::TableDrink { .. } | TriggerAction::Announce => None,
+        };
+        self.trigger_seq += 1;
+        let key = self.trigger_seq;
+        self.triggers.push(TriggerEvent {
+            key,
+            id: def.id.to_string(),
+            card_id: card_id.to_string(),
+            when,
+            action: def.action,
+            source,
+            target,
+            round: self.round,
+            title: def.title.to_string(),
+            text: def.text.to_string(),
+            acked: Vec::new(),
+        });
+        self.push_log(LogEntry::Trigger {
+            seat: source,
+            title: def.title.to_string(),
+        });
+        self.apply_trigger_effect(def.action, source, target);
+        self.seq += 1;
+    }
+
+    /// The state change a trigger action carries, if any. Real-life
+    /// instructions (`Salute`, `Announce`) change nothing — the engine
+    /// announces them and the table does the rest.
+    fn apply_trigger_effect(
+        &mut self,
+        action: TriggerAction,
+        source: usize,
+        _target: Option<usize>,
+    ) {
+        match action {
+            TriggerAction::TableDrink { pulls } => {
+                let seats: Vec<usize> = self
+                    .players
+                    .iter()
+                    .filter(|p| p.status == Status::Alive)
+                    .map(|p| p.seat)
+                    .collect();
+                for s in seats {
+                    self.drain(s, pulls as i32, None);
+                }
+            }
+            TriggerAction::DrawerDrinks { pulls } => {
+                self.drain(source, pulls as i32, None);
+            }
+            TriggerAction::Salute { .. } | TriggerAction::Announce => {}
+        }
+    }
+
+    /// Highest (`high`) or lowest HP among the Alive; ties break to the
+    /// lowest seat. `None` at an empty table.
+    fn extreme_hp_seat(&self, high: bool) -> Option<usize> {
+        self.players
+            .iter()
+            .filter(|p| p.status == Status::Alive)
+            .min_by_key(|p| (if high { -p.hp } else { p.hp }, p.seat as i64))
+            .map(|p| p.seat)
+    }
+
+    /// Acknowledge the active trigger for `player_id`. The trigger clears
+    /// once every Alive seat has acked — ghosts are not waited on, the same
+    /// rule the beat's all-ready advance uses.
+    ///
+    /// `key` must name the ACTIVE trigger: an ack posted from a screen that
+    /// was showing the previous one is dropped rather than dismissing the
+    /// next in the queue (the `ChallengeState::key` precedent).
+    pub fn ack_trigger(&mut self, player_id: i64, key: u64) -> Result<(), LcError> {
+        let Some(seat) = self.seat_of(player_id) else {
+            return Err(LcError::NotSeated);
+        };
+        // A key at-or-below the high-water mark named a trigger that existed
+        // and has since cleared, so a retry of an ack that already succeeded
+        // is a no-op rather than an error. Only a key naming a trigger that
+        // never existed (> `trigger_seq`) is rejected outright.
+        let Some(active) = self.triggers.first() else {
+            return if key <= self.trigger_seq {
+                Ok(())
+            } else {
+                Err(LcError::WrongBeat)
+            };
+        };
+        if key < active.key {
+            // Names a trigger older than the active one, i.e. one that has
+            // already cleared: a retry of an ack that succeeded. Report the
+            // truth (nothing to do) without dismissing the active trigger.
+            // Gating this on "the queue happens to be empty" instead made the
+            // same retry return Ok or WrongBeat depending on whether somebody
+            // else's card had queued a trigger in the meantime.
+            return Ok(());
+        }
+        if active.key != key {
+            return Err(LcError::WrongBeat);
+        }
+        if !active.awaiting(seat) {
+            return Ok(()); // idempotent: a double-tap is not an error
+        }
+        self.triggers[0].acked.push(seat);
+        let alive: Vec<usize> = self
+            .players
+            .iter()
+            .filter(|p| p.status == Status::Alive)
+            .map(|p| p.seat)
+            .collect();
+        if alive.iter().all(|s| self.triggers[0].acked.contains(s)) {
+            self.triggers.remove(0);
+        }
+        self.seq += 1;
+        Ok(())
     }
 
     /// DDv2 9.3. None while the game is undecided — or while fewer than two
@@ -1085,6 +2228,11 @@ impl LastCallState {
             damage_dealt: 0,
             pulls_spent: 0,
             cards_played: 0,
+            cards_drawn: 0,
+            cards_discarded: 0,
+            drinks: 0,
+            damage_taken: 0,
+            healing_taken: 0,
             elim_order: None,
             rules: Vec::new(),
         });
@@ -1119,17 +2267,12 @@ impl LastCallState {
         if self.beat != Beat::Draw {
             return Err(LcError::WrongBeat);
         }
-        if !self
-            .players
-            .iter()
-            .any(|p| p.vessels.iter().any(|v| v.deck == deck))
-        {
-            if let Some(entry) = self.deck_counts.iter_mut().find(|(d, _)| *d == deck) {
-                entry.1 = LC_DECK_SIZE;
-            } else {
-                self.deck_counts.push((deck, LC_DECK_SIZE));
-            }
-        }
+        // Opening a deck is now dealing a real, shuffled 40-card pile
+        // rather than setting a counter to 40. `open_deck` is idempotent, so
+        // a second player picking the same deck joins the pile in progress
+        // instead of resetting it — which the old counter branch had to
+        // spell out as an explicit "is anybody already on this deck" scan.
+        self.open_deck(deck);
         let p = &mut self.players[seat];
         p.vessels.retain(|v| v.deck != deck);
         p.vessels.push(Vessel {
@@ -1138,15 +2281,48 @@ impl LastCallState {
             pulls_left: deck.pulls(),
             container: container.to_string(),
         });
-        let mut dealt: u16 = 0;
-        for card in crate::lc_cards::opening_hand(deck) {
-            if !p.hand.iter().any(|c| c.id == card.id) {
-                p.hand.push(card);
-                dealt += 1;
+        // The opening hand is a fixed, named set (`lc_cards::opening_hand`,
+        // F6), not a random draw, so it is pulled out of the pile by identity
+        // via `Shoe::take_named_or_top` — the pile API's one by-name operation.
+        // Doing this inline used to reach into `shoe.draw_pile` directly, which
+        // is what the "every card movement goes through the pile API" rule in
+        // CLAUDE.md exists to prevent.
+        //
+        // The dedup skip covers the RE-PICK case only: a player switching
+        // back to a deck they already hold cards from should not be handed a
+        // second copy of an opener they already have. It is not a promise
+        // that the hand contains five distinct cards, and it never could be —
+        // the substitution below hands out the top of the pile, which is
+        // whatever a real shuffle put there. A pile genuinely contains
+        // `copies` of a card, so a duplicate in an opening hand is a fact
+        // about the deck, not a bug. (An earlier comment here claimed "hands
+        // stay deduplicated", which the substitution branch made false.)
+        //
+        // The named openers themselves cannot duplicate: `opening_hand` is
+        // five distinct ids.
+        let openers = crate::lc_cards::opening_hand(deck);
+        let mut dealt: Vec<Card> = Vec::with_capacity(openers.len());
+        for card in openers {
+            if self.players[seat].hand.iter().any(|c| c.id == card.id) {
+                continue; // re-pick: already held
+            }
+            let Some(shoe) = self.table.shoe_mut(deck) else {
+                break;
+            };
+            match shoe.take_named_or_top(&card.id) {
+                Some(got) => dealt.push(got),
+                None => break, // pile exhausted
             }
         }
-        if let Some(entry) = self.deck_counts.iter_mut().find(|(d, _)| *d == deck) {
-            entry.1 = entry.1.saturating_sub(dealt);
+        let p = &mut self.players[seat];
+        p.cards_drawn += dealt.len() as u32;
+        let ids: Vec<String> = dealt.iter().map(|c| c.id.clone()).collect();
+        p.hand.extend(dealt);
+        // Opening-hand cards fire `OnDraw` like any other card entering a
+        // hand — `deal()` is not the only such path, so it cannot be the only
+        // place that fires them.
+        for id in ids {
+            self.fire_trigger(&id, TriggerWhen::OnDraw, seat);
         }
         self.seq += 1;
         self.push_log(LogEntry::Vessel { seat, deck });
@@ -1154,18 +2330,19 @@ impl LastCallState {
     }
 
     /// DDv2 4.3 finish-&-draw, beat 1 only, once per player per round
-    /// (TBD-5). `drawn` is decided by the caller (no RNG here): its length
-    /// MUST equal `min(DRAW_PER_VESSEL, shoe count for the vessel's deck)`
-    /// and every card MUST belong to that deck (D7: the min is what makes a
-    /// short shoe legal). Empties-and-refills the vessel to `pulls_max`,
-    /// debits the shoe, extends the hand, sets `drawing` and
-    /// `draws_this_round`.
-    pub fn finish_and_draw(
-        &mut self,
-        player_id: i64,
-        vessel_idx: usize,
-        drawn: Vec<Card>,
-    ) -> Result<(), LcError> {
+    /// (TBD-5). Empties-and-refills the vessel to `pulls_max`, then deals up
+    /// to `DRAW_PER_VESSEL` cards off that deck's pile into the hand,
+    /// setting `drawing` and `draws_this_round`.
+    ///
+    /// **The caller no longer supplies the cards.** This used to take a
+    /// `drawn: Vec<Card>` that `lc_routes` had sampled with
+    /// `rand::thread_rng()`, and only validated its length and decks (the
+    /// "D6 split"). That split is gone: the engine owns the pile and the
+    /// RNG, so there is nothing left to validate and no way for a caller to
+    /// name the cards it would like to receive. A short shoe still deals
+    /// short rather than failing — D7's rule, now enforced by the pile
+    /// itself.
+    pub fn finish_and_draw(&mut self, player_id: i64, vessel_idx: usize) -> Result<(), LcError> {
         let Some(seat) = self.seat_of(player_id) else {
             return Err(LcError::NotSeated);
         };
@@ -1183,26 +2360,25 @@ impl LastCallState {
             return Err(LcError::BadDraw);
         }
         let deck = p.vessels[vessel_idx].deck;
-        let shoe = self
-            .deck_counts
-            .iter()
-            .find(|(d, _)| *d == deck)
-            .map(|&(_, c)| c)
-            .unwrap_or(0);
-        let expected = (DRAW_PER_VESSEL as u16).min(shoe) as usize;
-        if drawn.len() != expected || drawn.iter().any(|c| c.deck != deck) {
-            return Err(LcError::BadDraw);
-        }
 
         let p = &mut self.players[seat];
+        // "Finish & draw" means finishing the glass: whatever is still in it
+        // gets drunk before the refill. That is the single largest source of
+        // real drinking in the game, and `drinks` missed all of it — the
+        // counter moved only for pulls spent on cards and pulls drained by
+        // other players, so a player who finished a full pint every round and
+        // played nothing reported `drinks == 0`.
+        let finished = p.vessels[vessel_idx].pulls_left as u32;
+        p.drinks += finished;
         p.vessels[vessel_idx].pulls_left = p.vessels[vessel_idx].pulls_max;
-        let drawn_count = drawn.len() as u16;
-        p.hand.extend(drawn);
+        // The engine deals now. `deal` takes real cards off the pile, so a
+        // short shoe produces a short draw (D7) without anybody computing a
+        // `min` — and firing `OnDraw` triggers is part of dealing, so a
+        // trigger card cannot enter a hand unannounced.
+        let drawn_count = self.deal(seat, deck, DRAW_PER_VESSEL) as u16;
+        let p = &mut self.players[seat];
         p.draws_this_round += drawn_count;
         p.drawing = true;
-        if let Some(entry) = self.deck_counts.iter_mut().find(|(d, _)| *d == deck) {
-            entry.1 = entry.1.saturating_sub(drawn_count);
-        }
         self.seq += 1;
         self.push_log(LogEntry::Draw {
             seat,
@@ -1215,20 +2391,21 @@ impl LastCallState {
     /// The per-card discard/redraw (beat-restructure, 2026-08-13). Draw-beat
     /// gated; round 1 (the lobby, once hands are dealt at registration) is
     /// unlimited, every later round allows ONE use — `mulliganed`, reset at
-    /// the rollover. `finish_and_draw`'s D6 split: card identity is decided
-    /// by the route (shoe-sampled per discarded card's own deck), this only
-    /// validates — each discard id must name a distinct hand card, each
-    /// replacement must match its discard's deck pairwise, and each deck's
-    /// shoe must cover what it's asked for. Discards join `self.discards`
-    /// (they re-enter the shoe at a reshuffle like play discards); shoe
-    /// counts drop per replacement, so hand size is preserved and the only
-    /// public traces are the count-shaped ones (log line, deck counts).
-    pub fn mulligan(
-        &mut self,
-        player_id: i64,
-        discard_ids: &[String],
-        replacements: Vec<Card>,
-    ) -> Result<(), LcError> {
+    /// the rollover.
+    ///
+    /// **The caller no longer supplies the replacements.** Like
+    /// `finish_and_draw`, this used to take a `replacements: Vec<Card>` that
+    /// `lc_routes` had sampled per discarded card's deck, and validated the
+    /// pairing. The engine now discards each named card to its own pile and
+    /// deals a fresh one off that same pile, so a mulligan is genuinely a
+    /// redraw — the discarded card is in the pile it might be redrawn from,
+    /// which with-replacement sampling could never express.
+    ///
+    /// A deck too short to replace what it was asked for deals short: the
+    /// hand shrinks rather than the mulligan failing, the same D7 call
+    /// `finish_and_draw` makes. Public traces stay count-shaped (the log
+    /// line, the deck counts) — no card identity leaks.
+    pub fn mulligan(&mut self, player_id: i64, discard_ids: &[String]) -> Result<(), LcError> {
         let Some(seat) = self.seat_of(player_id) else {
             return Err(LcError::NotSeated);
         };
@@ -1238,14 +2415,15 @@ impl LastCallState {
         if self.beat != Beat::Draw {
             return Err(LcError::WrongBeat);
         }
-        if discard_ids.is_empty() || replacements.len() != discard_ids.len() {
+        if discard_ids.is_empty() {
             return Err(LcError::BadDraw);
         }
         if self.round >= 2 && self.players[seat].mulliganed {
             return Err(LcError::BadDraw);
         }
-        // Each id claims a DISTINCT hand index (a hand can hold duplicates
-        // — F11's with-replacement sampling — so ids alone are ambiguous).
+        // Each id claims a DISTINCT hand index — a hand can hold duplicates
+        // (a real shoe carries `copies` of a card), so ids alone are
+        // ambiguous.
         let p = &self.players[seat];
         let mut taken: Vec<usize> = Vec::with_capacity(discard_ids.len());
         for id in discard_ids {
@@ -1260,26 +2438,6 @@ impl LastCallState {
             };
             taken.push(idx);
         }
-        for (i, &idx) in taken.iter().enumerate() {
-            if replacements[i].deck != p.hand[idx].deck {
-                return Err(LcError::BadDraw);
-            }
-        }
-        for deck in Deck::ALL {
-            let need = taken.iter().filter(|&&i| p.hand[i].deck == deck).count() as u16;
-            if need == 0 {
-                continue;
-            }
-            let shoe = self
-                .deck_counts
-                .iter()
-                .find(|(d, _)| *d == deck)
-                .map(|&(_, c)| c)
-                .unwrap_or(0);
-            if shoe < need {
-                return Err(LcError::BadDraw);
-            }
-        }
 
         let n = taken.len() as u8;
         let mut removed: Vec<Card> = Vec::with_capacity(taken.len());
@@ -1289,15 +2447,21 @@ impl LastCallState {
         for idx in order {
             removed.push(p.hand.remove(idx));
         }
-        for card in &replacements {
-            if let Some(entry) = self.deck_counts.iter_mut().find(|(d, _)| *d == card.deck) {
-                entry.1 = entry.1.saturating_sub(1);
-            }
+        // Discard FIRST, then draw. On a healthy pile this changes nothing —
+        // the discarded card goes to the DISCARD pile and the replacement
+        // comes off the DRAW pile, so you cannot get the same card straight
+        // back. It matters only at the edge: on an exhausted pile the draw
+        // triggers a reshuffle, and discarding first means the card you just
+        // threw is part of what gets reshuffled in rather than stranded
+        // outside the live pool. `test_a_mulligan_discards_before_it_draws`
+        // pins that exhausted case, which is the only one where the ordering
+        // is observable at all.
+        let wanted: Vec<Deck> = removed.iter().map(|c| c.deck).collect();
+        self.discard(Some(seat), removed);
+        for deck in wanted {
+            self.deal(seat, deck, 1);
         }
-        let p = &mut self.players[seat];
-        p.hand.extend(replacements);
-        p.mulliganed = true; // only ever *checked* from round 2 on
-        self.discards.extend(removed);
+        self.players[seat].mulliganed = true; // only ever *checked* from round 2 on
         self.seq += 1;
         self.push_log(LogEntry::Mulligan { seat, n });
         Ok(())
@@ -1398,6 +2562,9 @@ impl LastCallState {
                     elim_order: p.elim_order,
                     // D2: deck counts over the same hand+armed+locked set
                     // as hand_len — see the field's doc comment.
+                    phase: self.seat_phase(p.seat),
+                    drinks: p.drinks,
+                    shield: self.shield_total(p.seat),
                     hand_by_deck: Deck::ALL
                         .iter()
                         .map(|&d| {
@@ -1417,13 +2584,26 @@ impl LastCallState {
             round: self.round,
             beat: self.beat,
             first_seat: self.first_seat,
-            deck_counts: self.deck_counts.clone(),
-            discard_count: self.discards.len(),
-            // J11: `Deck::ALL` order, matching `deck_counts` above, so
-            // `lc_render::lc_screen_panel` can zip the two by position.
+            // J11. Both of these are `Deck::ALL`-ordered, five entries, with
+            // `0` for a deck nobody has opened — which is what
+            // `lc_render::lc_screen_panel`'s positional zip requires, and what
+            // `lc_render`'s `pile_deck` (`deck_counts.first()`, documented
+            // there as "ordered, not filtered") assumes.
+            //
+            // Do NOT rebuild these from an open-shoes-only walk of
+            // `table.shoes`. That is how this broke once: the zip paired one
+            // entry per OPEN deck against one entry per deck, so a table on
+            // Wine and Liquor rendered WINE's row with Beer's discard count,
+            // and `pile_deck` silently moved from always-Beer to
+            // first-open-deck. The engine's own view of the table is
+            // open-shoes-only; the PUBLIC view is padded to all five. The two
+            // open-only projections that used to live on `LcTable` were
+            // deleted so the mistake is no longer one call away.
+            deck_counts: Deck::ALL.iter().map(|&d| (d, self.deck_count(d))).collect(),
+            discard_count: self.table.discard_total(),
             discard_counts: Deck::ALL
                 .iter()
-                .map(|&d| (d, self.discards.iter().filter(|c| c.deck == d).count()))
+                .map(|&d| (d, self.table.shoe(d).map(|sh| sh.discarded()).unwrap_or(0)))
                 .collect(),
             revealed: match self.beat {
                 Beat::Reveal | Beat::Resolve => self.plays.clone(),
@@ -1498,6 +2678,37 @@ impl LastCallState {
             // site is a public-or-later transition) — no gate, no filter,
             // the same verbatim clone as `reactions`/`haunts`.
             log: self.log.clone(),
+            phase: self.phase(),
+            triggers: self.triggers.clone(),
+            // THE confidentiality filter for the reveal wave. `seer: None`
+            // is a table reveal and public by design; `Some(seat)` is one
+            // player's private read and must not ride a broadcast. Written
+            // as a filter on the ONE public value rather than a negation of
+            // the private one, so a third scope added later is excluded by
+            // default instead of leaking until somebody remembers it.
+            pours: self.pours.clone(),
+            resolutions: self.resolutions.clone(),
+            swaps: self
+                .swaps
+                .iter()
+                .map(|sw| PublicSwap {
+                    key: sw.key,
+                    card_id: sw.card_id.clone(),
+                    source: sw.source,
+                    target: sw.target,
+                    // The FACT that a card is in hand is public — the
+                    // target's hand count already dropped. Its identity is
+                    // not.
+                    holding: sw.taken.is_some(),
+                    must_give: sw.must_give,
+                })
+                .collect(),
+            reveals: self
+                .reveals
+                .iter()
+                .filter(|r| r.seer.is_none())
+                .cloned()
+                .collect(),
             challenges: self.challenges.clone(),
         }
     }
@@ -1673,9 +2884,20 @@ impl LastCallState {
         };
         let targets_class = self.players[seat].armed[idx].card.targets.clone();
         match targets_class.as_str() {
-            "one" => match target {
+            "one" | "other" => match target {
                 Some(t) => match self.players.get(t) {
-                    Some(tp) if tp.status == Status::Alive => {}
+                    Some(tp) if tp.status == Status::Alive => {
+                        // The whole difference between the two classes, and
+                        // the only site that cares: `"other"` needs two
+                        // DIFFERENT players, so a swap or a private reveal
+                        // aimed at yourself is refused rather than resolving
+                        // as an expensive no-op. `"one"` allows self-aim
+                        // deliberately — a heal or shield on yourself is a
+                        // real play.
+                        if targets_class == "other" && t == seat {
+                            return Err(LcError::BadTarget);
+                        }
+                    }
                     _ => return Err(LcError::BadTarget),
                 },
                 None => return Err(LcError::BadTarget),
@@ -1759,7 +2981,7 @@ impl LastCallState {
         if let Some(a) = p
             .armed
             .iter()
-            .find(|a| a.card.targets == "one" && a.target.is_none())
+            .find(|a| targets_a_seat(&a.card.targets) && a.target.is_none())
         {
             return Err(LcError::NeedsTarget(a.card.id.clone()));
         }
@@ -1773,8 +2995,8 @@ impl LastCallState {
                 card: a.card.clone(),
                 source_seat: seat,
                 target: match a.card.targets.as_str() {
-                    "self" => Some(seat), // D2
-                    "one" => a.target,    // validated Some
+                    "self" => Some(seat),        // D2
+                    "one" | "other" => a.target, // validated Some
                     _ => None,
                 },
                 paid_from: a.card.deck,
@@ -1918,6 +3140,11 @@ impl LastCallState {
         }
 
         self.players[seat].vessels[bi].pulls_left -= cost;
+        // A reaction is paid for in pulls like any other card, so it moves
+        // both counters. This path used to debit the vessel and update
+        // neither, making Cancel/Reduce/Reflect free on every stats surface.
+        self.players[seat].pulls_spent += cost as u32;
+        self.players[seat].drinks += cost as u32;
         self.players[seat].hand.remove(idx);
         let title = card.title.clone();
         self.reactions.push(ReactionPlay {
@@ -2193,13 +3420,18 @@ impl LastCallState {
                 let def = crate::lc_events::event_for_round(self.rng_seed, self.round);
                 self.event = Some(def.id.to_string());
                 if let crate::lc_events::EventHook::Toast { drain, heal } = def.hook {
-                    for p in self
+                    let alive: Vec<usize> = self
                         .players
-                        .iter_mut()
+                        .iter()
                         .filter(|p| p.status == Status::Alive)
-                    {
-                        drain_pulls(p, drain); // fullest vessel, F4's helper
-                        p.hp += heal; // no ceiling (TBD-3)
+                        .map(|p| p.seat)
+                        .collect();
+                    for seat in alive {
+                        // Through the primitives so `drinks`/`healing_taken`
+                        // move; quiet, because the event banner announces
+                        // the toast and a per-seat line each would be noise.
+                        self.drain(seat, drain, None);
+                        self.heal_quiet(seat, heal); // no ceiling (TBD-3)
                     }
                 }
                 // H7: the §5 replacement deal. Every Alive player with an
@@ -2374,7 +3606,28 @@ impl LastCallState {
                 target,
             });
             self.players[seat].pulls_spent += cost;
+            // A pull spent on a card is still a pull drunk, so it counts
+            // toward `drinks` too. The two counters answer different
+            // questions: `pulls_spent` is "what did this seat choose to
+            // spend", `drinks` is "how much did this seat actually drink",
+            // and the gap between them is everything somebody else drained
+            // out of their glass.
+            self.players[seat].drinks += cost;
             self.players[seat].cards_played += 1;
+        }
+
+        // `OnPlay` triggers fire HERE, at the reveal, and not at `arm` — a
+        // trigger is a public interruption, and firing one while the card is
+        // still staged would announce a play nobody has revealed yet (the
+        // §3.4.1 secrecy rule). By this point the play is public, so the
+        // trigger can be too.
+        let played: Vec<(String, usize)> = self
+            .locked_plays
+            .iter()
+            .map(|p| (p.card.id.clone(), p.source_seat))
+            .collect();
+        for (card_id, seat) in played {
+            self.fire_trigger(&card_id, TriggerWhen::OnPlay, seat);
         }
 
         // 4. Flip everything at once: this is the single point where plays
@@ -2422,11 +3675,14 @@ impl LastCallState {
     ///    `Resolve`, the frozen final tableau (D16).
     /// 7. Otherwise roll over: `first_seat` rotates (D13), `round`
     ///    advances, `beat` resets to `Draw`, every player's `locked`/
-    ///    `drawing`/`draws_this_round` resets, and any deck whose count sits
-    ///    at 0 reclaims its cards from `discards` (8.4/§12) — the shoe is a
-    ///    count, not a deck of identities (D6), so "reshuffle" here is a
-    ///    fold: every discarded card of that deck moves back into the count
-    ///    and out of `discards`, with no ordering to restore.
+    ///    `drawing`/`draws_this_round` resets, and any deck whose DRAW PILE
+    ///    is empty reshuffles its discard pile back underneath it (8.4/§12).
+    ///    These are real piles, so ORDER MATTERS: `Shoe::reshuffle` puts the
+    ///    reclaimed cards at the bottom, keeping whatever was still waiting on
+    ///    top. Note `Shoe::draw` also reshuffles on demand when it runs dry
+    ///    mid-draw, so this pass is no longer load-bearing for correctness —
+    ///    it is what makes the deck counts and the log line right going into
+    ///    the next Draw beat.
     pub fn resolve(&mut self) -> Result<(), LcError> {
         if self.beat != Beat::Resolve {
             return Err(LcError::WrongBeat);
@@ -2435,7 +3691,12 @@ impl LastCallState {
         // (Step 7.5 below returned early with `challenges` populated) the
         // vote flow owns the rollover — a second resolve() here would
         // re-resolve an already-drained round.
-        if !self.challenges.is_empty() {
+        // ...and the pour wave parks the same way, so the guard asks the
+        // generalised question. `ChallengePending` covers both: it already
+        // means "the round is parked on people, come back when they're
+        // done", and a second near-identical error would only give routes a
+        // new way to disagree about what to display.
+        if self.parked() {
             return Err(LcError::ChallengePending);
         }
 
@@ -2472,6 +3733,23 @@ impl LastCallState {
         // program `plays` actually gets emptied.
         let round_plays = self.plays.clone();
 
+        // The round report's accumulator (`lc_report`). A local, not a field:
+        // it is built from scratch every resolve and either becomes a
+        // `Resolution` at Step 7.7 or is dropped, so there is no half-built
+        // report a reload could ever find on the state.
+        let mut blows: Vec<crate::lc_report::Blow> = Vec::new();
+        // The active event's own id and title, for the blows its hooks land
+        // in Step 2.5. An event is not a card, but from the wearer's seat it
+        // is indistinguishable from one — HP moves and something has to be
+        // named — so it is attributed like one, with `source: None` marking
+        // that nobody chose it.
+        let (event_id, event_title): (String, String) = self
+            .event
+            .as_deref()
+            .and_then(crate::lc_events::event_def)
+            .map(|e| (e.id.to_string(), e.title.to_string()))
+            .unwrap_or_default();
+
         // Step 1: resolve plays in order_key order. `plays` is drained up
         // front (§14: the queue empties every round) and iterated as owned
         // data so mutating `self.players`/`self.effects`/`self.discards`
@@ -2499,6 +3777,9 @@ impl LastCallState {
         // Challenge plays collected by Step 1 for Step 7.5's activation:
         // (source seat, card id, reflector seat if the play was reflected).
         let mut collected_challenges: Vec<(usize, String, Option<usize>)> = Vec::new();
+        // Pour plays collected by Step 1 for Step 7.6: (source, card id, the
+        // seats it drank).
+        let mut collected_pours: Vec<(usize, String, Vec<usize>)> = Vec::new();
 
         // Step 0 (I11): fold `reactions` before any play resolves, per
         // answered play, in reverse played order (LIFO, §7.3): `Cancel`
@@ -2561,13 +3842,18 @@ impl LastCallState {
             // that the same as an eliminated source — no effect, the card
             // still leaves play — rather than panic on `self.players[..]`.
             let Some(source) = self.players.get(play.source_seat) else {
-                self.discards.push(play.card);
+                // No source seat to attribute to — this arm exists precisely
+                // because `play.source_seat` names a player who is gone, so
+                // the card goes straight to the table rather than through
+                // `discard`, which would fire triggers for a seat that is not
+                // there.
+                self.table.discard([play.card]);
                 continue;
             };
             if source.status == Status::Eliminated {
                 // 7.6: a source eliminated earlier this resolve plays
                 // nothing, but the card still leaves play (8.4).
-                self.discards.push(play.card);
+                self.discard(Some(play.source_seat), [play.card]);
                 continue;
             }
 
@@ -2594,7 +3880,7 @@ impl LastCallState {
             // check here now applies uniformly, so that case is no longer a
             // break either — G9 now holds the same for a reflected play as
             // for every other kind.
-            if play.card.targets == "one" {
+            if targets_a_seat(&play.card.targets) {
                 if let (Some(target), Some(partner)) =
                     (play.target, self.pact_partner(play.source_seat))
                 {
@@ -2637,6 +3923,19 @@ impl LastCallState {
             }
 
             if cancelled.contains(&play.order_key) {
+                // Report: a cancelled play is invisible in the log (nothing
+                // landed, so nothing logs) and highly visible at the table —
+                // somebody spent pulls and a reaction to erase it. The seat
+                // it was aimed at is entitled to know it was aimed at.
+                blows.push(crate::lc_report::Blow {
+                    card_id: play.card.id.clone(),
+                    title: play.card.title.clone(),
+                    source: Some(play.source_seat),
+                    subject: play.target.unwrap_or(play.source_seat),
+                    kind: crate::lc_report::BlowKind::Cancelled,
+                    amount: 0,
+                    absorbed: 0,
+                });
                 // I11/§12 (Plan I review, I-2): cancelled resolves as
                 // nothing at all — no subject computation, no fx. The
                 // betrayal check above already ran on the raw aim, ahead of
@@ -2645,7 +3944,7 @@ impl LastCallState {
                 // still discards and the pulls already spent at reveal stay
                 // spent (7.5 parity); any haunt votes on it are wasted
                 // (Task 3).
-                self.discards.push(play.card);
+                self.discard(Some(play.source_seat), [play.card]);
                 continue;
             }
 
@@ -2669,7 +3968,7 @@ impl LastCallState {
                     play.card.id.clone(),
                     reflected.get(&play.order_key).copied(),
                 ));
-                self.discards.push(play.card);
+                self.discard(Some(play.source_seat), [play.card]);
                 continue;
             }
 
@@ -2681,6 +3980,19 @@ impl LastCallState {
             // out-of-range seat fizzles exactly like a dead one, instead of
             // panicking.
             let subjects: Vec<usize> = if reflected.contains_key(&play.order_key) {
+                // Report: the caster is about to be hit by their own card
+                // and the numeric blows below will name them as both source
+                // and subject, which reads as self-harm without this line to
+                // explain it.
+                blows.push(crate::lc_report::Blow {
+                    card_id: play.card.id.clone(),
+                    title: play.card.title.clone(),
+                    source: Some(play.source_seat),
+                    subject: play.source_seat,
+                    kind: crate::lc_report::BlowKind::Reflected,
+                    amount: 0,
+                    absorbed: 0,
+                });
                 // I11: reflected sends the play home to its own source,
                 // bypassing the normal target/redirect/fizzle derivation
                 // below entirely — `play_reaction`'s BadTarget guard already
@@ -2690,7 +4002,7 @@ impl LastCallState {
                 vec![play.source_seat]
             } else {
                 match play.card.targets.as_str() {
-                    "one" => match play.target.and_then(|t| self.players.get(t)) {
+                    "one" | "other" => match play.target.and_then(|t| self.players.get(t)) {
                         Some(p) if p.status == Status::Alive => {
                             let target_seat = p.seat;
                             // `double-vision`'s `HostileRedirect` (H4): only
@@ -2731,11 +4043,20 @@ impl LastCallState {
                         _ => {
                             // 7.5: fizzle — no effect, pulls stay spent, the
                             // card still occupied its slot.
+                            blows.push(crate::lc_report::Blow {
+                                card_id: play.card.id.clone(),
+                                title: play.card.title.clone(),
+                                source: Some(play.source_seat),
+                                subject: play.target.unwrap_or(play.source_seat),
+                                kind: crate::lc_report::BlowKind::Fizzled,
+                                amount: 0,
+                                absorbed: 0,
+                            });
                             self.push_log(LogEntry::Fizzle {
                                 seat: play.source_seat,
                                 title: play.card.title.clone(),
                             });
-                            self.discards.push(play.card);
+                            self.discard(Some(play.source_seat), [play.card]);
                             continue;
                         }
                     },
@@ -2753,6 +4074,177 @@ impl LastCallState {
             // G4/G5/I-2: the betrayal check now runs earlier in this loop
             // (before the `cancelled` gate above) so a Cancel can't launder
             // it — see the comment there. Nothing left to do here.
+
+            // Pour wave: the drink lands NOW — nobody chooses how much they
+            // drink — and the debt is collected for Step 7.6, which
+            // activates it after every elimination has settled, so a seat
+            // that dies in this same resolve is never asked to pitch cards.
+            //
+            // Sits here rather than beside the challenge collection above
+            // because it needs `subjects`, which is derived below that
+            // point. Iterates by reference for the same reason the reveal
+            // block does: the numeric match moves `subjects`.
+            if let Some(po) = crate::lc_cards::card_pofx(&play.card.id) {
+                for &subject in &subjects {
+                    // Through `drain`, so it empties real pulls, respects
+                    // the vessel floor and moves `drinks` — a card that
+                    // "makes you drink" without moving pulls is decoration.
+                    // No source seat: a table-wide round is authorless, the
+                    // same convention the event hooks use.
+                    let drank = self.drain(subject, po.n as i32, None);
+                    // Report: recorded even at 0 pulls, unlike every other
+                    // blow. A dry vessel still owes cards — the debt lands at
+                    // Step 7.6 regardless — so a seat whose glass was already
+                    // empty must still be told why it is being asked to
+                    // discard.
+                    blows.push(crate::lc_report::Blow {
+                        card_id: play.card.id.clone(),
+                        title: play.card.title.clone(),
+                        source: Some(play.source_seat),
+                        subject,
+                        kind: crate::lc_report::BlowKind::Poured,
+                        amount: drank,
+                        absorbed: 0,
+                    });
+                }
+                collected_pours.push((play.source_seat, play.card.id.clone(), subjects.clone()));
+                self.discard(Some(play.source_seat), [play.card]);
+                continue;
+            }
+
+            // Trade wave: cards move between HANDS — no pile is involved, so
+            // this deliberately does not go through `discard`/`deal`.
+            //
+            // `targets` is `"other"` for all three, so `subjects` is the one
+            // seat named and it is never the caster.
+            if let Some(sw) = crate::lc_cards::card_swfx(&play.card.id) {
+                let target = subjects.first().copied();
+                let fizzle = |st: &mut Self, blows: &mut Vec<crate::lc_report::Blow>| {
+                    blows.push(crate::lc_report::Blow {
+                        card_id: play.card.id.clone(),
+                        title: play.card.title.clone(),
+                        source: Some(play.source_seat),
+                        subject: target.unwrap_or(play.source_seat),
+                        kind: crate::lc_report::BlowKind::Fizzled,
+                        amount: 0,
+                        absorbed: 0,
+                    });
+                    st.push_log(LogEntry::Fizzle {
+                        seat: play.source_seat,
+                        title: play.card.title.clone(),
+                    });
+                };
+                match target {
+                    Some(t) if t != play.source_seat => {
+                        // The take is blind and comes off the ENGINE's rng —
+                        // never a fresh one. A route sampling this itself is
+                        // the exact bug the deck overhaul removed.
+                        let taken = if sw.take && !self.players[t].hand.is_empty() {
+                            let idx = self.rng.below(self.players[t].hand.len());
+                            Some(self.players[t].hand.remove(idx))
+                        } else {
+                            None
+                        };
+                        // Report: `card_id` is the TRADE card, never the card
+                        // it pulled. That is the module's confidentiality
+                        // rule holding by construction rather than by a
+                        // filter — there is no field here a stolen card
+                        // could be written into, so no projection has to
+                        // remember to strip one.
+                        if taken.is_some() {
+                            blows.push(crate::lc_report::Blow {
+                                card_id: play.card.id.clone(),
+                                title: play.card.title.clone(),
+                                source: Some(play.source_seat),
+                                subject: t,
+                                kind: crate::lc_report::BlowKind::Taken,
+                                amount: 1,
+                                absorbed: 0,
+                            });
+                        }
+                        // Nothing to take and nothing to give: the card did
+                        // nothing, so say so rather than parking on a choice
+                        // with no content.
+                        let can_give = sw.give && !self.players[play.source_seat].hand.is_empty();
+                        if taken.is_none() && !can_give {
+                            fizzle(self, &mut blows);
+                        } else if !sw.give {
+                            // Take-only (`Pickpocket`): no choice to make, so
+                            // it resolves here rather than parking.
+                            if let Some(card) = taken {
+                                self.players[play.source_seat].hand.push(card);
+                            }
+                        } else {
+                            let key = self.swap_seq;
+                            self.swap_seq += 1;
+                            self.swaps.push(SwapState {
+                                key,
+                                card_id: play.card.id.clone(),
+                                source: play.source_seat,
+                                target: t,
+                                taken,
+                                must_give: can_give,
+                                round: self.round,
+                            });
+                        }
+                    }
+                    _ => fizzle(self, &mut blows),
+                }
+                self.discard(Some(play.source_seat), [play.card]);
+                continue;
+            }
+
+            // Reveal wave: an information effect, resolved by id from the
+            // catalog exactly like `card_fx` below and for the same reason
+            // (a retune reaches games in flight; an unrecognised id resolves
+            // inert rather than panicking).
+            //
+            // Runs BEFORE the numeric match because that match moves
+            // `subjects`. Order is otherwise immaterial — a reveal card
+            // carries no `fx`, pinned by `test_fx_matches_kind`.
+            //
+            // No log line. `LogEntry::Play` already named this card and its
+            // target when the reveal beat published the play, so the table
+            // already knows Alice looked at Bob's hand — the ACT is public
+            // for every play. What must never be logged is the CONTENTS: the
+            // log is public and permanent, so a private read written into it
+            // would outlive the round it was bought for.
+            if let Some(rv) = crate::lc_cards::card_rvfx(&play.card.id) {
+                let seer = match rv.scope {
+                    crate::lc_cards::RevealScope::Table => None,
+                    crate::lc_cards::RevealScope::Caster => Some(play.source_seat),
+                };
+                for &subject in &subjects {
+                    let cards = self.players[subject].hand.clone();
+                    // Report: how many cards were shown, never which. The ACT
+                    // is public — `LogEntry::Play` named this card and its
+                    // target at the reveal beat — but the contents are the
+                    // whole product being sold, and a report is a public
+                    // projection like any other.
+                    blows.push(crate::lc_report::Blow {
+                        card_id: play.card.id.clone(),
+                        title: play.card.title.clone(),
+                        source: Some(play.source_seat),
+                        subject,
+                        kind: crate::lc_report::BlowKind::Revealed,
+                        amount: cards.len() as i32,
+                        absorbed: 0,
+                    });
+                    self.reveals.push(Reveal {
+                        subject,
+                        seer,
+                        cards,
+                        round: self.round,
+                    });
+                }
+                // The draw rider, paid from the card's own deck — the same
+                // deck its pulls came out of. Through `deal`, so it moves
+                // `cards_drawn`, fires `OnDraw` triggers and comes off the
+                // real pile like every other draw. A short pile deals short.
+                if rv.draw > 0 {
+                    self.deal(play.source_seat, play.card.deck, rv.draw as usize);
+                }
+            }
 
             // Plan F: effects come from the binary's catalog, keyed by card
             // id — never from the card's own (possibly blob-carried) kind.
@@ -2786,38 +4278,47 @@ impl LastCallState {
                                         .get(&(play.order_key, subject))
                                         .copied()
                                         .unwrap_or(0);
-                                // J2/J5: `apply_damage` now returns the HP
-                                // actually removed (post-shield, post-clamp)
-                                // — the immediate-fx half of "per damage
-                                // actually applied"; the dot-tick half is at
-                                // Step 2 below. Logged/attributed only when
-                                // something actually landed, so a fully
-                                // shielded hit doesn't pad the log or the
-                                // counter with a no-op `Hit{amount: 0}`.
-                                let applied = self.apply_damage(subject, reduced.max(0));
-                                if applied > 0 {
-                                    self.push_log(LogEntry::Hit {
-                                        source: play.source_seat,
-                                        target: subject,
-                                        amount: applied,
-                                    });
-                                    self.players[play.source_seat].damage_dealt += applied as u32;
-                                }
+                                // `damage` owns shields, the HP clamp,
+                                // elimination, both stat counters and the
+                                // `Hit` line — and logs only when something
+                                // actually landed, so a fully shielded hit
+                                // doesn't pad the log with `Hit{amount: 0}`.
+                                self.damage_reported(
+                                    &mut blows,
+                                    subject,
+                                    reduced.max(0),
+                                    Some(play.source_seat),
+                                    &play.card.id,
+                                    &play.card.title,
+                                    crate::lc_report::BlowKind::Hit,
+                                );
                             }
                             EffectOp::Heal => {
-                                self.players[subject].hp += f.magnitude; // TBD-3: no ceiling
-                                self.push_log(LogEntry::Heal {
-                                    seat: subject,
-                                    amount: f.magnitude,
-                                });
+                                let healed = self.heal(subject, f.magnitude);
+                                if healed > 0 {
+                                    blows.push(crate::lc_report::Blow {
+                                        card_id: play.card.id.clone(),
+                                        title: play.card.title.clone(),
+                                        source: Some(play.source_seat),
+                                        subject,
+                                        kind: crate::lc_report::BlowKind::Heal,
+                                        amount: healed,
+                                        absorbed: 0,
+                                    });
+                                }
                             }
                             EffectOp::PullDrain => {
-                                let drained = drain_pulls(&mut self.players[subject], f.magnitude);
+                                let drained =
+                                    self.drain(subject, f.magnitude, Some(play.source_seat));
                                 if drained > 0 {
-                                    self.push_log(LogEntry::Drain {
-                                        source: play.source_seat,
-                                        target: subject,
+                                    blows.push(crate::lc_report::Blow {
+                                        card_id: play.card.id.clone(),
+                                        title: play.card.title.clone(),
+                                        source: Some(play.source_seat),
+                                        subject,
+                                        kind: crate::lc_report::BlowKind::Drain,
                                         amount: drained,
+                                        absorbed: 0,
                                     });
                                 }
                             }
@@ -2825,20 +4326,22 @@ impl LastCallState {
                             // absorb later plays in this round's order.
                             // Replace-not-stack by (op, subject) — D10.
                             EffectOp::Shield => {
-                                self.effects.retain(|e| {
-                                    !(e.op == EffectOp::Shield && e.subject == subject)
-                                });
-                                self.effects.push(Effect {
-                                    source_play: play.order_key,
+                                self.shield_from(
                                     subject,
-                                    op: EffectOp::Shield,
-                                    magnitude: f.magnitude,
-                                    expires_round: self.round + f.rounds,
-                                    source_seat: play.source_seat,
-                                });
-                                self.push_log(LogEntry::Shield {
-                                    seat: subject,
+                                    f.magnitude,
+                                    f.rounds,
+                                    Some(play.source_seat),
+                                    play.order_key,
+                                    &play.card.id,
+                                );
+                                blows.push(crate::lc_report::Blow {
+                                    card_id: play.card.id.clone(),
+                                    title: play.card.title.clone(),
+                                    source: Some(play.source_seat),
+                                    subject,
+                                    kind: crate::lc_report::BlowKind::Shield,
                                     amount: f.magnitude,
+                                    absorbed: 0,
                                 });
                             }
                             // Dots still queue (appended at step 3): never
@@ -2853,13 +4356,14 @@ impl LastCallState {
                                     magnitude: f.magnitude,
                                     expires_round: self.round + f.rounds,
                                     source_seat: play.source_seat,
+                                    source_card: play.card.id.clone(),
                                 });
                             }
                         }
                     }
                 }
             }
-            self.discards.push(play.card);
+            self.discard(Some(play.source_seat), [play.card]);
         }
 
         // I11/8.4 parity: reactions die with the round, resolved or wasted
@@ -2869,8 +4373,8 @@ impl LastCallState {
         // matching play left to fold against (there always is one, since
         // `play_reaction`'s `BadTarget` guard requires it — but the drain
         // doesn't need that invariant to hold to be correct).
-        self.discards
-            .extend(self.reactions.drain(..).map(|rp| rp.card));
+        let spent_reactions: Vec<Card> = self.reactions.drain(..).map(|rp| rp.card).collect();
+        self.table.discard(spent_reactions);
         // I10: votes are not cards — cleared, not drained into `discards`.
         // Alongside the reaction drain so eligibility refreshes with the
         // round for both systems in the same step.
@@ -2883,7 +4387,7 @@ impl LastCallState {
         // snapshotted entry. Bounds-checked (M3): a corrupt blob's effect
         // could name a subject seat that no longer exists — skip it rather
         // than panic.
-        let dot_ticks: Vec<(usize, i32, usize)> = self
+        let dot_ticks: Vec<(usize, i32, usize, String)> = self
             .effects
             .iter()
             .filter(|e| {
@@ -2893,7 +4397,7 @@ impl LastCallState {
                         .get(e.subject)
                         .is_some_and(|p| p.status == Status::Alive)
             })
-            .map(|e| (e.subject, e.magnitude, e.source_seat))
+            .map(|e| (e.subject, e.magnitude, e.source_seat, e.source_card.clone()))
             .collect();
         // `house-pour`'s `DotBoost` (H4): every tick this round hits harder
         // by `mult`. Stored `effect.magnitude` and `expires_round` are
@@ -2902,7 +4406,7 @@ impl LastCallState {
             Some(crate::lc_events::EventHook::DotBoost { mult }) => mult,
             _ => 1,
         };
-        for (subject, magnitude, source_seat) in dot_ticks {
+        for (subject, magnitude, source_seat, source_card) in dot_ticks {
             // J2/J5: the dot-tick half of "per damage actually applied" —
             // see the immediate-fx `Damage` arm above for why this is
             // attributed and gated the same way. `source_seat` is the
@@ -2911,17 +4415,26 @@ impl LastCallState {
             // exists, so the counter update is best-effort while the log
             // line — seat numbers only, resolved to a name at render time —
             // is emitted regardless).
-            let applied = self.apply_damage(subject, magnitude * dot_mult);
-            if applied > 0 {
-                self.push_log(LogEntry::Hit {
-                    source: source_seat,
-                    target: subject,
-                    amount: applied,
-                });
-                if let Some(p) = self.players.get_mut(source_seat) {
-                    p.damage_dealt += applied as u32;
-                }
-            }
+            // `damage` handles the attribution and the gate: it credits
+            // `source_seat` and logs the `Hit` only when HP actually moved,
+            // and is bounds-safe if a corrupt blob's `source_seat` names a
+            // seat that no longer exists.
+            // Report: a tick is the one blow whose card was played rounds
+            // ago, which is exactly why `Effect::source_card` exists. An
+            // older blob has none, and the empty id renders as unattributed
+            // lingering damage rather than naming the wrong card.
+            let title = crate::lc_cards::card_by_id(&source_card)
+                .map(|c| c.title.to_string())
+                .unwrap_or_else(|| "LINGERING".to_string());
+            self.damage_reported(
+                &mut blows,
+                subject,
+                magnitude * dot_mult,
+                Some(source_seat),
+                &source_card,
+                &title,
+                crate::lc_report::BlowKind::Dot,
+            );
         }
 
         // Step 2.5: the end-of-round event program (H4) — after dots,
@@ -2936,7 +4449,23 @@ impl LastCallState {
                     .filter(|&s| self.players[s].status == Status::Alive && !played_seats[s])
                     .collect();
                 for s in victims {
-                    self.apply_damage(s, dmg);
+                    // `None` source: an event has no author, so no `Hit`
+                    // line — but `damage_taken` still moves.
+                    //
+                    // Reported all the same. An event is not a card, but a
+                    // report that skipped it would not reconcile with the HP
+                    // it moved, and an unexplained drop is the exact thing
+                    // this screen exists to remove. `source: None` is what
+                    // says nobody did this to you.
+                    self.damage_reported(
+                        &mut blows,
+                        s,
+                        dmg,
+                        None,
+                        &event_id,
+                        &event_title,
+                        crate::lc_report::BlowKind::Hit,
+                    );
                 }
             }
             Some(crate::lc_events::EventHook::TopSpenderHit { dmg }) => {
@@ -2948,19 +4477,40 @@ impl LastCallState {
                         .filter(|&s| self.players[s].status == Status::Alive && spent[s] == max)
                         .collect();
                     for s in victims {
-                        self.apply_damage(s, dmg);
+                        self.damage_reported(
+                            &mut blows,
+                            s,
+                            dmg,
+                            None,
+                            &event_id,
+                            &event_title,
+                            crate::lc_report::BlowKind::Hit,
+                        );
                     }
                 }
             }
             Some(crate::lc_events::EventHook::TableHeal { heal }) => {
                 // `on-the-house`: every Alive player heals, no ceiling
-                // (TBD-3).
-                for p in self
+                // (TBD-3). Quiet, like the toast — the banner says it.
+                let alive: Vec<usize> = self
                     .players
-                    .iter_mut()
+                    .iter()
                     .filter(|p| p.status == Status::Alive)
-                {
-                    p.hp += heal;
+                    .map(|p| p.seat)
+                    .collect();
+                for seat in alive {
+                    let healed = self.heal_quiet(seat, heal);
+                    if healed > 0 {
+                        blows.push(crate::lc_report::Blow {
+                            card_id: event_id.clone(),
+                            title: event_title.clone(),
+                            source: None,
+                            subject: seat,
+                            kind: crate::lc_report::BlowKind::Heal,
+                            amount: healed,
+                            absorbed: 0,
+                        });
+                    }
                 }
             }
             _ => {}
@@ -2983,7 +4533,7 @@ impl LastCallState {
             let p = &mut self.players[seat];
             if p.status == Status::Alive && p.hand.len() > HAND_SOFT_CAP {
                 let overflow = p.hand.split_off(HAND_SOFT_CAP);
-                self.discards.extend(overflow);
+                self.discard(Some(seat), overflow);
             }
         }
 
@@ -3017,7 +4567,12 @@ impl LastCallState {
                 continue;
             }
             match def.reward {
-                crate::lc_tabs::TabReward::Hp(n) => self.players[seat].hp += n, // TBD-3: no ceiling
+                // Quiet: the tab's own settle announcement is the record
+                // (H11), so no per-seat `Heal` line — but `healing_taken`
+                // still moves.
+                crate::lc_tabs::TabReward::Hp(n) => {
+                    self.heal_quiet(seat, n); // TBD-3: no ceiling
+                }
                 crate::lc_tabs::TabReward::Pulls(n) => refill_pulls(&mut self.players[seat], n),
             }
             self.tab_ledger.push(TabSettle {
@@ -3173,7 +4728,98 @@ impl LastCallState {
                 }
             }
         }
-        if !self.challenges.is_empty() {
+        // Step 7.6 (pour wave): turn each collected pour into a debt list.
+        // Derived HERE, after Step 7.5's eliminations, for the same reason
+        // challenges derive their contestants here: a seat that died in this
+        // resolve holds no cards and must not hold the table up.
+        //
+        // A seat owes `min(n, hand_len)` — you owe what you can pay — and a
+        // seat owing 0 is left off the list entirely rather than added and
+        // immediately removed. A pour where NOBODY can pay never parks at
+        // all: the drink already landed, and there is nothing to wait for.
+        for (source, card_id, subjects) in collected_pours {
+            let Some(po) = crate::lc_cards::card_pofx(&card_id) else {
+                continue; // version skew (F1)
+            };
+            let owed: Vec<PourDebt> = subjects
+                .into_iter()
+                .filter(|&seat| {
+                    self.players
+                        .get(seat)
+                        .is_some_and(|p| p.status == Status::Alive)
+                })
+                .filter_map(|seat| {
+                    let cards = (po.n as usize).min(self.players[seat].hand.len()) as u8;
+                    (cards > 0).then_some(PourDebt { seat, cards })
+                })
+                .collect();
+            if owed.is_empty() {
+                continue;
+            }
+            let key = self.pour_seq;
+            self.pour_seq += 1;
+            self.pours.push(PourState {
+                key,
+                card_id,
+                source,
+                owed,
+                round: self.round,
+            });
+        }
+
+        // Step 7.7 (report wave): turn this resolve's blows into the round
+        // report the table confirms. LAST of the three park steps, and it has
+        // to be: a challenge activating at 7.5 or a pour debt derived at 7.6
+        // can eliminate nobody and take nothing, but they can both FIZZLE,
+        // and a fizzle is a blow. Building the report before them would ship
+        // a receipt that disagreed with the round.
+        //
+        // Two ways a round produces no gate, both deliberate:
+        //
+        // * **Nothing landed.** An empty `blows` is a round where every seat
+        //   locked nothing, or every play fizzled into a dead table. Parking
+        //   there would demand a tap from everyone to confirm that nothing
+        //   happened, which is how a confirm button becomes something players
+        //   learn to hit without reading.
+        // * **Nobody survived to tap.** `owed` is the Alive subjects only. A
+        //   seat eliminated by this very resolve is not asked to confirm its
+        //   own death — it cannot, and waiting on it would freeze the room.
+        //   If that empties `owed`, the report is dropped rather than parked
+        //   with no one able to settle it. The blows are in the log either
+        //   way; what is lost is the gate, and a gate nobody can open is the
+        //   frozen-room bug this engine has already shipped once.
+        //
+        // Only the SECOND guard is load-bearing, and mutation-testing is how
+        // that is known rather than assumed: `if !blows.is_empty()` can be
+        // replaced with `if true` and the whole suite stays green, because no
+        // blows means no subjects means an empty `owed`, which the inner
+        // guard already refuses to park on. It is kept as a cheap early-out —
+        // it skips an O(seats x blows) scan on every quiet round — and NOT
+        // because it protects anything. Do not read the pair as two
+        // independent checks: delete the inner one and the room freezes, with
+        // the outer one still sitting there looking like a guard.
+        if !blows.is_empty() {
+            let owed: Vec<usize> = self
+                .players
+                .iter()
+                .filter(|p| p.status == Status::Alive)
+                .map(|p| p.seat)
+                .filter(|&seat| blows.iter().any(|b| b.subject == seat))
+                .collect();
+            if !owed.is_empty() {
+                let key = self.resolution_seq;
+                self.resolution_seq += 1;
+                self.resolutions.push(crate::lc_report::Resolution {
+                    key,
+                    round: self.round,
+                    blows,
+                    owed,
+                    acked: Vec::new(),
+                });
+            }
+        }
+
+        if self.parked() {
             // G5 during a park (review wave): the settle-time rollover
             // cannot re-stamp this resolve's breaks (it no longer knows
             // where they start), so stamp them for the round players will
@@ -3216,6 +4862,18 @@ impl LastCallState {
         for brk in &mut self.pact_breaks[pact_breaks_start..] {
             brk.round = self.round;
         }
+        // Reveal wave: a snapshot taken during round N's resolve is readable
+        // through all of round N+1, then dropped.
+        //
+        // NOT "the round it was taken in" — that was the first cut of this
+        // line and it dropped every reveal the instant it was taken, because
+        // reveals land during `resolve()` and `resolve()` rolls the round
+        // over a few statements later. A reveal is bought to be acted on,
+        // and the beat where you act on it is the NEXT round's Diplomacy.
+        // `self.round` is already incremented here, so keeping `r.round + 1
+        // >= self.round` keeps round N's reveals through round N+1 and drops
+        // them at the rollover into N+2.
+        self.reveals.retain(|r| r.round + 1 >= self.round);
         self.beat = Beat::Draw;
         for p in &mut self.players {
             p.locked = false;
@@ -3227,35 +4885,30 @@ impl LastCallState {
             // `round < expires_round` — prune the ones that just aged out.
             p.rules.retain(|r| r.expires_round > self.round);
         }
-        // Reshuffle (8.4/§12): the shoe is a count, so a deck sitting at 0
-        // reclaims every discarded card of that deck straight back into the
-        // count, and those cards leave `discards`.
+        // Reshuffle (8.4/§12). The shoe is a real pile now, so this is a
+        // real reshuffle: an exhausted deck's discard pile is shuffled back
+        // underneath what's left of its draw pile. `LcTable::reshuffle`
+        // keeps `copies: 0` challenge prototypes out of the recycle, the
+        // same rule the old counter version applied via `card_in_shoe`.
+        //
+        // Note `Shoe::draw` ALSO reshuffles on demand when it runs dry
+        // mid-draw, so this pass is no longer load-bearing for correctness —
+        // a table can never be unable to deal because nobody called it. It
+        // stays because reshuffling at the round boundary is what the log
+        // line describes and what the deck counts should show going into the
+        // next Draw beat.
         let empty_decks: Vec<Deck> = self
-            .deck_counts
+            .table
+            .shoes
             .iter()
-            .filter(|&&(_, count)| count == 0)
-            .map(|&(deck, _)| deck)
+            .filter(|sh| sh.remaining() == 0)
+            .map(|sh| sh.deck)
             .collect();
         for deck in empty_decks {
-            let mut reclaimed: u16 = 0;
-            self.discards.retain(|c| {
-                // copies:0 challenge prototypes stay in `discards` (review
-                // wave): reclaiming one would inflate the count with a card
-                // the copy-weighted sampler can never deal back out.
-                if c.deck == deck && crate::lc_cards::card_in_shoe(&c.id) {
-                    reclaimed += 1;
-                    false
-                } else {
-                    true
-                }
-            });
-            if let Some(entry) = self.deck_counts.iter_mut().find(|(d, _)| *d == deck) {
-                entry.1 = reclaimed;
-            }
             // J2: only a real reshuffle (something was actually reclaimed)
             // earns a log line — a deck that was already empty with nothing
-            // in `discards` to reclaim is a no-op, not an event.
-            if reclaimed > 0 {
+            // to reclaim is a no-op, not an event.
+            if self.reshuffle_deck(deck) > 0 {
                 self.push_log(LogEntry::Reshuffle { deck });
             }
         }
@@ -3391,10 +5044,13 @@ impl LastCallState {
                         // shield card protects its holder from everything
                         // for its rounds, arguments included — pinned by
                         // test_shield_absorbs_challenge_penalty.
-                        self.apply_damage(loser, m);
+                        // `None` source is what keeps it unlogged and
+                        // uncredited; `damage_taken` still moves, since the
+                        // loser really did lose the HP.
+                        self.damage(loser, m, None);
                     }
                     crate::lc_cards::Penalty::Drain(m) => {
-                        drain_pulls(&mut self.players[loser], m);
+                        self.drain(loser, m, None);
                     }
                     // Real-life sips — the engine records nothing beyond
                     // the verdict; the card's own text names the price.
@@ -3464,9 +5120,204 @@ impl LastCallState {
                 title,
             });
         }
-        // Queue empty: the parked round finally rolls over. Breaks from
+        // Challenge queue empty — but a pour played in the same round may
+        // still be parked, and rolling over now would advance the round out
+        // from under it and strand it forever. Whichever park settles LAST
+        // owns the rollover; `settle_pour` carries the mirror of this check.
+        if self.parked() {
+            return;
+        }
+        // Nothing left: the parked round finally rolls over. Breaks from
         // the resolve that parked us were already visible during the park,
         // so no re-stamp (pass the current end of the list).
+        self.rollover(self.pact_breaks.len());
+    }
+
+    /// Pay down a seat's debt on the active pour.
+    ///
+    /// Guard order mirrors `challenge_vote`: `NotSeated` -> `NotAlive` ->
+    /// no pour parked (`WrongBeat`) -> wrong `key` (a stale screen,
+    /// `WrongBeat`) -> this seat owes nothing (`WrongBeat`) -> the ids don't
+    /// resolve (`UnknownCard`) -> the wrong NUMBER of cards (`BadDraw`).
+    ///
+    /// The count must be exact. A player who owes 2 pitches 2 — not 1 and
+    /// then 1 again, which would let a slow client double-settle, and not 3,
+    /// which would let someone dump a hand they no longer want. The one
+    /// exception is a short hand: you owe what you can pay, so a seat
+    /// holding fewer cards than its debt pitches everything it has.
+    pub fn pour_discard(
+        &mut self,
+        player_id: i64,
+        key: u64,
+        card_ids: &[String],
+    ) -> Result<(), LcError> {
+        let Some(seat) = self.seat_of(player_id) else {
+            return Err(LcError::NotSeated);
+        };
+        if self.players[seat].status != Status::Alive {
+            return Err(LcError::NotAlive);
+        }
+        let Some(pour) = self.pours.first() else {
+            return Err(LcError::WrongBeat);
+        };
+        if pour.key != key {
+            return Err(LcError::WrongBeat);
+        }
+        let Some(debt) = pour.owed.iter().find(|d| d.seat == seat).copied() else {
+            return Err(LcError::WrongBeat);
+        };
+        // You owe what you can pay. `owed` was capped at hand size when the
+        // pour activated, but a hand can shrink under a seat between then
+        // and now (an elimination sweep, another pour settling first), so
+        // re-cap here rather than trusting the stored number.
+        let payable = (debt.cards as usize).min(self.players[seat].hand.len());
+        if card_ids.len() != payable {
+            return Err(LcError::BadDraw);
+        }
+
+        // Each id claims a DISTINCT hand index — the `mulligan` walk, and
+        // for the same reason: a hand can hold duplicates, so ids alone are
+        // ambiguous.
+        let p = &self.players[seat];
+        let mut taken: Vec<usize> = Vec::with_capacity(card_ids.len());
+        for id in card_ids {
+            let Some(idx) = p
+                .hand
+                .iter()
+                .enumerate()
+                .find(|(i, c)| c.id == *id && !taken.contains(i))
+                .map(|(i, _)| i)
+            else {
+                return Err(LcError::UnknownCard);
+            };
+            taken.push(idx);
+        }
+
+        let mut removed: Vec<Card> = Vec::with_capacity(taken.len());
+        taken.sort_unstable_by(|a, b| b.cmp(a)); // back-to-front removal
+        let p = &mut self.players[seat];
+        for idx in taken {
+            removed.push(p.hand.remove(idx));
+        }
+        let n = removed.len() as u8;
+        // Through the pile API, so the cards reach the right deck's discard,
+        // `cards_discarded` moves, and OnDiscard triggers fire — a pour is
+        // not a special case of card movement.
+        self.discard(Some(seat), removed);
+        self.push_log(LogEntry::Mulligan { seat, n });
+
+        self.pours[0].owed.retain(|d| d.seat != seat);
+        if self.pours[0].owed.is_empty() {
+            self.settle_pour();
+        }
+        self.seq += 1;
+        Ok(())
+    }
+
+    /// Answer the active trade.
+    ///
+    /// `keep` is only meaningful when a card was taken; a give-only card
+    /// (`A Gift`) ignores it. `give_id` names the card handed over, and is
+    /// required whenever the trade actually completes with a give owed.
+    ///
+    /// Declining is a real option and costs the pulls already spent: you
+    /// paid to look, you may walk away. The taken card goes back where it
+    /// came from — back to its owner's hand, not to a pile, because it was
+    /// never discarded.
+    ///
+    /// Guard order: `NotSeated` -> `NotAlive` -> no trade parked
+    /// (`WrongBeat`) -> wrong `key` (`WrongBeat`) -> not the caster
+    /// (`NotYourCall` has no engine analogue here, so `WrongBeat` — the
+    /// caster is the only seat this beat asks anything of) -> `give_id`
+    /// missing or unresolvable (`UnknownCard`).
+    pub fn swap_resolve(
+        &mut self,
+        player_id: i64,
+        key: u64,
+        keep: bool,
+        give_id: Option<&str>,
+    ) -> Result<(), LcError> {
+        let Some(seat) = self.seat_of(player_id) else {
+            return Err(LcError::NotSeated);
+        };
+        if self.players[seat].status != Status::Alive {
+            return Err(LcError::NotAlive);
+        }
+        let Some(sw) = self.swaps.first().cloned() else {
+            return Err(LcError::WrongBeat);
+        };
+        if sw.key != key || sw.source != seat {
+            return Err(LcError::WrongBeat);
+        }
+        // A take-and-give card that took nothing (an empty target hand)
+        // still owes its give — the card was paid for. Only a genuine
+        // decline returns something.
+        let completing = keep || sw.taken.is_none();
+
+        if !completing {
+            // Declined: put it back exactly where it came from.
+            if let Some(card) = sw.taken {
+                // The target may have been eliminated while the round was
+                // parked; a ghost holds no cards (9.2), so the card goes to
+                // its own deck's discard rather than into a dead hand.
+                if self.players[sw.target].status == Status::Alive {
+                    self.players[sw.target].hand.push(card);
+                } else {
+                    self.discard(None, [card]);
+                }
+            }
+            self.settle_swap();
+            self.seq += 1;
+            return Ok(());
+        }
+
+        // Completing: resolve the give first, so a bad id leaves the state
+        // untouched rather than half-applied.
+        let given = if sw.must_give {
+            let Some(id) = give_id else {
+                return Err(LcError::UnknownCard);
+            };
+            let Some(idx) = self.players[seat].hand.iter().position(|c| c.id == id) else {
+                return Err(LcError::UnknownCard);
+            };
+            Some(self.players[seat].hand.remove(idx))
+        } else {
+            None
+        };
+        if let Some(card) = sw.taken {
+            self.players[seat].hand.push(card);
+        }
+        if let Some(card) = given {
+            if self.players[sw.target].status == Status::Alive {
+                self.players[sw.target].hand.push(card);
+            } else {
+                self.discard(None, [card]);
+            }
+        }
+        self.settle_swap();
+        self.seq += 1;
+        Ok(())
+    }
+
+    /// The active trade is answered: drop it, and roll the round over unless
+    /// something else is still holding it — the `settle_pour` rule.
+    fn settle_swap(&mut self) {
+        self.swaps.remove(0);
+        if self.parked() {
+            return;
+        }
+        self.rollover(self.pact_breaks.len());
+    }
+
+    /// The last debt on the active pour is paid: drop it, and roll the round
+    /// over unless something else is still holding it.
+    fn settle_pour(&mut self) {
+        self.pours.remove(0);
+        // Mirror of `settle_challenge`'s tail: a challenge played the same
+        // round may still be parked, and it owns the rollover if so.
+        if self.parked() {
+            return;
+        }
         self.rollover(self.pact_breaks.len());
     }
 
@@ -3519,7 +5370,12 @@ impl LastCallState {
             p.elim_order = Some(next);
             let mut discarded: Vec<Card> = std::mem::take(&mut p.hand);
             discarded.extend(std::mem::take(&mut p.armed).into_iter().map(|a| a.card));
-            self.discards.extend(discarded);
+            // Straight to the table, not through `discard`: this is a
+            // player's whole hand being swept off the board on elimination,
+            // not a discard they made — attributing it to them would inflate
+            // `cards_discarded` and fire `OnDiscard` triggers for a seat
+            // that no longer exists.
+            self.table.discard(discarded);
             self.effects.retain(|e| e.subject != subject);
             // H10: ghosts hold no objectives. Permanent — the Draw→Deal
             // replacement deal only refills Alive seats, so an eliminated
@@ -3601,9 +5457,21 @@ fn refill_pulls(player: &mut LcPlayer, n: u8) {
 /// this play possibly have named," a fact fixed the moment the play was
 /// locked in. `"all"` means every seat, alive or not — the brief's "includes
 /// everyone".
+/// Whether a `targets` class names a single seat the player picks — the one
+/// definition, because six sites used to spell `== "one"` out separately and
+/// adding a class meant finding all six.
+///
+/// `"one"` and `"other"` differ only in whether you may name yourself, and
+/// that difference is enforced in exactly one place (`set_target`). Every
+/// other site cares only "is there a seat in `play.target` to read", which is
+/// true of both.
+pub fn targets_a_seat(class: &str) -> bool {
+    matches!(class, "one" | "other")
+}
+
 fn play_subjects(play: &Play, num_seats: usize) -> Vec<usize> {
     match play.card.targets.as_str() {
-        "one" => play.target.into_iter().collect(),
+        "one" | "other" => play.target.into_iter().collect(),
         "self" => vec![play.source_seat],
         "all" => (0..num_seats).collect(),
         _ => Vec::new(),
@@ -3696,17 +5564,26 @@ pub fn preview_state() -> LastCallState {
     st.players[0].draws_this_round = 3; // the plaque's draw badge
     st.set_vessel(8, Deck::Soft, "any").unwrap(); // 8th seat: MAX_SEATS ceiling
     st.beat = Beat::Lock;
-    st.deck_counts = vec![
-        (Deck::Beer, 21),
+    // The preview's deck row wants a spread of counts — a healthy deck, a
+    // low one (`DECK_LOW_THRESHOLD`) and an exhausted one — so the renderer
+    // has every DeckStack state to draw. Real piles, drawn down to size.
+    for (deck, want) in [
+        (Deck::Beer, 21usize),
         (Deck::Cider, 17),
         (Deck::Wine, 4),
         (Deck::Liquor, 0),
         (Deck::Soft, 12),
-    ];
-    st.discards = crate::lc_cards::deck_cards(Deck::Beer)
-        .into_iter()
-        .take(4)
-        .collect(); // discard count 4
+    ] {
+        st.open_deck(deck);
+        let have = st.table.remaining(deck);
+        let burn = have.saturating_sub(want);
+        let burned = st.draw_cards(deck, burn);
+        // Beer's burn doubles as the preview's discard pile (count 4); the
+        // rest leave the table entirely so the counts land exactly.
+        if deck == Deck::Beer {
+            st.table.discard(burned.into_iter().take(4));
+        }
+    }
     st.seq = 42;
     st
 }
@@ -3743,15 +5620,979 @@ mod tests {
     }
 
     fn deck_count(st: &LastCallState, deck: Deck) -> u16 {
-        st.deck_counts.iter().find(|(d, _)| *d == deck).unwrap().1
+        st.deck_count(deck)
     }
 
+    /// Drive a real pile down (or up, from its own discards) to `count`.
+    ///
+    /// The counter version of this just assigned a number. A pile can only
+    /// be resized by moving cards, so shrinking burns off the top into
+    /// nowhere and growing pulls back from the discard pile — which means a
+    /// test asking for more than the deck physically owns gets what the deck
+    /// has, and says so rather than inventing cards.
     fn set_deck_count(st: &mut LastCallState, deck: Deck, count: u16) {
-        st.deck_counts
+        st.open_deck(deck);
+        let count = count as usize;
+        let shoe = st.table.shoe_mut(deck).unwrap();
+        if shoe.draw_pile.len() > count {
+            shoe.draw_pile.truncate(count);
+        } else {
+            while shoe.draw_pile.len() < count {
+                match shoe.discard_pile.pop() {
+                    Some(c) => shoe.draw_pile.push(c),
+                    None => panic!(
+                        "{deck:?} has only {} cards; cannot set count to {count}",
+                        shoe.total()
+                    ),
+                }
+            }
+        }
+    }
+
+    /// Total cards in every discard pile — the old `st.discards.len()`.
+    fn discard_count(st: &LastCallState) -> usize {
+        st.discard_count()
+    }
+
+    /// Put cards on their decks' discard piles, opening those decks first.
+    /// The old `st.discards.push(..)` needed no setup because `discards` was
+    /// one flat vec; a pile has to exist before a card can sit on it.
+    fn push_discards(st: &mut LastCallState, cards: Vec<Card>) {
+        for deck in cards.iter().map(|c| c.deck).collect::<Vec<_>>() {
+            st.open_deck(deck);
+        }
+        st.table.discard(cards);
+    }
+
+    /// Every discarded card's id, deck-pile order.
+    fn discard_ids(st: &LastCallState) -> Vec<String> {
+        st.discards().iter().map(|c| c.id.clone()).collect()
+    }
+
+    // =============================================================
+    // The overhaul: phase tracking, table primitives, player
+    // primitives, card triggers and stat counters.
+    // =============================================================
+
+    #[test]
+    fn test_phase_walks_lobby_playing_finished() {
+        let mut st = seated();
+        assert_eq!(st.phase(), Phase::Lobby); // round 1 Draw = registration
+        st.beat = Beat::Diplomacy;
+        assert_eq!(st.phase(), Phase::Playing);
+        // Round 2's Draw is play, not lobby — the lobby is round 1 only.
+        st.round = 2;
+        st.beat = Beat::Draw;
+        assert_eq!(st.phase(), Phase::Playing);
+        // One player left standing ends it.
+        st.players[1].status = Status::Eliminated;
+        st.players[2].status = Status::Eliminated;
+        assert_eq!(st.phase(), Phase::Finished);
+    }
+
+    #[test]
+    fn test_challenge_phase_outranks_playing_but_not_finished() {
+        let mut st = seated();
+        st.beat = Beat::Resolve;
+        st.challenges.push(ChallengeState {
+            key: 1,
+            card_id: "liquor-09".into(),
+            instigator: 0,
+            opponent: Some(1),
+            electorate: vec![2],
+            votes: vec![],
+            round: 1,
+        });
+        assert_eq!(st.phase(), Phase::Challenge);
+        // A game that ended on a challenge round is over, not parked.
+        st.players[1].status = Status::Eliminated;
+        st.players[2].status = Status::Eliminated;
+        assert_eq!(st.phase(), Phase::Finished);
+    }
+
+    /// Each beat's `SeatPhase` must track what actually advances that beat.
+    /// Diplomacy is the one worth pinning: it is NOT ready-gated (two stale
+    /// comments in the tree say otherwise), it advances on all-locked.
+    #[test]
+    fn test_seat_phase_follows_each_beats_real_advance_rule() {
+        // The lobby: registration, not readiness. `set_ready` refuses here.
+        let mut st = seated();
+        assert_eq!(st.phase(), Phase::Lobby);
+        assert_eq!(st.seat_phase(0), SeatPhase::Acting); // no drink picked
+        st.set_vessel(1, Deck::Beer, "can").unwrap();
+        assert_eq!(st.seat_phase(0), SeatPhase::Ready);
+
+        // Diplomacy: lock-gated.
+        let mut st = at_diplomacy();
+        assert_eq!(st.set_ready(1), Err(LcError::WrongBeat), "not ready-gated");
+        assert_eq!(st.seat_phase(0), SeatPhase::Acting);
+        st.lock_in(1).unwrap();
+        assert_eq!(st.seat_phase(0), SeatPhase::Locked);
+
+        // Reveal: ready-gated.
+        let mut st = at_diplomacy();
+        st.beat = Beat::Reveal;
+        assert_eq!(st.seat_phase(0), SeatPhase::Acting);
+        st.set_ready(1).unwrap();
+        assert_eq!(st.seat_phase(0), SeatPhase::Ready);
+
+        // Auto beats ask nothing of anybody.
+        for beat in [Beat::Deal, Beat::Resolve] {
+            st.beat = beat;
+            assert_eq!(st.seat_phase(0), SeatPhase::Waiting, "{beat:?}");
+        }
+    }
+
+    #[test]
+    fn test_seat_phase_handles_ghosts_and_bad_seats() {
+        let mut st = at_diplomacy();
+        st.players[1].status = Status::Eliminated;
+        assert_eq!(st.seat_phase(1), SeatPhase::Ghost);
+        // Out of range is Waiting, not a panic — a stale render must not
+        // crash a room.
+        assert_eq!(st.seat_phase(99), SeatPhase::Waiting);
+        // Game over: nobody is expected to do anything.
+        st.players[2].status = Status::Eliminated;
+        st.players[3].status = Status::Eliminated;
+        assert_eq!(st.seat_phase(0), SeatPhase::Done);
+    }
+
+    #[test]
+    fn test_blocking_seats_narrows_as_the_table_commits() {
+        let mut st = at_diplomacy();
+        assert_eq!(st.blocking_seats(), vec![0, 1, 2, 3]);
+        st.lock_in(1).unwrap();
+        st.lock_in(2).unwrap();
+        assert_eq!(st.blocking_seats(), vec![2, 3]);
+        st.lock_in(3).unwrap();
+        st.lock_in(4).unwrap();
+        assert!(st.blocking_seats().is_empty());
+        // Ghosts never block.
+        let mut st = at_diplomacy();
+        st.players[0].status = Status::Eliminated;
+        assert_eq!(st.blocking_seats(), vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn test_public_view_carries_phase_and_seat_phase() {
+        // The desync fix: the same answer the engine uses reaches every
+        // viewer, rather than each client re-deriving it.
+        let mut st = at_diplomacy();
+        st.lock_in(1).unwrap();
+        let view = st.public_view();
+        assert_eq!(view.phase, Phase::Playing);
+        assert_eq!(view.seats[0].phase, SeatPhase::Locked);
+        assert_eq!(view.seats[1].phase, SeatPhase::Acting);
+    }
+
+    // ---- player primitives -------------------------------------
+
+    #[test]
+    fn test_damage_clamps_eliminates_and_attributes() {
+        let mut st = seated();
+        assert_eq!(st.damage(1, 5, Some(0)), 5);
+        assert_eq!(st.players[1].hp, STARTING_HP - 5);
+        assert_eq!(st.players[1].damage_taken, 5);
+        assert_eq!(st.players[0].damage_dealt, 5);
+
+        // Overkill is clamped at 0 and reports only the HP actually removed.
+        let applied = st.damage(1, 999, Some(0));
+        assert_eq!(applied, STARTING_HP - 5);
+        assert_eq!(st.players[1].hp, 0);
+        assert_eq!(st.players[1].status, Status::Eliminated);
+        assert_eq!(st.players[1].elim_order, Some(1));
+
+        // A ghost takes nothing more.
+        assert_eq!(st.damage(1, 3, Some(0)), 0);
+        // Non-positive and out-of-range are no-ops, not panics.
+        assert_eq!(st.damage(0, 0, None), 0);
+        assert_eq!(st.damage(0, -5, None), 0);
+        assert_eq!(st.damage(99, 5, None), 0);
+    }
+
+    #[test]
+    fn test_damage_without_a_source_moves_stats_but_writes_no_log() {
+        // Event damage and challenge penalties: the banner/verdict is the
+        // record, so no `Hit` line — but the HP really was lost.
+        let mut st = seated();
+        let log_before = st.log.len();
+        assert_eq!(st.damage(1, 4, None), 4);
+        assert_eq!(st.players[1].damage_taken, 4);
+        assert_eq!(st.log.len(), log_before, "an authorless hit is unlogged");
+    }
+
+    #[test]
+    fn test_heal_has_no_ceiling_and_skips_ghosts() {
+        let mut st = seated();
+        st.damage(1, 5, None);
+        assert_eq!(st.heal(1, 3), 3);
+        assert_eq!(st.players[1].hp, STARTING_HP - 2);
+        assert_eq!(st.players[1].healing_taken, 3);
+        // TBD-3: no ceiling — healing past the start is legal.
+        st.heal(1, 100);
+        assert_eq!(st.players[1].hp, STARTING_HP + 98);
+
+        // A ghost stays a ghost: healing one would resurrect a seat whose
+        // hand and effects were already swept off the board.
+        st.players[2].status = Status::Eliminated;
+        st.players[2].hp = 0;
+        assert_eq!(st.heal(2, 10), 0);
+        assert_eq!(st.players[2].hp, 0);
+        assert_eq!(st.players[2].status, Status::Eliminated);
+    }
+
+    #[test]
+    fn test_shield_absorbs_then_replaces_rather_than_stacking() {
+        let mut st = seated();
+        st.shield(1, 4, 1, Some(0));
+        assert_eq!(st.shield_total(1), 4);
+
+        // Absorbs first, HP after.
+        assert_eq!(st.damage(1, 6, Some(0)), 2);
+        assert_eq!(st.players[1].hp, STARTING_HP - 2);
+        assert_eq!(st.shield_total(1), 0);
+
+        // D10: a second shield REPLACES the first, it does not add to it.
+        st.shield(1, 3, 1, Some(0));
+        st.shield(1, 5, 1, Some(0));
+        assert_eq!(st.shield_total(1), 5, "shields must not stack");
+    }
+
+    #[test]
+    fn test_drain_takes_from_the_fullest_vessel_and_counts_as_drinking() {
+        let mut st = seated();
+        st.set_vessel(1, Deck::Beer, "can").unwrap(); // 8 pulls
+        st.set_vessel(1, Deck::Wine, "glass").unwrap(); // 6 pulls
+        assert_eq!(st.drain(0, 3, None), 3);
+        // Beer was fullest, so Beer paid.
+        let beer = st.players[0]
+            .vessels
+            .iter()
+            .find(|v| v.deck == Deck::Beer)
+            .unwrap();
+        assert_eq!(beer.pulls_left, 5);
+        assert_eq!(st.players[0].drinks, 3);
+
+        // Runs dry short rather than going negative.
+        let left: i32 = st.players[0]
+            .vessels
+            .iter()
+            .map(|v| v.pulls_left as i32)
+            .sum();
+        assert_eq!(st.drain(0, left + 10, None), left);
+        assert!(st.players[0].vessels.iter().all(|v| v.pulls_left == 0));
+    }
+
+    // ---- the table ----------------------------------------------
+
+    #[test]
+    fn test_deal_moves_cards_from_pile_to_hand() {
+        let mut st = seated();
+        st.open_deck(Deck::Beer);
+        let before = st.deck_count(Deck::Beer);
+        assert_eq!(st.deal(0, Deck::Beer, 3), 3);
+        assert_eq!(st.players[0].hand.len(), 3);
+        assert_eq!(st.players[0].cards_drawn, 3);
+        assert_eq!(st.deck_count(Deck::Beer), before - 3);
+    }
+
+    #[test]
+    fn test_discard_routes_to_the_cards_own_deck_and_counts() {
+        let mut st = seated();
+        st.open_deck(Deck::Beer);
+        st.open_deck(Deck::Wine);
+        st.deal(0, Deck::Beer, 2);
+        let hand = std::mem::take(&mut st.players[0].hand);
+        st.discard(Some(0), hand);
+        assert_eq!(st.players[0].cards_discarded, 2);
+        // Beer cards land on Beer's pile, never on the discarder's.
+        assert_eq!(st.table.shoe(Deck::Beer).unwrap().discarded(), 2);
+        assert_eq!(st.table.shoe(Deck::Wine).unwrap().discarded(), 0);
+    }
+
+    /// Conservation across the DRAW beat — the paths that actually move cards
+    /// between a pile and a hand (`set_vessel`, `finish_and_draw`, `mulligan`).
+    ///
+    /// The round-scoped test below starts from `locked_table()` and only spans
+    /// Reveal->Resolve, so its census never runs across a draw. That left the
+    /// one place in production that manipulates a pile by identity —
+    /// `set_vessel`'s opening deal — outside the guard CLAUDE.md names as the
+    /// conservation check. Duplicating a card there stayed green.
+    #[test]
+    fn test_cards_are_conserved_across_the_draw_beat() {
+        let census = |st: &LastCallState| -> usize {
+            st.table.total()
+                + st.players
+                    .iter()
+                    .map(|p| p.hand.len() + p.armed.len())
+                    .sum::<usize>()
+        };
+        let mut st = seated();
+
+        st.set_vessel(1, Deck::Beer, "can").unwrap();
+        let after_open = census(&st);
+        assert_eq!(after_open, LC_DECK_SIZE as usize, "opening a deck");
+
+        // A second player on the same deck draws from the same pile.
+        st.set_vessel(2, Deck::Beer, "can").unwrap();
+        assert_eq!(census(&st), after_open, "second vessel on the same deck");
+
+        // A second DECK adds exactly one shoe's worth and nothing more.
+        st.set_vessel(3, Deck::Wine, "glass").unwrap();
+        assert_eq!(
+            census(&st),
+            after_open + LC_DECK_SIZE as usize,
+            "second deck"
+        );
+        let total = census(&st);
+
+        st.finish_and_draw(1, 0).unwrap();
+        assert_eq!(census(&st), total, "finish_and_draw");
+
+        let ids: Vec<String> = st.players[0].hand[..2]
+            .iter()
+            .map(|c| c.id.clone())
+            .collect();
+        st.mulligan(1, &ids).unwrap();
+        assert_eq!(census(&st), total, "mulligan");
+
+        // And a re-pick of a deck already held conjures nothing.
+        st.set_vessel(1, Deck::Beer, "pint").unwrap();
+        assert_eq!(census(&st), total, "re-picking a held deck");
+    }
+
+    #[test]
+    fn test_cards_are_conserved_across_a_whole_round() {
+        // Nothing may create or destroy a card: every card is in a draw
+        // pile, a discard pile, a hand, an armed slot or a locked play.
+        let mut st = locked_table();
+        let census = |st: &LastCallState| -> usize {
+            st.table.total()
+                + st.players
+                    .iter()
+                    .map(|p| p.hand.len() + p.armed.len())
+                    .sum::<usize>()
+                + st.locked_plays.len()
+                + st.plays.len()
+                + st.reactions.len()
+        };
+        let before = census(&st);
+        st.advance_beat().unwrap(); // Reveal
+        assert_eq!(census(&st), before, "reveal must conserve cards");
+        st.advance_beat().unwrap(); // Resolve
+        st.resolve().unwrap();
+        assert_eq!(census(&st), before, "resolve must conserve cards");
+    }
+
+    #[test]
+    fn test_a_game_is_reproducible_from_its_seed() {
+        // The desync fix at engine level. Two states from the same seed,
+        // driven identically, must deal identical cards.
+        let run = |seed: u64| {
+            let mut st = LastCallState::new(vec![(1, "alice".into()), (2, "bob".into())], seed);
+            st.set_vessel(1, Deck::Beer, "can").unwrap();
+            st.set_vessel(2, Deck::Cider, "bottle").unwrap();
+            st.finish_and_draw(1, 0).unwrap();
+            st.finish_and_draw(2, 0).unwrap();
+            st.players
+                .iter()
+                .map(|p| p.hand.iter().map(|c| c.id.clone()).collect::<Vec<_>>())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(run(12345), run(12345), "same seed must deal the same game");
+        assert_ne!(run(12345), run(54321), "different seeds must diverge");
+    }
+
+    /// The RNG stream itself must survive a snapshot — the property the old
+    /// per-request `thread_rng` could not have, and the reason `rng` lives in
+    /// the blob.
+    ///
+    /// Drawing off a stocked pile does NOT test this: `Shoe::draw` touches the
+    /// RNG only when the pile runs dry, so an earlier version (draw 5 off 35)
+    /// compared two `pop()`s of the same serialized vector and passed even
+    /// with `rng` dropped from the blob entirely. The RNG is consulted at
+    /// exactly one moment — the reshuffle — so the pile must be driven empty
+    /// first.
+    #[test]
+    fn test_the_rng_stream_survives_a_snapshot() {
+        let mut st = seated();
+        st.set_vessel(1, Deck::Beer, "can").unwrap();
+        // Empty the draw pile into the discard pile, so the next draw MUST
+        // reshuffle and therefore must consult the RNG.
+        let all = st.draw_cards(Deck::Beer, LC_DECK_SIZE as usize);
+        assert!(!all.is_empty());
+        st.table.discard(all);
+        assert_eq!(st.deck_count(Deck::Beer), 0);
+        assert!(st.table.shoe(Deck::Beer).unwrap().discarded() > 0);
+
+        let mut reloaded = LastCallState::from_json(&st.to_json());
+        let a = st.draw_cards(Deck::Beer, 5);
+        let b = reloaded.draw_cards(Deck::Beer, 5);
+        assert_eq!(a.len(), 5);
+        assert_eq!(
+            a.iter().map(|c| c.id.clone()).collect::<Vec<_>>(),
+            b.iter().map(|c| c.id.clone()).collect::<Vec<_>>(),
+            "the reshuffle after a reload dealt a different order — the RNG \
+             counter did not survive the snapshot"
+        );
+        assert_eq!(st.rng, reloaded.rng);
+    }
+
+    #[test]
+    fn test_a_legacy_blob_is_reseeded_not_left_empty() {
+        // Clean break: a blob written before `table` existed has no piles to
+        // restore, so `from_json` rebuilds a shoe for every deck a seated
+        // player is drinking from. Hands and HP survive; the piles are new.
+        let mut st = seated();
+        st.set_vessel(1, Deck::Beer, "can").unwrap();
+        st.set_vessel(2, Deck::Cider, "bottle").unwrap();
+        st.damage(2, 4, None);
+        let hand_before = st.players[0].hand.clone();
+
+        let mut v: serde_json::Value = serde_json::from_str(&st.to_json()).unwrap();
+        v.as_object_mut().unwrap().remove("table");
+        v.as_object_mut().unwrap().remove("rng");
+        let back = LastCallState::from_json(&v.to_string());
+
+        assert_eq!(back.players[0].hand, hand_before, "hands survive");
+        assert_eq!(back.players[2].hp, STARTING_HP - 4, "HP survives");
+        assert_eq!(
+            back.deck_count(Deck::Beer),
+            LC_DECK_SIZE,
+            "Beer rebuilt full"
+        );
+        assert_eq!(back.deck_count(Deck::Cider), LC_DECK_SIZE);
+        // Only decks somebody is drinking from are opened.
+        assert!(!back.table.is_open(Deck::Wine));
+        assert_ne!(back.rng, LcRng::default(), "the stream is reseeded");
+    }
+
+    /// The reseed itself, isolated.
+    ///
+    /// `test_a_legacy_blob_is_reseeded_not_left_empty` asserts
+    /// `rng != LcRng::default()` after a rebuild — which passes even with the
+    /// reseed DELETED, because `open_deck` shuffles and a shuffle advances the
+    /// counter off zero all by itself. That assertion was satisfied
+    /// incidentally, so it caught nothing (verified by mutation: removing the
+    /// reseed left all 441 lib tests green).
+    ///
+    /// The property that actually matters is that two legacy blobs with
+    /// DIFFERENT seeds rebuild to DIFFERENT piles. Without the reseed both
+    /// start at state 0 and advance identically, so every legacy game in
+    /// existence would deal the same cards in the same order.
+    #[test]
+    fn test_the_legacy_reseed_makes_rebuilt_games_differ_by_seed() {
+        let legacy_blob = |seed: u64| {
+            let mut st = LastCallState::new(vec![(1, "alice".into()), (2, "bob".into())], seed);
+            st.set_vessel(1, Deck::Beer, "can").unwrap();
+            st.set_vessel(2, Deck::Cider, "bottle").unwrap();
+            // Strip the fields an old binary never wrote.
+            let mut v: serde_json::Value = serde_json::from_str(&st.to_json()).unwrap();
+            let o = v.as_object_mut().unwrap();
+            o.remove("table");
+            o.remove("rng");
+            LastCallState::from_json(&v.to_string())
+        };
+
+        let a = legacy_blob(1111);
+        let b = legacy_blob(2222);
+        let pile = |st: &LastCallState, d: Deck| -> Vec<String> {
+            st.table
+                .shoe(d)
+                .unwrap()
+                .draw_pile
+                .iter()
+                .map(|c| c.id.clone())
+                .collect()
+        };
+        assert_ne!(
+            pile(&a, Deck::Beer),
+            pile(&b, Deck::Beer),
+            "two legacy blobs with different seeds rebuilt to the SAME pile — \
+             the reseed is missing, so every rebuilt game deals identically"
+        );
+        // ...and the same seed still rebuilds reproducibly.
+        assert_eq!(pile(&a, Deck::Beer), pile(&legacy_blob(1111), Deck::Beer));
+    }
+
+    /// The lobby case, which is where a missing reseed does the most damage:
+    /// a legacy blob with seated players but NO vessels opens no decks, so
+    /// nothing incidentally advances the counter. Without the reseed `rng`
+    /// stays at state 0 and the FIRST shuffle of every such game — dealt
+    /// later, when somebody finally picks a drink — is identical across every
+    /// game on the server.
+    #[test]
+    fn test_a_legacy_lobby_blob_is_reseeded_before_anyone_picks_a_drink() {
+        let lobby_blob = |seed: u64| {
+            let st = LastCallState::new(vec![(1, "alice".into()), (2, "bob".into())], seed);
+            let mut v: serde_json::Value = serde_json::from_str(&st.to_json()).unwrap();
+            let o = v.as_object_mut().unwrap();
+            o.remove("table");
+            o.remove("rng");
+            LastCallState::from_json(&v.to_string())
+        };
+
+        let mut a = lobby_blob(1111);
+        let mut b = lobby_blob(2222);
+        assert!(a.table.shoes.is_empty(), "no vessels means no open decks");
+        assert_ne!(
+            a.rng,
+            LcRng::default(),
+            "reseeded even with nothing to open"
+        );
+
+        // The damage only shows when they finally pick a drink.
+        a.set_vessel(1, Deck::Beer, "can").unwrap();
+        b.set_vessel(1, Deck::Beer, "can").unwrap();
+        let ids = |st: &LastCallState| -> Vec<String> {
+            st.players[0].hand.iter().map(|c| c.id.clone()).collect()
+        };
+        assert_ne!(
+            a.table.shoe(Deck::Beer).unwrap().draw_pile,
+            b.table.shoe(Deck::Beer).unwrap().draw_pile,
+            "two lobby blobs shuffled identically — the reseed never ran"
+        );
+        // The opening hand is a fixed named set, so it is the PILE that must
+        // differ, not the hand. Pin that too, so a future change that makes
+        // opening hands random does not silently weaken this test.
+        assert_eq!(ids(&a), ids(&b), "opening hands are a fixed set (F6)");
+    }
+
+    /// Reloading a live table must not rebuild its piles.
+    ///
+    /// Note what actually provides that protection, because this comment used
+    /// to overstate it: the `table.shoes.is_empty()` half of `from_json`'s
+    /// guard can be deleted and this test still passes, because
+    /// `LcTable::open` is independently idempotent and returns early for an
+    /// already-open deck. The guard is a cheap early-out; `open`'s own
+    /// `is_open` check is the thing standing between a reload and 40 fresh
+    /// cards per deck. Both are asserted below, separately, so neither can
+    /// quietly become the only one.
+    #[test]
+    fn test_reloading_a_live_table_never_rebuilds_its_piles() {
+        let mut st = seated();
+        st.set_vessel(1, Deck::Beer, "can").unwrap();
+        st.finish_and_draw(1, 0).unwrap();
+
+        let once = LastCallState::from_json(&st.to_json());
+        let twice = LastCallState::from_json(&once.to_json());
+        assert_eq!(once.table, twice.table);
+        assert_eq!(once.deck_count(Deck::Beer), twice.deck_count(Deck::Beer));
+
+        // The guard's own precondition: a live table is never empty-shoed, so
+        // the rebuild branch is not entered on a reload at all.
+        assert!(
+            !once.table.shoes.is_empty(),
+            "a live table must fail the rebuild guard on its own"
+        );
+
+        // The backstop, asserted directly rather than inferred: opening a deck
+        // that is already open changes nothing.
+        let mut live = once.clone();
+        let before = live.table.clone();
+        let hand_before = live.players[0].hand.len();
+        live.open_deck(Deck::Beer);
+        live.open_deck(Deck::Beer);
+        assert_eq!(live.table, before, "re-opening a live deck must be inert");
+        assert_eq!(live.players[0].hand.len(), hand_before);
+
+        // Cards stayed conserved across the whole reload path.
+        let census = |st: &LastCallState| {
+            st.table.total() + st.players.iter().map(|p| p.hand.len()).sum::<usize>()
+        };
+        assert_eq!(census(&once), census(&twice));
+    }
+
+    // ---- card triggers -------------------------------------------
+
+    /// Fire the worked-example trigger by hand — no catalog card carries it
+    /// yet, which is the point (the machinery ships, the content is a
+    /// separate call).
+    fn fire_example(st: &mut LastCallState) {
+        st.fire_trigger("beer-salute", TriggerWhen::OnDraw, 0);
+    }
+
+    #[test]
+    fn test_a_trigger_queues_targets_and_logs() {
+        let mut st = seated();
+        st.damage(1, 6, None); // bob down, so alice/cara lead
+        fire_example(&mut st);
+
+        let t = st.pending_trigger().expect("queued");
+        assert_eq!(t.id, "salute-the-leader");
+        assert_eq!(t.source, 0);
+        // Leader = highest HP among the Alive, ties to the lowest seat.
+        assert_eq!(t.target, Some(0));
+        assert_eq!(t.round, 1);
+        assert!(t.acked.is_empty());
+        assert!(st.log.iter().any(|e| matches!(
+            e,
+            LogEntry::Trigger { title, .. } if title == "SALUTE THE LEADER"
+        )));
+    }
+
+    #[test]
+    fn test_a_pending_trigger_holds_every_alive_seat() {
+        let mut st = at_diplomacy();
+        fire_example(&mut st);
+        // Outranks the beat: everybody who still owes an ack is Acting.
+        assert_eq!(st.blocking_seats(), vec![0, 1, 2, 3]);
+
+        let key = st.pending_trigger().unwrap().key;
+        st.ack_trigger(1, key).unwrap();
+        assert_eq!(st.seat_phase(0), SeatPhase::Waiting);
+        assert_eq!(st.blocking_seats(), vec![1, 2, 3]);
+
+        // A double-tap is idempotent, not an error.
+        st.ack_trigger(1, key).unwrap();
+        assert_eq!(st.pending_trigger().unwrap().acked, vec![0]);
+
+        for pid in [2, 3, 4] {
+            st.ack_trigger(pid, key).unwrap();
+        }
+        assert!(st.pending_trigger().is_none(), "clears on the last ack");
+    }
+
+    #[test]
+    fn test_ghosts_are_not_waited_on_for_a_trigger() {
+        let mut st = at_diplomacy();
+        st.players[3].status = Status::Eliminated;
+        fire_example(&mut st);
+        let key = st.pending_trigger().unwrap().key;
+        for pid in [1, 2, 3] {
+            st.ack_trigger(pid, key).unwrap();
+        }
+        assert!(
+            st.pending_trigger().is_none(),
+            "a ghost must not wedge the queue"
+        );
+    }
+
+    #[test]
+    fn test_a_stale_ack_cannot_dismiss_the_next_trigger() {
+        // The ChallengeState::key precedent: an ack posted from a screen
+        // showing the previous trigger must not clear the one after it.
+        let mut st = seated();
+        fire_example(&mut st);
+        fire_example(&mut st);
+        let first = st.pending_trigger().unwrap().key;
+        assert_eq!(st.triggers.len(), 2);
+        for pid in [1, 2, 3] {
+            st.ack_trigger(pid, first).unwrap();
+        }
+        let second = st.pending_trigger().unwrap().key;
+        assert_ne!(first, second);
+        // The stale key names a trigger that already cleared, so this is a
+        // retry of an ack that succeeded: it reports Ok and, crucially, does
+        // NOT touch the active trigger. It used to return WrongBeat here and
+        // Ok when the queue happened to be empty — the same retry succeeding
+        // or failing depending on whether someone else had queued a trigger.
+        assert_eq!(st.ack_trigger(1, first), Ok(()));
+        assert!(st.pending_trigger().is_some());
+        assert_eq!(st.pending_trigger().unwrap().key, second);
+        assert!(
+            st.pending_trigger().unwrap().acked.is_empty(),
+            "a stale ack must not count toward the active trigger"
+        );
+    }
+
+    #[test]
+    fn test_ack_guards() {
+        let mut st = seated();
+        assert_eq!(st.ack_trigger(1, 1), Err(LcError::WrongBeat)); // nothing queued
+        fire_example(&mut st);
+        let key = st.pending_trigger().unwrap().key;
+        assert_eq!(st.ack_trigger(99, key), Err(LcError::NotSeated));
+    }
+
+    #[test]
+    fn test_trigger_actions_that_carry_state_apply_it() {
+        let mut st = seated();
+        st.set_vessel(1, Deck::Beer, "can").unwrap();
+        st.set_vessel(2, Deck::Beer, "can").unwrap();
+        let before: Vec<u8> = st.players[..2]
+            .iter()
+            .map(|p| p.vessels[0].pulls_left)
+            .collect();
+        st.apply_trigger_effect(TriggerAction::TableDrink { pulls: 2 }, 0, None);
+        assert_eq!(st.players[0].vessels[0].pulls_left, before[0] - 2);
+        assert_eq!(st.players[1].vessels[0].pulls_left, before[1] - 2);
+        assert_eq!(st.players[0].drinks, 2);
+
+        st.apply_trigger_effect(TriggerAction::DrawerDrinks { pulls: 1 }, 0, None);
+        assert_eq!(st.players[0].vessels[0].pulls_left, before[0] - 3);
+        // Real-life instructions change nothing.
+        let hp: Vec<i32> = st.players.iter().map(|p| p.hp).collect();
+        st.apply_trigger_effect(TriggerAction::Announce, 0, None);
+        assert_eq!(st.players.iter().map(|p| p.hp).collect::<Vec<_>>(), hp);
+    }
+
+    /// `OnPlay` must fire at the reveal, not at `arm` — a trigger is a
+    /// public interruption, and firing one on a staged card would announce a
+    /// play nobody has revealed (§3.4.1).
+    #[test]
+    fn test_on_play_triggers_wait_for_the_reveal() {
+        let mut st = at_lock();
+        // Swap a staged card's id for the trigger card's, so a real play
+        // carries it. `beer-01` is in alice's opening hand.
+        st.arm(1, "beer-01").unwrap();
+        st.set_target(1, "beer-01", Some(1)).unwrap();
+        st.players[0]
+            .armed
             .iter_mut()
-            .find(|(d, _)| *d == deck)
+            .find(|a| a.card.id == "beer-01")
             .unwrap()
-            .1 = count;
+            .card
+            .id = "cider-round".to_string();
+        st.lock_in(1).unwrap();
+        assert!(st.triggers.is_empty(), "staging must not announce anything");
+
+        st.advance_beat().unwrap(); // Lock -> Reveal, which reveals
+        let t = st.pending_trigger().expect("fires at the reveal");
+        assert_eq!(t.when, TriggerWhen::OnPlay);
+        assert_eq!(t.source, 0);
+    }
+
+    /// `OnDiscard` fires through `discard`, which is the one path a card
+    /// takes onto a pile from a hand. An elimination sweep deliberately does
+    /// NOT go through it (see `apply_damage`) — a ghost's swept hand is not
+    /// a discard they made.
+    #[test]
+    fn test_on_discard_fires_for_a_players_own_discard_but_not_a_sweep() {
+        let mut st = seated();
+        st.open_deck(Deck::Liquor);
+        let mut card = crate::lc_cards::card_by_id("liquor-01").unwrap();
+        card.id = "liquor-road".to_string();
+        st.discard(Some(0), vec![card.clone()]);
+        assert_eq!(
+            st.pending_trigger().map(|t| t.when),
+            Some(TriggerWhen::OnDiscard)
+        );
+        assert_eq!(st.players[0].cards_discarded, 1);
+
+        // An elimination sweep is not a discard the player made: no trigger,
+        // no `cards_discarded`.
+        let mut st = seated();
+        st.open_deck(Deck::Liquor);
+        st.players[1].hand.push(card);
+        st.damage(1, 999, None);
+        assert_eq!(st.players[1].status, Status::Eliminated);
+        assert!(st.pending_trigger().is_none());
+        assert_eq!(st.players[1].cards_discarded, 0);
+    }
+
+    /// `deal()`'s `OnDraw` fire site, exercised through a real pile.
+    ///
+    /// Every other trigger test either calls `fire_trigger` directly or
+    /// rewrites a staged/discarded card's id, so none of them reach the hook
+    /// inside `deal()` — that block could be deleted with the whole suite
+    /// still green. Here the trigger card is planted in the actual draw pile
+    /// and then dealt, which is the only path a real trigger card would take.
+    #[test]
+    fn test_on_draw_fires_when_a_trigger_card_comes_off_the_pile() {
+        let mut st = seated();
+        st.open_deck(Deck::Beer);
+        // Plant a trigger card on top of the Beer pile (drawn from the back).
+        let mut planted = crate::lc_cards::card_by_id("beer-01").unwrap();
+        planted.id = "beer-salute".to_string();
+        st.table
+            .shoe_mut(Deck::Beer)
+            .unwrap()
+            .draw_pile
+            .push(planted);
+        assert!(st.triggers.is_empty());
+
+        let dealt = st.deal(0, Deck::Beer, 1);
+        assert_eq!(dealt, 1);
+        let t = st
+            .pending_trigger()
+            .expect("dealing a trigger card must fire its OnDraw trigger");
+        assert_eq!(t.when, TriggerWhen::OnDraw);
+        assert_eq!(t.card_id, "beer-salute");
+        assert_eq!(t.source, 0);
+        assert!(st.players[0].hand.iter().any(|c| c.id == "beer-salute"));
+    }
+
+    /// Finishing a vessel is the largest source of real drinking in the game,
+    /// and `drinks` used to miss all of it.
+    #[test]
+    fn test_finishing_a_vessel_counts_as_drinking() {
+        let mut st = seated();
+        st.set_vessel(1, Deck::Beer, "can").unwrap(); // 8 pulls
+        st.players[0].vessels[0].pulls_left = 6; // two already gone elsewhere
+        assert_eq!(st.players[0].drinks, 0);
+
+        st.finish_and_draw(1, 0).unwrap();
+        assert_eq!(
+            st.players[0].drinks, 6,
+            "the six pulls left in the glass were drunk to finish it"
+        );
+        assert_eq!(st.players[0].vessels[0].pulls_left, 8); // refilled
+        assert_eq!(st.players[0].pulls_spent, 0); // nothing spent on a card
+    }
+
+    /// A reaction is paid for in pulls like any other card, so it must move
+    /// both counters. This path used to debit the vessel and update neither,
+    /// making Cancel/Reduce/Reflect free on every stats surface.
+    #[test]
+    fn test_a_reaction_costs_pulls_that_reach_the_counters() {
+        // `at_reveal` is the fixture the other reaction tests use: bob holds
+        // cider-08 and alice's play is aimed at him, so the reaction is legal.
+        let mut st = at_reveal();
+        let before_pulls = st.players[1].vessels[0].pulls_left;
+        let spent_before = st.players[1].pulls_spent;
+        let drinks_before = st.players[1].drinks;
+
+        st.play_reaction(2, "cider-08", 1).unwrap();
+
+        let cost = (before_pulls - st.players[1].vessels[0].pulls_left) as u32;
+        assert!(cost > 0, "the reaction must actually cost pulls");
+        assert_eq!(
+            st.players[1].pulls_spent,
+            spent_before + cost,
+            "a reaction is a card played, so it is a pull spent"
+        );
+        assert_eq!(
+            st.players[1].drinks,
+            drinks_before + cost,
+            "and a pull spent is a pull drunk"
+        );
+    }
+
+    /// Both public deck projections must stay index-aligned: `lc_render`'s
+    /// big-screen panel zips them positionally, and its `pile_deck` reads
+    /// `deck_counts.first()`.
+    ///
+    /// The regression this pins: `deck_counts` briefly became "open shoes
+    /// only" while `discard_counts` still walked `Deck::ALL`, so a table on
+    /// Wine and Liquor rendered WINE's row against Beer's discard count.
+    #[test]
+    fn test_deck_and_discard_projections_stay_aligned() {
+        let mut st = seated();
+        // Deliberately NOT a prefix of Deck::ALL — that is what exposed it.
+        st.set_vessel(1, Deck::Wine, "glass").unwrap();
+        st.set_vessel(2, Deck::Liquor, "shot").unwrap();
+        let wine = crate::lc_cards::card_by_id("wine-01").unwrap();
+        st.table.discard([wine]);
+
+        let view = st.public_view();
+        assert_eq!(view.deck_counts.len(), Deck::ALL.len());
+        assert_eq!(view.discard_counts.len(), Deck::ALL.len());
+        for (&(a, _), &(b, _)) in view.deck_counts.iter().zip(view.discard_counts.iter()) {
+            assert_eq!(a, b, "positional zip pairs a deck with another's count");
+        }
+        // The Wine discard is reported against Wine — the misalignment put it
+        // on whichever deck happened to share Wine's index.
+        assert_eq!(
+            view.discard_counts
+                .iter()
+                .find(|&&(d, _)| d == Deck::Wine)
+                .map(|&(_, n)| n),
+            Some(1)
+        );
+        // Unopened decks are padded, not dropped: `pile_deck` reads
+        // `deck_counts.first()` and expects Beer to be there.
+        assert_eq!(view.deck_counts[0].0, Deck::Beer);
+        assert_eq!(view.deck_counts[0].1, 0);
+    }
+
+    /// Re-acking a trigger that already cleared is a no-op, not an error — a
+    /// retry of a request that succeeded must not report failure.
+    #[test]
+    fn test_acking_an_already_cleared_trigger_is_idempotent() {
+        let mut st = seated();
+        st.fire_trigger("beer-salute", TriggerWhen::OnDraw, 0);
+        let key = st.pending_trigger().unwrap().key;
+        for pid in [1, 2, 3] {
+            st.ack_trigger(pid, key).unwrap();
+        }
+        assert!(st.pending_trigger().is_none());
+        // The retry lands after the queue emptied.
+        assert_eq!(st.ack_trigger(1, key), Ok(()));
+        // A key that never named a trigger is still rejected.
+        assert_eq!(
+            st.ack_trigger(1, st.trigger_seq + 99),
+            Err(LcError::WrongBeat)
+        );
+    }
+
+    #[test]
+    fn test_triggers_reach_the_public_view() {
+        let mut st = seated();
+        fire_example(&mut st);
+        let view = st.public_view();
+        assert_eq!(view.triggers.len(), 1);
+        assert_eq!(view.triggers[0].id, "salute-the-leader");
+    }
+
+    #[test]
+    fn test_an_unknown_card_fires_nothing() {
+        let mut st = seated();
+        st.fire_trigger("beer-01", TriggerWhen::OnDraw, 0);
+        st.fire_trigger("no-such-card", TriggerWhen::OnDraw, 0);
+        assert!(st.triggers.is_empty());
+    }
+
+    // ---- stat counters -------------------------------------------
+
+    #[test]
+    fn test_drinks_counts_pulls_paid_as_well_as_pulls_drained() {
+        let mut st = locked_table(); // alice pays 3 pulls for two Beer cards
+        st.advance_beat().unwrap(); // Reveal — the charge lands here
+        assert_eq!(st.players[0].pulls_spent, 3);
+        assert_eq!(st.players[0].drinks, 3);
+
+        // A drain adds to `drinks` but never to `pulls_spent` — the gap
+        // between the two is what somebody else took out of your glass.
+        st.drain(0, 2, None);
+        assert_eq!(st.players[0].pulls_spent, 3);
+        assert_eq!(st.players[0].drinks, 5);
+    }
+
+    #[test]
+    fn test_stat_counters_survive_a_round_trip_and_reach_the_view() {
+        let mut st = seated();
+        st.set_vessel(1, Deck::Beer, "can").unwrap();
+        st.drain(0, 2, None);
+        st.damage(0, 3, None);
+        st.heal(0, 1);
+        st.shield(0, 4, 1, None);
+
+        let back = LastCallState::from_json(&st.to_json());
+        assert_eq!(back.players[0].drinks, 2);
+        assert_eq!(back.players[0].damage_taken, 3);
+        assert_eq!(back.players[0].healing_taken, 1);
+        assert!(back.players[0].cards_drawn > 0);
+
+        let view = back.public_view();
+        assert_eq!(view.seats[0].drinks, 2);
+        assert_eq!(view.seats[0].shield, 4);
+    }
+
+    #[test]
+    fn test_new_player_fields_backfill_on_an_older_blob() {
+        // The `damage_dealt` precedent: a blob written before these existed
+        // backfills each to its own Default rather than failing outright.
+        let st = seated();
+        let mut v: serde_json::Value = serde_json::from_str(&st.to_json()).unwrap();
+        for p in v["players"].as_array_mut().unwrap() {
+            let o = p.as_object_mut().unwrap();
+            for f in [
+                "drinks",
+                "cards_drawn",
+                "cards_discarded",
+                "damage_taken",
+                "healing_taken",
+            ] {
+                o.remove(f);
+            }
+        }
+        let back = LastCallState::from_json(&v.to_string());
+        assert!(back.players.iter().all(|p| p.drinks == 0
+            && p.cards_drawn == 0
+            && p.cards_discarded == 0
+            && p.damage_taken == 0
+            && p.healing_taken == 0));
     }
 
     #[test]
@@ -3876,9 +6717,12 @@ mod tests {
             magnitude: -2,
             expires_round: 3,
             source_seat: 0,
+            source_card: String::new(),
         });
-        st.discards
-            .push(crate::lc_cards::card_by_id("cider-01").unwrap());
+        push_discards(
+            &mut st,
+            vec![crate::lc_cards::card_by_id("cider-01").unwrap()],
+        );
         st.beat = Beat::Lock;
         st.seq = 7;
         st.pacts.push(Pact {
@@ -4089,6 +6933,7 @@ mod tests {
         st.advance_beat().unwrap(); // Reveal
         st.advance_beat().unwrap(); // Resolve
         st.resolve().unwrap();
+        st.confirm_report();
         assert_eq!(st.players[1].hp, 13);
         assert!(st.pacts.is_empty());
         // G5 erratum: the break is not terminal (nobody died), so it rolled
@@ -4549,7 +7394,10 @@ mod tests {
         let mut st = seated();
         let beer = crate::lc_cards::deck_cards(Deck::Beer);
         let cider = crate::lc_cards::deck_cards(Deck::Cider);
-        st.discards = vec![beer[0].clone(), beer[1].clone(), cider[0].clone()];
+        push_discards(
+            &mut st,
+            vec![beer[0].clone(), beer[1].clone(), cider[0].clone()],
+        );
 
         let view = st.public_view();
         assert_eq!(
@@ -4831,6 +7679,1358 @@ mod tests {
         st.set_target(1, "beer-03", None).unwrap();
     }
 
+    /// Retype a real catalog card's target class.
+    ///
+    /// `targets` is blob-carried — the engine reads `play.card.targets`, not
+    /// the catalog (unlike `fx`, which is always resolved by id) — so this
+    /// produces exactly the shape a real `"other"` card will have in a hand.
+    /// No catalog card carries the class yet: the cards that want it (swap,
+    /// private reveal) need engine primitives that don't exist, and the
+    /// class is worth landing on its own.
+    fn retype(st: &mut LastCallState, seat: usize, card_id: &str, class: &str) {
+        let c = st.players[seat]
+            .hand
+            .iter_mut()
+            .find(|c| c.id == card_id)
+            .expect("card in hand");
+        c.targets = class.to_string();
+    }
+
+    /// The entire difference between `"one"` and `"other"`: whether you may
+    /// name yourself. Both are pinned here together, because the value of
+    /// the pair is the contrast — `"one"` allowing self-aim is deliberate
+    /// (a heal on yourself is a real play), and a future tightening of it
+    /// should have to delete an assertion that says so.
+    #[test]
+    fn test_other_refuses_self_where_one_allows_it() {
+        let mut st = at_lock();
+        retype(&mut st, 0, "beer-01", "other");
+        st.arm(1, "beer-01").unwrap();
+        assert_eq!(
+            st.set_target(1, "beer-01", Some(0)),
+            Err(LcError::BadTarget),
+            "an \"other\" card must not name its own player"
+        );
+        st.set_target(1, "beer-01", Some(1)).unwrap();
+        assert_eq!(st.players[0].armed[0].target, Some(1));
+
+        // Same card, same seat, "one": the self-target is legal.
+        let mut st = at_lock();
+        st.arm(1, "beer-01").unwrap();
+        st.set_target(1, "beer-01", Some(0)).unwrap();
+    }
+
+    /// `"other"` inherits every other guard `"one"` has — it is not a
+    /// looser class, only a narrower one.
+    #[test]
+    fn test_other_keeps_the_rest_of_the_one_guards() {
+        let mut st = at_lock();
+        retype(&mut st, 0, "beer-01", "other");
+        st.arm(1, "beer-01").unwrap();
+        assert_eq!(st.set_target(1, "beer-01", None), Err(LcError::BadTarget));
+        assert_eq!(
+            st.set_target(1, "beer-01", Some(7)),
+            Err(LcError::BadTarget),
+            "out of range"
+        );
+        st.players[1].status = Status::Eliminated;
+        assert_eq!(
+            st.set_target(1, "beer-01", Some(1)),
+            Err(LcError::BadTarget),
+            "eliminated"
+        );
+    }
+
+    /// The lock gate reads the class through `targets_a_seat`, so an
+    /// untargeted `"other"` is refused by name exactly like an untargeted
+    /// `"one"`. Before the helper existed this site spelled `== "one"` out
+    /// and would have let the card through with no target at all.
+    #[test]
+    fn test_lock_refuses_an_untargeted_other() {
+        let mut st = at_lock();
+        retype(&mut st, 0, "beer-01", "other");
+        st.arm(1, "beer-01").unwrap();
+        assert_eq!(
+            st.lock_in(1),
+            Err(LcError::NeedsTarget("beer-01".into())),
+            "must name the card that is missing its seat"
+        );
+        st.set_target(1, "beer-01", Some(1)).unwrap();
+        st.lock_in(1).unwrap();
+    }
+
+    /// End to end: an `"other"` play resolves against the seat it named.
+    /// This is the site in `resolve()`'s subject derivation — without it the
+    /// class would fall through to the catch-all, produce no subjects, and
+    /// the card would silently do nothing while still charging its pulls.
+    #[test]
+    fn test_an_other_play_lands_on_the_seat_it_named() {
+        let mut st = at_lock();
+        retype(&mut st, 0, "beer-01", "other");
+        st.arm(1, "beer-01").unwrap(); // Damage 2
+        st.set_target(1, "beer-01", Some(1)).unwrap();
+        st.lock_in(1).unwrap();
+        let before = st.players[1].hp;
+        st.advance_beat().unwrap(); // Reveal
+        st.advance_beat().unwrap(); // Resolve
+        st.resolve().unwrap();
+        assert_eq!(
+            st.players[1].hp,
+            before - 2,
+            "an \"other\" play must reach its subject"
+        );
+    }
+
+    /// Drive a reveal card through a full resolve and hand back the state.
+    /// `card` must be a `copies: 0` reveal prototype, so it is planted into
+    /// the hand directly rather than drawn — nothing can deal it.
+    fn play_reveal(card: &str, target: Option<usize>) -> LastCallState {
+        let c = crate::lc_cards::card_by_id(card).expect("catalog card");
+        // Built from scratch rather than `at_lock()`: the caster needs a
+        // vessel of the CARD's deck to pay for it, and vessels only register
+        // at Draw (D15), which `at_lock()` is already past.
+        let mut st = LastCallState::new(
+            vec![
+                (1, "alice".into()),
+                (2, "bob".into()),
+                (3, "cara".into()),
+                (4, "dave".into()),
+            ],
+            42,
+        );
+        st.set_vessel(1, c.deck, "glass").unwrap();
+        st.set_vessel(2, Deck::Cider, "bottle").unwrap();
+        st.set_vessel(3, Deck::Soft, "glass").unwrap();
+        st.set_vessel(4, Deck::Liquor, "shot").unwrap();
+        st.beat = Beat::Lock;
+        st.players[0].hand.push(c);
+        st.arm(1, card).unwrap();
+        if let Some(t) = target {
+            st.set_target(1, card, Some(t)).unwrap();
+        }
+        st.lock_in(1).unwrap();
+        st.advance_beat().unwrap(); // Reveal
+        st.advance_beat().unwrap(); // Resolve
+        st.resolve().unwrap();
+        // The report parks every resolve that lands anything, and a reveal
+        // lands a `Revealed` blow — so the fixture confirms it to get the
+        // rollover these tests are written against.
+        st.confirm_report();
+        st
+    }
+
+    /// A table reveal snapshots the named seat's hand for everybody.
+    #[test]
+    fn test_a_table_reveal_snapshots_the_named_hand() {
+        let st = play_reveal("wine-10", Some(1)); // OPEN BOOK -> bob
+        assert_eq!(st.reveals.len(), 1);
+        let r = &st.reveals[0];
+        assert_eq!(r.subject, 1);
+        assert_eq!(r.seer, None, "a table reveal is seen by everyone");
+        assert_eq!(
+            r.cards, st.players[1].hand,
+            "the snapshot is bob's hand as it stood at resolve"
+        );
+        assert!(!r.cards.is_empty(), "an opening hand is not empty");
+    }
+
+    /// **The confidentiality boundary.** A caster-scoped reveal must not
+    /// ride the broadcast: `PublicView` reaches every phone and the
+    /// spectator screen, so an entry here would publish the private read the
+    /// card charges for. Asserted on the serialized payload as well as the
+    /// struct, because that is what actually leaves the server.
+    #[test]
+    fn test_a_private_reveal_never_reaches_the_public_view() {
+        let st = play_reveal("cider-10", Some(1)); // BARMAN'S EYE -> bob
+        assert_eq!(st.reveals.len(), 1);
+        assert_eq!(st.reveals[0].seer, Some(0), "bought by alice, for alice");
+        let secret = &st.reveals[0].cards[0].id;
+
+        let view = st.public_view();
+        assert!(
+            view.reveals.is_empty(),
+            "a caster-scoped reveal must never be projected publicly"
+        );
+        let json = serde_json::to_string(&view).unwrap();
+        assert!(
+            !json.contains(secret.as_str()),
+            "the revealed card id reached the public payload: {json}"
+        );
+    }
+
+    /// The same table reveal DOES ride the broadcast — otherwise the filter
+    /// above would pass by projecting nothing at all.
+    #[test]
+    fn test_a_table_reveal_does_reach_the_public_view() {
+        let st = play_reveal("wine-10", Some(1));
+        let view = st.public_view();
+        assert_eq!(view.reveals.len(), 1);
+        assert_eq!(view.reveals[0].subject, 1);
+    }
+
+    /// The per-viewer read: the buyer sees their private snapshot, nobody
+    /// else does, and a spectator sees only what the table can see.
+    #[test]
+    fn test_reveals_for_serves_the_buyer_and_nobody_else() {
+        let st = play_reveal("cider-10", Some(1)); // alice buys a look at bob
+        assert_eq!(st.reveals_for(1).len(), 1, "alice bought it");
+        assert!(st.reveals_for(2).is_empty(), "bob must not see it");
+        assert!(st.reveals_for(3).is_empty(), "cara must not see it");
+        assert!(
+            st.reveals_for(999).is_empty(),
+            "an unseated spectator sees no private reveal"
+        );
+
+        // A table reveal is visible to every one of them, seated or not.
+        let st = play_reveal("wine-10", Some(1));
+        for viewer in [1, 2, 3, 999] {
+            assert_eq!(st.reveals_for(viewer).len(), 1, "viewer {viewer}");
+        }
+    }
+
+    /// The draw rider comes off the real pile, through `deal` — so it moves
+    /// the stat counter and conserves cards like any other draw.
+    #[test]
+    fn test_the_self_reveal_draws_its_rider() {
+        let c = crate::lc_cards::card_by_id("soft-10").unwrap();
+        let mut st = LastCallState::new(
+            vec![(1, "alice".into()), (2, "bob".into()), (3, "cara".into())],
+            42,
+        );
+        st.set_vessel(1, Deck::Soft, "glass").unwrap();
+        st.set_vessel(2, Deck::Cider, "bottle").unwrap();
+        st.set_vessel(3, Deck::Beer, "can").unwrap();
+        st.beat = Beat::Lock;
+        let hand_before = st.players[0].hand.len();
+        let pile_before = st.deck_count(Deck::Soft);
+        let drawn_before = st.players[0].cards_drawn;
+        st.players[0].hand.push(c);
+        st.arm(1, "soft-10").unwrap();
+        st.lock_in(1).unwrap();
+        st.advance_beat().unwrap();
+        st.advance_beat().unwrap();
+        st.resolve().unwrap();
+
+        assert_eq!(st.reveals.len(), 1);
+        assert_eq!(
+            st.reveals[0].subject, 0,
+            "a self-reveal opens your own hand"
+        );
+        assert_eq!(st.reveals[0].seer, None, "...to the whole table");
+        // +2 drawn, -1 for the card itself leaving the hand to be discarded.
+        assert_eq!(st.players[0].hand.len(), hand_before + 2);
+        assert_eq!(st.players[0].cards_drawn, drawn_before + 2);
+        assert_eq!(
+            st.deck_count(Deck::Soft),
+            pile_before - 2,
+            "the rider comes off the real pile"
+        );
+    }
+
+    /// A reveal is a snapshot, not a live window: it holds what the hand was
+    /// at resolve, and does not follow the hand afterwards. This is what
+    /// keeps a 2-pull card from being worth vastly more than it costs by
+    /// leaking through the next Draw beat.
+    #[test]
+    fn test_a_reveal_is_a_snapshot_not_a_live_window() {
+        let mut st = play_reveal("wine-10", Some(1));
+        let snapshot = st.reveals[0].cards.clone();
+        st.players[1].hand.clear();
+        st.players[1]
+            .hand
+            .push(crate::lc_cards::card_by_id("beer-01").unwrap());
+        assert_eq!(
+            st.reveals[0].cards, snapshot,
+            "the snapshot must not track the hand it copied"
+        );
+    }
+
+    /// A reveal survives the rollover that immediately follows it, and dies
+    /// at the next one — one full round of readability.
+    ///
+    /// The first cut of the prune dropped it in its own resolve, which made
+    /// every reveal card a 2-pull no-op: reveals land during `resolve()`,
+    /// and `resolve()` rolls the round over moments later. Both halves are
+    /// pinned here, because only the pair distinguishes "lasts a round" from
+    /// "lasts forever" and from "lasts no time at all".
+    #[test]
+    fn test_a_reveal_lasts_exactly_one_following_round() {
+        let mut st = play_reveal("wine-10", Some(1));
+        assert_eq!(
+            st.reveals.len(),
+            1,
+            "must survive the rollover in its own resolve, or it is never readable"
+        );
+        let taken_in = st.reveals[0].round;
+        assert_eq!(st.round, taken_in + 1, "we are now in the round it is for");
+
+        // Run the table through one more full round.
+        st.beat = Beat::Resolve;
+        st.resolve().unwrap();
+        st.confirm_report();
+        assert!(
+            st.reveals.is_empty(),
+            "the next rollover drops it — a reveal is not permanent"
+        );
+    }
+
+    /// Nothing about a private reveal reaches the public, permanent log —
+    /// not the contents, which would outlive the round they were bought for.
+    /// The ACT is public (`LogEntry::Play` names card and target for every
+    /// play), and that is deliberate; the contents are not.
+    #[test]
+    fn test_a_private_reveal_writes_no_contents_to_the_log() {
+        let c = crate::lc_cards::card_by_id("cider-10").unwrap();
+        let mut st = LastCallState::new(
+            vec![(1, "alice".into()), (2, "bob".into()), (3, "cara".into())],
+            42,
+        );
+        st.set_vessel(1, Deck::Cider, "glass").unwrap();
+        st.set_vessel(2, Deck::Beer, "can").unwrap();
+        st.set_vessel(3, Deck::Soft, "glass").unwrap();
+        st.beat = Beat::Lock;
+        st.players[0].hand.push(c);
+        st.arm(1, "cider-10").unwrap();
+        st.set_target(1, "cider-10", Some(1)).unwrap();
+        let secret: Vec<String> = st.players[1].hand.iter().map(|c| c.id.clone()).collect();
+        st.lock_in(1).unwrap();
+        st.advance_beat().unwrap();
+        st.advance_beat().unwrap();
+        st.resolve().unwrap();
+
+        let log = serde_json::to_string(&st.log).unwrap();
+        for id in &secret {
+            assert!(!log.contains(id.as_str()), "{id} leaked into the log");
+        }
+        // ...but the act itself is on the record, by title.
+        assert!(log.contains("Barman's Eye"), "the play is public: {log}");
+    }
+
+    /// The whole blob round-trips, reveals included.
+    #[test]
+    fn test_reveals_survive_a_snapshot() {
+        let mut st = play_reveal("cider-10", Some(1));
+        // Re-seat one so it survives the rollover prune above.
+        st.reveals.push(Reveal {
+            subject: 2,
+            seer: Some(0),
+            cards: vec![crate::lc_cards::card_by_id("beer-01").unwrap()],
+            round: st.round,
+        });
+        let json = st.to_json();
+        let back = LastCallState::from_json(&json);
+        assert_eq!(back.reveals, st.reveals);
+    }
+
+    /// Play a pour card and stop at the park.
+    fn play_pour(card: &str, target: Option<usize>) -> LastCallState {
+        let c = crate::lc_cards::card_by_id(card).expect("catalog card");
+        let mut st = LastCallState::new(
+            vec![
+                (1, "alice".into()),
+                (2, "bob".into()),
+                (3, "cara".into()),
+                (4, "dave".into()),
+            ],
+            42,
+        );
+        st.set_vessel(1, c.deck, "glass").unwrap();
+        st.set_vessel(2, Deck::Cider, "bottle").unwrap();
+        st.set_vessel(3, Deck::Soft, "glass").unwrap();
+        st.set_vessel(4, Deck::Wine, "glass").unwrap();
+        st.beat = Beat::Lock;
+        st.players[0].hand.push(c);
+        st.arm(1, card).unwrap();
+        if let Some(t) = target {
+            st.set_target(1, card, Some(t)).unwrap();
+        }
+        st.lock_in(1).unwrap();
+        st.advance_beat().unwrap();
+        st.advance_beat().unwrap();
+        st.resolve().unwrap();
+        st
+    }
+
+    /// The drink lands immediately; the discard parks the round.
+    #[test]
+    fn test_a_pour_drinks_now_and_parks_on_the_discard() {
+        let pulls_before: Vec<u8> = {
+            let st = play_pour("beer-10", None); // ONE FOR THE ROAD, n=1
+            assert_eq!(st.pours.len(), 1, "the round is parked");
+            assert_eq!(st.phase(), Phase::Pour);
+            // Every alive seat owes exactly 1.
+            assert_eq!(st.pours[0].owed.len(), 4);
+            assert!(st.pours[0].owed.iter().all(|d| d.cards == 1));
+            // ...and every alive seat already drank, the caster included.
+            assert!(st.players.iter().all(|p| p.drinks > 0));
+            st.players.iter().map(|p| p.vessels[0].pulls_left).collect()
+        };
+        assert!(!pulls_before.is_empty());
+    }
+
+    /// The round does not advance while anyone still owes cards.
+    #[test]
+    fn test_a_parked_pour_blocks_resolve_and_the_rollover() {
+        let mut st = play_pour("beer-10", None);
+        let round = st.round;
+        assert_eq!(st.resolve(), Err(LcError::ChallengePending));
+        // Three of four pay; still parked.
+        for pid in [1, 2, 3] {
+            let seat = st.seat_of(pid).unwrap();
+            let id = st.players[seat].hand[0].id.clone();
+            let key = st.pours[0].key;
+            st.pour_discard(pid, key, &[id]).unwrap();
+        }
+        assert_eq!(st.pours.len(), 1, "one debt outstanding");
+        assert_eq!(st.round, round, "the round has not moved");
+
+        let seat = st.seat_of(4).unwrap();
+        let id = st.players[seat].hand[0].id.clone();
+        let key = st.pours[0].key;
+        st.pour_discard(4, key, &[id]).unwrap();
+        assert!(st.pours.is_empty(), "settled");
+        // The pour is settled but the round report still holds the round —
+        // whoever settles LAST owns the rollover, and that is now almost
+        // always the report.
+        assert_eq!(st.round, round, "the report still holds it");
+        st.confirm_report();
+        assert_eq!(st.round, round + 1, "the last park rolls the round");
+        assert_eq!(st.beat, Beat::Draw);
+    }
+
+    /// You owe what you can pay. A seat holding fewer cards than the pour
+    /// asks for pitches everything and owes nothing more — it must never be
+    /// left holding the table up over a debt it cannot settle.
+    #[test]
+    fn test_a_short_hand_owes_only_what_it_holds() {
+        let c = crate::lc_cards::card_by_id("liquor-10").unwrap(); // n = 3
+        let mut st = LastCallState::new(
+            vec![(1, "alice".into()), (2, "bob".into()), (3, "cara".into())],
+            42,
+        );
+        st.set_vessel(1, Deck::Liquor, "shot").unwrap();
+        st.set_vessel(2, Deck::Cider, "bottle").unwrap();
+        st.set_vessel(3, Deck::Soft, "glass").unwrap();
+        st.beat = Beat::Lock;
+        st.players[1].hand.truncate(1); // bob holds one card
+        st.players[2].hand.clear(); // cara holds none
+        st.players[0].hand.push(c);
+        st.arm(1, "liquor-10").unwrap();
+        st.lock_in(1).unwrap();
+        st.advance_beat().unwrap();
+        st.advance_beat().unwrap();
+        st.resolve().unwrap();
+
+        let owed = &st.pours[0].owed;
+        assert_eq!(
+            owed.iter().find(|d| d.seat == 1).map(|d| d.cards),
+            Some(1),
+            "bob owes only the one card he holds"
+        );
+        assert!(
+            owed.iter().all(|d| d.seat != 2),
+            "cara holds nothing and must not be listed at all"
+        );
+        // Cara still drank — an empty hand is not an exemption from the round.
+        assert!(st.players[2].drinks > 0);
+    }
+
+    /// A pour nobody can pay never parks: the drink landed, and there is
+    /// nothing left to wait for.
+    #[test]
+    fn test_a_pour_with_no_payers_does_not_park() {
+        let c = crate::lc_cards::card_by_id("beer-10").unwrap();
+        let mut st = LastCallState::new(
+            vec![(1, "alice".into()), (2, "bob".into()), (3, "cara".into())],
+            42,
+        );
+        st.set_vessel(1, Deck::Beer, "can").unwrap();
+        st.set_vessel(2, Deck::Cider, "bottle").unwrap();
+        st.set_vessel(3, Deck::Soft, "glass").unwrap();
+        st.beat = Beat::Lock;
+        st.players[0].hand.push(c);
+        st.arm(1, "beer-10").unwrap();
+        st.lock_in(1).unwrap();
+        let round = st.round;
+        // Empty every hand AFTER the lock, so the play still resolves.
+        st.advance_beat().unwrap();
+        st.advance_beat().unwrap();
+        for p in &mut st.players {
+            p.hand.clear();
+        }
+        st.resolve().unwrap();
+        assert!(st.pours.is_empty(), "nothing to wait for");
+        st.confirm_report();
+        assert_eq!(st.round, round + 1, "the round rolled over normally");
+    }
+
+    /// Guard order and the stale-screen key.
+    #[test]
+    fn test_pour_discard_guards() {
+        let mut st = play_pour("beer-10", None);
+        let key = st.pours[0].key;
+        let seat = st.seat_of(1).unwrap();
+        let id = st.players[seat].hand[0].id.clone();
+
+        assert_eq!(
+            st.pour_discard(99, key, &[id.clone()]),
+            Err(LcError::NotSeated)
+        );
+        assert_eq!(
+            st.pour_discard(1, key + 7, &[id.clone()]),
+            Err(LcError::WrongBeat),
+            "a stale screen's key must not land"
+        );
+        assert_eq!(
+            st.pour_discard(1, key, &[]),
+            Err(LcError::BadDraw),
+            "owes 1, pitched 0"
+        );
+        assert_eq!(
+            st.pour_discard(1, key, &[id.clone(), id.clone()]),
+            Err(LcError::BadDraw),
+            "owes 1, pitched 2"
+        );
+        assert_eq!(
+            st.pour_discard(1, key, &["nope".into()]),
+            Err(LcError::UnknownCard)
+        );
+        st.pour_discard(1, key, &[id]).unwrap();
+        // Paid: a second attempt finds no debt.
+        let id2 = st.players[seat].hand[0].id.clone();
+        assert_eq!(
+            st.pour_discard(1, key, &[id2]),
+            Err(LcError::WrongBeat),
+            "a paid seat owes nothing, so a double-tap cannot pay twice"
+        );
+    }
+
+    /// The cards reach the right deck's discard pile and move the counter —
+    /// a pour is not a special case of card movement.
+    #[test]
+    fn test_a_poured_card_goes_through_the_pile_api() {
+        let mut st = play_pour("beer-10", None);
+        let key = st.pours[0].key;
+        let seat = st.seat_of(2).unwrap();
+        let card = st.players[seat].hand[0].clone();
+        let before = st.players[seat].cards_discarded;
+        let pile_before = st
+            .table
+            .shoe(card.deck)
+            .map(|sh| sh.discarded())
+            .unwrap_or(0);
+        st.pour_discard(2, key, &[card.id.clone()]).unwrap();
+        assert_eq!(st.players[seat].cards_discarded, before + 1);
+        assert_eq!(
+            st.table.shoe(card.deck).map(|sh| sh.discarded()),
+            Some(pile_before + 1),
+            "the card reached its own deck's discard pile"
+        );
+    }
+
+    // -----------------------------------------------------------------
+    // The round report (`lc_report`) and its confirm gate.
+    // -----------------------------------------------------------------
+
+    /// The headline: a hit is reported with the card that caused it and the
+    /// player who played it — the join the LOG tab cannot make, because
+    /// `LogEntry::Play` and `LogEntry::Hit` are separate rows and nothing
+    /// links them.
+    #[test]
+    fn test_a_hit_is_reported_with_its_card_and_its_source() {
+        let mut st = at_lock();
+        st.arm(1, "beer-01").unwrap(); // Damage 2, targets "one"
+        st.set_target(1, "beer-01", Some(1)).unwrap();
+        st.lock_in(1).unwrap();
+        st.lock_in(2).unwrap();
+        st.lock_in(3).unwrap();
+        st.advance_beat().unwrap();
+        st.advance_beat().unwrap();
+        st.resolve().unwrap();
+
+        let r = st
+            .pending_resolution()
+            .expect("the round parks on its report");
+        let mine = r.for_seat(1);
+        assert_eq!(mine.len(), 1);
+        assert_eq!(mine[0].card_id, "beer-01", "the card, not just the seat");
+        assert_eq!(mine[0].source, Some(0), "and who played it");
+        assert_eq!(mine[0].kind, crate::lc_report::BlowKind::Hit);
+        assert_eq!(mine[0].amount, 2);
+        assert_eq!(mine[0].absorbed, 0);
+    }
+
+    /// **The case the log cannot show.** `damage` logs a `Hit` only when HP
+    /// actually moved, so a fully shielded hit writes nothing anywhere — the
+    /// victim has no evidence they were attacked at all. The report is the
+    /// only surface that can tell them, which is most of why it exists.
+    #[test]
+    fn test_a_fully_blocked_hit_is_reported_though_the_log_stays_silent() {
+        let mut st = at_lock();
+        // A shield big enough to eat beer-01's 2 whole.
+        st.shield(1, 5, 2, None);
+        let log_before = st.log.len();
+        st.arm(1, "beer-01").unwrap();
+        st.set_target(1, "beer-01", Some(1)).unwrap();
+        st.lock_in(1).unwrap();
+        st.lock_in(2).unwrap();
+        st.lock_in(3).unwrap();
+        st.advance_beat().unwrap();
+        st.advance_beat().unwrap();
+        st.resolve().unwrap();
+
+        assert!(
+            !st.log[log_before..]
+                .iter()
+                .any(|e| matches!(e, LogEntry::Hit { .. })),
+            "the log is silent by design — nothing landed"
+        );
+        let r = st.pending_resolution().expect("parked");
+        let mine = r.for_seat(1);
+        assert_eq!(mine.len(), 1, "the report is not silent");
+        assert_eq!(mine[0].kind, crate::lc_report::BlowKind::Blocked);
+        assert_eq!(mine[0].amount, 0, "nothing got through");
+        assert_eq!(mine[0].absorbed, 2, "and this is where it went");
+        assert_eq!(mine[0].card_id, "beer-01");
+    }
+
+    /// A round where nothing lands must not stop the game. Confirming that
+    /// nothing happened is how a confirm button becomes a reflex.
+    #[test]
+    fn test_a_round_that_lands_nothing_does_not_park() {
+        let mut st = at_lock();
+        let round = st.round;
+        st.lock_in(1).unwrap(); // nobody armed anything
+        st.lock_in(2).unwrap();
+        st.lock_in(3).unwrap();
+        st.advance_beat().unwrap();
+        st.advance_beat().unwrap();
+        st.resolve().unwrap();
+
+        assert!(st.resolutions.is_empty(), "no blows, no gate");
+        assert!(!st.parked());
+        assert_eq!(st.round, round + 1, "and the round rolls straight over");
+    }
+
+    /// Only the seats a blow landed on gate the round. A bystander sees the
+    /// report and is not asked to confirm somebody else's bruise — the
+    /// difference between one tap and five on a round that hit one player.
+    #[test]
+    fn test_only_the_seats_a_blow_landed_on_owe_a_confirmation() {
+        let mut st = at_lock();
+        st.arm(1, "beer-01").unwrap();
+        st.set_target(1, "beer-01", Some(1)).unwrap();
+        st.lock_in(1).unwrap();
+        st.lock_in(2).unwrap();
+        st.lock_in(3).unwrap();
+        st.advance_beat().unwrap();
+        st.advance_beat().unwrap();
+        st.resolve().unwrap();
+
+        let r = st.pending_resolution().unwrap();
+        assert_eq!(r.owed, vec![1], "only bob wore anything");
+        assert_eq!(st.seat_phase(1), SeatPhase::Acting);
+        assert_eq!(st.seat_phase(0), SeatPhase::Waiting, "the attacker waits");
+        assert_eq!(
+            st.seat_phase(2),
+            SeatPhase::Waiting,
+            "so does the bystander"
+        );
+        assert_eq!(st.blocking_seats(), vec![1]);
+
+        // And one tap settles it.
+        let key = r.key;
+        let round = st.round;
+        st.ack_resolution(2, key).unwrap(); // bob is player_id 2
+        assert!(st.resolutions.is_empty());
+        assert_eq!(st.round, round + 1);
+    }
+
+    /// A seat with nothing against it can still tap — the receipt renders on
+    /// every phone, so a spectator's thumb is a real request. It must be
+    /// answered `Ok` and change nothing, rather than 409 on a working button.
+    #[test]
+    fn test_a_spectator_tap_is_accepted_and_settles_nothing() {
+        let mut st = at_lock();
+        st.arm(1, "beer-01").unwrap();
+        st.set_target(1, "beer-01", Some(1)).unwrap();
+        st.lock_in(1).unwrap();
+        st.lock_in(2).unwrap();
+        st.lock_in(3).unwrap();
+        st.advance_beat().unwrap();
+        st.advance_beat().unwrap();
+        st.resolve().unwrap();
+
+        let key = st.pending_resolution().unwrap().key;
+        let round = st.round;
+        st.ack_resolution(3, key)
+            .expect("cara owed nothing but may tap");
+        assert_eq!(st.resolutions.len(), 1, "still waiting on bob");
+        assert_eq!(st.round, round);
+        assert!(
+            !st.resolutions[0].acked.contains(&2),
+            "a tap from a seat that owed nothing is not recorded as one that did"
+        );
+    }
+
+    /// A report nobody survives to confirm must not park. A seat eliminated
+    /// by this very resolve cannot tap, and waiting on it is the frozen-room
+    /// bug this engine has already shipped once.
+    #[test]
+    fn test_a_report_whose_only_victim_died_does_not_park() {
+        let mut st = at_lock();
+        st.players[1].hp = 1; // one hit from dead
+        st.arm(1, "beer-01").unwrap();
+        st.set_target(1, "beer-01", Some(1)).unwrap();
+        st.lock_in(1).unwrap();
+        st.lock_in(2).unwrap();
+        st.lock_in(3).unwrap();
+        st.advance_beat().unwrap();
+        st.advance_beat().unwrap();
+        st.resolve().unwrap();
+
+        assert_eq!(st.players[1].status, Status::Eliminated);
+        assert!(
+            st.resolutions.is_empty(),
+            "the only subject is a ghost — nobody can settle this"
+        );
+        assert!(!st.parked(), "and the room must not be stuck on it");
+    }
+
+    /// A stale key — a tap from a screen still showing last round's receipt —
+    /// must not confirm this round's report. `ChallengeState::key`'s rule.
+    #[test]
+    fn test_a_stale_key_cannot_confirm_a_later_report() {
+        let mut st = at_lock();
+        st.arm(1, "beer-01").unwrap();
+        st.set_target(1, "beer-01", Some(1)).unwrap();
+        st.lock_in(1).unwrap();
+        st.lock_in(2).unwrap();
+        st.lock_in(3).unwrap();
+        st.advance_beat().unwrap();
+        st.advance_beat().unwrap();
+        st.resolve().unwrap();
+
+        let key = st.pending_resolution().unwrap().key;
+        // A key naming a report that never existed is refused outright.
+        assert_eq!(st.ack_resolution(2, key + 99), Err(LcError::WrongBeat));
+        assert_eq!(st.resolutions.len(), 1);
+
+        // Settle it, then replay the same tap: the report it named is gone,
+        // so this is a retry of something that already worked — `Ok`, and it
+        // must NOT reach forward onto whatever parks next.
+        st.ack_resolution(2, key).unwrap();
+        assert!(st.resolutions.is_empty());
+        st.ack_resolution(2, key).expect("a retry is not an error");
+    }
+
+    /// A dot ticks rounds after the play that laid it is gone, which is
+    /// exactly why `Effect::source_card` exists — `source_play` cannot do
+    /// this job, as its own doc comment says.
+    #[test]
+    fn test_a_dot_tick_names_the_card_that_laid_it() {
+        let mut st = at_lock();
+        st.arm(2, "cider-01").unwrap(); // a Dot
+        st.set_target(2, "cider-01", Some(0)).unwrap();
+        st.lock_in(1).unwrap();
+        st.lock_in(2).unwrap();
+        st.lock_in(3).unwrap();
+        st.advance_beat().unwrap();
+        st.advance_beat().unwrap();
+        st.resolve().unwrap(); // round 1: laid, no tick
+        st.confirm_report();
+        assert_eq!(st.effects[0].source_card, "cider-01", "the card is kept");
+
+        st.beat = Beat::Resolve;
+        st.resolve().unwrap(); // round 2: it ticks
+        let r = st.pending_resolution().expect("a tick is a blow");
+        let tick = r
+            .for_seat(0)
+            .into_iter()
+            .find(|b| b.kind == crate::lc_report::BlowKind::Dot)
+            .expect("the tick is reported as a Dot");
+        assert_eq!(tick.card_id, "cider-01", "named, rounds later");
+        assert_eq!(tick.source, Some(1), "and still attributed to bob");
+    }
+
+    /// An event moves HP with no author. Reported anyway — a report that
+    /// skipped it would not reconcile with the HP it moved, and an
+    /// unexplained drop is the thing this screen exists to remove.
+    #[test]
+    fn test_an_event_hook_is_reported_with_no_source() {
+        let mut st = at_lock();
+        st.event = Some("last-orders".to_string()); // NoPlayPenalty
+        st.lock_in(1).unwrap();
+        st.lock_in(2).unwrap();
+        st.lock_in(3).unwrap();
+        st.advance_beat().unwrap();
+        st.advance_beat().unwrap();
+        st.resolve().unwrap();
+
+        let r = st
+            .pending_resolution()
+            .expect("an event hit is still a blow");
+        let b = &r.blows[0];
+        assert_eq!(b.source, None, "nobody chose this");
+        assert_eq!(b.card_id, "last-orders", "the event names itself");
+        assert!(!b.title.is_empty());
+        assert_eq!(r.owed.len(), 3, "it landed on everyone who played nothing");
+    }
+
+    /// **Confidentiality, structurally.** A trade's blow names the TRADE
+    /// card, never the card it moved. There is no field on `Blow` a stolen
+    /// card could be written into — which is a stronger guarantee than a
+    /// projection filter, because a filter has to be remembered when a field
+    /// is added and this cannot be got wrong without inventing somewhere to
+    /// put the secret first.
+    #[test]
+    fn test_no_blow_can_name_a_moved_card() {
+        let st = play_trade("wine-11"); // Pickpocket: take, no give
+        let r = st.pending_resolution().expect("a theft is a blow");
+        let taken = r
+            .for_seat(1)
+            .into_iter()
+            .find(|b| b.kind == crate::lc_report::BlowKind::Taken)
+            .expect("the victim is told they were robbed");
+        assert_eq!(taken.card_id, "wine-11", "the trade card names itself");
+        assert_eq!(taken.amount, 1, "one card, never which one");
+
+        // The stolen card is now in the thief's hand. Its id must appear in
+        // no blow anywhere — not in this report, and not on any surface the
+        // public view carries.
+        let stolen = st.players[0]
+            .hand
+            .last()
+            .expect("the thief holds it")
+            .id
+            .clone();
+        assert_ne!(stolen, "wine-11", "rig must not make this vacuous");
+        let view = st.public_view();
+        for res in &view.resolutions {
+            for b in &res.blows {
+                assert_ne!(b.card_id, stolen, "a moved card reached the report");
+            }
+        }
+        assert!(
+            !serde_json::to_string(&view).unwrap().contains(&stolen),
+            "the stolen card leaked into the public view"
+        );
+    }
+
+    /// **Both settle orders.** The report parks alongside a pour, and
+    /// whichever settles LAST owns the rollover. Mutation-testing the pour
+    /// wave showed a single-order test leaves the other guard deletable, so
+    /// both are driven here.
+    #[test]
+    fn test_the_report_and_a_pour_can_park_the_same_round() {
+        // Report last.
+        let mut st = play_pour("beer-10", None);
+        let round = st.round;
+        assert!(!st.resolutions.is_empty(), "the pour is also a blow");
+        let key = st.pours[0].key;
+        for pid in [1, 2, 3, 4] {
+            let Some(seat) = st.seat_of(pid) else {
+                continue;
+            };
+            if !st.pours[0].owed.iter().any(|d| d.seat == seat) {
+                continue;
+            }
+            let id = st.players[seat].hand[0].id.clone();
+            st.pour_discard(pid, key, &[id]).unwrap();
+        }
+        assert!(st.pours.is_empty(), "pour settled first");
+        assert_eq!(st.round, round, "and did NOT roll the round over");
+        st.confirm_report();
+        assert_eq!(st.round, round + 1, "the report, settling last, owns it");
+
+        // Report first.
+        let mut st = play_pour("beer-10", None);
+        let round = st.round;
+        st.confirm_report();
+        assert!(!st.pours.is_empty(), "the pour still stands");
+        assert_eq!(st.round, round, "the report must NOT roll it over");
+        let key = st.pours[0].key;
+        for pid in [1, 2, 3, 4] {
+            let Some(seat) = st.seat_of(pid) else {
+                continue;
+            };
+            if !st.pours[0].owed.iter().any(|d| d.seat == seat) {
+                continue;
+            }
+            let id = st.players[seat].hand[0].id.clone();
+            st.pour_discard(pid, key, &[id]).unwrap();
+        }
+        assert_eq!(st.round, round + 1, "the pour, settling last, owns it");
+    }
+
+    /// A game-ending resolve builds no report. Step 7's D16 freeze returns
+    /// before Step 7.7 ever runs, which is the behaviour we want — but it is
+    /// load-bearing rather than incidental: a report parked on a finished
+    /// game would show a confirm button whose settle can never roll anything
+    /// over, and `parked()` would answer true forever.
+    #[test]
+    fn test_a_game_ending_resolve_builds_no_report() {
+        let mut st = LastCallState::new(vec![(1, "alice".into()), (2, "bob".into())], 1);
+        st.set_vessel(1, Deck::Beer, "can").unwrap();
+        st.set_vessel(2, Deck::Cider, "bottle").unwrap();
+        st.beat = Beat::Lock;
+        st.arm(1, "beer-01").unwrap();
+        st.set_target(1, "beer-01", Some(1)).unwrap();
+        st.lock_in(1).unwrap();
+        st.lock_in(2).unwrap();
+        st.players[1].hp = 1; // one hit from dead
+        st.advance_beat().unwrap();
+        st.advance_beat().unwrap();
+        st.resolve().unwrap();
+
+        assert_eq!(st.outcome(), Some(LcOutcome::Winner(0)));
+        assert!(
+            st.resolutions.is_empty(),
+            "the end card owns this screen; a gate here could never settle"
+        );
+        assert!(
+            !st.parked(),
+            "and the frozen tableau must not read as parked"
+        );
+        assert_eq!(st.beat, Beat::Resolve, "D16 freeze, unchanged");
+    }
+
+    /// A parked report has to survive a reload — the room persists between
+    /// every request, and a gate that evaporated would strand the round.
+    #[test]
+    fn test_a_parked_report_survives_a_snapshot() {
+        let mut st = at_lock();
+        st.arm(1, "beer-01").unwrap();
+        st.set_target(1, "beer-01", Some(1)).unwrap();
+        st.lock_in(1).unwrap();
+        st.lock_in(2).unwrap();
+        st.lock_in(3).unwrap();
+        st.advance_beat().unwrap();
+        st.advance_beat().unwrap();
+        st.resolve().unwrap();
+
+        let back = LastCallState::from_json(&st.to_json());
+        assert_eq!(back.resolutions, st.resolutions);
+        assert!(back.parked(), "and it still holds the round");
+        assert_eq!(back.resolution_seq, st.resolution_seq, "keys keep counting");
+    }
+
+    /// A blob written before the report existed has no `resolutions` field.
+    /// It must load as an unparked room, not a room stuck on a gate it has
+    /// no way to describe.
+    #[test]
+    fn test_a_blob_predating_the_report_loads_unparked() {
+        let st = at_lock();
+        let mut v: serde_json::Value = serde_json::from_str(&st.to_json()).unwrap();
+        let obj = v.as_object_mut().unwrap();
+        obj.remove("resolutions");
+        obj.remove("resolution_seq");
+        let back = LastCallState::from_json(&v.to_string());
+        assert!(back.resolutions.is_empty());
+        assert_eq!(back.resolution_seq, 0);
+        assert!(!back.parked());
+    }
+
+    /// A seat that still owes cards is `Acting` — it is genuinely holding
+    /// the table up, and the phone's "your turn" pulse reads this field.
+    #[test]
+    fn test_a_pour_debt_makes_a_seat_acting() {
+        let mut st = play_pour("beer-10", None);
+        assert_eq!(st.blocking_seats(), vec![0, 1, 2, 3]);
+        let key = st.pours[0].key;
+        let seat = st.seat_of(1).unwrap();
+        let id = st.players[seat].hand[0].id.clone();
+        st.pour_discard(1, key, &[id]).unwrap();
+        // Alice has paid her debt and STILL blocks: the pour and the round
+        // report park the same round, and she was poured, so she owes an
+        // acknowledgement too. Two things to do is two things to do — the
+        // report's phase arm carries no `else` precisely so that settling one
+        // park cannot report the other as finished.
+        assert_eq!(
+            st.seat_phase(0),
+            SeatPhase::Acting,
+            "the report is still hers to confirm"
+        );
+        let rkey = st.resolutions[0].key;
+        st.ack_resolution(1, rkey).unwrap();
+        assert_eq!(st.seat_phase(0), SeatPhase::Waiting, "paid and confirmed");
+        assert_eq!(st.blocking_seats(), vec![1, 2, 3]);
+    }
+
+    /// **Both parks at once.** One player pours while another challenges:
+    /// each settle path must refuse to roll the round over while the other
+    /// is outstanding. A settle that rolled over unconditionally would
+    /// advance the round out from under the other park and strand it.
+    #[test]
+    fn test_a_pour_and_a_challenge_can_park_the_same_round() {
+        let mut st = LastCallState::new(
+            vec![
+                (1, "alice".into()),
+                (2, "bob".into()),
+                (3, "cara".into()),
+                (4, "dave".into()),
+            ],
+            42,
+        );
+        st.set_vessel(1, Deck::Beer, "can").unwrap();
+        st.set_vessel(2, Deck::Liquor, "shot").unwrap();
+        st.set_vessel(3, Deck::Soft, "glass").unwrap();
+        st.set_vessel(4, Deck::Wine, "glass").unwrap();
+        st.beat = Beat::Lock;
+        st.players[0]
+            .hand
+            .push(crate::lc_cards::card_by_id("beer-10").unwrap()); // pour
+        st.players[1]
+            .hand
+            .push(crate::lc_cards::card_by_id("liquor-09").unwrap()); // duel
+        st.arm(1, "beer-10").unwrap();
+        st.arm(2, "liquor-09").unwrap();
+        st.lock_in(1).unwrap();
+        st.lock_in(2).unwrap();
+        let round = st.round;
+        st.advance_beat().unwrap();
+        st.advance_beat().unwrap();
+        st.resolve().unwrap();
+
+        assert_eq!(st.pours.len(), 1, "parked on the pour");
+        assert_eq!(st.challenges.len(), 1, "and on the challenge");
+        assert_eq!(
+            st.phase(),
+            Phase::Challenge,
+            "the contest is the louder of the two"
+        );
+
+        // Settle the pour first. The round must NOT roll over.
+        let key = st.pours[0].key;
+        let payers: Vec<i64> = st.pours[0]
+            .owed
+            .iter()
+            .map(|d| st.players[d.seat].player_id)
+            .collect();
+        for pid in payers {
+            let seat = st.seat_of(pid).unwrap();
+            let id = st.players[seat].hand[0].id.clone();
+            st.pour_discard(pid, key, &[id]).unwrap();
+        }
+        assert!(st.pours.is_empty());
+        assert_eq!(
+            st.round, round,
+            "the challenge still holds the round — settle_pour must not roll over"
+        );
+
+        // Now settle the challenge; that is the last park, so it rolls.
+        let ckey = st.challenges[0].key;
+        let electorate = st.challenges[0].electorate.clone();
+        for seat in electorate {
+            let pid = st.players[seat].player_id;
+            st.challenge_vote(pid, ckey, true).unwrap();
+        }
+        st.confirm_report();
+        assert!(!st.parked());
+        assert_eq!(st.round, round + 1, "the last park rolls the round over");
+    }
+
+    /// The mirror of the test above, settling in the OTHER order.
+    ///
+    /// Both are needed and neither covers the other: each settle path has
+    /// its own "is anything else still parked" guard, and a test that always
+    /// settles the pour first leaves `settle_challenge`'s guard free to be
+    /// deleted with the suite green. Mutation-testing caught exactly that.
+    #[test]
+    fn test_a_challenge_settling_first_does_not_strand_a_pour() {
+        let mut st = LastCallState::new(
+            vec![
+                (1, "alice".into()),
+                (2, "bob".into()),
+                (3, "cara".into()),
+                (4, "dave".into()),
+            ],
+            42,
+        );
+        st.set_vessel(1, Deck::Beer, "can").unwrap();
+        st.set_vessel(2, Deck::Liquor, "shot").unwrap();
+        st.set_vessel(3, Deck::Soft, "glass").unwrap();
+        st.set_vessel(4, Deck::Wine, "glass").unwrap();
+        st.beat = Beat::Lock;
+        st.players[0]
+            .hand
+            .push(crate::lc_cards::card_by_id("beer-10").unwrap());
+        st.players[1]
+            .hand
+            .push(crate::lc_cards::card_by_id("liquor-09").unwrap());
+        st.arm(1, "beer-10").unwrap();
+        st.arm(2, "liquor-09").unwrap();
+        st.lock_in(1).unwrap();
+        st.lock_in(2).unwrap();
+        let round = st.round;
+        st.advance_beat().unwrap();
+        st.advance_beat().unwrap();
+        st.resolve().unwrap();
+        assert_eq!(st.pours.len(), 1);
+        assert_eq!(st.challenges.len(), 1);
+
+        // Challenge first this time.
+        let ckey = st.challenges[0].key;
+        for seat in st.challenges[0].electorate.clone() {
+            let pid = st.players[seat].player_id;
+            st.challenge_vote(pid, ckey, true).unwrap();
+        }
+        assert!(st.challenges.is_empty());
+        assert_eq!(
+            st.round, round,
+            "the pour still holds the round — settle_challenge must not roll over"
+        );
+        assert_eq!(st.phase(), Phase::Pour, "now visibly parked on the pour");
+
+        // Then the pour, which is the last park and owns the rollover.
+        let key = st.pours[0].key;
+        let payers: Vec<i64> = st.pours[0]
+            .owed
+            .iter()
+            .map(|d| st.players[d.seat].player_id)
+            .collect();
+        for pid in payers {
+            let seat = st.seat_of(pid).unwrap();
+            let id = st.players[seat].hand[0].id.clone();
+            st.pour_discard(pid, key, &[id]).unwrap();
+        }
+        st.confirm_report();
+        assert!(!st.parked());
+        assert_eq!(st.round, round + 1);
+    }
+
+    /// The blob round-trips with a pour parked, so a reload during one
+    /// resumes it rather than losing the debts.
+    #[test]
+    fn test_a_parked_pour_survives_a_snapshot() {
+        let st = play_pour("beer-10", None);
+        let back = LastCallState::from_json(&st.to_json());
+        assert_eq!(back.pours, st.pours);
+        assert_eq!(back.pour_seq, st.pour_seq);
+        assert!(back.parked());
+    }
+
+    /// Alice plays a trade card at bob (seat 1) and the round stops.
+    fn play_trade(card: &str) -> LastCallState {
+        let c = crate::lc_cards::card_by_id(card).expect("catalog card");
+        let mut st = LastCallState::new(
+            vec![(1, "alice".into()), (2, "bob".into()), (3, "cara".into())],
+            42,
+        );
+        st.set_vessel(1, c.deck, "glass").unwrap();
+        st.set_vessel(2, Deck::Cider, "bottle").unwrap();
+        st.set_vessel(3, Deck::Soft, "glass").unwrap();
+        st.beat = Beat::Lock;
+        st.players[0].hand.push(c);
+        st.arm(1, card).unwrap();
+        st.set_target(1, card, Some(1)).unwrap();
+        st.lock_in(1).unwrap();
+        st.advance_beat().unwrap();
+        st.advance_beat().unwrap();
+        st.resolve().unwrap();
+        st
+    }
+
+    /// Take-only makes no choice, so it resolves on the spot rather than
+    /// parking — and the card moves hand to hand, never through a pile.
+    #[test]
+    fn test_pickpocket_takes_without_parking() {
+        let mut st = play_trade("wine-11");
+        assert!(st.swaps.is_empty(), "nothing to decide, nothing to park");
+        // Alice gained one (the taken card) and lost one (the played card).
+        assert_eq!(st.players[1].hand.len(), 4, "bob is one down");
+        assert_eq!(st.players[0].hand.len(), 6, "alice is one up");
+        // Hand-to-hand: no pile saw either card beyond the played one.
+        let discarded = st.table.shoe(Deck::Cider).map(|sh| sh.discarded());
+        assert_eq!(
+            discarded,
+            Some(0),
+            "the stolen cider card was not discarded"
+        );
+        st.beat = Beat::Resolve;
+    }
+
+    /// The give parks, because the engine cannot guess which card you would
+    /// rather be rid of.
+    #[test]
+    fn test_a_gift_parks_on_the_choice_and_hands_it_over() {
+        let mut st = play_trade("beer-12");
+        assert_eq!(st.swaps.len(), 1);
+        assert!(st.swaps[0].taken.is_none(), "a gift takes nothing");
+        assert!(st.swaps[0].must_give);
+        assert_eq!(st.phase(), Phase::Pour, "a parked round");
+        assert_eq!(st.seat_phase(0), SeatPhase::Acting, "alice owes a choice");
+        assert_eq!(st.seat_phase(1), SeatPhase::Waiting, "bob just receives");
+
+        let round = st.round;
+        let give = st.players[0].hand[2].id.clone();
+        let key = st.swaps[0].key;
+        let bob_before = st.players[1].hand.len();
+        st.swap_resolve(1, key, true, Some(&give)).unwrap();
+        assert!(st.swaps.is_empty());
+        assert_eq!(st.players[1].hand.len(), bob_before + 1);
+        assert!(st.players[1].hand.iter().any(|c| c.id == give));
+        assert_eq!(st.round, round + 1, "the last park rolls the round over");
+    }
+
+    /// Keeping is a real swap: hand sizes are preserved on both sides.
+    #[test]
+    fn test_a_kept_swap_preserves_both_hand_sizes() {
+        let mut st = play_trade("cider-11");
+        assert_eq!(st.swaps.len(), 1);
+        let taken = st.swaps[0].taken.clone().expect("took a card");
+        let key = st.swaps[0].key;
+        // Bob is already one down — the card is held in the park, not in
+        // either hand.
+        assert_eq!(st.players[1].hand.len(), 4);
+        let give = st.players[0].hand[0].id.clone();
+
+        st.swap_resolve(1, key, true, Some(&give)).unwrap();
+        assert_eq!(st.players[1].hand.len(), 5, "bob got one back");
+        assert_eq!(
+            st.players[0].hand.len(),
+            5,
+            "alice: played one, took one, gave one"
+        );
+        assert!(st.players[0].hand.iter().any(|c| c.id == taken.id));
+        assert!(st.players[1].hand.iter().any(|c| c.id == give));
+    }
+
+    /// Declining puts the card back in its owner's hand — not on a pile, and
+    /// not into the caster's. The pulls stay spent: you paid to look.
+    #[test]
+    fn test_a_declined_swap_returns_the_card_and_moves_nothing_else() {
+        let mut st = play_trade("cider-11");
+        let taken = st.swaps[0].taken.clone().unwrap();
+        let key = st.swaps[0].key;
+        let alice_before = st.players[0].hand.clone();
+
+        st.swap_resolve(1, key, false, None).unwrap();
+        assert!(st.swaps.is_empty());
+        assert_eq!(st.players[1].hand.len(), 5, "bob is whole again");
+        assert!(st.players[1].hand.iter().any(|c| c.id == taken.id));
+        assert_eq!(
+            st.players[0].hand, alice_before,
+            "alice's hand is untouched"
+        );
+    }
+
+    /// **The taken card is private.** Only the caster knows what they pulled
+    /// — that is the entire tension of the card. The park itself is public,
+    /// because the room has to know who it is waiting on.
+    #[test]
+    fn test_a_taken_card_never_reaches_the_public_view() {
+        let st = play_trade("cider-11");
+        let taken = st.swaps[0].taken.clone().unwrap();
+        let view = st.public_view();
+        assert_eq!(view.swaps.len(), 1, "the park is public");
+        assert_eq!(view.swaps[0].source, 0);
+        assert_eq!(view.swaps[0].target, 1);
+        assert!(view.swaps[0].holding, "that a card is held is public");
+        let json = serde_json::to_string(&view).unwrap();
+        assert!(
+            !json.contains(taken.id.as_str()),
+            "the taken card id leaked: {json}"
+        );
+    }
+
+    /// Only the caster may answer, and only with the right key.
+    #[test]
+    fn test_swap_resolve_guards() {
+        let mut st = play_trade("cider-11");
+        let key = st.swaps[0].key;
+        let give = st.players[0].hand[0].id.clone();
+        assert_eq!(
+            st.swap_resolve(2, key, true, Some(&give)),
+            Err(LcError::WrongBeat),
+            "the target does not get a say"
+        );
+        assert_eq!(
+            st.swap_resolve(1, key + 9, true, Some(&give)),
+            Err(LcError::WrongBeat),
+            "a stale key"
+        );
+        assert_eq!(
+            st.swap_resolve(1, key, true, None),
+            Err(LcError::UnknownCard),
+            "keeping owes a card back"
+        );
+        assert_eq!(
+            st.swap_resolve(1, key, true, Some("nope")),
+            Err(LcError::UnknownCard)
+        );
+        // A rejected give must leave the state untouched, not half-applied.
+        assert_eq!(st.swaps.len(), 1);
+        assert_eq!(st.players[0].hand.len(), 5);
+    }
+
+    /// A trade against a target holding nothing has nothing to take. With a
+    /// give owed it still parks; with none it fizzles rather than parking on
+    /// a choice with no content.
+    #[test]
+    fn test_a_trade_on_an_empty_hand() {
+        let c = crate::lc_cards::card_by_id("wine-11").unwrap(); // take-only
+        let mut st = LastCallState::new(
+            vec![(1, "alice".into()), (2, "bob".into()), (3, "cara".into())],
+            42,
+        );
+        st.set_vessel(1, Deck::Wine, "glass").unwrap();
+        st.set_vessel(2, Deck::Cider, "bottle").unwrap();
+        st.set_vessel(3, Deck::Soft, "glass").unwrap();
+        st.beat = Beat::Lock;
+        st.players[0].hand.push(c);
+        st.arm(1, "wine-11").unwrap();
+        st.set_target(1, "wine-11", Some(1)).unwrap();
+        st.lock_in(1).unwrap();
+        let round = st.round;
+        st.advance_beat().unwrap();
+        st.advance_beat().unwrap();
+        st.players[1].hand.clear();
+        st.resolve().unwrap();
+        assert!(st.swaps.is_empty(), "nothing to take and nothing to give");
+        st.confirm_report();
+        assert_eq!(st.round, round + 1, "the round rolled on");
+        assert!(st
+            .log
+            .iter()
+            .any(|e| matches!(e, LogEntry::Fizzle { seat: 0, .. })));
+    }
+
+    /// The take comes off the ENGINE's rng, so the same seed replays the
+    /// same theft — a route sampling it itself is the bug the deck overhaul
+    /// removed.
+    #[test]
+    fn test_a_theft_is_reproducible_from_the_seed() {
+        let a = play_trade("cider-11");
+        let b = play_trade("cider-11");
+        assert_eq!(
+            a.swaps[0].taken.as_ref().map(|c| c.id.clone()),
+            b.swaps[0].taken.as_ref().map(|c| c.id.clone()),
+            "same seed, same card"
+        );
+        assert_ne!(a.rng, LcRng::default(), "the engine rng actually advanced");
+    }
+
+    /// A parked trade survives a reload, taken card included — it lives in
+    /// the blob even though it never reaches `PublicView`.
+    #[test]
+    fn test_a_parked_swap_survives_a_snapshot() {
+        let st = play_trade("cider-11");
+        let back = LastCallState::from_json(&st.to_json());
+        assert_eq!(back.swaps, st.swaps);
+        assert!(back.swaps[0].taken.is_some(), "the held card must persist");
+        assert!(back.parked());
+    }
+
+    #[test]
+    fn test_targets_a_seat_names_both_seat_classes() {
+        assert!(targets_a_seat("one"));
+        assert!(targets_a_seat("other"));
+        for class in ["self", "all", "right", "table", ""] {
+            assert!(!targets_a_seat(class), "{class}");
+        }
+    }
+
     /// D18: seq bumps on every successful mutating transition and on none
     /// that fails. `test_arm_moves_hand_to_armed` already pins arm's bump and
     /// `test_lock_in_stages_plays_and_pays_nothing` pins the idempotent
@@ -5021,36 +9221,45 @@ mod tests {
         st
     }
 
-    /// A same-deck replacement for the card at alice's hand index `i`,
-    /// picked to be an id she doesn't currently hold so "the discard left
-    /// the hand" stays assertable (the engine itself is happy with
-    /// duplicates — F11 sampling).
-    fn replacement_for(st: &LastCallState, i: usize) -> Card {
-        let deck = st.players[0].hand[i].deck;
-        crate::lc_cards::shoe(deck)
-            .iter()
-            .find(|s| !st.players[0].hand.iter().any(|h| h.id == s.id))
-            .unwrap()
-            .clone()
-    }
-
     #[test]
     fn test_mulligan_swaps_cards_and_keeps_hand_size() {
         let mut st = lobby_with_hand();
         let hand_before = st.players[0].hand.len();
-        let discards_before = st.discards.len();
-        let shoe_before = st.deck_counts[0].1; // Beer
+        let shoe_before = deck_count(&st, Deck::Beer);
         let ids = vec![
             st.players[0].hand[0].id.clone(),
             st.players[0].hand[1].id.clone(),
         ];
-        let reps = vec![replacement_for(&st, 0), replacement_for(&st, 1)];
-        st.mulligan(1, &ids, reps).unwrap();
+        st.mulligan(1, &ids).unwrap();
         assert_eq!(st.players[0].hand.len(), hand_before); // size preserved
-        assert!(!st.players[0].hand.iter().any(|c| c.id == ids[0]));
-        assert_eq!(st.discards.len(), discards_before + 2);
-        assert_eq!(st.deck_counts[0].1, shoe_before - 2); // shoe debited
+                                                           // Net shoe movement is zero: two cards went to the discard pile and
+                                                           // two came off the draw pile, so `total()` is unchanged even though
+                                                           // the draw count moved. That is the conservation the counter version
+                                                           // could not express — it only ever decremented.
+        assert_eq!(deck_count(&st, Deck::Beer), shoe_before - 2);
+        assert_eq!(st.players[0].cards_discarded, 2);
         assert_eq!(st.log.last(), Some(&LogEntry::Mulligan { seat: 0, n: 2 }));
+    }
+
+    /// The mechanic the counter version could not have: a discarded card is
+    /// back in the pile it is redrawn from. Mulligan the whole hand on a
+    /// pile drained to nothing else, and the cards you get back can only be
+    /// the ones you just threw.
+    #[test]
+    fn test_a_mulligan_discards_before_it_draws() {
+        let mut st = lobby_with_hand();
+        set_deck_count(&mut st, Deck::Beer, 0); // nothing left to draw
+        let ids: Vec<String> = st.players[0].hand.iter().map(|c| c.id.clone()).collect();
+        let n = ids.len();
+        st.mulligan(1, &ids).unwrap();
+        // Every replacement came from the reshuffled discard pile, so the
+        // hand is the same size and made of the same multiset.
+        assert_eq!(st.players[0].hand.len(), n);
+        let mut got: Vec<String> = st.players[0].hand.iter().map(|c| c.id.clone()).collect();
+        let mut want = ids.clone();
+        got.sort();
+        want.sort();
+        assert_eq!(got, want);
     }
 
     #[test]
@@ -5059,20 +9268,17 @@ mod tests {
         let mut st = lobby_with_hand();
         for _ in 0..2 {
             let id = st.players[0].hand[0].id.clone();
-            let rep = replacement_for(&st, 0);
-            st.mulligan(1, &[id], vec![rep]).unwrap();
+            st.mulligan(1, &[id]).unwrap();
         }
 
         // Round 2: the first swap spends the round's one use.
         let mut st = lobby_with_hand();
         st.round = 2;
         let id = st.players[0].hand[0].id.clone();
-        let rep = replacement_for(&st, 0);
-        st.mulligan(1, &[id], vec![rep]).unwrap();
+        st.mulligan(1, &[id]).unwrap();
         let id = st.players[0].hand[0].id.clone();
-        let rep = replacement_for(&st, 0);
         assert_eq!(
-            st.mulligan(1, std::slice::from_ref(&id), vec![rep]),
+            st.mulligan(1, std::slice::from_ref(&id)),
             Err(LcError::BadDraw)
         );
 
@@ -5081,28 +9287,80 @@ mod tests {
         st.resolve().unwrap();
         assert!(!st.players[0].mulliganed);
         let id = st.players[0].hand[0].id.clone();
-        let rep = replacement_for(&st, 0);
-        st.mulligan(1, &[id], vec![rep]).unwrap();
+        st.mulligan(1, &[id]).unwrap();
     }
 
+    /// The wrong-deck-replacement case is gone with the `replacements`
+    /// parameter: the engine draws each replacement from the discarded
+    /// card's own pile, so a deck mismatch is no longer representable.
     #[test]
-    fn test_mulligan_validates_ids_decks_and_beat() {
+    fn test_mulligan_validates_ids_and_beat() {
         let mut st = lobby_with_hand();
         // Unknown id.
-        let rep = replacement_for(&st, 0);
         assert_eq!(
-            st.mulligan(1, &["no-such-card".into()], vec![rep]),
+            st.mulligan(1, &["no-such-card".into()]),
             Err(LcError::UnknownCard)
         );
-        // Wrong-deck replacement (alice's hand is Beer; hand a Wine back).
+        // Empty request.
+        assert_eq!(st.mulligan(1, &[]), Err(LcError::BadDraw));
+        // Not seated.
         let id = st.players[0].hand[0].id.clone();
-        let wrong = crate::lc_cards::shoe(Deck::Wine)[0].clone();
-        assert_eq!(st.mulligan(1, &[id], vec![wrong]), Err(LcError::BadDraw));
+        assert_eq!(st.mulligan(99, &[id]), Err(LcError::NotSeated));
         // Wrong beat.
         st.beat = Beat::Diplomacy;
         let id = st.players[0].hand[0].id.clone();
-        let rep = replacement_for(&st, 0);
-        assert_eq!(st.mulligan(1, &[id], vec![rep]), Err(LcError::WrongBeat));
+        assert_eq!(st.mulligan(1, &[id]), Err(LcError::WrongBeat));
+    }
+
+    /// A hand can hold real duplicates now (a shoe carries `copies` of a
+    /// card), so naming the same id twice must claim two distinct cards
+    /// rather than the same one twice.
+    /// A hand can hold real duplicates (a shoe carries `copies` of a card),
+    /// so naming the same id twice must claim two DISTINCT hand slots rather
+    /// than the same slot twice.
+    ///
+    /// The property is "two slots were claimed", and it must be measured
+    /// without counting how many cards of that id remain afterwards — the
+    /// replacements come off the same pile, which still holds other copies,
+    /// so a correct engine can legitimately deal one straight back. An earlier
+    /// version asserted `after == before - 2` and therefore failed whenever a
+    /// replacement happened to be another copy: over seeds 0..200 with the
+    /// engine unmodified it failed on 55 of them, passing on `seated()`'s
+    /// seed 42 by luck.
+    ///
+    /// Hand SIZE is the seed-independent witness: two claimed, two replaced.
+    #[test]
+    fn test_mulligan_claims_distinct_hand_cards_for_a_repeated_id() {
+        for seed in [0u64, 1, 7, 42, 99, 1234, 65_535] {
+            let mut st = LastCallState::new(vec![(1, "alice".into()), (2, "bob".into())], seed);
+            st.set_vessel(1, Deck::Beer, "can").unwrap();
+            let dup = st.players[0].hand[0].clone();
+            st.players[0].hand.push(dup.clone());
+            let size_before = st.players[0].hand.len();
+
+            st.mulligan(1, &[dup.id.clone(), dup.id.clone()]).unwrap();
+
+            assert_eq!(
+                st.players[0].hand.len(),
+                size_before,
+                "seed {seed}: two slots claimed, two replacements dealt"
+            );
+            assert_eq!(st.players[0].cards_discarded, 2, "seed {seed}");
+            assert_eq!(
+                st.log.last(),
+                Some(&LogEntry::Mulligan { seat: 0, n: 2 }),
+                "seed {seed}: both discards counted"
+            );
+        }
+
+        // The failure this guards against is claiming the SAME slot twice —
+        // then only one card leaves and one arrives, a single-card swap.
+        let mut st = lobby_with_hand();
+        let one = st.players[0].hand[0].id.clone();
+        let size_before = st.players[0].hand.len();
+        st.mulligan(1, &[one]).unwrap();
+        assert_eq!(st.players[0].hand.len(), size_before);
+        assert_eq!(st.players[0].cards_discarded, 1);
     }
 
     #[test]
@@ -5322,8 +9580,9 @@ mod tests {
             1
         );
 
-        assert!(st.deck_counts.iter().any(|&(_, c)| c == 0));
-        assert!(st.deck_counts.iter().any(|&(_, c)| (1..5).contains(&c)));
+        let counts: Vec<u16> = Deck::ALL.iter().map(|&d| st.deck_count(d)).collect();
+        assert!(counts.contains(&0));
+        assert!(counts.iter().any(|&c| (1..5).contains(&c)));
     }
 
     #[test]
@@ -5355,8 +9614,7 @@ mod tests {
         st.set_vessel(1, Deck::Beer, "can").unwrap(); // shoe 35, hand 5, 8/8
         st.players[0].vessels[0].pulls_left = 2; // most of the can is gone
         let before_seq = st.seq;
-        let drawn = crate::lc_cards::deck_cards(Deck::Beer)[..5].to_vec();
-        st.finish_and_draw(1, 0, drawn).unwrap();
+        st.finish_and_draw(1, 0).unwrap();
         let p = &st.players[0];
         assert_eq!(p.vessels[0].pulls_left, 8); // fresh can
         assert_eq!(p.hand.len(), 10);
@@ -5371,29 +9629,92 @@ mod tests {
         // TBD-5
         let mut st = seated();
         st.set_vessel(1, Deck::Beer, "can").unwrap();
-        let drawn = crate::lc_cards::deck_cards(Deck::Beer)[..5].to_vec();
-        st.finish_and_draw(1, 0, drawn.clone()).unwrap();
-        assert_eq!(st.finish_and_draw(1, 0, drawn), Err(LcError::BadDraw));
+        st.finish_and_draw(1, 0).unwrap();
+        assert_eq!(st.finish_and_draw(1, 0), Err(LcError::BadDraw));
     }
 
+    /// The batch-validation cases (too few cards, a foreign deck in the
+    /// batch) are gone with the `drawn` parameter — a caller can no longer
+    /// name the cards it receives, so there is nothing to validate. What is
+    /// left are the request-shape guards.
     #[test]
-    fn test_finish_and_draw_validates_the_batch() {
+    fn test_finish_and_draw_validates_the_request() {
         let mut st = seated();
-        st.set_vessel(1, Deck::Beer, "can").unwrap(); // shoe 35 → expects 5
-                                                      // Too few:
-        assert_eq!(
-            st.finish_and_draw(1, 0, crate::lc_cards::deck_cards(Deck::Beer)[..4].to_vec()),
-            Err(LcError::BadDraw)
-        );
-        // Right count, wrong deck in the batch:
-        let mut bad = crate::lc_cards::deck_cards(Deck::Beer)[..4].to_vec();
-        bad.push(crate::lc_cards::card_by_id("cider-01").unwrap());
-        assert_eq!(st.finish_and_draw(1, 0, bad), Err(LcError::BadDraw));
+        st.set_vessel(1, Deck::Beer, "can").unwrap();
         // Bad vessel index:
-        assert_eq!(st.finish_and_draw(1, 5, vec![]), Err(LcError::BadDraw));
+        assert_eq!(st.finish_and_draw(1, 5), Err(LcError::BadDraw));
+        // Not seated:
+        assert_eq!(st.finish_and_draw(99, 0), Err(LcError::NotSeated));
         // Wrong beat:
         st.beat = Beat::Deal;
-        assert_eq!(st.finish_and_draw(1, 0, vec![]), Err(LcError::WrongBeat));
+        assert_eq!(st.finish_and_draw(1, 0), Err(LcError::WrongBeat));
+    }
+
+    /// The old with-replacement sampler could deal the same card five times
+    /// from a "40-card shoe". A real pile cannot: drawing the whole Beer
+    /// deck reproduces the catalog's copy counts exactly.
+    #[test]
+    fn test_a_deck_deals_each_copy_once() {
+        let mut st = seated();
+        st.open_deck(Deck::Beer);
+        let all = st.draw_cards(Deck::Beer, LC_DECK_SIZE as usize);
+        assert_eq!(all.len(), LC_DECK_SIZE as usize);
+        for def in crate::lc_cards::CATALOG
+            .iter()
+            .filter(|d| d.deck == Deck::Beer)
+        {
+            let n = all.iter().filter(|c| c.id == def.id).count();
+            assert_eq!(n, def.copies as usize, "{}", def.id);
+        }
+        assert_eq!(deck_count(&st, Deck::Beer), 0);
+    }
+
+    /// Five players on Cider exhausts `cider-04` (4 copies, the scarcest
+    /// opener), so the fifth cannot be dealt the named set. They must still
+    /// get five cards — substituted off the top of the pile — rather than a
+    /// silently short hand.
+    #[test]
+    fn test_a_crowded_deck_still_deals_five_opening_cards() {
+        let mut st = LastCallState::new((1..=5).map(|i| (i as i64, format!("p{i}"))).collect(), 42);
+        for pid in 1..=5i64 {
+            st.set_vessel(pid, Deck::Cider, "pint").unwrap();
+            assert_eq!(
+                st.players[(pid - 1) as usize].hand.len(),
+                5,
+                "player {pid} was short-changed"
+            );
+        }
+        // The pile paid for all 25 of them and nothing was conjured. Note a
+        // substituted card MAY duplicate one already in that hand — a shuffled
+        // pile holds `copies` of a card and the substitute is whatever is on
+        // top. Full hands matter; distinctness was never the promise.
+        assert_eq!(st.deck_count(Deck::Cider), LC_DECK_SIZE - 25);
+        // `cider-04` really is exhausted — this test would pass vacuously
+        // if the scarcity it targets ever disappeared.
+        assert!(
+            !st.table
+                .shoe(Deck::Cider)
+                .unwrap()
+                .draw_pile
+                .iter()
+                .any(|c| c.id == "cider-04"),
+            "the scarcity this test targets is gone; re-pick the card"
+        );
+    }
+
+    /// Two seats on the same deck share one pile — the second `set_vessel`
+    /// must not re-open it and deal 40 fresh cards into circulation.
+    #[test]
+    fn test_two_players_on_one_deck_share_the_pile() {
+        let mut st = seated();
+        st.set_vessel(1, Deck::Beer, "can").unwrap();
+        let after_first = deck_count(&st, Deck::Beer);
+        st.set_vessel(2, Deck::Beer, "bottle").unwrap();
+        assert!(
+            deck_count(&st, Deck::Beer) < after_first,
+            "the second opening hand must come off the SAME pile"
+        );
+        assert_eq!(st.table.shoes.len(), 1);
     }
 
     #[test]
@@ -5401,13 +9722,14 @@ mod tests {
         // D7
         let mut st = seated();
         st.set_vessel(1, Deck::Beer, "can").unwrap();
-        set_deck_count(&mut st, Deck::Beer, 3); // shoe nearly out → expects 3
-        let five = crate::lc_cards::deck_cards(Deck::Beer)[..5].to_vec();
-        assert_eq!(st.finish_and_draw(1, 0, five), Err(LcError::BadDraw));
-        let three = crate::lc_cards::deck_cards(Deck::Beer)[..3].to_vec();
-        st.finish_and_draw(1, 0, three).unwrap();
+        set_deck_count(&mut st, Deck::Beer, 3); // shoe nearly out
+        let hand_before = st.players[0].hand.len();
+        // Asking for five off a pile of three deals three — short, not an
+        // error. The caller no longer computes the min; the pile does.
+        st.finish_and_draw(1, 0).unwrap();
         assert_eq!(deck_count(&st, Deck::Beer), 0);
-        assert_eq!(st.players[0].hand.len(), 8);
+        assert_eq!(st.players[0].hand.len(), hand_before + 3);
+        assert_eq!(st.players[0].draws_this_round, 3);
     }
 
     /// M7 (D7 taken to its edge): an empty shoe makes `expected = 0`, so an
@@ -5422,7 +9744,7 @@ mod tests {
         set_deck_count(&mut st, Deck::Beer, 0);
         st.players[0].vessels[0].pulls_left = 2; // most of the can is gone
         let hand_before = st.players[0].hand.len();
-        st.finish_and_draw(1, 0, vec![]).unwrap();
+        st.finish_and_draw(1, 0).unwrap();
         assert_eq!(st.players[0].vessels[0].pulls_left, 8); // still refills
         assert_eq!(st.players[0].hand.len(), hand_before); // nothing to draw
         assert_eq!(st.players[0].draws_this_round, 0);
@@ -5436,10 +9758,11 @@ mod tests {
         st.advance_beat().unwrap(); // Reveal
         st.advance_beat().unwrap(); // Resolve
         st.resolve().unwrap();
+        st.confirm_report();
         assert_eq!(st.players[1].hp, 9); // 15 - 2 (beer-01) - 4 (beer-02)
         assert_eq!(st.players[0].hp, 9); // 15 - 6 (cider-04)
         assert!(st.plays.is_empty()); // the queue empties every round (§14)
-        assert_eq!(st.discards.len(), 3);
+        assert_eq!(discard_count(&st), 3);
         assert_eq!(st.round, 2);
         assert_eq!(st.beat, Beat::Draw);
         assert_eq!(st.first_seat, 1); // rotated (D13)
@@ -5489,7 +9812,7 @@ mod tests {
         });
         st.resolve().unwrap();
         assert_eq!(st.players[1].hp, STARTING_HP); // untouched
-        assert_eq!(st.discards.len(), 1); // the card still leaves play (8.4)
+        assert_eq!(discard_count(&st), 1); // the card still leaves play (8.4)
     }
 
     /// M3: a `targets == "one"` play whose target seat no longer exists
@@ -5508,7 +9831,7 @@ mod tests {
         });
         st.resolve().unwrap();
         assert!(st.players.iter().all(|p| p.hp == STARTING_HP));
-        assert_eq!(st.discards.len(), 1);
+        assert_eq!(discard_count(&st), 1);
     }
 
     /// M3: a stored `Effect` naming a subject seat that no longer exists is
@@ -5524,6 +9847,7 @@ mod tests {
             magnitude: 5,
             expires_round: 99,
             source_seat: 0,
+            source_card: String::new(),
         });
         st.resolve().unwrap(); // must not panic
     }
@@ -5572,7 +9896,7 @@ mod tests {
         assert!(st.players[1].hand.is_empty()); // ghosts hold no cards (9.2)
         assert_eq!(st.players[0].vessels[0].pulls_left, 5); // 7.5: no refund
                                                             // beer-01 + beer-02 + cider-04 + bob's 4 hand cards:
-        assert_eq!(st.discards.len(), 7);
+        assert_eq!(discard_count(&st), 7);
         assert_eq!(st.outcome(), None); // cara still stands
     }
 
@@ -5611,6 +9935,7 @@ mod tests {
         st.advance_beat().unwrap();
         st.advance_beat().unwrap();
         st.resolve().unwrap(); // round 1: created, no tick
+        st.confirm_report();
         assert_eq!(st.players[0].hp, 15);
         assert_eq!(st.effects.len(), 1);
         assert_eq!(st.effects[0].expires_round, 3); // 1 + cider-01's 2 rounds
@@ -5622,6 +9947,7 @@ mod tests {
             // change hp for reasons unrelated to curse-duration semantics.
             st.beat = Beat::Resolve;
             st.resolve().unwrap();
+            st.confirm_report();
             assert_eq!(st.players[0].hp, expected_hp);
         }
         assert!(st.effects.is_empty()); // expired after round 3
@@ -5642,6 +9968,7 @@ mod tests {
             magnitude: 2,
             expires_round: 9,
             source_seat: 0,
+            source_card: String::new(),
         });
         st.arm(2, "cider-01").unwrap();
         st.set_target(2, "cider-01", Some(0)).unwrap();
@@ -5668,6 +9995,7 @@ mod tests {
             magnitude: 3,
             expires_round: 9,
             source_seat: 0,
+            source_card: String::new(),
         });
         st.arm(1, "beer-02").unwrap(); // 4 dmg → bob
         st.set_target(1, "beer-02", Some(1)).unwrap();
@@ -5690,12 +10018,20 @@ mod tests {
                                     // discard copy one's first four ids (cider-01..04) instead of copy
                                     // two's last four (cider-05..08), and those two id sets are disjoint
                                     // enough to catch it without any suffixing trick.
-        st.players[1].hand = std::iter::repeat_n(crate::lc_cards::deck_cards(Deck::Cider), 2)
-            .flatten()
-            .collect(); // 16
+                                    // Shoe cards only. `deck_cards` also returns the deck's `copies: 0`
+                                    // prototypes (the challenge and reveal waves), and this test's whole
+                                    // argument rests on two disjoint four-id sets falling either side of
+                                    // the cap — a ninth id per copy shifts that split and the assertion
+                                    // below stops testing newest-first at all.
+        let cider: Vec<Card> = crate::lc_cards::deck_cards(Deck::Cider)
+            .into_iter()
+            .filter(|c| crate::lc_cards::card_in_shoe(&c.id))
+            .collect();
+        assert_eq!(cider.len(), 8, "eight shoe-carrying Cider cards");
+        st.players[1].hand = std::iter::repeat_n(cider, 2).flatten().collect(); // 16
         st.resolve().unwrap();
         assert_eq!(st.players[1].hand.len(), HAND_SOFT_CAP);
-        assert_eq!(st.discards.len(), 4);
+        assert_eq!(discard_count(&st), 4);
         // Survivors: all 8 of copy one plus copy two's first four
         // (cider-01..04 again); discards: copy two's last four
         // (cider-05..08) — the newest cards, dropped from the end of the
@@ -5710,9 +10046,8 @@ mod tests {
                 "cider-08", "cider-01", "cider-02", "cider-03", "cider-04",
             ]
         );
-        let discard_ids: Vec<&str> = st.discards.iter().map(|c| c.id.as_str()).collect();
         assert_eq!(
-            discard_ids,
+            discard_ids(&st),
             vec!["cider-05", "cider-06", "cider-07", "cider-08"]
         );
     }
@@ -5722,14 +10057,14 @@ mod tests {
         // 8.4, §12
         let mut st = at_lock();
         set_deck_count(&mut st, Deck::Beer, 0);
-        st.discards = crate::lc_cards::deck_cards(Deck::Beer)[..3].to_vec();
-        st.discards
-            .push(crate::lc_cards::card_by_id("cider-01").unwrap());
+        let mut seed = crate::lc_cards::deck_cards(Deck::Beer)[..3].to_vec();
+        seed.push(crate::lc_cards::card_by_id("cider-01").unwrap());
+        push_discards(&mut st, seed);
         st.advance_beat().unwrap();
         st.advance_beat().unwrap();
         st.resolve().unwrap();
         assert_eq!(deck_count(&st, Deck::Beer), 3);
-        assert_eq!(st.discards.len(), 1); // the cider card stays put
+        assert_eq!(discard_count(&st), 1); // the cider card stays put
     }
 
     #[test]
@@ -5867,7 +10202,7 @@ mod tests {
         st.beat = Beat::Resolve;
         st.resolve().unwrap();
         assert!(st.players.iter().all(|p| p.hp == 15));
-        assert_eq!(st.discards.len(), 1); // still discarded (8.4)
+        assert_eq!(discard_count(&st), 1); // still discarded (8.4)
     }
 
     #[test]
@@ -5942,7 +10277,7 @@ mod tests {
         st.beat = Beat::Resolve;
         st.resolve().unwrap();
         assert!(st.players.iter().all(|p| p.hp == 15)); // no subject resolved, nothing hit
-        assert_eq!(st.discards.len(), 1); // card still leaves play (8.4)
+        assert_eq!(discard_count(&st), 1); // card still leaves play (8.4)
     }
 
     // Plan H Task 2: events in the engine.
@@ -6149,11 +10484,13 @@ mod tests {
             magnitude: 1,
             expires_round: 9,
             source_seat: 0,
+            source_card: String::new(),
         });
         st.event = Some("house-pour".into());
         st.advance_beat().unwrap();
         st.advance_beat().unwrap();
         st.resolve().unwrap();
+        st.confirm_report();
         assert_eq!(st.players[0].hp, 13); // 15 - 1*2 — and event now cleared
                                           // The rollover already cleared `event` (H2). Step straight to
                                           // Resolve rather than walking Draw->Deal again: that edge would
@@ -6165,6 +10502,7 @@ mod tests {
         assert_eq!(st.event, None);
         st.beat = Beat::Resolve;
         st.resolve().unwrap();
+        st.confirm_report();
         assert_eq!(st.players[0].hp, 12); // back to 1 per tick
     }
 
@@ -6301,6 +10639,11 @@ mod tests {
             damage_dealt: 0,
             pulls_spent: 0,
             cards_played: 0,
+            cards_drawn: 0,
+            cards_discarded: 0,
+            drinks: 0,
+            damage_taken: 0,
+            healing_taken: 0,
             elim_order: None,
             rules: Vec::new(),
         };
@@ -6341,6 +10684,7 @@ mod tests {
         st.advance_beat().unwrap();
         st.advance_beat().unwrap();
         st.resolve().unwrap();
+        st.confirm_report();
         assert!(st.tab_ledger.is_empty()); // hostile play: not met
                                            // Round 2: a heal alone settles it.
         st.players[2].tabs = vec!["peacemaker".into()]; // re-pin for isolation
@@ -6351,6 +10695,7 @@ mod tests {
         st.advance_beat().unwrap();
         st.advance_beat().unwrap();
         st.resolve().unwrap();
+        st.confirm_report();
         assert_eq!(st.tab_ledger.len(), 1);
         assert_eq!(st.tab_ledger[0].tab, "peacemaker");
     }
@@ -6426,6 +10771,7 @@ mod tests {
             magnitude: 10, // kills bob at Step 2's tick, before anyone plays
             expires_round: 5,
             source_seat: 0,
+            source_card: String::new(),
         });
         st.beat = Beat::Resolve; // nobody plays — alice's round stays empty
         st.resolve().unwrap();
@@ -6640,9 +10986,10 @@ mod tests {
         st.play_reaction(2, "cider-08", 1).unwrap();
         st.advance_beat().unwrap(); // Reveal → Resolve
         st.resolve().unwrap();
+        st.confirm_report();
         assert_eq!(st.players[1].hp, 15); // cancelled
         assert_eq!(st.players[0].vessels[0].pulls_left, 6); // 7.5: no refund
-        assert_eq!(st.discards.len(), 2); // beer-02 + cider-08
+        assert_eq!(discard_count(&st), 2); // beer-02 + cider-08
         assert!(st.reactions.is_empty());
         assert_eq!(st.round, 2); // rollover unbothered
     }
@@ -6754,7 +11101,7 @@ mod tests {
         st.advance_beat().unwrap();
         st.resolve().unwrap();
         assert_eq!(st.players[1].hp, 15); // cancelled once; the echo fizzled
-        assert_eq!(st.discards.len(), 3); // the play + both reactions
+        assert_eq!(discard_count(&st), 3); // the play + both reactions
     }
 
     /// Self-review: a reaction charged and folded in still gets wasted if
@@ -6865,6 +11212,7 @@ mod tests {
         assert_eq!(st.haunt(3, 1), Err(LcError::AlreadyHaunted)); // one per round
         st.advance_beat().unwrap();
         st.resolve().unwrap();
+        st.confirm_report();
         assert_eq!(st.players[1].hp, 10); // 15 − (4 + HAUNT_BONUS)
         assert!(st.haunts.is_empty());
 
@@ -7026,6 +11374,7 @@ mod tests {
             magnitude: 999,
             expires_round: 99,
             source_seat: 0,
+            source_card: String::new(),
         });
         st.resolve().unwrap();
         assert_eq!(st.players[1].status, Status::Eliminated);
@@ -7040,6 +11389,7 @@ mod tests {
             magnitude: 999,
             expires_round: 99,
             source_seat: 0,
+            source_card: String::new(),
         });
         st.resolve().unwrap();
         assert_eq!(st.players[2].status, Status::Eliminated);
@@ -7231,7 +11581,7 @@ mod tests {
         assert!(ch.votes.is_empty());
         assert_eq!(ch.round, 1);
         // The card left play like any other resolved play.
-        assert!(st.discards.iter().any(|c| c.id == "liquor-09"));
+        assert!(st.discards().iter().any(|c| c.id == "liquor-09"));
         assert!(st.log.iter().any(|e| matches!(
             e,
             LogEntry::ChallengeOpen {
@@ -7307,6 +11657,7 @@ mod tests {
         st.play_reaction(2, "cider-08", key).unwrap();
         st.advance_beat().unwrap(); // -> Resolve
         st.resolve().unwrap();
+        st.confirm_report();
         assert!(!st.challenge_pending());
         assert_eq!(st.round, 2, "round rolled over normally");
         assert_eq!(st.beat, Beat::Draw);
@@ -7624,6 +11975,7 @@ mod tests {
             magnitude: 7,
             expires_round: 2,
             source_seat: 2,
+            source_card: String::new(),
         });
         let hp = st.players[2].hp;
         vote(&mut st, 2, true).unwrap(); // cara loses Bar Court's 4
@@ -7716,6 +12068,7 @@ mod tests {
         );
         vote(&mut st, 1, true).unwrap();
         vote(&mut st, 2, true).unwrap();
+        st.confirm_report();
         assert_eq!(st.round, 2);
         assert_eq!(st.pact_breaks[0].round, st.round, "visible all round 2");
     }
@@ -7725,10 +12078,13 @@ mod tests {
         let mut st = seated();
         st.set_vessel(1, Deck::Liquor, "glass").unwrap();
         set_deck_count(&mut st, Deck::Liquor, 0);
-        st.discards
-            .push(crate::lc_cards::card_by_id("liquor-09").unwrap());
-        st.discards
-            .push(crate::lc_cards::card_by_id("liquor-01").unwrap());
+        push_discards(
+            &mut st,
+            vec![
+                crate::lc_cards::card_by_id("liquor-09").unwrap(),
+                crate::lc_cards::card_by_id("liquor-01").unwrap(),
+            ],
+        );
         st.rollover(st.pact_breaks.len());
         assert_eq!(
             deck_count(&st, Deck::Liquor),
@@ -7736,7 +12092,7 @@ mod tests {
             "only the copies>=1 card reclaims"
         );
         assert!(
-            st.discards.iter().any(|c| c.id == "liquor-09"),
+            st.discards().iter().any(|c| c.id == "liquor-09"),
             "the prototype stays in discards"
         );
     }

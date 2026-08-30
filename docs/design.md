@@ -204,6 +204,60 @@ nested via `nest_service` in `main.rs`. Its templates do NOT extend
   roller while everyone else sees a `data-hide-player`-gated spectator banner
   for the same moment.
 
+### Last Call engine
+
+The engine (`last_call.rs`) is a pure state machine — no I/O, no SQL, and no
+*ambient* randomness. Player-facing rules live in `drinkinggame/RULES.md`.
+Four modules carry the pieces that used to be implicit:
+
+- **`lc_deck`** — real card decks. Each opened deck is a `Shoe` with a
+  `draw_pile` and a `discard_pile`; `LcTable` owns them. This replaced
+  `deck_counts: Vec<(Deck, u16)>`, which counted how many cards a deck had
+  left without tracking *which* — identity was sampled in the route layer
+  *with replacement*, so a 40-card shoe could deal 40 copies of one card and
+  `copies` set probability rather than scarcity. Cards are now conserved:
+  the total across piles, hands, armed slots and locked plays never changes.
+  `PublicView::deck_counts`/`discard_counts` still project the old shapes, so
+  the render layer never saw this change.
+- **`lc_rng`** — SplitMix64, seeded from and stored in the state blob. Every
+  shuffle and deal runs through it, so a game is reproducible from its seed
+  and a snapshot resumes the stream exactly. The engine keeps its purity
+  claim: it has no ambient randomness, it has a counter it advances. The one
+  `rand::thread_rng()` left in the crate is the room-creation seed in
+  `lc_routes` — the entropy boundary, and the right place for it.
+- **`lc_phase`** — `Phase` (Lobby/Playing/Challenge/Finished) and `SeatPhase`
+  (Acting/Ready/Locked/Waiting/Ghost/Done), both derived, never stored.
+  `SeatPhase` is the anti-desync piece: "is the table waiting on this seat?"
+  is computed once on the server and read off `PublicSeat::phase`, rather
+  than each client recombining `locked`/`ready`/`drawing`/`status` and the
+  beat for itself. Each arm mirrors what actually *advances* that beat —
+  note Diplomacy is lock-gated, not ready-gated (`set_ready` accepts only
+  Draw and Reveal), which two comments in the tree used to get wrong.
+- **`lc_triggers`** — card-triggered table events, as distinct from
+  `lc_events`'s one scheduled round event. A trigger fires the moment a card
+  is drawn, played or discarded and holds the table until every Alive seat
+  acknowledges. Ships with the machinery and one worked example
+  (`salute-the-leader`) pointed at a card id that is not in the catalog yet;
+  wiring a real one up is a `TriggerDef` plus the card, no engine change.
+
+**Engine API.** Everything that moves a card goes through `draw_cards` /
+`deal` / `discard` / `reshuffle_deck`, and everything that changes a player
+goes through `damage` / `heal` / `shield` / `drain`. That is a real
+invariant, not a convention: `resolve()`'s effect match, the dot ticks, the
+event hooks, the challenge penalties and the tab rewards all call the same
+five functions, which is what keeps shields, the HP clamp, elimination and
+the stat counters decided in one place. The `_quiet` variants exist for the
+table-wide hooks, which are announced by their own banner and would
+otherwise emit a per-seat log line each.
+
+**Save compatibility.** A blob written before `table` existed cannot have its
+piles reconstructed — the cards in a deck were never recorded, only counted —
+so `from_json` rebuilds them from the blob's own `rng_seed`. Hands, HP,
+effects, pacts and the log survive; draw order and discard piles reset. The
+guard (`!players.is_empty() && table.shoes.is_empty()`) is load-bearing in
+the same way migration 018's is: re-running the rebuild on a live table would
+deal 40 fresh cards per deck and duplicate every card already in a hand.
+
 ---
 
 ## What not to do

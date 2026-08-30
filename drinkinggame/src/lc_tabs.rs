@@ -210,6 +210,11 @@ mod tests {
             damage_dealt: 0,
             pulls_spent: 0,
             cards_played: 0,
+            cards_drawn: 0,
+            cards_discarded: 0,
+            drinks: 0,
+            damage_taken: 0,
+            healing_taken: 0,
             elim_order: None,
             rules: Vec::new(),
         }
