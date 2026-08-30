@@ -280,5 +280,147 @@ eq(positionsLeft(emptyState(), 'back'), 10, 'the extra length all lands behind t
 eq(zone('back')[0], 'r5-left', 'back-door work still starts at row 5');
 eq(zone('back')[zone('back').length - 1], 'r9-right', 'and now runs to row 9');
 
+// ── 10. beginning a customer at a door ──────────────────────────────────────
+// The queue is the way in: pick a stop, name a door, and that claims a spot.
+// Almost nothing here is a hard no — the board's job is to say which choice is
+// worse and let the driver make it anyway.
+{
+  configure({});
+  var b = emptyState();
+  eq(beginState(b, 'OLA', 'side').kind, 'ready', 'the first stop in loading order starts clean');
+  eq(beginState(b, 'OLA', 'side').spot, 'side-1', 'on the first free side spot');
+  eq(beginState(b, 'JAT', 'side').kind, 'order', 'anyone else is amber, not blocked');
+  ok(/Olavstoppen loads first/.test(beginState(b, 'JAT', 'side').why), 'and told who goes ahead of them');
+
+  eq(doBegin(b, 'OLA', 'side'), 'side-1', 'beginning stages them');
+  eq(beginState(b, 'OLA', 'side').kind, 'packing', 'tapping the same door again just points at the spot');
+  eq(doBegin(b, 'OLA', 'side'), 'side-1', 'and changes nothing');
+
+  // The other door is a decision, not a mistake: a door can shut on a half-built
+  // stack and the answer is to carry it round.
+  doBump(b, 'side-1', 3);
+  eq(beginState(b, 'OLA', 'back').kind, 'move', 'tapping the other door offers to carry it round');
+  eq(doBegin(b, 'OLA', 'back'), 'back-1', 'and doing it lands them on a back spot');
+  eq(b.staged['side-1'], null, 'the side spot is given up');
+  eq(b.staged['back-1'].n, 3, 'and the crates already stacked come with them');
+  eq(SPOTS.filter(function (sp) { return b.staged[sp.id]; }).length, 1, 'so only one spot is ever holding them');
+
+  doBegin(b, 'JAT', 'side'); doBegin(b, 'HIN', 'side'); doBegin(b, 'SVE', 'side');
+  eq(beginState(b, 'FRO', 'side').kind, 'nospot', 'with all three side spots holding, there is nowhere to start');
+  eq(beginState(b, 'FRO', 'back').kind, 'order', 'but the back is still open');
+  eq(beginState(b, 'JAT', 'back').kind, 'move', 'and a staged stop can still be carried to it');
+  doBegin(b, 'FRO', 'back');
+  eq(beginState(b, 'JAT', 'back').kind, 'nospot', 'until the back spots are full too');
+  ok(/nowhere to carry it to/.test(beginState(b, 'JAT', 'back').why), 'which it says in those words');
+
+  // A split reserves a position on the door it was planned for; carrying the
+  // rest round the van means that reservation is no longer where it is going.
+  var c2 = emptyState();
+  doBegin(c2, 'OLA', 'side'); c2.held['r1-right'] = 'OLA';
+  doMoveSpot(c2, 'side-1', 'back');
+  eq(Object.keys(c2.held).length, 0, 'carrying a stack round releases what its split had held');
+
+  b.closed['MAR'] = true;
+  eq(beginState(b, 'MAR', 'side').kind, 'closed', 'a closed stop offers to reopen instead');
+}
+{
+  // Once rows 1–4 are full nothing pushes in that way — but the well is still
+  // floor, and that is a warning about the door, not a refusal of the spot.
+  var b = emptyState();
+  for (var r = 1; r <= 4; r++) { b.van['r' + r + '-left'] = [{ cust: 'OLA', n: 4 }]; b.van['r' + r + '-right'] = [{ cust: 'OLA', n: 4 }]; }
+  var bs = beginState(b, 'OLA', 'side');
+  eq(bs.kind, 'well', 'with the door shut the side spot still takes a stack');
+  ok(bs.spot, 'and still names one');
+  b.van['door-side'] = [{ cust: 'JAT', n: 2 }];
+  eq(beginState(b, 'OLA', 'side').kind, 'shut', 'only once the well is taken too is the side door genuinely out');
+  eq(beginState(b, 'OLA', 'side').spot, null, 'and then it offers no spot');
+}
+
+// ── 11. what a push commits when nobody counted ─────────────────────────────
+// Only ever inferred from something real. With nothing behind it to ramp off,
+// the honest answer is that there is no answer.
+{
+  configure({});
+  var b = emptyState();
+  eq(suggestAt(b, 'r1-left'), null, 'an empty column suggests nothing');
+  b.van['r1-left'] = [{ cust: 'OLA', n: 5 }];
+  eq(suggestAt(b, 'r2-left'), 5, 'behind a five, five keeps the ramp flat');
+  eq(suggestAt(b, 'r2-right'), null, 'and the other column is a separate question');
+  b.van['r1-left'] = [{ cust: 'OLA', n: null }];
+  eq(suggestAt(b, 'r2-left'), null, 'an uncounted neighbour is not something to infer from');
+  b.van['r1-left'] = [{ cust: 'OLA', n: 8 }];
+  b.van['r3-left'] = [{ cust: 'JAT', n: 2 }];
+  eq(suggestAt(b, 'r2-left'), 5, 'between an eight and a two the only legal height is five');
+}
+
+// ── 12. one order on top of another ─────────────────────────────────────────
+// Whoever is delivered EARLIER goes on top, so they come off without disturbing
+// the one underneath. Everything else about the move is a preference; that is
+// the rule.
+{
+  configure({});
+  var b = emptyState();
+  b.van['r1-left']  = [{ cust: 'OLA', n: 4 }];   // stop 6, delivered last
+  b.van['r1-right'] = [{ cust: 'OLA', n: 4 }];
+  b.van['r2-left']  = [{ cust: 'JAT', n: 3 }];   // stop 5
+  doAssign(b, 'side-1', 'HIN'); doBump(b, 'side-1', 2);   // stop 4, delivered before both
+  var hosts = stackHosts(b, 'side-1', 2);
+  eq(hosts.map(function (h) { return h.id; }), ['r2-left', 'r1-left', 'r1-right'],
+    'the outermost legal host comes first, so nobody is buried deeper than they need to be');
+
+  var tu = topUpState(b, 'side-1', null, 2);
+  eq(tu.kind, 'ready', 'and it is offered');
+  eq(tu.host.id, 'r2-left', 'on that outermost stack');
+  ok(/delivered later, so this comes off first/.test(tu.why), 'saying why that is the right way up');
+  eq(topUpState(b, 'side-1', 'r1-right', 2).kind, 'chosen', 'a hand-picked host is honoured');
+  eq(topUpState(b, 'side-1', 'r9-left', 2).host.id, 'r2-left', 'and an illegal one is ignored rather than obeyed');
+
+  // A leftover crate going back onto the same customer's own stack is the
+  // whole point of the gesture, and is never mixing.
+  doAssign(b, 'side-3', 'OLA'); doBump(b, 'side-3', 1);
+  ok(stackHosts(b, 'side-3', 1).some(function (h) { return h.id === 'r1-right'; }),
+    'a customer can always top up their own stack');
+  eq(stackHosts(b, 'side-3', 1).filter(function (h) { return h.id === 'r2-left'; }).length, 0,
+    'but the last delivery never goes on top of an earlier one');
+}
+{
+  // …and when everything aboard is delivered before them, there is no host at
+  // all: they belong underneath, which means a position of their own.
+  configure({});
+  var b = emptyState();
+  b.van['r1-left'] = [{ cust: 'JAT', n: 3 }];    // stop 5
+  b.van['r1-right'] = [{ cust: 'HIN', n: 3 }];   // stop 4
+  doAssign(b, 'side-1', 'OLA'); doBump(b, 'side-1', 2);   // stop 6, delivered last
+  eq(stackHosts(b, 'side-1', 2).length, 0, 'a stop delivered after everything aboard has nowhere to go on top');
+  eq(topUpState(b, 'side-1', null, 2).kind, 'nohost', 'so nothing is offered');
+  ok(/would have to go underneath/.test(topUpState(b, 'side-1', null, 2).why), 'and the reason names itself');
+}
+{
+  // The roof and the ramp bound it as well as the delivery order.
+  configure({});
+  var b = emptyState();
+  b.van['r1-left'] = [{ cust: 'OLA', n: 8 }];
+  doAssign(b, 'side-1', 'HIN'); doBump(b, 'side-1', 1);
+  eq(stackHosts(b, 'side-1', 1).length, 0, 'a stack already at the roof takes nothing');
+  b.van['r1-left'] = [{ cust: 'OLA', n: 4 }];
+  b.van['r2-left'] = [{ cust: 'OLA', n: 1 }];
+  eq(stackHosts(b, 'side-1', 3).filter(function (h) { return h.id === 'r1-left'; }).length, 0,
+    'and one that would break its own neighbour is not a host either');
+}
+{
+  // A top-up moves part of the pile and leaves the rest staged, so a leftover
+  // crate does not close the whole order out.
+  configure({});
+  var b = emptyState();
+  b.van['r1-left'] = [{ cust: 'OLA', n: 4 }];
+  doAssign(b, 'side-1', 'HIN'); doBump(b, 'side-1', 5);
+  doStack(b, 'side-1', 'r1-left', 1);
+  eq(heightOf(b, 'r1-left'), 5, 'one crate went up');
+  eq(b.staged['side-1'].n, 4, 'and four are still on the spot');
+  doStack(b, 'side-1', 'r1-left');
+  eq(b.staged['side-1'].n, 0, 'moving the rest empties it');
+  eq(heightOf(b, 'r1-left'), 9, 'and every crate is accounted for');
+}
+
 console.log((fails ? 'FAILED ' : 'passed ') + (checks - fails) + '/' + checks + ' checks');
 process.exit(fails ? 1 : 0);

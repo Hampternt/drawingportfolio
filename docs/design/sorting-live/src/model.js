@@ -562,6 +562,154 @@ function stackHost(st, spotId) {
   return best;
 }
 
+// ── beginning a customer ─────────────────────────────────────────────────────
+// The queue is the way in now: pick a stop, say which door you are packing it
+// at, and that claims a packing spot. Everything after that — push in, on top,
+// done — happens against the spot, so the door is chosen once rather than
+// re-derived on every tap.
+function freeSpotAt(st, door) {
+  return SPOTS.filter(function (s) { return s.door === door && !st.staged[s.id]; })[0] || null;
+}
+// Amber is the default answer here. Almost nothing about starting a customer at
+// a door is genuinely impossible — it is just sometimes a worse idea than the
+// alternative, and the board's job is to say which and let the driver decide.
+function beginState(st, cust, door) {
+  if (st.closed[cust]) {
+    return { kind: 'closed', label: 'Reopen', spot: null,
+      why: CUST[cust].name + ' is closed out. Reopen it and their crates can go in again.' };
+  }
+  var mine = spotHolding(st, cust);
+  if (mine && mine.door === door) {
+    return { kind: 'packing', label: 'On ' + mine.name, spot: mine.id, why: '' };
+  }
+  if (mine) {
+    // They are on the other door's spot. Tapping this one means carry it round,
+    // which is a real thing the driver does the moment a door shuts on them.
+    var landing = freeSpotAt(st, door);
+    if (!landing) {
+      return { kind: 'nospot', label: 'No spot', spot: mine.id,
+        why: 'Every ' + door + ' spot is holding somebody, so there is nowhere to carry it to.' };
+    }
+    return { kind: 'move', label: 'Carry to ' + landing.name, spot: landing.id,
+      why: 'Carry ' + CUST[cust].name + '’s stack from ' + mine.name + ' round to ' + landing.name + '.' };
+  }
+  var spot = freeSpotAt(st, door);
+  if (!spot) {
+    return { kind: 'nospot', label: 'No spot', spot: null,
+      why: 'All ' + SPOTS.filter(function (s) { return s.door === door; }).length + ' '
+        + door + ' spots are holding somebody. Finish one first.' };
+  }
+  if (door === 'side' && !sideDoorOpen(st)) {
+    // Rows 1–4 are full, so nothing pushes in this way any more. The well itself
+    // is still floor, and it is where a single crate wants to be — so this is a
+    // warning about the door, not a refusal of the spot.
+    if (!doorwayFree(st, 'side')) {
+      return { kind: 'shut', label: 'Side shut', spot: null,
+        why: 'Rows 1–' + SIDE_DOOR_ROWS + ' are full and the side well is taken. This one goes in the back.' };
+    }
+    return { kind: 'well', label: 'Side well', spot: spot.id,
+      why: 'Rows 1–' + SIDE_DOOR_ROWS + ' are full, so nothing pushes in past them — but the side well '
+        + 'still takes a stack, and one crate belongs there anyway.' };
+  }
+  var want = expectedNext(st);
+  if (want && want !== cust) {
+    return { kind: 'order', label: 'Start anyway', spot: spot.id,
+      why: CUST[want].name + ' loads first — start this one and it lands in front of them.' };
+  }
+  return { kind: 'ready', label: 'Pack ' + (door === 'side' ? 'at the side' : 'at the back'), spot: spot.id, why: '' };
+}
+function doBegin(st, cust, door) {
+  var mine = spotHolding(st, cust);
+  if (mine && mine.door === door) return mine.id;
+  if (mine) return doMoveSpot(st, mine.id, door);
+  var spot = freeSpotAt(st, door);
+  if (!spot) return null;
+  doAssign(st, spot.id, cust);
+  return spot.id;
+}
+// Carrying a part-built stack round to the other door. It is the answer when a
+// door shuts mid-order — which happens to whoever is loading when rows 1–4 fill
+// — and without it the board can say "round the back" and offer no way to do it.
+function doMoveSpot(st, spotId, door) {
+  var h = st.staged[spotId];
+  if (!h) return null;
+  var to = freeSpotAt(st, door);
+  if (!to) return null;
+  st.staged[to.id] = { cust: h.cust, n: h.n };
+  st.staged[spotId] = null;
+  // Whatever a split reserved on the old door is not where the rest is going now.
+  Object.keys(st.held || {}).forEach(function (id) { if (st.held[id] === h.cust) delete st.held[id]; });
+  return to.id;
+}
+
+// What a push should commit, when the driver has not counted.
+//
+// Only ever derived from something real: the stack this one has to ramp off in
+// its own column, clamped into the window. With nothing behind it there is
+// nothing to infer from, and the honest answer is null — the push goes in
+// uncounted and says so, rather than the board inventing a number that the van
+// diagram will then repeat back as fact.
+function suggestAt(st, id) {
+  if (isDoor(id)) return null;
+  var r = rowOf(id), col = colOf(id);
+  var prev = r > 1 ? 'r' + (r - 1) + '-' + col : null;
+  if (!prev || isEmpty(st, prev)) return null;
+  var base = heightOf(st, prev);
+  if (base == null) return null;
+  var w = windowAt(st, id);
+  return Math.max(1, Math.min(CAP, w.hi, Math.max(w.lo, base)));
+}
+
+// ── one crate on top of somebody else's stack ────────────────────────────────
+// The small-order move, and the one the methodology calls a technique rather
+// than a fallback: a stop with two crates does not need a position of its own
+// next to a stack of six. It does need the right host — delivered later, so it
+// stays underneath — and the outermost one, so nobody is buried deeper than
+// they have to be.
+function stackHosts(st, spotId, n) {
+  var spot = spotById(spotId), held = st.staged[spotId];
+  if (!spot || !held) return [];
+  var take = n == null ? held.n : n;
+  if (!take) return [];
+  var out = [];
+  zone(spot.door).forEach(function (id) {
+    if (isEmpty(st, id)) return;
+    if (!canStackOn(st, id, held.cust).ok) return;
+    var h = heightOf(st, id);
+    if (h == null || h + take > CAP) return;
+    if (stabilityAt(st, id, h + take).length) return;
+    out.push({ id: id, h: h, r: rowOf(id), below: st.van[id][st.van[id].length - 1].cust });
+  });
+  // Outermost first, and among equals the shorter stack, so the column evens out.
+  out.sort(function (a, b) { return b.r - a.r || a.h - b.h; });
+  return out;
+}
+function topUpState(st, spotId, chosen, n) {
+  var held = st.staged[spotId];
+  if (!held) return { kind: 'empty', label: '—', why: '' };
+  var take = n == null ? (held.n || 1) : n;
+  var hosts = stackHosts(st, spotId, take);
+  if (!hosts.length) {
+    // Say which of the three reasons it is, because they call for different moves.
+    var any = zone(spotById(spotId).door).filter(function (id) { return !isEmpty(st, id); });
+    var why = !any.length ? 'Nothing is aboard on this side yet — there is no stack to put it on.'
+      : (any.every(function (id) { return !canStackOn(st, id, held.cust).ok; })
+          ? CUST[held.cust].name + ' is delivered before everything aboard on this side, so they would '
+            + 'have to go underneath. Give them their own position.'
+          : 'Every stack it could go on is either at the roof or would break the ±3 ramp.');
+    return { kind: 'nohost', label: 'No stack for it', why: why };
+  }
+  var host = (chosen && hosts.filter(function (h) { return h.id === chosen; })[0]) || hosts[0];
+  var picked = !!(chosen && host.id === chosen && hosts[0].id !== chosen);
+  return {
+    kind: picked ? 'chosen' : 'ready', host: host, take: take,
+    label: '+' + take + ' on top', target: host.id,
+    why: 'On ' + CUST[host.below].name + '’s ' + host.h + ' at ' + posLabel(host.id)
+      + ' — they are delivered later, so this comes off first.'
+      + (picked ? ' You picked this one.' : '')
+  };
+}
+
 // ── actions ──────────────────────────────────────────────────────────────────
 function emptyState() {
   var van = {}; ALL_POS.forEach(function (id) { van[id] = []; });
@@ -628,10 +776,13 @@ function doDoorway(st, spotId) {
 }
 function doClearDoorway(st, door) { st.van[doorwayOf(door)] = []; }
 
-function doStack(st, spotId, id) {
+function doStack(st, spotId, id, take) {
   var h = st.staged[spotId]; if (!h) return null;
-  st.van[id].push({ cust: h.cust, n: h.n === 0 ? null : h.n });
-  st.staged[spotId] = { cust: h.cust, n: 0 };
+  var n = take == null ? h.n : Math.min(take, h.n || take);
+  st.van[id].push({ cust: h.cust, n: n === 0 ? null : n });
+  // A top-up moves part of the pile; the rest stays staged for the next move.
+  if (take != null && h.n && take < h.n) h.n = h.n - take;
+  else st.staged[spotId] = { cust: h.cust, n: 0 };
   return id;
 }
 function doClose(st, spotId) {

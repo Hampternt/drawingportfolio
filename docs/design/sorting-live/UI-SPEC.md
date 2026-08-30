@@ -1,12 +1,12 @@
 # Van loading board — UI specification
 
-**A brief for redesigning this screen. Self-contained: assume no other context.**
+**The specification for this screen. Self-contained: assume no other context.**
 
 Everything below is either a physical fact about the van, a rule the driver
-gave, or a measurement taken from a working prototype. Where something is a
-weakness rather than a requirement it is marked **WEAK** — those are the parts
-worth redesigning. Where something is load-bearing it is marked **FIXED** —
-changing it breaks the van, not the layout.
+gave, or a measurement taken from the working prototype in this folder. Where
+something is a pixel budget rather than a requirement it is marked **WEAK** —
+those are the parts free to change. Where something is load-bearing it is marked
+**FIXED** — changing it breaks the van, not the layout.
 
 ---
 
@@ -100,25 +100,53 @@ far column has to be crossed to, and a filled near column blocks that path.
 
 ---
 
-## 4. Plan-view orientation — FIXED
+## 4. The view — FIXED
 
-The map is a plan view, looking down.
+The board draws the van **from its own rear-right corner, raised** — the corner
+the driver is standing at with the back doors open and the kerb on their right.
 
-**Landscape:** cab at screen **left**, back doors at screen **right**. A van
-pointing left has its **right side at the top of the view**, so:
+It is a parallel projection, so every position is the same size and stack
+heights can be compared across the whole van by eye. It is **dimetric, not true
+isometric**, and it has to be: at 30° on both axes, nine rows of van is 950px
+wide and 850px tall before a single crate goes in, which does not fit a 1440 ×
+840 board that also has to hold a queue.
 
-- the **upper band is the van's RIGHT (kerb) side**,
-- the **lower band is its LEFT (driver) side**,
-- the side door, being on the right, has its packing area **above the map,
-  pushing down** into rows 1–4,
-- the back spots sit **off the right-hand end, pushing inward**.
+Two floor basis vectors and one vertical, in screen pixels before scaling:
 
-**Portrait:** cab at the **top**, rows running down. The van's right is then
-screen-right, so the packing area becomes a **column beside rows 1–4**, and the
-back doors are at the **bottom pushing up**.
+| axis | direction | vector |
+|---|---|---|
+| `u` — one column, left wall → right wall | right and **down** (nearer) | `(+120, +50)` |
+| `v` — one row, cab → back doors | left and **down** (nearer) | `(−42, +48)` |
+| `w` — one crate of height | straight up | `(0, −11)` |
 
-Getting this backwards was the first thing the driver corrected. It is not
-decorative — they read the screen as a picture of the van in front of them.
+`P(u, v, w) = (u·120 − v·42,  u·50 + v·48 − w·11)`, then scaled by one factor `k`
+so the whole picture fits its box. The projection is linear in `k`, so the
+bounding box is too — the fit is one division, not a search.
+
+**What that buys, and it is the reason for the whole view:**
+
+- The cab-left corner is the top of the picture; the back-right corner — the one
+  you are standing at — is the bottom.
+- **The left column is on the left and the right column is on the right.**
+- The side door, which only ever serves rows 1–4, ends up **at the far end on
+  the right**, with its packing spots on the pavement outside it.
+- The back doors frame the near end, with their packing spots on the ground
+  beyond.
+- **Stack height is drawn as height.** No gauge, no bar, no legend — the van is
+  a terrain and the ±3 rule is why it reads as a staircase rather than a wall.
+
+**Paint order is depth order.** Cells are emitted back to front (`row + column`
+ascending), so a nearer stack paints over what it stands in front of, exactly as
+it does in the van. There is no `z-index` anywhere.
+
+**Occlusion is real and is bounded by the rule.** One crate of height is 11px
+against a row step of 48px, so a stack the maximum legal three taller than the
+one in front of it still shows a 15px sliver of its top face. A stack that hides
+its neighbour entirely is a stack that broke the ±3 rule.
+
+**Nothing with words in it is ever sheared.** Floor tiles and stack faces carry a
+`matrix()`; every label is a separate upright chip positioned at a projected
+point. Sheared text is unreadable at arm's length in the rain.
 
 ---
 
@@ -143,114 +171,124 @@ sorted with a manifest and one sorted blind must land in the same van.
 
 ### 6.1 Landscape anatomy — 1440 × 840
 
-Measured from the working prototype. Heights are what currently fits; the
-proportions are the point, not the exact numbers.
+Four regions. The picture takes the diagonal; the two dead corners the diagonal
+leaves are exactly where the header and the console go.
 
 ```
- 14  page padding
- 44  header          route name · four stats · odd-crate flag · view toggle
- 76  console         the direct-load control strip
- 18  side-door line  status and budget
-146  packing spots   3 tiles across
- 14  row numbers     R1 … R9 + "BACK DOORS"
-146  band: RIGHT     row label · 9 cells · arrow · back spot 1
-146  band: LEFT      row label · 9 cells · arrow · back spot 2
-  —  conditional     capacity warning (34) and/or doorway strip (54), both hidden by default
-166  load order      six stop chips, reverse delivery order
- 14  page padding
+┌──────────────────────────────────────────────────┬────────────────┐
+│ ← route · date · stats            ╱▔▔╲  cab      │ LOADING ORDER  │
+│                              ╱▔▔▔╲     ╲         │                │
+│                         ╱▔▔▔╲ van ╲     ╲  ┌SIDE1┤ ▸ Olavstoppen  │
+│                    ╱▔▔▔╲      ╲     ╲    ╲ ┌SIDE2┤ ▸ Jåtten       │
+│               ╱▔▔▔╲     ╲      ╲     ╲   ╱ ┌SIDE3┤ ▸ Hinna  side│rear
+│          ╱▔▔▔╲     ╲     ╲      ╲    ╱  ╱        │ ▸ Sverdrup     │
+│     ╲▁▁▁╱ back doors ╲    ╲     ╱   ╱            │ ▸ Frøystad     │
+│  ┌BACK1┐┌BACK2┐       ╲▁▁▁╱▁▁▁▁╱                 │ ▸ Marlink      │
+├──────────────────────────────────────────────────┤                │
+│ SIDE 1 · HINNA                        stop 4 of 6│  ⚠ warnings    │
+│ [−][+ 1][ Push in 2 ][+2 on top][ Done ]         │ [Undo][⚑][❄]   │
+└──────────────────────────────────────────────────┴────────────────┘
 ```
 
-Fixed rows total **674px**, leaving 166 for the load-order strip. With both
-conditional strips showing it drops to **62px**. **WEAK — there is no slack;
-see §10.**
+| region | box | why there |
+|---|---|---|
+| header | `24, 14` — over the top-left dead corner | the diagonal never reaches it |
+| picture | `16, 86, 1014 × 596`, scaled to fit | the diagonal |
+| console | `16, 698, 1014 wide` | the bottom of the picture is the corner the driver is standing at |
+| queue rail | `right 16, top 14, 376 × 812` | the hand that is not carrying a crate |
 
-Horizontally the band is: row label 52 · nine cells at **111px** · arrow 20 ·
-back spot **244px**, with 8px gaps.
+**WEAK — everything above is a pixel budget, not a law.** The one thing that is
+not negotiable: the picture must not run under the console or the rail, and a
+van stacked to the roof must still fit. Both are asserted, in `board.test.js`,
+by computing the painted corners of every sheared box — a `matrix()` reports
+nothing useful to a layout engine, so nothing else catches it.
 
-### 6.2 Portrait — 900 × 1384
+### 6.2 The queue rail — the way in
 
-Same components, regrouped by row instead of by column. Two zones split at the
-door boundary so the packing spots sit beside exactly the rows they can reach:
-rows 1–4 with the side column on the right, rows 5–9 with the route strip
-alongside, back spots below. Rows come out ~90px each.
+The route in **loading order** (reverse of delivery), one row each. Every row
+carries two buttons, and choosing between them is the only decision the board
+cannot make for the driver:
 
-**WEAK: portrait was derived from landscape by script, not designed.** It is
-correct but it has never been through a layout pass of its own.
+| row state | buttons |
+|---|---|
+| waiting | `side` `rear` |
+| being packed at the side | `side` (lit) `move` |
+| aboard, closed out | `reopen` |
+
+`move` carries a part-built stack round to the other door, crates and all. It is
+what a door shutting mid-order actually calls for.
+
+Rows flex to fill the rail — six stops give 96px rows, a fifteen-stop route gives
+62px — so a short route is not a wall of small targets.
 
 ### 6.3 The console — the single most-used control
 
-Most crates never touch a packing spot: they come off the top of the pallet and
-go straight into the van. That path lives here, in one fixed strip, with the
-largest targets on the screen, so the hand never hunts for a tile.
+Docked bottom-left, spanning the picture. **Its buttons never move**, including
+the top-up, which keeps its slot and greys out rather than disappearing: a
+button that vanishes shifts every button beside it under a hand already reaching
+for one of them.
 
-| Element | Size | Content |
+| control | width | does |
 |---|---|---|
-| eyebrow | — | `STRAIGHT OFF THE PALLET → R3 · R · SIDE DOOR` — tier 3 replaces the first clause with `PALLET C →` |
-| title | 24px | the customer the loading order says is next |
-| sub | 15px | `stop 5 of 6 · 3 stacked here` (+ ` · 5 expected` at tier 2+) |
-| **`+ 1 crate in`** | **212 × 56** | the primary. One tap per crate placed. |
-| `−` | 56 × 56 | miscount |
-| `Full · next position` | 186 × 56 | seals this position, opens the next |
-| **`Done · <name>`** | 176 × 56 | closes the customer out, advances the queue |
-| `Undo` | 92 × 56 | one step back, always |
+| `−` | 56 | takes a crate back off the spot |
+| `+ 1 (n)` | 132 | counts one onto the spot |
+| **`Push in n`** | 216 | commits the spot's pile to one van position |
+| `+n on top` | 150 | puts the pile, or one crate of it, on an existing stack |
+| `Done` | 104 | closes the stop out, hands the console back |
 
-**Target loop: five taps for a four-crate stop** — four of them the crates
-themselves.
+All 76px tall. The push is tapped once per position for a whole load, so it is
+the largest thing on the board.
+
+**A push with nothing counted is allowed and is never green.** It records an
+unknown, not a zero, and the sub-line says `R4 · R · not counted`. Tapping `+ 1`
+until the number is right turns the same button green. That is the whole bargain
+of the fast flow: you may load blind, and the board will not pretend it knows
+what you loaded.
 
 ### 6.4 A packing spot
 
-A part-built stack standing on the floor by a door. Five of them; each holds one
-customer at a time.
+An unwalled pad of ground outside the van, drawn where it physically is: three
+along the right flank beside the rows the side door reaches, two behind the back
+doors. **The pile standing on one is drawn at true crate height**, inset inside
+the pad so the pad stays visible as ground — so the stack you have built and the
+stack it is about to become are the same picture.
 
-```
-SIDE 1                                    → R3 · R
-[ 66×54 count — tapping it is +1 ]  Jåtten Skole        [ − ]
-                                    stop 5 of 6 · staged
-[ push button, 44 tall, flex ] [ alt, 82 ] [ Done, 74 ]
-```
+Its name sits on the pavement beside it, never in front of it: the spots are laid
+out along one axis and a label placed "in front" of one lands on the next.
 
-- Tapping the **count** is +1. On an empty spot the first tap both takes the
-  next customer *and* counts the first crate.
-- The **sub-line** carries the reason whenever the push button is not plain
-  green. This is where all the explanatory copy lives.
-- The **alt button** appears only when there is a genuine second option (§7).
+Tapping a pad hands it the console.
 
 ### 6.5 A van position
 
-18 of them. At 111px wide this is the tightest component on the screen.
+A floor tile, and on it a stack drawn as three faces — the one facing the back
+doors, the one facing the right wall, and the top. Individual crates are a
+repeating gradient inside each customer's band, so an eight-high stack of two
+customers is four divs, not eight.
 
-- Header: column letter (`L`/`R`) and a status pill.
-- A vertical **stack column** showing crates from the bottom up, coloured by
-  customer, hidden entirely on untouched positions.
-- Head: `5 free` (space view) or the customer (identity view).
-- Sub: `3 crates`, or `two customers` when mixed, or `send here` when it is a
-  legal manual target.
+One upright chip per position, riding the **back** edge of the top face where the
+row in front cannot cover it: `CODE n`, or `CODE+CODE n` when a stack holds two
+customers. `?` when it went in uncounted.
 
-Pills: `IN` · `MIXED` · `OPEN` · `NEXT` · `PICKED` · `PLANNED` · `EMPTY` · `SHUT`
+The next position in is filled with the accent and labelled `NEXT IN`; a
+hand-picked one says `PICKED` in amber. With counts known, an empty position
+draws its planned stack as a **translucent blue volume** — a face down to the
+floor, not a lid hanging in mid-air — and the next position merges the two into
+one chip, `NEXT · HIN 2`.
 
-### 6.6 The doorways
+### 6.6 The proposed top-up, drawn where it would land
 
-The side-door well and the back doorway are floor you can stand a stack on, off
-the numbered grid. **Hidden until they matter** — they appear when the floor
-runs short or one is in use.
+Not a word on a button: the crates themselves, in the customer's colour at half
+opacity with a dashed amber edge, standing on the host stack. `+2`. Tapping
+another legal stack moves them there.
 
-- Whatever stands in a doorway is the first thing in the way at every stop, so
-  the board checks whether it holds the **earliest delivery still to load** and
-  says so either way.
-- The side well is **shared with the freeze ware**, which goes in at the end. A
-  toggle on the tile carries that fact rather than pretending the space is empty.
+### 6.7 The van shell
 
-### 6.7 The load-order strip
-
-Six chips, reverse delivery order — the order things go in. Each shows the
-customer, where their crates ended up, and a state: `DONE ↺` (tappable to
-reopen) · `LOADING NOW` · `ON SIDE 2` · `WAITING`.
-
-At the end of the session this strip is the artefact the driver carries into the
-round: it says where every stop's crates are.
-
-**WEAK: 166px of height for three short lines. This is the emptiest region on
-the screen and the most obvious place to earn something back.**
+Only the two walls that stand **behind** the load are drawn full height — the
+left wall and the cab bulkhead — each with a lit top rail. The right wall is
+between the camera and everything it holds, so it is cut down to a sill, and
+**the side door is the stretch of that sill it opens through**: amber and
+knee-low across rows 1–4 while it is open, red when rows 1–4 fill and it shuts.
+No roof. Row numbers run down the outside of the left wall.
 
 ---
 
@@ -268,18 +306,28 @@ back spots serve rows 5–9. A stack never crosses between zones.
 
 1. **A single crate → the side door well.** Easy to reach, and it keeps that
    customer off anybody else's stack.
-2. **A position of its own.** The safe default.
+2. **A position of its own.** The safe default, and always the green button.
 3. **The doorway**, once the floor is running short.
 4. **On top of another customer.** Last, and only when forced.
 
 **Mixing two customers on one stack is how the wrong goods get carried into a
-building.** It is never the quiet default. It appears only when the stability
-rule leaves no room or the van has genuinely run out; it goes in amber, not
-green; and it says what it costs. A position that ends up holding two customers
-wears `MIXED` in its pill so it is visible from across the van at delivery time.
+building.** The top-up button is always present, because a driver with two
+crates and a good reason should not have to fight the interface — but it is
+**quiet, never green**, and it turns amber only when the stability rule leaves no
+room or the van has genuinely run out. When it does, the console says both
+things: why the ordinary push is amber, *and* what the remedy costs. Saying only
+the first is how a driver ends up mixing a stack without being told what mixing
+is.
+
+**Topping up the same customer's own stack is not mixing** and is always
+available — a leftover crate going back where the rest of that order already is
+is the small-order case the driver asked for, not a compromise.
 
 When a combine does happen: the **later-delivered customer goes underneath**,
 the earlier one on top, so the earlier one comes off without disturbing them.
+The board will not offer it the other way round, and says so:
+`Olavstoppen is delivered before everything aboard on this side, so they would
+have to go underneath. Give them their own position.`
 
 ### 7.3 Splitting a big order
 
@@ -296,20 +344,24 @@ enforce three.
 
 | State | Colour | Label | Sub-line |
 |---|---|---|---|
-| ready | green | `Push in → R1 · L` | — |
+| ready, counted | green | `Push in 2` · `R4 · L` | — |
+| ready, uncounted | quiet | `Push in` · `R4 · R · not counted` | — |
 | out of order, blocker staged | amber | `Push in anyway` | `Olavstoppen goes in first — they are on SIDE 2.` |
 | out of order, blocker aboard | amber | `Push in anyway` | `Tap Done on Olavstoppen first, or push this anyway.` |
 | out of order, blocker nowhere | amber | `Push in anyway` | `Olavstoppen has not been staged — push this and it lands in front of them.` |
-| too tall for the window | amber | `Push in 4 of 12` | `All 12 will not stand at R2 · L — 5 is its ceiling. Split it 4 + 4 + 4: R2 · L, then R2 · R, then R3 · L.` |
-| too thin for the window | amber | `Push in anyway` | `Only 1 next to R1 · L’s 8 — 7 apart, and 5 is the floor here.` |
-| side rows full, 2+ crates | red | `Round the back` | `Rows 1–4 are full, so nothing more goes in this way — it would have to travel past what is already aboard. Carry this round to the back.` |
+| too tall for the window | amber | `Push in 5 of 10` | `All 10 will not stand at R2 · L — 8 is its ceiling. Split it 5 + 5: R2 · L, then R2 · R.` |
+| too thin for the window | amber | `Push in anyway` | `Only 3 next to R3 · L’s 7 — 4 apart, and 4 is the floor here.  Hinna’s stack at R2 · R would take them — but two customers on one stack is how the wrong crate gets carried into a building.` |
+| side rows full, 2+ crates, a back spot free | amber | `Carry round the back` · `to BACK 1` | `Rows 1–4 are full, so nothing more goes in this way — it would have to travel past what is already aboard. Carry this round to the back.` |
+| side rows full, 2+ crates, no back spot | red | `Round the back` | as above |
 | side rows full, 1 crate | green | `Put it at the side door` | `One crate — the side door is the easy place to reach it from, and it keeps Jåtten Skole off anybody else’s stack. The freeze ware shares this space at the end.` |
-| position hand-picked | amber | `Push in → R4 · R` | `You picked this one. R1 · L stays free — whoever fills it ends up deeper.` |
+| position hand-picked | amber | `Push in 2` · `R3 · L` | `You picked this one. R1 · L stays free — whoever fills it ends up deeper.` |
 | van and doorways full | red | `Van full` | `Every position and both doorways are taken. Nothing left to put it in.` |
 
 **FIXED — the shape of this:** amber means *allowed, and here is what it costs*.
-Red means *the van physically cannot*. Only two things are ever red. Every
-non-green state names the tap that clears it.
+Red means *the van physically cannot*. **Every red state that names an action
+must have a button that performs it** — the board used to say "round the back"
+and offer no way to do it, which stranded whoever was mid-order when rows 1–4
+filled. Red now means red: there is genuinely nowhere left.
 
 ### 7.5 Warnings
 
@@ -376,51 +428,55 @@ distinguishes them — `RHI` / `RMA` — skipping bare numbers.
 
 Worth knowing so a redesign does not rediscover them.
 
-1. **The band's end tile must not flex.** Given `flex: 1 1 0` beside nine cells
-   it collapsed to 126px with its text column at **zero width** — present, but
-   empty. Fixed width at the end of a band.
-2. **"5 free" truncates to "5 fr…" at 111px** if the numeral stays 21px. Drop it
-   to 17px, and drop the position label to its column letter — the row number is
-   already in the header above.
-3. **Eighteen positions each drawing eight dashed capacity slots reads as graph
-   paper.** Draw the column only where there is something to show.
-4. **The side well is reachable *after* rows 1–4 fill, not before.** The obvious
+1. **The side well is reachable *after* rows 1–4 fill, not before.** The obvious
    inference is backwards: that is exactly when it becomes useful.
-5. **Same-row pairs are not order-free.** It looks safe to let two customers
+2. **Same-row pairs are not order-free.** It looks safe to let two customers
    share a row in either order, but the one being skipped is by definition
    unfinished — their next crates go one row further out, and the other stack is
    then deeper than part of them.
+3. **A red state that names an action needs a button that does it.** "Round the
+   back" with no way to carry it round stranded whoever was mid-order when the
+   side door shut. Found by clicking through the board in a browser, not by any
+   test that existed at the time.
+4. **A sheared box reports nothing to a layout engine.** A `transform: matrix()`
+   leaves `getBoundingClientRect` describing the untransformed box, and an
+   overflow check on the parent sees nothing wrong. The only way to catch a
+   stack drawn out through the frame is to multiply the four corners through the
+   matrix yourself — which `board.test.js` does.
+5. **`rgb(r,g,b)` with an alpha appended is not a colour.** `shade()` returned
+   `rgb(...)` and the top-up ghost asked for `shade(...) + '80'`; CSS dropped the
+   whole declaration and the proposal rendered as an outline with no fill. Alpha
+   belongs in `rgba()`, not in string concatenation.
+6. **`var` inside a per-cell closure hoists over the parameter it shadows.**
+   Naming a local `plan` inside the cell loop silently made the outer `plan` —
+   the whole tier-2 forecast — `undefined` for every position, and every planned
+   stack stopped drawing. The test that caught it asserts the ghosts exist.
+7. **Spots laid out along one axis cannot be labelled "in front".** In this
+   projection "in front" is the direction the next spot is in, so every label
+   landed on its neighbour. Push it out along the axis the row does not run down.
+8. **Eighteen positions each drawing eight dashed capacity slots reads as graph
+   paper.** It is why stack height is now drawn as height instead.
 
 ---
 
-## 10. What to make better
+## 10. What is still open
 
-The rules in §3, §4 and §7 are settled. Everything here is open.
-
-1. **The map is cramped and the strip below it is empty.** Nine positions across
-   1440px leaves 111px each, which forces three-letter codes and a 17px numeral;
-   meanwhile the load-order strip has 166px for three lines of text. The
-   information is in the wrong proportions.
-2. **No slack anywhere.** 674px of fixed rows in 840. Three conditional warning
-   strips can all appear at once and squeeze the route strip to 62px. A layout
-   that degrades gracefully under those would be a real improvement.
-3. **Colour is carrying identity alone.** Six customers is fine. A twelve-stop
-   route with two Rema 1000s and three Coops is not — codes help, but the stack
-   columns are pure colour.
-4. **"How full is the van" and "who goes where" are currently a toggle.** They
-   are the two questions the driver has, and switching between them is friction.
-   One view that answers both would be better.
-5. **Portrait has never had a design pass** — only a mechanical derivation.
-6. **The planned-vs-actual distinction is one blue tint.** At tier 2 the board
-   knows what should happen and what did; that difference could be made much
-   more legible.
-7. **Nothing signals a skipped tap.** If the driver stops tapping for two
-   customers, the board shows a confidently wrong van with no signal anywhere.
-   The app has no independent view of the vehicle, so it cannot detect this — but
-   a design that makes the map feel like a record being kept, rather than a fact,
-   would set the right expectation.
-
----
+- **Two side spots or three.** The methodology doc says five standby spots —
+  three at the side, two at the back — and that is the default. The driver once
+  said two at the side. It is a dial on the start screen either way, and every
+  layout in here is computed from the count rather than drawn for three.
+- **A settings page for the loading rules.** The driver has asked for one:
+  which priority wins, whether the side well is reserved for freeze ware, how
+  many spots there are, how many rows. Everything it would control is already a
+  parameter — `configure()` takes rows, capacity, side-door reach and spot
+  counts — so this is a screen, not a rewrite.
+- **Portrait.** The board is authored landscape and scales rather than reflows.
+  A portrait artboard existed for the previous plan view and has not been
+  redrawn for this one. Turning the van through ninety degrees in this
+  projection is a different picture, not the same one rotated.
+- **Motion.** A pushed-in stack currently appears at its position. Sliding it
+  from the pad along the path it physically takes would confirm the tap without
+  a word, and is the one animation this board would earn.
 
 ## 11. Reference implementation
 
@@ -428,11 +484,13 @@ A working, tappable version of everything above is in this folder:
 
 ```
 demo.html          open it directly — no build, no server, no dependencies
-src/model.js       every rule in §3 and §7, as ~600 lines of plain JS
-src/board.js       the rules turned into what the screen shows
-src/board.html     the markup
-src/*.test.js      273 checks, run on plain node
+src/model.js       every rule in §3 and §7, as ~750 lines of plain JS
+src/board.js       the rules turned into the picture and the controls
+src/board.html     the markup — {{holes}}, <sc-for>, <sc-if>, onClick, nothing else
+src/runtime.js     the ~70-line template runtime that renders it
+src/*.test.js      271 checks, run on plain node, no dependencies
+build.mjs          src/ -> demo.html
 ```
 
-Use it to check behaviour, not to copy layout — the layout is the part that
-needs the work.
+Every figure and every sentence quoted in this document is produced by that
+code. If the two disagree, the code is right and this document is stale.

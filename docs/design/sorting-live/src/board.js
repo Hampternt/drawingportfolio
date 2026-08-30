@@ -1,8 +1,8 @@
-
 // ── the demo state ───────────────────────────────────────────────────────────
-// Mid-session on purpose: Olavstoppen is closed out and aboard, Jåtten is half
-// in, and all three side spots are holding something — which is the moment the
-// ordering guard and the side-door budget both have something to say.
+// Mid-load on purpose: Olavstoppen and Jåtten are aboard and closed out, three
+// rows deep, with the side door still open on row 4. Hinna is built on one side
+// spot and Sverdrup on the next — which is the moment the push, the top-up and
+// the loading-order guard all have something to say at once.
 function seed() {
   var st = emptyState();
   st.van['r1-left']  = [{ cust: 'OLA', n: 3 }];
@@ -10,27 +10,62 @@ function seed() {
   st.van['r2-left']  = [{ cust: 'OLA', n: 2 }];
   st.van['r2-right'] = [{ cust: 'OLA', n: 2 }];
   st.van['r3-left']  = [{ cust: 'JAT', n: 3 }];
+  st.van['r3-right'] = [{ cust: 'JAT', n: 2 }];
   st.closed['OLA'] = true;
-  st.staged['side-1'] = { cust: 'JAT', n: 2 };
-  st.staged['side-2'] = { cust: 'HIN', n: 2 };
-  st.staged['side-3'] = { cust: 'SVE', n: 4 };
-  st.open = { n: 0 };
+  st.closed['JAT'] = true;
+  st.staged['side-1'] = { cust: 'HIN', n: 2 };
+  st.staged['side-2'] = { cust: 'SVE', n: 4 };
   return st;
 }
+
+// ── the projection ───────────────────────────────────────────────────────────
+// The camera stands at the van's rear-right corner, raised. Both +u (toward the
+// right wall) and +v (toward the back doors) come toward it, so the cab-left
+// corner is the top of the picture and the corner you are standing at is the
+// bottom. That is what puts the left column on the left, the right column on
+// the right, and the side door — which only ever serves the deep rows — at the
+// far end on the right, with its packing spots outside it.
+//
+// It is dimetric rather than true isometric, and it has to be: at 30° on both
+// axes, nine rows of van is 950px wide and 850 tall before a crate goes in.
+// Two axes at different angles fit it, and the eye reads the picture the same.
+var VIEW = {
+  cx: 120, cy: 50,      // one column, left wall toward right wall
+  rx: 42,  ry: 48,      // one row, cab toward back doors
+  ch: 11,               // one crate of height
+  wall: 8.4,            // how far up the far wall and the bulkhead go
+  gutter: 0.62,         // where the row numbers sit, outside the left wall
+  padU: 2.34, padW: 1.24, padD: 1.06, padV: 0.30, padPitch: 1.22,  // the side spots
+  backW: 1.16, backD: 1.1, backV: 0.5, backPitch: 1.3           // the back spots
+};
+// The box the whole picture is fitted into. Everything scales to it, so a van
+// with seven rows and one that has nine both fill the same frame.
+var SCENE = { x: 16, y: 86, w: 1014, h: 596 };
+var STAGE_CAP = 8;       // a staged pile draws at true height — it is about to be one
+
+function shade(hex, f, a) {
+  var n = parseInt(String(hex).slice(1), 16);
+  var c = [n >> 16, (n >> 8) & 255, n & 255]
+    .map(function (v) { return Math.round(Math.min(255, v * f)); });
+  return a == null ? 'rgb(' + c.join(',') + ')' : 'rgba(' + c.join(',') + ',' + a + ')';
+}
+function noop() {}
+function fx(n) { return (Math.round(n * 1000) / 1000); }
 
 class Component extends DCLogic {
   constructor(props) {
     super(props);
-    this.state = { st: seed(), target: null, mode: 'space', hist: [] };
+    // focus  — the packing spot the console is driving
+    // target — a hand-picked van position for the next push in
+    // host   — a hand-picked stack for the next top-up
+    this.state = { st: seed(), focus: 'side-1', target: null, host: null, hist: [] };
   }
 
-  // Every mutation goes through here so Undo is a single, honest rule: put the
+  // Every mutation goes through here so Undo is a single honest rule: put the
   // whole board back the way it was one tap ago.
   apply(fn) {
     var before = cloneState(this.state.st);
-    before.open = { n: this.state.st.open.n };
     var next = cloneState(this.state.st);
-    next.open = { n: this.state.st.open.n };
     fn(next);
     var hist = this.state.hist.slice();
     hist.push(before);
@@ -40,271 +75,437 @@ class Component extends DCLogic {
   undo() {
     var hist = this.state.hist.slice();
     if (!hist.length) return;
-    this.setState({ st: hist.pop(), hist: hist });
+    this.setState({ st: hist.pop(), hist: hist, target: null, host: null });
   }
 
-  // The door that is actually live. The rows the side door reaches go in that
-  // way; once they are full the side door is shut and the rest is back-door
-  // work. A van with no side door at all just starts shut.
-  liveDoor(st) { return sideDoorOpen(st) ? 'side' : 'back'; }
-
-  // Commit whatever has been stacked straight into the open position.
-  sealOpen(st) {
-    var who = expectedNext(st);
-    var id = resolveTarget(st, this.liveDoor(st), this.state.target, who);
-    if (!id || !who || !st.open.n) return;
-    st.van[id].push({ cust: who, n: st.open.n });
-    st.open = { n: 0 };
+  focusSpot(st) {
+    var id = this.state.focus;
+    if (id && st.staged[id]) return id;
+    // A spot that lost its customer stops driving the console; the next one
+    // holding something takes over rather than leaving it blank.
+    var live = SPOTS.filter(function (s) { return st.staged[s.id]; })[0];
+    return live ? live.id : null;
   }
 
-  // ── style helpers ──────────────────────────────────────────────────────────
+  // Tapping the van picks a position by hand: an empty one this door can still
+  // reach becomes the push target, a stack that could legally take crates
+  // becomes the top-up host, and anything else clears both.
+  pickCell(st, id) {
+    var focus = this.focusSpot(st);
+    if (!focus) return;
+    var door = spotById(focus).door;
+    if (isEmpty(st, id)) {
+      if (doorOf(id) !== door) return this.setState({ target: null, host: null });
+      return this.setState({ target: this.state.target === id ? null : id, host: null });
+    }
+    var hosts = stackHosts(st, focus, this.topTake(st, focus)).map(function (h) { return h.id; });
+    if (hosts.indexOf(id) < 0) return this.setState({ target: null, host: null });
+    this.setState({ host: this.state.host === id ? null : id, target: null });
+  }
+
+  // A small order goes on top whole; a big one sheds a single crate. Either way
+  // the button says the number before it is tapped.
+  topTake(st, spotId) {
+    var held = st.staged[spotId];
+    if (!held) return 0;
+    if (!held.n) return 1;
+    return held.n <= THIN ? held.n : 1;
+  }
+
   btn(kind, h, accent) {
-    var base = 'height:' + h + 'px;border-radius:10px;display:flex;align-items:center;justify-content:center;'
-      + 'font-weight:600;font-size:15px;white-space:nowrap;flex:none;padding:0 12px;text-align:center;line-height:1.15;';
-    if (kind === 'primary')  return base + 'background:' + accent + ';color:#191624;';
-    if (kind === 'go')       return base + 'background:#4FD6A8;color:#10221C;';
-    if (kind === 'warn')     return base + 'background:rgba(255,181,112,.12);border:1px solid rgba(255,181,112,.45);color:#FFB570;';
-    if (kind === 'stop')     return base + 'background:rgba(247,118,142,.10);border:1px solid rgba(247,118,142,.40);color:#F7768E;';
-    if (kind === 'quiet')    return base + 'background:rgba(242,238,248,.05);border:1px solid #262232;color:#CDC6DD;';
-    return base + 'background:rgba(242,238,248,.03);color:#4A445C;';
-  }
-  slotStyle(kind, colour) {
-    var base = 'flex:0 1 7px;min-height:3px;border-radius:2px;';
-    if (kind === 'free')  return base + 'background:rgba(242,238,248,.04);border:1px dashed rgba(242,238,248,.12);';
-    if (kind === 'open')  return base + 'background:' + colour + '55;border:1px solid ' + colour + ';';
-    return base + 'background:' + colour + ';';
+    var base = 'height:' + h + 'px;border-radius:13px;display:flex;flex-direction:column;align-items:center;'
+      + 'justify-content:center;gap:2px;flex:none;padding:0 12px;text-align:center;';
+    if (kind === 'go')      return base + 'background:#4FD6A8;color:#0B2119;';
+    if (kind === 'primary') return base + 'background:' + accent + ';color:#191624;';
+    if (kind === 'warn')    return base + 'background:rgba(255,181,112,.12);border:1px solid rgba(255,181,112,.45);color:#FFB570;';
+    if (kind === 'stop')    return base + 'background:rgba(247,118,142,.10);border:1px solid rgba(247,118,142,.42);color:#F7768E;';
+    if (kind === 'quiet')   return base + 'background:rgba(242,238,248,.05);border:1px solid #2A2438;color:#CDC6DD;';
+    return base + 'background:rgba(242,238,248,.025);color:#3F3A52;';
   }
 
-  // ── one packing spot ───────────────────────────────────────────────────────
-  spotVals(spot, st, accent, wide) {
-    var self = this, held = st.staged[spot.id], ps = pushState(st, spot.id, this.state.target);
-    // Combining only comes up when something forces it — the ±3 rule, or the
-    // floor running out. Two customers on one stack is how the wrong goods get
-    // carried into a building, so it is never the quiet default.
-    var why = held ? hostReason(st, spot.id) : null;
-    var host = why ? stackHost(st, spot.id) : null;
-    var lone = held ? singleCrateDoor(st, spot.id) : false;
-    var colour = held ? CUST[held.cust].color : accent;
-    var live = !!held;
-    // The side spots share a row and flex; the back spot hangs off the end of a
-    // band, where flexing makes it compete with nine cells and collapse — it
-    // came out 126px wide with its text column at zero.
-    var bh = wide ? 44 : 40, tone = live ? '#17141F' : '#0E0C14';
-    var ring = ps.kind === 'ready' ? '1px solid rgba(79,214,168,.45)'
-      : (ps.kind === 'physical' ? '1px solid rgba(247,118,142,.35)'
-        : (ps.kind === 'empty' ? '1px solid #201C2B' : '1px solid rgba(255,181,112,.35)'));
+  // ── the picture ────────────────────────────────────────────────────────────
+  scene(st, accent, plan) {
+    var self = this, V = VIEW, parts = [];
+    var sideSpots = SPOTS.filter(function (s) { return s.door === 'side'; });
+    var backSpots = SPOTS.filter(function (s) { return s.door === 'back'; });
+    var top = Math.max(CAP, V.wall);
 
-    var chosen = this.state.target;
-    var pushIntoOwn = function () { self.apply(function (s) { self.sealOpen(s); doPush(s, spot.id, null, chosen); }); };
-    var pushSplit = function () {
-      self.apply(function (s) {
-        self.sealOpen(s);
-        doPush(s, spot.id, ps.take, chosen, ps.plan ? ps.plan.cells[1] : null);
+    // Fit. The projection is linear in the scale, so the picture's bounding box
+    // is too — one division rather than a search.
+    var pts = [[-V.gutter, 0, 0], [-V.gutter, ROWS, 0], [0, 0, top], [2, 0, top],
+               [0, ROWS, 0], [2, ROWS, 0], [2, 0, 0], [0, 0, 0]];
+    sideSpots.forEach(function (s, i) {
+      var v0 = V.padV + i * V.padPitch;
+      pts.push([V.padU, v0, 0], [V.padU + V.padW, v0, STAGE_CAP],
+               [V.padU + V.padW + 0.62, v0 + V.padD, 0], [V.padU, v0 + V.padD, 0]);
+    });
+    backSpots.forEach(function (s, i) {
+      var u0 = 0.06 + i * V.backPitch, v0 = ROWS + V.backV;
+      pts.push([u0, v0, 0], [u0 + V.backW, v0, STAGE_CAP],
+               [u0 + V.backW, v0 + V.backD + 0.42, 0], [u0, v0 + V.backD + 0.42, 0]);
+    });
+    var xs = pts.map(function (p) { return p[0] * V.cx - p[1] * V.rx; });
+    var ys = pts.map(function (p) { return p[0] * V.cy + p[1] * V.ry - p[2] * V.ch; });
+    var minX = Math.min.apply(null, xs), maxX = Math.max.apply(null, xs);
+    var minY = Math.min.apply(null, ys), maxY = Math.max.apply(null, ys);
+    var k = Math.min(1, SCENE.w / (maxX - minX), SCENE.h / (maxY - minY));
+    var cx = V.cx * k, cy = V.cy * k, rx = V.rx * k, ry = V.ry * k, ch = V.ch * k;
+    var ox = SCENE.x - minX * k + (SCENE.w - (maxX - minX) * k) / 2;
+    var oy = SCENE.y - minY * k + (SCENE.h - (maxY - minY) * k) / 2;
+    function P(u, v, w) { return [u * cx - v * rx, u * cy + v * ry - (w || 0) * ch]; }
+    var COL = [cx, cy], ROW = [-rx, ry];
+    function mul(a, n) { return [a[0] * n, a[1] * n]; }
+
+    // A parallelogram spanned by two screen vectors. Sheared, so nothing with
+    // words in it is ever drawn this way.
+    function quad(o, a, b, style, tap) {
+      parts.push({ kids: [], text: '',
+        tap: tap || noop,
+        style: 'position:absolute;left:0;top:0;width:100px;height:100px;transform-origin:0 0;transform:matrix('
+          + [fx(a[0] / 100), fx(a[1] / 100), fx(b[0] / 100), fx(b[1] / 100), fx(o[0]), fx(o[1])].join(',')
+          + ');' + style });
+    }
+    // Upright, centred on a projected point. Everything readable is one of these.
+    function chip(p, text, style, tap) {
+      parts.push({ kids: [], text: text, tap: tap || noop,
+        style: 'position:absolute;left:' + fx(p[0]) + 'px;top:' + fx(p[1]) + 'px;'
+          + 'transform:translate(-50%,-50%);white-space:nowrap;pointer-events:none;' + style });
+    }
+    var mono = "font-family:'IBM Plex Mono',monospace;";
+
+    // ── the shell ────────────────────────────────────────────────────────────
+    // Only the two walls that stand behind the load are drawn. The right wall
+    // is between the camera and everything it holds, so it is cut down to a
+    // sill — and the side door is the stretch of that sill it opens through.
+    quad(P(0, 0), mul(ROW, ROWS), [0, -V.wall * ch],
+      'background:linear-gradient(to bottom,#1B1626,#0E0B15);box-shadow:inset 0 0 0 1px #342D48;');
+    quad(P(0, 0), mul(COL, 2), [0, -V.wall * ch],
+      'background:linear-gradient(to bottom,#221C31,#14101F);box-shadow:inset 0 0 0 1px #3A3252;');
+    quad(P(0, 0, V.wall), mul(ROW, ROWS), [0, 4], 'background:#584F76;');
+    quad(P(0, 0, V.wall), mul(COL, 2), [0, 4], 'background:#6B6188;');
+    chip(P(1, 0.16, V.wall * 0.52), 'CAB', mono + 'font-size:' + fx(11 * k + 1) + 'px;letter-spacing:.16em;color:#6B6386;');
+    quad(P(0, 0), mul(COL, 2), mul(ROW, ROWS), 'background:#131020;box-shadow:inset 0 0 0 1px #3A3252;');
+
+    // ── the state the picture has to answer ──────────────────────────────────
+    var focus = this.focusSpot(st), fspot = focus ? spotById(focus) : null;
+    var held = focus ? st.staged[focus] : null;
+    var door = fspot ? fspot.door : (sideDoorOpen(st) ? 'side' : 'back');
+    var frontier = held ? resolveTarget(st, door, this.state.target, held.cust) : null;
+    var picked = held && targetIsChosen(st, door, this.state.target, held.cust);
+    var hosts = held ? stackHosts(st, focus, this.topTake(st, focus)) : [];
+    var hostIds = hosts.map(function (h) { return h.id; });
+    var hostNow = (this.state.host && hostIds.indexOf(this.state.host) > -1) ? this.state.host
+      : (hosts[0] ? hosts[0].id : null);
+    var hostTake = held ? this.topTake(st, focus) : 0;
+    var shut = !sideDoorOpen(st);
+
+    // the sill, broken where the door opens
+    for (var r = 0; r < ROWS; r++) {
+      var isDoorRow = r < SIDE_DOOR_ROWS;
+      quad(P(2, r), ROW, [0, -(isDoorRow ? 0.55 : 1.9) * ch],
+        isDoorRow ? (shut ? 'background:rgba(247,118,142,.16);box-shadow:inset 0 0 0 1px rgba(247,118,142,.5);'
+                          : 'background:rgba(255,181,112,.20);box-shadow:inset 0 0 0 1px rgba(255,181,112,.62);')
+                  : 'background:#171320;box-shadow:inset 0 0 0 1px #2A2438;');
+    }
+    if (SIDE_DOOR_ROWS > 0) {
+      chip(P(2.02, 0.06, 1.1),
+        shut ? 'SIDE DOOR · SHUT' : 'SIDE DOOR · ROWS 1–' + SIDE_DOOR_ROWS,
+        mono + 'font-size:' + fx(10 * k + 1) + 'px;font-weight:600;letter-spacing:.12em;transform:translate(1%,-50%);'
+          + 'color:' + (shut ? '#F7768E' : '#FFB570') + ';');
+    }
+    for (var rr = 0; rr < ROWS; rr++) {
+      chip(P(-V.gutter, rr + 0.5), 'R' + (rr + 1),
+        mono + 'font-size:' + fx(11 * k + 1) + 'px;color:' + (rr < SIDE_DOOR_ROWS && !shut ? '#7A6E58' : '#57506E') + ';');
+    }
+
+    // ── the load, back to front ──────────────────────────────────────────────
+    // Emission order is depth order: a nearer stack is drawn later and paints
+    // over what it stands in front of, which is what it does in the van.
+    function stripes(layers, f) {
+      return layers.slice().reverse().map(function (l) {
+        return { style: 'flex:' + (l.n || 1) + ' 0 0;min-height:0;background:' + shade(CUST[l.cust].color, f) + ';'
+          + 'background-image:repeating-linear-gradient(to bottom,transparent 0,transparent ' + fx(ch - 1)
+          + 'px,rgba(0,0,0,.42) ' + fx(ch - 1) + 'px,rgba(0,0,0,.42) ' + fx(ch) + 'px);'
+          + 'box-shadow:inset 0 -1px 0 rgba(0,0,0,.5);' };
       });
-    };
-    var intoDoorway = function () { self.apply(function (s) { doDoorway(s, spot.id); }); };
-    var stackOnHost = function () { self.apply(function (s) { doStack(s, spot.id, host.id); }); };
-    var pushKind = 'off', pushLabel = '—', act = function () {};
-    var hasAlt = false, altLabel = '', alt = function () {};
-
-    if (ps.kind === 'doorway') {
-      pushKind = ps.good ? 'go' : 'warn';
-      pushLabel = wide ? ps.label : (lone ? 'Side door' : 'Doorway');
-      act = intoDoorway;
     }
-    else if (why === 'stability' && lone) {
-      // A single crate at the side door settles the ±3 problem without putting
-      // two customers on one stack. Mixing is the last resort, not the first.
-      pushKind = 'go'; pushLabel = wide ? 'Put it at the side door' : 'Side door'; act = intoDoorway;
-      hasAlt = true; altLabel = posLabel(ps.target); alt = pushIntoOwn;
-    }
-    else if (why === 'stability' && host) {
-      // The ±3 rule leaves this stack no room on its own, so combining is the
-      // move — amber rather than green, and it says what it costs.
-      pushKind = 'warn'; pushLabel = 'Stack on ' + posLabel(host.id); act = stackOnHost;
-      hasAlt = true; altLabel = posLabel(ps.target); alt = pushIntoOwn;
-    }
-    else if (ps.kind === 'ready')    { pushKind = 'go';   pushLabel = wide ? ps.label : 'Push in'; act = pushIntoOwn; }
-    else if (ps.kind === 'chosen')   { pushKind = 'warn'; pushLabel = wide ? ps.label : 'Push in'; act = pushIntoOwn; }
-    else if (ps.kind === 'split')    { pushKind = 'warn'; pushLabel = ps.label; act = pushSplit; }
-    else if (ps.kind === 'nofit')    { pushKind = 'stop'; pushLabel = ps.label; }
-    else if (ps.kind === 'order')    { pushKind = 'warn'; pushLabel = wide ? 'Push in anyway' : 'Anyway'; act = pushIntoOwn; }
-    else if (ps.kind === 'thin')     { pushKind = 'warn'; pushLabel = wide ? 'Push in anyway' : 'Anyway'; act = pushIntoOwn; }
-    else if (ps.kind === 'physical') { pushKind = 'stop'; pushLabel = ps.label; }
-
-    // What sits beside the primary, in the order the van prefers: a lone crate
-    // at the side door, then the doorway as an escape, and only then somebody
-    // else's stack. Kept out of the chain above — an `if` spliced into an
-    // else-if chain silently orphans everything below it, which is exactly the
-    // bug this block replaces.
-    if (held && ps.target && !isDoor(ps.target) && !hasAlt) {
-      if (lone) { hasAlt = true; altLabel = 'Side door'; alt = intoDoorway; }
-      else if (spaceIsTight(st) && doorwayFree(st, spot.door)) { hasAlt = true; altLabel = 'Doorway'; alt = intoDoorway; }
-      else if (why === 'space' && host) { hasAlt = true; altLabel = 'On ' + posLabel(host.id); alt = stackOnHost; }
+    // Three faces per stack, not per crate: the one facing the back doors, the
+    // one facing the right wall, and the top. The crate lines are a gradient
+    // inside each customer's band, so an eight-high stack is still four divs.
+    function drawStack(u, v, layers, n, tap) {
+      var h = n * ch;
+      var o1 = P(u, v + 1, n);
+      parts.push({ kids: stripes(layers, 0.70), text: '', tap: tap || noop,
+        style: 'position:absolute;left:0;top:0;width:' + fx(cx) + 'px;height:' + fx(h) + 'px;transform-origin:0 0;'
+          + 'transform:matrix(1,' + fx(cy / cx) + ',0,1,' + fx(o1[0]) + ',' + fx(o1[1]) + ');display:flex;flex-direction:column;' });
+      var o2 = P(u + 1, v, n);
+      parts.push({ kids: stripes(layers, 0.46), text: '', tap: tap || noop,
+        style: 'position:absolute;left:0;top:0;width:' + fx(rx) + 'px;height:' + fx(h) + 'px;transform-origin:0 0;'
+          + 'transform:matrix(-1,' + fx(ry / rx) + ',0,1,' + fx(o2[0]) + ',' + fx(o2[1]) + ');display:flex;flex-direction:column;' });
+      quad(P(u, v, n), COL, ROW, 'background:' + shade(CUST[layers[layers.length - 1].cust].color, 1)
+        + ';box-shadow:inset 0 0 0 1px rgba(0,0,0,.38);', tap);
     }
 
-    var takeNext = unstagedNext(st);
-    var sub, subCol = '#8D87A0';
-    if (!held) { sub = takeNext ? 'start ' + CUST[takeNext].short : 'nothing waiting'; subCol = takeNext ? '#CBB0FF' : '#5F5876'; }
-    else if (why === 'stability' && lone) {
-      sub = 'no room beside ' + posLabel(ps.target) + '’s neighbour — and one crate is easier '
-        + 'to reach at the side door anyway';
-      subCol = '#FFB570';
-    }
-    else if (why === 'stability' && host) {
-      sub = 'no room beside ' + posLabel(ps.target) + '’s neighbour — but two customers on one stack '
-        + 'is how the wrong crate gets carried in';
-      subCol = '#FFB570';
-    }
-    else if (ps.why) { sub = ps.why; subCol = ps.kind === 'physical' || ps.good === false ? '#F7768E' : '#FFB570'; }
-    else if (lone) { sub = 'one crate — easier to reach at the side door, and off anybody else’s stack'; subCol = '#FFB570'; }
-    else if (why === 'space' && host) { sub = 'floor is short — ' + CUST[host.below].short + '’s stack could take it'; subCol = '#FFB570'; }
-    else { sub = 'stop ' + stopOf(held.cust).i + ' of 6 · staged'; }
+    for (var row = 0; row < ROWS; row++) {
+      for (var col = 0; col < 2; col++) {
+        (function (row, col) {
+          var id = 'r' + (row + 1) + '-' + (col ? 'right' : 'left');
+          var layers = st.van[id], n = heightOf(st, id), unknown = n == null && layers.length;
+          var isNext = id === frontier, isHost = id === hostNow;
+          var reach = doorOf(id) === 'side' && shut && !layers.length;
+          var tap = function () { self.pickCell(self.state.st, id); };
+          var ghost = (!layers.length && plan && plan.van[id] && plan.van[id].length) ? plan.van[id] : null;
 
-    return {
-      tile: (wide ? 'flex:1 1 0;min-width:0;height:146px;' : 'width:244px;flex:none;height:146px;')
-        + 'background:' + tone + ';border:' + ring + ';border-radius:12px;'
-        + 'padding:9px 10px;display:flex;flex-direction:column;gap:' + (wide ? 7 : 5) + 'px;',
-      tileV: 'flex:1 1 0;min-height:0;background:' + tone + ';border:' + ring + ';border-radius:12px;'
-        + 'padding:9px 10px;display:flex;flex-direction:column;gap:7px;',
-      name: spot.name,
-      nameStyle: 'font-family:' + MONO + ';font-size:11px;letter-spacing:.06em;color:#FFB570;',
-      dest: ps.target ? '→ ' + posLabel(ps.target) : (ps.kind === 'physical' ? 'no way in' : '—'),
-      destStyle: 'font-family:' + MONO + ';font-size:11px;color:' + (ps.kind === 'physical' ? '#F7768E' : '#5F5876') + ';',
-      count: held ? String(held.n) : '+',
-      countStyle: 'width:' + (wide ? 66 : 54) + 'px;height:' + (wide ? 54 : 48) + 'px;flex:none;border-radius:11px;display:flex;align-items:center;justify-content:center;'
-        + 'font-family:Archivo,system-ui,sans-serif;font-weight:800;font-size:' + (held ? 28 : 24) + 'px;letter-spacing:-0.02em;'
-        + (held ? 'background:' + colour + '1F;border:1px solid ' + colour + '55;color:#F2EEF8;'
-               : 'background:rgba(242,238,248,.04);border:1px dashed #2E2940;color:#8D87A0;'),
-      plus: function () {
-        self.apply(function (s) {
-          if (s.staged[spot.id]) doBump(s, spot.id, 1);
-          else { var k = unstagedNext(s); if (k) { doAssign(s, spot.id, k); doBump(s, spot.id, 1); } }
-        });
-      },
-      head: held ? CUST[held.cust].name : 'Take next',
-      headStyle: 'font-family:Archivo,system-ui,sans-serif;font-weight:700;font-size:' + (wide ? 17 : 15) + 'px;'
-        + 'line-height:1.15;color:' + (held ? '#F2EEF8' : '#8D87A0') + ';letter-spacing:-0.02em;'
-        + 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;',
-      sub: sub,
-      subStyle: 'font-size:12px;line-height:1.25;color:' + subCol + ';overflow:hidden;text-overflow:ellipsis;white-space:nowrap;',
-      minus: function () { self.apply(function (s) { doBump(s, spot.id, -1); }); },
-      minusStyle: 'width:36px;height:36px;flex:none;border-radius:9px;display:flex;align-items:center;justify-content:center;'
-        + 'font-size:19px;' + (held && held.n > 0 ? 'background:rgba(242,238,248,.05);border:1px solid #262232;color:#8D87A0;'
-                                                  : 'background:rgba(242,238,248,.02);color:#3A3548;'),
-      push: act,
-      pushStyle: this.btn(pushKind, bh, accent) + 'flex:1 1 0;min-width:0;overflow:hidden;',
-      pushLabel: pushLabel,
-      hasAlt: hasAlt,
-      alt: alt,
-      altStyle: this.btn('quiet', bh, accent) + 'width:' + (wide ? 82 : 66) + 'px;font-size:13px;padding:0 6px;',
-      altLabel: altLabel,
-      close: function () { self.apply(function (s) { doClose(s, spot.id); }); },
-      closeStyle: this.btn(held ? 'quiet' : 'off', bh, accent) + 'width:' + (wide ? 74 : 62) + 'px;',
-      closeLabel: 'Done'
-    };
+          quad(P(col, row), COL, ROW,
+            (isNext ? 'background:' + accent + '2E;box-shadow:inset 0 0 0 2px ' + (picked ? '#FFB570' : accent) + ';'
+              : (layers.length ? 'background:rgba(0,0,0,.28);box-shadow:inset 0 0 0 1px rgba(203,176,255,.10);'
+                : (reach ? 'background:rgba(247,118,142,.05);box-shadow:inset 0 0 0 1px rgba(247,118,142,.16);'
+                  : 'background:rgba(203,176,255,.022);box-shadow:inset 0 0 0 1px rgba(203,176,255,.13);')))
+            + 'cursor:pointer;', tap);
+
+          var gn = ghost ? ghost.reduce(function (a, l) { return a + l.n; }, 0) : 0;
+          if (ghost) {
+            // Drawn as a volume, not a floating rectangle: a face down to the
+            // floor is what stops a planned stack reading as a lid hanging in
+            // mid-air over the position two rows behind it.
+            var oF = P(col, row + 1, gn);
+            parts.push({ kids: [], text: '', tap: tap,
+              style: 'position:absolute;left:0;top:0;width:' + fx(cx) + 'px;height:' + fx(gn * ch)
+                + 'px;transform-origin:0 0;transform:matrix(1,' + fx(cy / cx) + ',0,1,' + fx(oF[0]) + ',' + fx(oF[1])
+                + ');background:rgba(122,162,247,.07);border-left:1px dashed rgba(122,162,247,.4);'
+                + 'border-right:1px dashed rgba(122,162,247,.4);' });
+            quad(P(col, row, gn), COL, ROW,
+              'background:rgba(122,162,247,.10);box-shadow:inset 0 0 0 1px rgba(122,162,247,.55);', tap);
+          }
+          if (layers.length) {
+            var draw = unknown ? [{ cust: layers[0].cust, n: 1 }] : layers;
+            drawStack(col, row, draw, unknown ? 1 : n, tap);
+            var names = [];
+            layers.forEach(function (l) { if (names.indexOf(l.cust) < 0) names.push(l.cust); });
+            chip(P(col + 0.5, row + 0.26, unknown ? 1 : n),
+              names.map(function (c) { return CUST[c].code; }).join('+') + ' ' + (unknown ? '?' : n),
+              'font-family:Archivo,system-ui,sans-serif;font-weight:700;font-size:' + fx(12 * k + 1) + 'px;'
+              + 'color:#0B0910;text-shadow:0 1px 0 rgba(255,255,255,.28);');
+            if (isHost && hostTake) {
+              // What the top-up would do, drawn where it would land: the crates
+              // themselves, in the customer's colour, standing on the host.
+              var base = unknown ? 1 : n, oG = P(col, row + 1, base + hostTake);
+              parts.push({ kids: [], text: '', tap: tap,
+                style: 'position:absolute;left:0;top:0;width:' + fx(cx) + 'px;height:' + fx(hostTake * ch)
+                  + 'px;transform-origin:0 0;transform:matrix(1,' + fx(cy / cx) + ',0,1,' + fx(oG[0]) + ',' + fx(oG[1])
+                  + ');background:' + shade(CUST[held.cust].color, 0.7, 0.5) + ';border:1px dashed #FFB570;' });
+              quad(P(col, row, base + hostTake), COL, ROW,
+                'background:' + shade(CUST[held.cust].color, 1, 0.55) + ';box-shadow:inset 0 0 0 2px #FFB570;', tap);
+              chip(P(col + 0.5, row + 0.24, base + hostTake), '+' + hostTake,
+                'font-family:Archivo,system-ui,sans-serif;font-weight:800;font-size:' + fx(12 * k + 1) + 'px;color:#FFF2E2;');
+            }
+          } else if (isNext || ghost) {
+            // One chip per position. The next position with a plan on it has two
+            // things to say and they are the same sentence, not two labels
+            // stacked on top of each other.
+            var planned = ghost ? ghost.map(function (l) { return CUST[l.cust].code; }).join('+') + ' ' + gn : '';
+            chip(P(col + 0.5, row + (ghost ? 0.26 : 0.5), gn),
+              isNext ? (picked ? 'PICKED' : 'NEXT') + (planned ? ' · ' + planned : ' IN') : planned,
+              (ghost && !isNext ? "font-family:Archivo,system-ui,sans-serif;font-weight:700;" : mono + 'font-weight:600;letter-spacing:.09em;')
+              + 'font-size:' + fx((ghost && !isNext ? 11 : 10) * k + 1) + 'px;'
+              + 'color:' + (picked ? '#FFB570' : (isNext ? '#CBB0FF' : '#7AA2F7')) + ';');
+          }
+        }(row, col));
+      }
+    }
+
+    // ── the ground outside ───────────────────────────────────────────────────
+    // Pavement, not van floor — so the pads are drawn flat and unwalled, and the
+    // pile you have built on one stands on it exactly the way it will stand in
+    // the van a moment later.
+    function drawPad(spot, u0, v0, w, d, outward) {
+      var on = st.staged[spot.id], isFocus = spot.id === focus;
+      var col = on ? CUST[on.cust].color : '#5F5876';
+      quad(P(u0, v0), mul(COL, w), mul(ROW, d),
+        'background:' + (on ? 'rgba(242,238,248,.05)' : 'rgba(242,238,248,.022)')
+        + ';box-shadow:inset 0 0 0 ' + (isFocus ? '2px ' + accent : '1px ' + (on ? col + '66' : '#2A2438')) + ';cursor:pointer;',
+        function () { self.setState({ focus: spot.id, target: null, host: null }); });
+      if (on && on.n) {
+        // Inset, so the pad stays readable as ground with a pile standing on it.
+        var m = 0.1, iu = u0 + m, iv = v0 + m, iw = w - 2 * m, id = d - 2 * m;
+        var n = Math.min(on.n, STAGE_CAP);
+        var h = n * ch, oA = P(iu, iv + id, n), oB = P(iu + iw, iv, n);
+        parts.push({ kids: stripes([{ cust: on.cust, n: n }], 0.70), text: '', tap: noop,
+          style: 'position:absolute;left:0;top:0;width:' + fx(cx * iw) + 'px;height:' + fx(h) + 'px;transform-origin:0 0;'
+            + 'transform:matrix(1,' + fx(cy / cx) + ',0,1,' + fx(oA[0]) + ',' + fx(oA[1]) + ');display:flex;flex-direction:column;' });
+        parts.push({ kids: stripes([{ cust: on.cust, n: n }], 0.46), text: '', tap: noop,
+          style: 'position:absolute;left:0;top:0;width:' + fx(rx * id) + 'px;height:' + fx(h) + 'px;transform-origin:0 0;'
+            + 'transform:matrix(-1,' + fx(ry / rx) + ',0,1,' + fx(oB[0]) + ',' + fx(oB[1]) + ');display:flex;flex-direction:column;' });
+        quad(P(iu, iv, n), mul(COL, iw), mul(ROW, id),
+          'background:' + shade(col, 1) + ';box-shadow:inset 0 0 0 1px rgba(0,0,0,.38);');
+        chip(P(u0 + w / 2, v0 + d / 2, n), CUST[on.cust].code + ' ' + on.n,
+          'font-family:Archivo,system-ui,sans-serif;font-weight:800;font-size:' + fx(13 * k + 1) + 'px;'
+          + 'letter-spacing:-.01em;color:#0B0910;text-shadow:0 1px 0 rgba(255,255,255,.26);');
+      } else if (on) {
+        chip(P(u0 + w / 2, v0 + d / 2), CUST[on.cust].code + ' ·',
+          'font-family:Archivo,system-ui,sans-serif;font-weight:800;font-size:' + fx(13 * k + 1) + 'px;color:' + col + ';');
+      } else {
+        chip(P(u0 + w / 2, v0 + d / 2), 'free',
+          "font-family:'Space Grotesk',sans-serif;font-size:" + fx(11 * k + 1) + 'px;color:#3F3A52;');
+      }
+      // The spot's own name always sits on the pavement in front of it, so a
+      // pile standing on the pad never hides which pad it is.
+      chip(outward ? P(u0 + w + 0.26, v0 + d / 2) : P(u0 + w / 2, v0 + d + 0.28), spot.name,
+        mono + 'font-size:' + fx(10 * k + 1) + 'px;font-weight:600;letter-spacing:.09em;'
+        + 'color:' + (isFocus ? '#CBB0FF' : (on ? '#8D87A0' : '#4A445C')) + ';');
+    }
+    sideSpots.forEach(function (s, i) { drawPad(s, V.padU, V.padV + i * V.padPitch, V.padW, V.padD, true); });
+    backSpots.forEach(function (s, i) { drawPad(s, 0.06 + i * V.backPitch, ROWS + V.backV, V.backW, V.backD, false); });
+
+    // ── the doorways ─────────────────────────────────────────────────────────
+    // Off the grid and off the floor plan, so drawn on the threshold itself —
+    // and only once something stands there or the floor has run short enough
+    // that it is about to.
+    DOORS.forEach(function (id) {
+      var stack = st.van[id], on = stack.length ? stack[stack.length - 1] : null;
+      if (!on && !spaceIsTight(st)) return;
+      var isSide = doorOf(id) === 'side';
+      var u0 = isSide ? 2.02 : 0.4, v0 = isSide ? SIDE_DOOR_ROWS - 1.0 : ROWS - 0.02;
+      var w = isSide ? 0.42 : 1.2, d = isSide ? 1.0 : 0.4;
+      quad(P(u0, v0), mul(COL, w), mul(ROW, d),
+        'background:' + (on ? 'rgba(255,181,112,.16)' : 'rgba(255,181,112,.05)')
+        + ';box-shadow:inset 0 0 0 1px rgba(255,181,112,' + (on ? '.55' : '.24') + ');');
+      chip(P(u0 + w / 2, v0 + d / 2, on ? 1.2 : 0),
+        on ? CUST[on.cust].code + (on.n == null ? ' ?' : ' ' + on.n) : 'well',
+        mono + 'font-size:' + fx(10 * k + 1) + 'px;font-weight:600;letter-spacing:.06em;color:#FFB570;');
+    });
+
+    return { box: 'position:absolute;left:' + fx(ox) + 'px;top:' + fx(oy) + 'px;width:0;height:0;', parts: parts,
+             focus: focus, held: held, door: door, frontier: frontier, picked: picked,
+             hosts: hosts, hostNow: hostNow, shut: shut };
   }
 
-  // ── one van position ───────────────────────────────────────────────────────
-  // `tight` says the cell is too narrow to hold a name — nine positions across
-  // 1440px leaves about 70px for text, so the colour identifies and a three
-  // letter code names.
-  cellVals(id, st, accent, cap, tight, plan) {
-    var self = this;
-    var door = this.liveDoor(st);
-    var whoNow = expectedNext(st);
-    var frontier = resolveTarget(st, door, this.state.target, whoNow);
-    var picked = targetIsChosen(st, door, this.state.target, whoNow) && id === frontier;
-    var openHere = id === frontier && st.open.n > 0;
-    var who = expectedNext(st);
-    var layers = st.van[id].slice();
-    if (openHere) layers.push({ cust: who, n: st.open.n, open: true });
+  // ── the console ────────────────────────────────────────────────────────────
+  consoleVals(st, accent, plan, S) {
+    var self = this, focus = S.focus, held = S.held;
+    var box = 'position:absolute;left:' + SCENE.x + 'px;top:698px;width:1014px;display:flex;flex-direction:column;gap:7px;';
+    var off = this.btn('off', 76, accent), quiet = this.btn('quiet', 76, accent);
+    var big = 'font:700 19px/1 Archivo,system-ui,sans-serif;letter-spacing:-.02em;';
+    var sub = "font:500 11px/1 'IBM Plex Mono',monospace;letter-spacing:.06em;opacity:.74;";
+    var dead = {
+      box: box, eyebrow: '', eyebrowStyle: '', note: '', noteStyle: '',
+      minus: noop, minusStyle: off + 'width:0;padding:0;border:0;',
+      plus: noop, plusStyle: off + 'width:0;padding:0;border:0;', plusLabel: '', plusNote: '', plusBig: big, plusSub: sub,
+      push: noop, pushStyle: off + 'width:0;padding:0;border:0;', pushLabel: '', pushNote: '', pushBig: big, pushSub: sub,
+      hasTop: false, top: noop, topStyle: off + 'width:0;padding:0;border:0;', topLabel: '', topNote: '', topBig: big, topSub: sub,
+      done: noop, doneStyle: off + 'width:0;padding:0;border:0;', doneLabel: '', doneBig: big,
+      showWhy: false, why: '', whyStyle: ''
+    };
 
-    var total = 0, unknown = false;
-    layers.forEach(function (l) { if (l.n == null) unknown = true; else total += l.n; });
-
-    var isNext = id === frontier;
-    var state = layers.length ? (openHere ? 'open' : 'in') : (isNext ? 'next' : 'empty');
-    var reach = doorOf(id) === 'side' && !sideDoorOpen(st) && !layers.length;
-    // Only an empty position this door can still reach is worth tapping; tap
-    // anything else and the board goes back to choosing for you.
-    var pickable = !layers.length && doorOf(id) === door;
-
-    var byHeight = [];
-    layers.forEach(function (l) { for (var i = 0; i < (l.n || 1); i++) byHeight.push(l); });
-    var slots = [];
-    for (var i = 0; i < cap; i++) {
-      var h = cap - i, l = byHeight[h - 1];
-      slots.push({ style: self.slotStyle(l ? (l.open ? 'open' : 'full') : 'free', l ? CUST[l.cust].color : accent) });
+    if (!focus) {
+      var waiting = expectedNext(st);
+      return Object.assign({}, dead, {
+        eyebrow: waiting ? 'NOTHING ON A PACKING SPOT' : 'EVERY STOP CLOSED OUT',
+        eyebrowStyle: "font:600 11px/1 'IBM Plex Mono',monospace;letter-spacing:.10em;color:"
+          + (waiting ? '#8D87A0' : '#4FD6A8') + ';',
+        note: waiting ? 'Pick ' + CUST[waiting].name + ' on the right and say which door you are packing them at.'
+          : cratesIn(st) + ' crates aboard. Nothing left to load.',
+        noteStyle: "font:400 14px/1.3 'Space Grotesk',sans-serif;color:#8D87A0;",
+        done: function () { self.undo(); },
+        doneStyle: this.btn(this.state.hist.length ? 'quiet' : 'off', 76, accent) + 'width:120px;',
+        doneLabel: 'Undo', doneBig: big
+      });
     }
-    // Nine rows down a portrait screen leaves a cell too short for eight fixed
-    // 7px slots, so they shrink instead of overflowing, and stack from the
-    // bottom the way a real one does.
-    // Eighteen positions each drawing eight dashed slots is a lot of grid for
-    // a van that is mostly empty, and the head already says "8 free". Draw the
-    // column only where there is something to show.
-    var showSlots = layers.length > 0 || isNext || !!ghost;
-    var slotCol = showSlots
-      ? 'display:flex;flex-direction:column;justify-content:flex-end;gap:2px;width:18px;flex:none;'
-        + 'align-self:stretch;min-height:0;'
-      : 'display:none;';
 
-    var names = [];
-    layers.forEach(function (l) { if (names.indexOf(l.cust) < 0) names.push(l.cust); });
-    // Two customers on one stack is the thing worth spotting from across the
-    // van, so it takes the pill rather than hiding in a sub-line.
-    var mixed = custCount(st, id) > 1;
-    // With counts in hand the board can say what belongs here before anything
-    // is lifted. Drawn as a ghost, never as a fact.
-    var ghost = (!layers.length && plan && plan.van[id] && plan.van[id].length) ? plan.van[id] : null;
-    var pill = state === 'open' ? 'OPEN' : (state === 'in' ? (mixed ? 'MIXED' : 'IN')
-      : (isNext ? (picked ? 'PICKED' : 'NEXT') : (reach ? 'SHUT' : (ghost ? 'PLANNED' : 'EMPTY'))));
-    var pillCol = mixed && state === 'in' ? ['rgba(255,181,112,.20)', '#FFB570']
-      : (state === 'open' ? ['rgba(255,181,112,.16)', '#FFB570']
-      : (state === 'in' ? ['rgba(79,214,168,.14)', '#4FD6A8']
-        : (state === 'next' ? [accent + '26', '#CBB0FF']
-          : (reach ? ['rgba(247,118,142,.12)', '#F7768E']
-            : (ghost ? ['rgba(122,162,247,.12)', '#7AA2F7'] : ['rgba(242,238,248,.05)', '#5F5876'])))));
+    var spot = spotById(focus);
+    var ps = pushState(st, focus, this.state.target);
+    var take = this.topTake(st, focus);
+    var tu = topUpState(st, focus, this.state.host, take);
+    // Combining is a remedy, never a preference: two customers on one stack is
+    // how the wrong goods get carried into a building. It only goes amber when
+    // the ±3 rule or the floor has taken the alternative away.
+    var forced = hostReason(st, focus);
+    var suggest = ps.target ? suggestAt(st, ps.target) : null;
 
+    var kind = 'go', label = ps.label, act;
+    var note = ps.target ? posLabel(ps.target) + (held.n ? '' : ' · not counted') : '';
+    var chosen = this.state.target;
+    act = function () {
+      self.apply(function (s) {
+        if (ps.kind === 'doorway') doDoorway(s, focus);
+        else if (ps.kind === 'split') doPush(s, focus, ps.take, chosen, ps.plan ? ps.plan.cells[1] : null);
+        else doPush(s, focus, null, chosen);
+      });
+      self.setState({ target: null, host: null });
+    };
+    if (ps.kind === 'ready')         { kind = held.n ? 'go' : 'quiet'; label = 'Push in' + (held.n ? ' ' + held.n : ''); }
+    else if (ps.kind === 'chosen')   { kind = 'warn'; label = 'Push in' + (held.n ? ' ' + held.n : ''); }
+    else if (ps.kind === 'split')    { kind = 'warn'; label = 'Push in ' + ps.take + ' of ' + held.n; }
+    else if (ps.kind === 'order')    { kind = 'warn'; label = 'Push in anyway'; }
+    else if (ps.kind === 'thin')     { kind = 'warn'; label = 'Push in anyway'; }
+    else if (ps.kind === 'doorway')  { kind = ps.good ? 'go' : 'warn'; label = ps.label; note = posLabel(ps.target); }
+    else if (ps.kind === 'nofit')    { kind = 'stop'; label = ps.label; act = noop; }
+    else if (ps.kind === 'physical') {
+      kind = 'stop'; label = ps.label; act = noop;
+      // "Round the back" is an instruction, so it has to be a button. Without
+      // one the board tells the driver what to do and gives them no way to
+      // record having done it — and the order is stranded on a shut door.
+      var other = spot.door === 'side' ? 'back' : 'side';
+      var landing = freeSpotAt(st, other);
+      if (landing) {
+        kind = 'warn'; label = 'Carry round the back'; note = 'to ' + landing.name;
+        act = function () {
+          self.apply(function (s) { doMoveSpot(s, focus, other); });
+          self.setState({ focus: landing.id, target: null, host: null });
+        };
+      }
+    }
+
+    var topKind = tu.kind === 'nohost' ? 'off' : (forced ? 'warn' : 'quiet');
     return {
-      tile: 'flex:1 1 0;min-width:0;height:146px;padding:' + (isNext ? '7px 8px' : '8px 9px') + ';border-radius:12px;'
-        + 'display:flex;flex-direction:column;gap:5px;'
-        + 'background:' + (layers.length ? '#17141F' : '#0E0C14') + ';'
-        + 'border:' + (isNext ? '2px solid ' + (picked ? '#FFB570' : accent + '80')
-          : '1px solid ' + (layers.length ? '#241F30' : '#1A1723')) + ';',
-      tileV: 'flex:1 1 0;min-width:0;height:100%;padding:' + (isNext ? '8px 10px' : '9px 11px') + ';border-radius:12px;'
-        + 'display:flex;flex-direction:column;gap:5px;'
-        + 'background:' + (layers.length ? '#17141F' : '#0E0C14') + ';'
-        + 'border:' + (isNext ? '2px solid ' + (picked ? '#FFB570' : accent + '80')
-          : '1px solid ' + (layers.length ? '#241F30' : '#1A1723')) + ';',
-      pick: function () { self.setState({ target: pickable && id !== frontier ? id : null }); },
-      // Nine across leaves no room for "R4 · R" beside a pill, and the row
-      // number is already in the header and the column in the band label.
-      pos: tight ? (colOf(id) === 'left' ? 'L' : 'R') : posLabel(id),
-      pillText: pill,
-      pillStyle: 'font-family:' + MONO + ';font-size:' + (tight ? 9 : 10) + 'px;letter-spacing:.05em;'
-        + 'padding:2px ' + (tight ? 5 : 6) + 'px;border-radius:999px;white-space:nowrap;'
-        + 'background:' + pillCol[0] + ';color:' + pillCol[1] + ';',
-      slots: slots,
-      slotCol: slotCol,
-      head: layers.length || !ghost
-        ? (this.state.mode === 'space'
-            ? (unknown ? '?' : String(Math.max(0, cap - total)) + ' free')
-            : (names.length ? names.map(function (k) { return tight ? CUST[k].code : CUST[k].short; }).join(' + ') : '—'))
-        : ghost.map(function (l) { return tight ? CUST[l.cust].code : CUST[l.cust].short; }).join(' + '),
-      headStyle: 'font-family:Archivo,system-ui,sans-serif;font-weight:700;'
-        + 'font-size:' + (!layers.length && ghost ? 14 : (this.state.mode === 'space' ? (tight ? 17 : 21) : 14)) + 'px;line-height:1.1;'
-        + 'color:' + (layers.length || isNext ? '#F2EEF8' : (ghost ? '#7AA2F7' : '#4A445C')) + ';letter-spacing:-0.02em;'
-        + 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;',
-      sub: layers.length ? ((unknown ? 'uncounted' : total + (total === 1 ? ' crate' : ' crates'))
-          + (mixed ? ' · two customers' : ''))
-        : (isNext ? (picked ? 'you picked this' : 'next in')
-          : (reach ? 'side door shut'
-            : (ghost ? ghost.reduce(function (a, l) { return a + l.n; }, 0) + ' planned'
-              : (pickable ? 'send here' : 'empty')))),
-      subStyle: 'font-size:12px;line-height:1.2;color:'
-        + (reach ? '#F7768E' : (picked ? '#FFB570' : (isNext ? '#CBB0FF' : (ghost ? '#7AA2F7' : '#5F5876')))) + ';'
-        + 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;'
+      box: box,
+      eyebrow: spot.name + ' · ' + CUST[held.cust].name.toUpperCase(),
+      eyebrowStyle: "font:600 11px/1 'IBM Plex Mono',monospace;letter-spacing:.10em;color:"
+        + (S.picked ? '#FFB570' : '#CBB0FF') + ';',
+      note: (this.props.tier >= 3 && PALLETS[held.cust] ? 'pallet ' + PALLETS[held.cust] + ' · ' : '')
+        + 'stop ' + stopOf(held.cust).i + ' of ' + STOPS.length
+        + (this.props.tier >= 2 && COUNTS[held.cust] ? ' · ' + COUNTS[held.cust] + ' expected' : ''),
+      noteStyle: "font:400 12px/1 'Space Grotesk',sans-serif;color:#5F5876;",
+
+      minus: function () { self.apply(function (s) { doBump(s, focus, -1); }); },
+      minusStyle: this.btn(held.n ? 'quiet' : 'off', 76, accent) + 'width:56px;font-size:22px;',
+      plus: function () { self.apply(function (s) { doBump(s, focus, 1); }); },
+      plusStyle: this.btn('quiet', 76, accent) + 'width:132px;',
+      plusLabel: held.n ? '+ 1  (' + held.n + ')' : '+ 1 crate',
+      plusNote: held.n ? 'on the spot' : (suggest ? 'or push ' + suggest + ' blind' : 'uncounted'),
+      plusBig: big, plusSub: sub,
+
+      push: act,
+      pushStyle: this.btn(kind, 76, accent) + 'width:216px;',
+      pushLabel: label, pushNote: note, pushBig: big, pushSub: sub,
+
+      // The slot stays whether or not there is a stack to use, because a button
+      // that disappears moves every button beside it under a hand that is
+      // already reaching for one of them.
+      hasTop: true,
+      top: tu.kind === 'nohost' ? noop : function () {
+        self.apply(function (s) { doStack(s, focus, tu.host.id, take); });
+        self.setState({ host: null });
+      },
+      topStyle: this.btn(topKind, 76, accent) + 'width:150px;',
+      topLabel: '+' + take + ' on top',
+      topNote: tu.host ? posLabel(tu.host.id) : 'no stack for it', topBig: big, topSub: sub,
+
+      done: function () { self.apply(function (s) { doClose(s, focus); }); self.setState({ focus: null, target: null, host: null }); },
+      doneStyle: this.btn('quiet', 76, accent) + 'width:104px;', doneLabel: 'Done', doneBig: big,
+
+      // When the ±3 rule blocks the position AND a stack could take the crates
+      // instead, both facts are load-bearing: one says why the ordinary move is
+      // amber, the other says what the remedy costs. Showing only the first is
+      // how the driver ends up mixing a stack without being told what mixing is.
+      showWhy: !!(ps.why || (forced && tu.kind !== 'nohost')),
+      why: [ps.why, forced && tu.host
+        ? (forced === 'space' ? 'The floor is running short. ' : '')
+          + CUST[tu.host.below].name + '’s stack at ' + posLabel(tu.host.id) + ' would take them — '
+          + 'but two customers on one stack is how the wrong crate gets carried into a building.'
+        : ''].filter(function (x) { return x; }).join('  '),
+      whyStyle: 'font:400 13px/1.35 "Space Grotesk",sans-serif;color:'
+        + (kind === 'stop' ? '#F7768E' : '#FFB570') + ';max-width:590px;'
     };
   }
 
@@ -314,280 +515,138 @@ class Component extends DCLogic {
     // make the board's state fit the shape it just got.
     configure(this.props);
     var st = normalize(this.state.st);
-    // How much was scanned before the doors opened. 1 = the route list only;
-    // 2 adds a count per customer; 3 adds which pallet each one is buried in.
     var tier = this.props.tier == null ? 1 : this.props.tier;
     var plan = tier >= 2 ? planAhead(COUNTS, st) : null;
     var accent = this.props.accent == null ? '#B48EF7' : this.props.accent;
-    var cap = CAP;
-    var door = this.liveDoor(st);
-    var who = expectedNext(st);
-    var frontier = resolveTarget(st, door, this.state.target, who);
-    var picked = targetIsChosen(st, door, this.state.target, who);
-    var sideLeft = positionsLeft(st, 'side');
-    var sideStaged = stagedAtDoor(st, 'side');
-    var free = positionsLeft(st, 'side') + positionsLeft(st, 'back');
-    var doneStops = QUEUE.filter(function (k) { return st.closed[k]; }).length;
+    var S = this.scene(st, accent, plan);
 
-    // ── header ───────────────────────────────────────────────────────────────
-    var big = 'font-family:Archivo,system-ui,sans-serif;font-weight:800;font-size:23px;line-height:1;letter-spacing:-0.02em;color:';
+    var free = positionsLeft(st, 'side') + positionsLeft(st, 'back');
+    var sideLeft = positionsLeft(st, 'side');
+    var doneStops = QUEUE.filter(function (k) { return st.closed[k]; }).length;
+    var big = 'font:800 22px/1.15 Archivo,system-ui,sans-serif;letter-spacing:-.02em;color:';
     var stats = [
       { label: 'POSITIONS LEFT', value: positionsHeld(st) ? free + ' · ' + positionsHeld(st) + ' held' : String(free),
-        style: big + '#F2EEF8;' },
-      { label: 'SIDE DOOR', value: sideLeft ? String(sideLeft) + ' left' : 'shut', style: big + (sideLeft ? '#FFB570;' : '#F7768E;') },
-      { label: 'CRATES IN', value: String(cratesIn(st) + st.open.n), style: big + '#CDC6DD;' },
+        style: big + (free ? '#F2EEF8' : '#F7768E') + ';' },
+      { label: 'SIDE DOOR', value: sideLeft ? sideLeft + ' left' : 'shut', style: big + (sideLeft ? '#FFB570' : '#F7768E') + ';' },
+      { label: 'CRATES IN', value: String(cratesIn(st)), style: big + '#CDC6DD;' },
       { label: 'STOPS', value: doneStops + ' / ' + QUEUE.length, style: big + '#CDC6DD;' }
     ];
-    function modeBtn(key, label) {
-      var on = self.state.mode === key;
-      return {
-        label: label,
-        pick: function () { self.setState({ mode: key }); },
-        style: 'padding:8px 13px;border-radius:7px;font-size:13px;font-weight:600;white-space:nowrap;'
-          + (on ? 'background:' + accent + ';color:#191624;' : 'color:#8D87A0;')
-      };
-    }
-    var modes = [modeBtn('space', 'Space left'), modeBtn('who', 'Who goes where')];
-
-    // The doc says to flag an off-route or unlabelled crate rather than guess
-    // at it. Live, that is a tap: the board cannot tell what is on the label,
-    // but it can carry the count to whoever asks at the depot.
-    var flag = {
-      label: st.flags ? '\u2691 ' + st.flags + ' odd' : '\u2691 Odd crate',
-      tap: function () { self.apply(function (s) { s.flags = (s.flags || 0) + 1; }); },
-      style: 'height:40px;padding:0 13px;border-radius:10px;display:flex;align-items:center;justify-content:center;'
-        + 'font-size:13px;font-weight:600;white-space:nowrap;flex:none;'
-        + (st.flags ? 'background:rgba(247,118,142,.12);border:1px solid rgba(247,118,142,.45);color:#F7768E;'
-                    : 'background:rgba(242,238,248,.04);border:1px solid #262232;color:#8D87A0;')
-    };
-
-    // ── the console ──────────────────────────────────────────────────────────
-    var bar;
-    if (!who || !frontier) {
-      bar = {
-        box: 'display:flex;align-items:center;gap:10px;background:rgba(79,214,168,.08);border:1px solid rgba(79,214,168,.35);border-radius:14px;padding:11px 14px;height:76px;flex:none;',
-        boxV: 'display:flex;flex-direction:column;justify-content:center;gap:8px;background:rgba(79,214,168,.08);border:1px solid rgba(79,214,168,.35);border-radius:14px;padding:12px 14px;height:140px;flex:none;',
-        eyebrow: !who ? 'EVERY STOP CLOSED OUT' : 'VAN FULL',
-        eyebrowStyle: 'font-family:' + MONO + ';font-size:12px;letter-spacing:.10em;color:#4FD6A8;',
-        title: !who ? 'Loaded' : 'No positions left',
-        titleStyle: 'font-family:Archivo,system-ui,sans-serif;font-weight:700;font-size:22px;color:#F2EEF8;letter-spacing:-0.02em;',
-        sub: cratesIn(st) + ' crates across ' + (14 - free) + ' positions',
-        minus: function () {}, minusStyle: this.btn('off', 56, accent) + 'width:0;padding:0;border:0;',
-        plus: function () {}, plusStyle: this.btn('off', 56, accent) + 'width:0;padding:0;border:0;', plusLabel: '',
-        seal: function () {}, sealStyle: this.btn('off', 56, accent) + 'width:0;padding:0;border:0;', sealLabel: '',
-        close: function () {}, closeStyle: this.btn('off', 56, accent) + 'width:0;padding:0;border:0;', closeLabel: '',
-        undo: function () { self.undo(); }, undoStyle: this.btn('quiet', 56, accent) + 'width:92px;'
-      };
-    } else {
-      var openN = st.open.n;
-      bar = {
-        box: 'display:flex;align-items:center;gap:8px;background:#13101B;border:1px solid '
-          + (picked ? 'rgba(255,181,112,.55)' : accent + '55') + ';border-radius:14px;padding:10px 12px;height:76px;flex:none;',
-        // Upright the console stacks — what is going in on top, the hands
-        // underneath — so it needs a column box, not the landscape row.
-        boxV: 'display:flex;flex-direction:column;gap:8px;background:#13101B;border:1px solid '
-          + (picked ? 'rgba(255,181,112,.55)' : accent + '55') + ';border-radius:14px;padding:12px 14px;height:140px;flex:none;',
-        eyebrow: (tier >= 3 && PALLETS[who] ? 'PALLET ' + PALLETS[who] + ' → ' : 'STRAIGHT OFF THE PALLET → ')
-          + posLabel(frontier)
-          + (picked ? ' · YOUR PICK' : ' · ' + (door === 'side' ? 'SIDE DOOR' : 'BACK DOORS')),
-        eyebrowStyle: 'font-family:' + MONO + ';font-size:12px;letter-spacing:.09em;color:'
-          + (picked ? '#FFB570' : '#CBB0FF') + ';',
-        title: CUST[who].name,
-        titleStyle: 'font-family:Archivo,system-ui,sans-serif;font-weight:700;font-size:24px;color:#F2EEF8;letter-spacing:-0.025em;white-space:nowrap;',
-        sub: 'stop ' + stopOf(who).i + ' of 6 · ' + (openN ? openN + ' stacked here' : 'nothing in yet')
-          + (tier >= 2 && COUNTS[who] ? ' · ' + COUNTS[who] + ' expected' : ''),
-        minus: function () { self.apply(function (s) { s.open.n = Math.max(0, s.open.n - 1); }); },
-        minusStyle: this.btn(openN ? 'quiet' : 'off', 56, accent) + 'width:56px;font-size:22px;',
-        plus: function () { self.apply(function (s) { s.open.n = s.open.n + 1; }); },
-        plusStyle: this.btn('primary', 56, accent) + 'width:212px;font-size:18px;font-weight:700;',
-        plusLabel: '+ 1 crate in',
-        seal: function () { self.apply(function (s) { self.sealOpen(s); }); },
-        sealStyle: this.btn(openN ? 'quiet' : 'off', 56, accent) + 'width:186px;',
-        sealLabel: openN ? 'Full · next position' : 'Full · next',
-        close: function () { self.apply(function (s) { self.sealOpen(s); s.closed[who] = true; }); },
-        closeStyle: this.btn('go', 56, accent) + 'width:176px;',
-        closeLabel: 'Done · ' + CUST[who].short,
-        undo: function () { self.undo(); },
-        undoStyle: this.btn(this.state.hist.length ? 'quiet' : 'off', 56, accent) + 'width:92px;'
-      };
-    }
-
-    // ── running out of van before running out of route ───────────────────────
-    // The generator settles this before a crate is lifted. Live, nobody knows
-    // until it happens — so the board watches the two numbers and says the
-    // moment they cross, while combining is still an option.
-    var notInYet = QUEUE.filter(function (k) { return !st.closed[k] && !isAboard(st, k); }).length;
-    var warn = { show: free < notInYet, text: '', style: '' };
-    warn.text = free + ' position' + (free === 1 ? '' : 's') + ' left and ' + notInYet
-      + ' stops with nothing aboard — some of them will have to share a stack.';
-    warn.style = 'display:flex;align-items:center;gap:10px;padding:8px 14px;border-radius:11px;flex:none;'
-      + 'background:rgba(247,118,142,.09);border:1px solid rgba(247,118,142,.35);'
-      + 'font-size:13px;color:#F7768E;';
-
-    // ── the side door, and its budget ────────────────────────────────────────
-    // The failure this heads off: three stacks standing at the side door and
-    // only two positions left that the side door can still reach.
-    var sideDoor;
-    if (!sideLeft) {
-      sideDoor = {
-        label: 'SIDE DOOR · SHUT',
-        labelStyle: 'font-family:' + MONO + ';font-size:12px;letter-spacing:.10em;color:#F7768E;',
-        note: SIDE_DOOR_ROWS ? 'Rows 1–' + SIDE_DOOR_ROWS + ' are full. Everything left goes in through the back.'
-          : 'No side door on this van — everything goes in through the back.',
-        noteStyle: 'font-size:13px;color:#8D87A0;'
-      };
-    } else {
-      // Naming the shortfall is not the same as naming who it lands on. The
-      // stacks go in in loading order, so the ones past the position count are
-      // the ones that will still be standing at the door when it shuts.
-      var queued = SPOTS.filter(function (sp) { return sp.door === 'side' && st.staged[sp.id]; })
-        .sort(function (a, b) {
-          return QUEUE.indexOf(st.staged[a.id].cust) - QUEUE.indexOf(st.staged[b.id].cust);
-        });
-      var stranded = queued.slice(sideLeft);
-      var tight = stranded.length > 0;
-      sideDoor = {
-        label: 'SIDE DOOR · OPEN · REACHES ROWS 1–' + SIDE_DOOR_ROWS,
-        labelStyle: 'font-family:' + MONO + ';font-size:12px;letter-spacing:.10em;color:#FFB570;',
-        note: sideLeft + ' position' + (sideLeft === 1 ? '' : 's') + ' left · ' + sideStaged + ' staged here'
-          + (tight ? ' — ' + stranded.map(function (sp) {
-              return sp.name + ' (' + CUST[st.staged[sp.id].cust].short + ')';
-            }).join(' and ') + ' will still be standing here when it shuts'
-            : ''),
-        noteStyle: 'font-size:13px;color:' + (tight ? '#FFB570' : '#5F5876') + ';'
-      };
-    }
-
-    // ── the map ──────────────────────────────────────────────────────────────
-    var heads = [];
-    for (var r = 1; r <= ROWS; r++) {
-      heads.push({
-        label: 'R' + r,
-        style: 'flex:1 1 0;min-width:0;font-family:' + MONO + ';font-size:11px;letter-spacing:.08em;'
-          + 'color:' + (r <= SIDE_DOOR_ROWS ? (sideLeft ? '#FFB570' : '#5F5876') : '#8D87A0') + ';'
-      });
-    }
-    // One back spot hangs off the end of each band. With only one fitted, the
-    // driver-side band gets a dead tile rather than a band of a different shape.
-    var backList = SPOTS.filter(function (s) { return s.door === 'back'; });
-    var bands = [
-      { col: 'right', label: 'RIGHT', sub: 'kerb',   spot: backList[0] },
-      { col: 'left',  label: 'LEFT',  sub: 'driver', spot: backList[1] || backList[0] }
-    ].map(function (b) {
-      var cells = [];
-      for (var r = 1; r <= ROWS; r++) cells.push(self.cellVals('r' + r + '-' + b.col, st, accent, cap, ROWS >= 8, plan));
-      return { label: b.label, sub: b.sub, cells: cells, spot: self.spotVals(b.spot, st, accent, false) };
-    });
-
-    var sideSpots = SPOTS.filter(function (s) { return s.door === 'side'; })
-      .map(function (s) { return self.spotVals(s, st, accent, true); });
-
-    // Portrait turns the same map through ninety degrees: the cab goes to the
-    // top and the rows run down the screen, which puts the van's right side —
-    // and so the side door — on the right. Same cells, grouped by row instead
-    // of by column, and split at the door boundary so the side spots can sit
-    // beside exactly the rows they can reach.
-    function rowVals(r) {
-      return {
-        label: 'R' + r,
-        labelStyle: 'font-family:' + MONO + ';font-size:12px;letter-spacing:.08em;'
-          + 'color:' + (r <= SIDE_DOOR_ROWS ? (sideLeft ? '#FFB570' : '#5F5876') : '#8D87A0') + ';',
-        cells: [self.cellVals('r' + r + '-left', st, accent, cap, false, plan),
-                self.cellVals('r' + r + '-right', st, accent, cap, false, plan)]
-      };
-    }
-    var rowsA = [], rowsB = [];
-    for (var rr = 1; rr <= ROWS; rr++) (rr <= SIDE_DOOR_ROWS ? rowsA : rowsB).push(rowVals(rr));
-    var backSpots = backList.map(function (s) { return self.spotVals(s, st, accent, true); });
-    // The two portrait zones are split at the door boundary, so they have to
-    // take their share of the height from how many rows each actually holds.
-    var zoneA = { style: 'display:flex;gap:8px;flex:' + Math.max(rowsA.length, 1) + ' 1 0;min-height:0;' };
-    var zoneB = { style: 'display:flex;gap:8px;flex:' + Math.max(rowsB.length, 1) + ' 1 0;min-height:0;' };
-
-    // ── the doorways ─────────────────────────────────────────────────────────
-    // Off the grid, so drawn off the map — and only once they are either in use
-    // or the only floor left worth talking about.
-    var inUse = DOORS.filter(function (id) { return !isEmpty(st, id); });
-    var offering = SPOTS.some(function (sp) { return singleCrateDoor(st, sp.id); });
-    var doorways = { show: inUse.length > 0 || spaceIsTight(st) || offering, tiles: [] };
-    doorways.tiles = DOORS.map(function (id) {
-      var stack = st.van[id], held = stack.length ? stack[stack.length - 1] : null;
-      var door = doorOf(id), isSide = door === 'side';
-      var mine = held ? stopOf(held.cust) : null;
-      // Fine here means it is not in anybody's way: either it comes out first,
-      // or it is the single crate this space is best used for.
-      var fine = held && (mine.i === 1 || held.n === 1);
-      var frozen = isSide && st.frozenAtDoor;
-      return {
-        tile: 'flex:1 1 0;min-width:0;border-radius:11px;padding:8px 12px;display:flex;align-items:center;gap:12px;'
-          + 'background:' + (held ? '#17141F' : '#0A080E') + ';'
-          + 'border:1px solid ' + (held ? (fine ? 'rgba(79,214,168,.35)' : 'rgba(247,118,142,.40)')
-                                       : 'rgba(255,181,112,.28)') + ';',
-        name: posLabel(id),
-        nameStyle: 'font-family:' + MONO + ';font-size:11px;letter-spacing:.07em;flex:none;'
-          + 'color:' + (held ? (fine ? '#4FD6A8' : '#F7768E') : '#FFB570') + ';',
-        head: held ? CUST[held.cust].name : 'free',
-        headStyle: 'font-family:Archivo,system-ui,sans-serif;font-weight:700;font-size:15px;letter-spacing:-0.02em;'
-          + 'color:' + (held ? '#F2EEF8' : '#5F5876') + ';overflow:hidden;text-overflow:ellipsis;white-space:nowrap;',
-        sub: held
-          ? (held.n == null ? 'uncounted' : held.n + (held.n === 1 ? ' crate' : ' crates'))
-            + ' · stop ' + mine.i
-            + (held.n === 1 ? ' · one crate, easy to reach'
-                            : (mine.i === 1 ? ' · out first, so it is never in the way'
-                                            : ' · in the way until then'))
-          : (isSide
-              ? 'no pushing in past rows 1–' + SIDE_DOOR_ROWS + ' — but a crate can stand here'
-              : 'floor of last resort — it blocks the door'),
-        subStyle: 'font-size:12px;color:' + (held && !fine ? '#F7768E' : '#5F5876') + ';'
-          + 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;',
-        // The freeze ware goes in here at the end and has to still fit, so the
-        // board carries the fact rather than pretending the space is empty.
-        hasFreeze: isSide,
-        freezeLabel: frozen ? '❄ freeze ware' : '❄ none today',
-        freezeStyle: 'height:38px;padding:0 11px;border-radius:9px;display:flex;align-items:center;'
-          + 'justify-content:center;font-size:12px;font-weight:600;white-space:nowrap;flex:none;'
-          + (frozen ? 'background:rgba(122,162,247,.14);border:1px solid rgba(122,162,247,.45);color:#7AA2F7;'
-                    : 'background:rgba(242,238,248,.04);border:1px solid #262232;color:#5F5876;'),
-        freezeTap: function () { self.apply(function (x) { x.frozenAtDoor = !x.frozenAtDoor; }); },
-        clear: function () { if (held) self.apply(function (x) { doClearDoorway(x, door); }); },
-        clearStyle: this.btn(held ? 'quiet' : 'off', 38, accent) + 'width:104px;font-size:13px;',
-        clearLabel: held ? 'Take it out' : '—'
-      };
-    }, this);
 
     // ── the route, in loading order ──────────────────────────────────────────
+    var doorBtn = 'width:62px;height:46px;border-radius:10px;display:flex;align-items:center;justify-content:center;'
+      + "font:700 13px/1 'Space Grotesk',sans-serif;flex:none;";
     var queue = QUEUE.map(function (k) {
-      var at = spotHolding(st, k), pos = positionsOf(st, k);
-      var closed = !!st.closed[k], isNow = k === who;
+      var closed = !!st.closed[k], at = spotHolding(st, k), pos = positionsOf(st, k);
+      var isFocus = at && at.id === S.focus;
       var state, col;
-      if (closed) { state = 'DONE  \u21BA'; col = '#4FD6A8'; }
-      else if (isNow) { state = 'LOADING NOW'; col = '#CBB0FF'; }
+      var mine = 0;
+      pos.forEach(function (id) { st.van[id].forEach(function (l) { if (l.cust === k) mine += (l.n || 0); }); });
+      if (closed) {
+        state = pos.length ? 'DONE · ' + mine + ' in ' + pos.length + (pos.length === 1 ? ' position' : ' positions')
+          : 'DONE · nothing aboard';
+        col = '#4FD6A8';
+      }
+      else if (isFocus) { state = 'PACKING · ' + at.name; col = '#CBB0FF'; }
       else if (at) { state = 'ON ' + at.name; col = '#FFB570'; }
-      else { state = 'WAITING'; col = '#5F5876'; }
+      else if (pos.length) { state = 'PART IN · ' + pos.map(posLabel).join(' '); col = '#8D87A0'; }
+      else { state = 'STOP ' + stopOf(k).i + ' · WAITING'; col = '#5F5876'; }
+
+      function door(d) {
+        var bs = beginState(st, k, d);
+        var tone = bs.kind === 'ready' ? (d === 'side' ? 'rgba(255,181,112,.10);border:1px solid rgba(255,181,112,.45);color:#FFB570'
+                                                       : 'rgba(203,176,255,.10);border:1px solid rgba(180,142,247,.5);color:#CBB0FF')
+          : bs.kind === 'packing' ? 'rgba(242,238,248,.05);border:1px solid ' + accent + '80;color:#F2EEF8'
+          : bs.kind === 'move' ? 'rgba(203,176,255,.05);border:1px dashed rgba(180,142,247,.5);color:#CBB0FF'
+          : bs.kind === 'well' || bs.kind === 'order' ? 'rgba(255,181,112,.07);border:1px dashed rgba(255,181,112,.45);color:#C09263'
+          : 'rgba(242,238,248,.02);border:1px solid #201C2B;color:#3F3A52';
+        return {
+          style: doorBtn + 'background:' + tone + ';',
+          label: bs.kind === 'move' ? 'move' : (d === 'side' ? 'side' : 'rear'),
+          tap: (bs.kind === 'nospot' || bs.kind === 'shut') ? noop : function () {
+            var landed = null;
+            self.apply(function (s) { landed = doBegin(s, k, d); });
+            self.setState({ focus: landed, target: null, host: null });
+          }
+        };
+      }
+      var sideB = door('side'), rearB = door('back');
       return {
-        pick: function () { if (closed) self.apply(function (s) { doReopen(s, k); }); },
-        tile: 'flex:1 1 0;min-width:0;border-radius:11px;padding:8px 10px;display:flex;flex-direction:column;gap:2px;'
-          + 'background:' + (isNow ? '#17141F' : '#0E0C14') + ';'
-          + 'border:1px solid ' + (isNow ? accent + '70' : (closed ? 'rgba(79,214,168,.22)' : '#1A1723')) + ';',
-        tileV: 'flex:1 1 0;min-height:0;border-radius:11px;padding:7px 10px;display:flex;flex-direction:column;'
-          + 'justify-content:center;gap:1px;'
-          + 'background:' + (isNow ? '#17141F' : '#0E0C14') + ';'
-          + 'border:1px solid ' + (isNow ? accent + '70' : (closed ? 'rgba(79,214,168,.22)' : '#1A1723')) + ';',
-        dot: 'width:9px;height:9px;border-radius:3px;flex:none;background:' + CUST[k].color + (closed ? '' : '99') + ';',
+        tap: function () { if (at) self.setState({ focus: at.id, target: null, host: null }); },
+        tile: 'display:flex;align-items:center;gap:9px;padding:8px 9px;border-radius:11px;cursor:pointer;'
+          + 'flex:1 1 0;min-height:62px;max-height:96px;'
+          + 'background:' + (isFocus ? '#191524' : '#0E0C14') + ';border:1px solid '
+          + (isFocus ? accent + '80' : (closed ? 'rgba(79,214,168,.22)' : '#1B1826')) + ';',
+        barStyle: 'width:8px;align-self:stretch;border-radius:3px;flex:none;background:' + CUST[k].color + (closed ? '55' : ''),
         name: CUST[k].name,
-        nameStyle: 'font-family:Archivo,system-ui,sans-serif;font-weight:700;font-size:14px;letter-spacing:-0.01em;'
-          + 'color:' + (closed || isNow ? '#F2EEF8' : '#8D87A0') + ';overflow:hidden;text-overflow:ellipsis;white-space:nowrap;',
-        where: pos.length ? pos.map(posLabel).join('  ') : 'stop ' + stopOf(k).i + ' · not in yet',
-        whereStyle: 'font-family:' + MONO + ';font-size:11px;color:' + (pos.length ? '#CDC6DD' : '#5F5876') + ';'
-          + 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;',
+        nameStyle: 'font:700 15px/1.15 Archivo,system-ui,sans-serif;letter-spacing:-.02em;overflow:hidden;'
+          + 'text-overflow:ellipsis;white-space:nowrap;color:' + (closed || at ? '#F2EEF8' : '#8D87A0') + ';',
         state: state,
-        stateStyle: 'font-family:' + MONO + ';font-size:10px;letter-spacing:.08em;color:' + col + ';'
+        stateStyle: "font:500 11px/1.2 'IBM Plex Mono',monospace;letter-spacing:.05em;color:" + col + ';'
+          + 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;',
+        hasDoors: !closed, hasReopen: closed,
+        side: sideB.tap, sideStyle: sideB.style, sideLabel: sideB.label,
+        rear: rearB.tap, rearStyle: rearB.style, rearLabel: rearB.label,
+        reopen: function () { self.apply(function (s) { doReopen(s, k); }); },
+        reopenStyle: 'width:129px;height:46px;border-radius:10px;display:flex;align-items:center;justify-content:center;'
+          + "font:600 13px/1 'Space Grotesk',sans-serif;flex:none;background:rgba(242,238,248,.03);color:#4A445C;"
       };
     });
 
-    return { stats: stats, modes: modes, flag: flag, bar: bar, sideDoor: sideDoor, warn: warn,
-             sideSpots: sideSpots, heads: heads, bands: bands, queue: queue,
-             rowsA: rowsA, rowsB: rowsB, backSpots: backSpots, zoneA: zoneA, zoneB: zoneB,
-             doorways: doorways };
+    // ── the two ways this goes wrong before anybody notices ──────────────────
+    // Both are counts crossing, and both are only fixable while there is still
+    // a choice — so they are said the moment they cross, not when they bite.
+    var lines = [];
+    // The side door shutting on stacks that are still standing at it. Naming the
+    // shortfall is not the same as naming who it lands on: the stacks go in in
+    // loading order, so the ones past the position count are the ones stranded.
+    var queued = SPOTS.filter(function (sp) { return sp.door === 'side' && st.staged[sp.id]; })
+      .sort(function (a, b) {
+        return QUEUE.indexOf(st.staged[a.id].cust) - QUEUE.indexOf(st.staged[b.id].cust);
+      });
+    var stranded = queued.slice(sideLeft);
+    if (stranded.length) {
+      lines.push(sideLeft + ' position' + (sideLeft === 1 ? '' : 's') + ' left through the side door and '
+        + queued.length + ' stacks standing at it — '
+        + stranded.map(function (sp) { return sp.name + ' (' + CUST[st.staged[sp.id].cust].short + ')'; }).join(' and ')
+        + ' will have to be carried round.');
+    }
+    var notInYet = QUEUE.filter(function (x) { return !st.closed[x] && !isAboard(st, x); }).length;
+    if (free < notInYet) {
+      lines.push(free + ' position' + (free === 1 ? '' : 's') + ' left and ' + notInYet
+        + ' stops with nothing aboard — some will have to share a stack.');
+    }
+    var warn = {
+      show: lines.length > 0,
+      text: lines.join('  '),
+      style: 'padding:9px 12px;border-radius:11px;flex:none;font:400 12.5px/1.35 "Space Grotesk",sans-serif;'
+        + 'background:rgba(247,118,142,.09);border:1px solid rgba(247,118,142,.35);color:#F7768E;'
+    };
+
+    var toolBig = "font:700 15px/1 'Space Grotesk',sans-serif;";
+    var toolSub = "font:400 10px/1 'IBM Plex Mono',monospace;letter-spacing:.07em;opacity:.7;";
+    var tools = [
+      { label: 'Undo', sub: this.state.hist.length ? this.state.hist.length + ' back' : 'nothing yet',
+        tap: function () { self.undo(); },
+        style: this.btn(this.state.hist.length ? 'quiet' : 'off', 58, accent) + 'width:118px;',
+        bigStyle: toolBig, subStyle: toolSub },
+      { label: '⚑ Odd crate', sub: st.flags ? st.flags + ' flagged' : 'off route',
+        tap: function () { self.apply(function (s) { s.flags = (s.flags || 0) + 1; }); },
+        style: this.btn(st.flags ? 'warn' : 'quiet', 58, accent) + 'width:134px;',
+        bigStyle: toolBig, subStyle: toolSub },
+      { label: '❄ Freeze', sub: st.frozenAtDoor ? 'side well' : 'none today',
+        tap: function () { self.apply(function (s) { s.frozenAtDoor = !s.frozenAtDoor; }); },
+        style: this.btn(st.frozenAtDoor ? 'quiet' : 'off', 58, accent) + 'width:112px;',
+        bigStyle: toolBig, subStyle: toolSub }
+    ];
+
+    return {
+      head: { title: 'Stavanger Route',
+              sub: 'WED 19 AUG · ' + STOPS.length + ' STOPS · '
+                + (tier === 1 ? 'ROUTE ONLY' : (tier === 2 ? 'COUNTS KNOWN' : 'FULLY SCANNED')) },
+      stats: stats,
+      scene: { box: S.box, parts: S.parts },
+      con: this.consoleVals(st, accent, plan, S),
+      queue: queue, warn: warn, tools: tools
+    };
   }
 }
