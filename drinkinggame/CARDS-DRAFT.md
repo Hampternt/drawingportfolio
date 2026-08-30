@@ -6,9 +6,10 @@ more numbers on the HP pool. None of them are in a deck: they ship
 catalog-present so the engine can exercise them, shoe-absent until someone
 balances them into a deck.
 
-Status: **groups A and C are built** (`targets: "other"`, the `Reveal`
-primitive and the `Pour` park, with six cards in the catalog at `copies: 0`).
-Group B is still design only. Each group names the one engine primitive it needs; see the end
+Status: **all four primitives are built** — `targets: "other"`, `Reveal`,
+`Pour` and `Swap` — with nine cards in the catalog at `copies: 0`. What is
+left is the UI: nothing renders a reveal, and nothing offers the pickers the
+two parking waves need. Each group names the one engine primitive it needs; see the end
 for what building those costs.
 
 > Because they ship `copies: 0`, none of these can be drawn in a real game
@@ -86,8 +87,22 @@ already walks — it logs the seat, never the tab.
 
 ## B. Trade cards
 
-**Needs:** a `Swap` pending interaction — the engine parks and waits on one
-player's choice, the way it already parks on a challenge vote.
+**Built**, as `SwapDef { take, give }` + `SwapState`. Two flags rather than
+three card types, because the three cards here are exactly the three useful
+combinations — and that fell out of the build rather than being designed in.
+
+- **The take is always at random.** Letting the caster pick out of another
+  hand would need that hand revealed to them first, which is group A's job
+  and a more expensive card. Keeping the take blind is what stops this wave
+  quietly becoming a better `Barman's Eye`.
+- **Only the give parks.** `Pickpocket` takes and gives nothing, so it makes
+  no choice and resolves on the spot. The other two park on one decider.
+- **The taken card is private,** and it needed its own projection type
+  (`PublicSwap`) to stay that way. A `#[serde(skip)]` would also have dropped
+  it from the blob, and the park has to survive a reload — so the secret is
+  dropped at the projection, where every other secret in this engine is.
+- **Declining costs the pulls.** You paid to look. The card goes back to its
+  owner's hand, not to a pile — it was never discarded.
 
 | id | Title | Kind | Targets | Cost | Effect |
 |---|---|---|---|---|---|
@@ -191,7 +206,7 @@ Four new primitives, roughly in ascending order of work:
 | `targets: "other"` | all of B, D | **Built.** Not the "one guard arm" this doc first claimed — the class had to reach seven engine sites, the renderer and the seat picker. Only the self-rejection is genuinely one arm; the rest went through a new `targets_a_seat` predicate so a future class can't miss one. |
 | `Reveal { scope }` | A, D | **Built** for group A (`gen-04` still needs group C's machinery, `gen-11` needs a play parameter). The private channel **already exists**: `broadcast_lc` publishes only the public panel, and each phone re-fetches its own hand through `hand_pane_html(…, player_id)`, rendered server-side per viewer. A caster-only reveal is genuinely private there, not client-side hidden. |
 | `TableDiscard { n }` | C | **Built** as `Pour`. Also needed a settle ROUTE, unlike the reveal wave: a pour parks the round, and `test/grant` can push a `copies: 0` prototype into a hand, so an unreachable settle path is a room that never moves again rather than a merely inert feature. |
-| `Swap` | B | Needs a pending interaction with a decline branch, and a random draw from another hand — which must come off the engine's `LcRng`, never a fresh one. |
+| `Swap` | B | **Built.** The random take comes off the engine's `LcRng`, so a theft replays identically from the seed. |
 
 **`EffectOp` cannot express any of these.** Its five ops — `Damage`, `Heal`,
 `Shield`, `Dot`, `PullDrain` — all move a number on HP or pulls. Nothing in
@@ -204,5 +219,8 @@ the game on a human decision, carry catalog-side rules that never enter the
 blob, and use a `key` so a stale screen can't answer the wrong prompt. Every
 card in B and C wants exactly that shape.
 
-**Suggested order:** `other` → `Reveal` (group A is the cheapest real payoff,
-and the private channel is already built) → `TableDiscard` → `Swap`.
+**Order built:** `other` → `Reveal` → `Pour` → `Swap`. What remains is UI —
+and for the two parking waves it is not optional: a pour or a trade played
+without a picker freezes the round. The settle routes exist and are tested
+end to end, so the way out is reachable, but these cards must stay at
+`copies: 0` until something calls them.

@@ -8601,6 +8601,94 @@ async fn test_lc_pour_discard_route_settles_a_parked_round() {
     assert_ne!(res.status(), StatusCode::NO_CONTENT);
 }
 
+/// Trade wave: the `swap` route answers a parked trade over HTTP, and the
+/// taken card never appears on a public surface.
+#[tokio::test]
+async fn test_lc_swap_route_settles_and_keeps_the_take_private() {
+    let (app, pool) = test_app_with_pool().await;
+    let alice = login(&app, "alice", "1234").await;
+    let bob = login(&app, "bob", "5678").await;
+    let cara = login(&app, "cara", "9999").await;
+    let code = create_room(&app, &alice).await;
+    room_page_html(&app, &bob, &code).await;
+    room_page_html(&app, &cara, &code).await;
+    post_form(&app, &alice, &format!("/room/{code}/lastcall/start"), "").await;
+
+    let mut ids = Vec::new();
+    for name in ["alice", "bob", "cara"] {
+        ids.push(
+            drinkinggame::db::get_player_by_name(&pool, name)
+                .await
+                .unwrap()
+                .id,
+        );
+    }
+    let mut st = LastCallState::new(
+        vec![
+            (ids[0], "alice".into()),
+            (ids[1], "bob".into()),
+            (ids[2], "cara".into()),
+        ],
+        7,
+    );
+    st.set_vessel(ids[0], Deck::Cider, "bottle").unwrap();
+    st.set_vessel(ids[1], Deck::Beer, "can").unwrap();
+    st.set_vessel(ids[2], Deck::Soft, "glass").unwrap();
+    st.players[0]
+        .hand
+        .push(drinkinggame::lc_cards::card_by_id("cider-11").unwrap());
+    st.beat = Beat::Lock;
+    st.arm(ids[0], "cider-11").unwrap();
+    st.set_target(ids[0], "cider-11", Some(1)).unwrap();
+    st.lock_in(ids[0]).unwrap();
+    st.lock_in(ids[1]).unwrap();
+    st.lock_in(ids[2]).unwrap();
+    st.advance_beat().unwrap();
+    st.advance_beat().unwrap();
+    st.resolve().unwrap();
+    assert_eq!(st.swaps.len(), 1, "rig must park");
+    let key = st.swaps[0].key;
+    let taken = st.swaps[0].taken.clone().unwrap().id;
+    let give = st.players[0].hand[0].id.clone();
+    let round = st.round;
+
+    let game_id = lc_game_id(&pool, &code).await;
+    drinkinggame::db::set_game_state(&pool, game_id, &st.to_json()).await;
+
+    // The public shell must not name what alice pulled — not even to bob,
+    // whose card it was.
+    let shell = body_string(get_shell(&app, &bob, &code).await).await;
+    assert!(
+        !shell.contains(&taken),
+        "the taken card leaked to the shell"
+    );
+
+    // The target cannot answer for the caster.
+    let res = post_form(
+        &app,
+        &bob,
+        &format!("/room/{code}/lastcall/swap"),
+        &format!("swap={key}&keep=true&give={give}"),
+    )
+    .await;
+    assert_ne!(res.status(), StatusCode::NO_CONTENT);
+
+    let res = post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/lastcall/swap"),
+        &format!("swap={key}&keep=true&give={give}"),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+
+    let back = lc_state(&pool, &code).await;
+    assert!(back.swaps.is_empty(), "answered");
+    assert_eq!(back.round, round + 1, "and rolled the round over");
+    assert!(back.players[0].hand.iter().any(|c| c.id == taken));
+    assert!(back.players[1].hand.iter().any(|c| c.id == give));
+}
+
 /// The parked round's surfaces: the banner strip carries the public
 /// contestants + tally, the eligible voter's private hand fragment carries
 /// the two vote buttons, a contestant's carries the status copy instead —

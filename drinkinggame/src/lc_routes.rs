@@ -1825,6 +1825,48 @@ pub async fn lc_pour_discard_handler(
 }
 
 #[derive(Deserialize)]
+pub struct SwapForm {
+    /// The trade's identity token (`SwapState::key`) — the `PourDiscardForm`
+    /// precedent.
+    pub swap: u64,
+    /// Keep what was taken. Ignored by a give-only card, which has nothing
+    /// to decline.
+    pub keep: bool,
+    /// The card handed over. Absent on a decline.
+    pub give: Option<String>,
+}
+
+/// `POST /room/{code}/lastcall/swap` (trade wave) — public
+/// (`persist_and_broadcast_lc`): the park is on every surface and answering
+/// it rolls the round over. WHAT was taken stays private, which is
+/// `PublicView`'s job, not this route's.
+///
+/// Exists ahead of its UI for the same reason `pour-discard` does: a trade
+/// parks the round, so an unreachable settle path is a frozen room.
+pub async fn lc_swap_handler(
+    State(state): State<GameState>,
+    PlayerSession(player): PlayerSession,
+    Path(code): Path<String>,
+    Form(form): Form<SwapForm>,
+) -> axum::response::Response {
+    let lock = match lc_lock(&state, &code).await {
+        Ok(l) => l,
+        Err(r) => return r,
+    };
+    let _guard = lock.lock().await;
+    let mut ctx = match load_lc(&state, &code, &player).await {
+        Ok(c) => c,
+        Err(r) => return r,
+    };
+    let give = form.give.as_deref().filter(|s| !s.is_empty());
+    if let Err(e) = ctx.st.swap_resolve(player.id, form.swap, form.keep, give) {
+        return map_lc(e);
+    }
+    persist_and_broadcast_lc(&state, &ctx).await;
+    StatusCode::NO_CONTENT.into_response()
+}
+
+#[derive(Deserialize)]
 pub struct GrantForm {
     pub card_id: String,
 }

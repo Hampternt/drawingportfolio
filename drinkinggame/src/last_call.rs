@@ -714,6 +714,13 @@ pub struct LastCallState {
     /// Container-level default backfills empty on older blobs.
     #[serde(default)]
     pub triggers: Vec<TriggerEvent>,
+    /// Trades the resolve is parked on (the trade wave), front entry active.
+    #[serde(default)]
+    pub swaps: Vec<SwapState>,
+    /// Monotonic identity for `SwapState::key` (the `challenge_seq`
+    /// precedent).
+    #[serde(default)]
+    pub swap_seq: u64,
     /// Rounds of drinks the resolve is parked on (the pour wave), front
     /// entry active — the `challenges` shape exactly.
     #[serde(default)]
@@ -805,6 +812,40 @@ pub struct PourState {
     pub round: u32,
 }
 
+/// A trade the resolve is parked on, waiting on the caster's choice
+/// (`lc_cards::SwapDef`).
+///
+/// One decider, unlike a pour's several — but the same park, the same key
+/// discipline, and the same rule that whoever settles last rolls the round.
+///
+/// New with the trade wave: serde strictness is moot, no older blob has one.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct SwapState {
+    /// Identity token from `LastCallState::swap_seq` — the `PourState::key`
+    /// and `ChallengeState::key` precedent.
+    pub key: u64,
+    pub card_id: String,
+    /// Who played the card, and the only seat that may answer.
+    pub source: usize,
+    pub target: usize,
+    /// The card taken at random from `target`, held here rather than in
+    /// either hand while the caster decides.
+    ///
+    /// It is NOT in the target's hand any more — so their `hand_len` has
+    /// already dropped, which is public and correct: something left their
+    /// hand. It is not in the caster's hand either, so declining puts it
+    /// back rather than un-drawing it. `None` for a give-only card
+    /// (`A Gift`), which takes nothing.
+    ///
+    /// PRIVATE. `public_view()` projects the park but never this field: the
+    /// whole point of `Swap You For It` is that only the caster sees what
+    /// they pulled.
+    pub taken: Option<Card>,
+    /// Whether the caster owes the target a card of their choosing.
+    pub must_give: bool,
+    pub round: u32,
+}
+
 /// One seat's outstanding cards on a pour.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PourDebt {
@@ -856,6 +897,23 @@ pub struct TabSettle {
     pub seat: usize,
     pub tab: String,
     pub round: u32, // the round it settled in
+}
+
+/// A parked trade as the room sees it — `SwapState` minus the taken card.
+///
+/// A separate type rather than a `#[serde(skip)]` on `SwapState::taken`,
+/// because skip would also drop it from the BLOB, and the park has to
+/// survive a reload. The projection is the right place for a secret to be
+/// dropped; that is where every other secret in this engine is enforced.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct PublicSwap {
+    pub key: u64,
+    pub card_id: String,
+    pub source: usize,
+    pub target: usize,
+    /// Whether a card is being held mid-trade. Never which card.
+    pub holding: bool,
+    pub must_give: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -985,6 +1043,16 @@ pub struct PublicView {
     /// public the instant one exists, the `reactions`/`haunts` rule.
     #[serde(default)]
     pub triggers: Vec<TriggerEvent>,
+    /// Trades the table is parked on — WITHOUT the card that was taken.
+    ///
+    /// `PublicSwap` exists precisely so `SwapState::taken` cannot be
+    /// projected by accident. Who is trading with whom is public (the room
+    /// has to know who it is waiting on); WHAT was pulled is the caster's
+    /// alone until they decide. Projecting `SwapState` verbatim, the way
+    /// `pours` and `challenges` are, would publish it — which is why this
+    /// one field gets its own type instead.
+    #[serde(default)]
+    pub swaps: Vec<PublicSwap>,
     /// Rounds of drinks the table is parked on — projected verbatim from
     /// `LastCallState::pours`. Public: who still owes cards is exactly the
     /// "who are we waiting on" the room needs, the same reasoning that makes
@@ -1189,6 +1257,8 @@ impl LastCallState {
             triggers: Vec::new(),
             pours: Vec::new(),
             pour_seq: 0,
+            swaps: Vec::new(),
+            swap_seq: 0,
             reveals: Vec::new(),
             trigger_seq: 0,
             log: Vec::new(),
@@ -1394,6 +1464,14 @@ impl LastCallState {
         if !self.pours.is_empty() {
             return Phase::Pour;
         }
+        // A trade parks quietly and on one person; it reports as `Pour`
+        // rather than earning a fourth variant, because every consumer of
+        // `Phase` wants the same thing from both — "the round is frozen on
+        // somebody's choice, not on a beat". `PublicView::swaps` is what a
+        // surface reads to tell them apart.
+        if !self.swaps.is_empty() {
+            return Phase::Pour;
+        }
         if self.round == 1 && self.beat == Beat::Draw {
             return Phase::Lobby;
         }
@@ -1422,6 +1500,14 @@ impl LastCallState {
         // beat it is.
         if let Some(t) = self.triggers.first() {
             return if t.awaiting(seat) {
+                SeatPhase::Acting
+            } else {
+                SeatPhase::Waiting
+            };
+        }
+        // A trade parks on ONE seat: the caster. Everyone else waits.
+        if let Some(sw) = self.swaps.first() {
+            return if sw.source == seat {
                 SeatPhase::Acting
             } else {
                 SeatPhase::Waiting
@@ -1701,7 +1787,12 @@ impl LastCallState {
     /// outstanding. A settle that rolled over unconditionally would advance
     /// the round out from under the other park, stranding it forever.
     pub fn parked(&self) -> bool {
-        !self.challenges.is_empty() || !self.pours.is_empty()
+        !self.challenges.is_empty() || !self.pours.is_empty() || !self.swaps.is_empty()
+    }
+
+    /// The active trade, if the table is parked on one.
+    pub fn pending_swap(&self) -> Option<&SwapState> {
+        self.swaps.first()
     }
 
     /// The active pour, if the table is parked on one.
@@ -2394,6 +2485,21 @@ impl LastCallState {
             // the private one, so a third scope added later is excluded by
             // default instead of leaking until somebody remembers it.
             pours: self.pours.clone(),
+            swaps: self
+                .swaps
+                .iter()
+                .map(|sw| PublicSwap {
+                    key: sw.key,
+                    card_id: sw.card_id.clone(),
+                    source: sw.source,
+                    target: sw.target,
+                    // The FACT that a card is in hand is public — the
+                    // target's hand count already dropped. Its identity is
+                    // not.
+                    holding: sw.taken.is_some(),
+                    must_give: sw.must_give,
+                })
+                .collect(),
             reveals: self
                 .reveals
                 .iter()
@@ -3737,6 +3843,62 @@ impl LastCallState {
                 continue;
             }
 
+            // Trade wave: cards move between HANDS — no pile is involved, so
+            // this deliberately does not go through `discard`/`deal`.
+            //
+            // `targets` is `"other"` for all three, so `subjects` is the one
+            // seat named and it is never the caster.
+            if let Some(sw) = crate::lc_cards::card_swfx(&play.card.id) {
+                let target = subjects.first().copied();
+                let fizzle = |st: &mut Self| {
+                    st.push_log(LogEntry::Fizzle {
+                        seat: play.source_seat,
+                        title: play.card.title.clone(),
+                    });
+                };
+                match target {
+                    Some(t) if t != play.source_seat => {
+                        // The take is blind and comes off the ENGINE's rng —
+                        // never a fresh one. A route sampling this itself is
+                        // the exact bug the deck overhaul removed.
+                        let taken = if sw.take && !self.players[t].hand.is_empty() {
+                            let idx = self.rng.below(self.players[t].hand.len());
+                            Some(self.players[t].hand.remove(idx))
+                        } else {
+                            None
+                        };
+                        // Nothing to take and nothing to give: the card did
+                        // nothing, so say so rather than parking on a choice
+                        // with no content.
+                        let can_give = sw.give && !self.players[play.source_seat].hand.is_empty();
+                        if taken.is_none() && !can_give {
+                            fizzle(self);
+                        } else if !sw.give {
+                            // Take-only (`Pickpocket`): no choice to make, so
+                            // it resolves here rather than parking.
+                            if let Some(card) = taken {
+                                self.players[play.source_seat].hand.push(card);
+                            }
+                        } else {
+                            let key = self.swap_seq;
+                            self.swap_seq += 1;
+                            self.swaps.push(SwapState {
+                                key,
+                                card_id: play.card.id.clone(),
+                                source: play.source_seat,
+                                target: t,
+                                taken,
+                                must_give: can_give,
+                                round: self.round,
+                            });
+                        }
+                    }
+                    _ => fizzle(self),
+                }
+                self.discard(Some(play.source_seat), [play.card]);
+                continue;
+            }
+
             // Reveal wave: an information effect, resolved by id from the
             // catalog exactly like `card_fx` below and for the same reason
             // (a retune reaches games in flight; an unrecognised id resolves
@@ -4599,6 +4761,101 @@ impl LastCallState {
         }
         self.seq += 1;
         Ok(())
+    }
+
+    /// Answer the active trade.
+    ///
+    /// `keep` is only meaningful when a card was taken; a give-only card
+    /// (`A Gift`) ignores it. `give_id` names the card handed over, and is
+    /// required whenever the trade actually completes with a give owed.
+    ///
+    /// Declining is a real option and costs the pulls already spent: you
+    /// paid to look, you may walk away. The taken card goes back where it
+    /// came from — back to its owner's hand, not to a pile, because it was
+    /// never discarded.
+    ///
+    /// Guard order: `NotSeated` -> `NotAlive` -> no trade parked
+    /// (`WrongBeat`) -> wrong `key` (`WrongBeat`) -> not the caster
+    /// (`NotYourCall` has no engine analogue here, so `WrongBeat` — the
+    /// caster is the only seat this beat asks anything of) -> `give_id`
+    /// missing or unresolvable (`UnknownCard`).
+    pub fn swap_resolve(
+        &mut self,
+        player_id: i64,
+        key: u64,
+        keep: bool,
+        give_id: Option<&str>,
+    ) -> Result<(), LcError> {
+        let Some(seat) = self.seat_of(player_id) else {
+            return Err(LcError::NotSeated);
+        };
+        if self.players[seat].status != Status::Alive {
+            return Err(LcError::NotAlive);
+        }
+        let Some(sw) = self.swaps.first().cloned() else {
+            return Err(LcError::WrongBeat);
+        };
+        if sw.key != key || sw.source != seat {
+            return Err(LcError::WrongBeat);
+        }
+        // A take-and-give card that took nothing (an empty target hand)
+        // still owes its give — the card was paid for. Only a genuine
+        // decline returns something.
+        let completing = keep || sw.taken.is_none();
+
+        if !completing {
+            // Declined: put it back exactly where it came from.
+            if let Some(card) = sw.taken {
+                // The target may have been eliminated while the round was
+                // parked; a ghost holds no cards (9.2), so the card goes to
+                // its own deck's discard rather than into a dead hand.
+                if self.players[sw.target].status == Status::Alive {
+                    self.players[sw.target].hand.push(card);
+                } else {
+                    self.discard(None, [card]);
+                }
+            }
+            self.settle_swap();
+            self.seq += 1;
+            return Ok(());
+        }
+
+        // Completing: resolve the give first, so a bad id leaves the state
+        // untouched rather than half-applied.
+        let given = if sw.must_give {
+            let Some(id) = give_id else {
+                return Err(LcError::UnknownCard);
+            };
+            let Some(idx) = self.players[seat].hand.iter().position(|c| c.id == id) else {
+                return Err(LcError::UnknownCard);
+            };
+            Some(self.players[seat].hand.remove(idx))
+        } else {
+            None
+        };
+        if let Some(card) = sw.taken {
+            self.players[seat].hand.push(card);
+        }
+        if let Some(card) = given {
+            if self.players[sw.target].status == Status::Alive {
+                self.players[sw.target].hand.push(card);
+            } else {
+                self.discard(None, [card]);
+            }
+        }
+        self.settle_swap();
+        self.seq += 1;
+        Ok(())
+    }
+
+    /// The active trade is answered: drop it, and roll the round over unless
+    /// something else is still holding it — the `settle_pour` rule.
+    fn settle_swap(&mut self) {
+        self.swaps.remove(0);
+        if self.parked() {
+            return;
+        }
+        self.rollover(self.pact_breaks.len());
     }
 
     /// The last debt on the active pour is paid: drop it, and roll the round
@@ -7669,6 +7926,217 @@ mod tests {
         let back = LastCallState::from_json(&st.to_json());
         assert_eq!(back.pours, st.pours);
         assert_eq!(back.pour_seq, st.pour_seq);
+        assert!(back.parked());
+    }
+
+    /// Alice plays a trade card at bob (seat 1) and the round stops.
+    fn play_trade(card: &str) -> LastCallState {
+        let c = crate::lc_cards::card_by_id(card).expect("catalog card");
+        let mut st = LastCallState::new(
+            vec![(1, "alice".into()), (2, "bob".into()), (3, "cara".into())],
+            42,
+        );
+        st.set_vessel(1, c.deck, "glass").unwrap();
+        st.set_vessel(2, Deck::Cider, "bottle").unwrap();
+        st.set_vessel(3, Deck::Soft, "glass").unwrap();
+        st.beat = Beat::Lock;
+        st.players[0].hand.push(c);
+        st.arm(1, card).unwrap();
+        st.set_target(1, card, Some(1)).unwrap();
+        st.lock_in(1).unwrap();
+        st.advance_beat().unwrap();
+        st.advance_beat().unwrap();
+        st.resolve().unwrap();
+        st
+    }
+
+    /// Take-only makes no choice, so it resolves on the spot rather than
+    /// parking — and the card moves hand to hand, never through a pile.
+    #[test]
+    fn test_pickpocket_takes_without_parking() {
+        let mut st = play_trade("wine-11");
+        assert!(st.swaps.is_empty(), "nothing to decide, nothing to park");
+        // Alice gained one (the taken card) and lost one (the played card).
+        assert_eq!(st.players[1].hand.len(), 4, "bob is one down");
+        assert_eq!(st.players[0].hand.len(), 6, "alice is one up");
+        // Hand-to-hand: no pile saw either card beyond the played one.
+        let discarded = st.table.shoe(Deck::Cider).map(|sh| sh.discarded());
+        assert_eq!(
+            discarded,
+            Some(0),
+            "the stolen cider card was not discarded"
+        );
+        st.beat = Beat::Resolve;
+    }
+
+    /// The give parks, because the engine cannot guess which card you would
+    /// rather be rid of.
+    #[test]
+    fn test_a_gift_parks_on_the_choice_and_hands_it_over() {
+        let mut st = play_trade("beer-12");
+        assert_eq!(st.swaps.len(), 1);
+        assert!(st.swaps[0].taken.is_none(), "a gift takes nothing");
+        assert!(st.swaps[0].must_give);
+        assert_eq!(st.phase(), Phase::Pour, "a parked round");
+        assert_eq!(st.seat_phase(0), SeatPhase::Acting, "alice owes a choice");
+        assert_eq!(st.seat_phase(1), SeatPhase::Waiting, "bob just receives");
+
+        let round = st.round;
+        let give = st.players[0].hand[2].id.clone();
+        let key = st.swaps[0].key;
+        let bob_before = st.players[1].hand.len();
+        st.swap_resolve(1, key, true, Some(&give)).unwrap();
+        assert!(st.swaps.is_empty());
+        assert_eq!(st.players[1].hand.len(), bob_before + 1);
+        assert!(st.players[1].hand.iter().any(|c| c.id == give));
+        assert_eq!(st.round, round + 1, "the last park rolls the round over");
+    }
+
+    /// Keeping is a real swap: hand sizes are preserved on both sides.
+    #[test]
+    fn test_a_kept_swap_preserves_both_hand_sizes() {
+        let mut st = play_trade("cider-11");
+        assert_eq!(st.swaps.len(), 1);
+        let taken = st.swaps[0].taken.clone().expect("took a card");
+        let key = st.swaps[0].key;
+        // Bob is already one down — the card is held in the park, not in
+        // either hand.
+        assert_eq!(st.players[1].hand.len(), 4);
+        let give = st.players[0].hand[0].id.clone();
+
+        st.swap_resolve(1, key, true, Some(&give)).unwrap();
+        assert_eq!(st.players[1].hand.len(), 5, "bob got one back");
+        assert_eq!(
+            st.players[0].hand.len(),
+            5,
+            "alice: played one, took one, gave one"
+        );
+        assert!(st.players[0].hand.iter().any(|c| c.id == taken.id));
+        assert!(st.players[1].hand.iter().any(|c| c.id == give));
+    }
+
+    /// Declining puts the card back in its owner's hand — not on a pile, and
+    /// not into the caster's. The pulls stay spent: you paid to look.
+    #[test]
+    fn test_a_declined_swap_returns_the_card_and_moves_nothing_else() {
+        let mut st = play_trade("cider-11");
+        let taken = st.swaps[0].taken.clone().unwrap();
+        let key = st.swaps[0].key;
+        let alice_before = st.players[0].hand.clone();
+
+        st.swap_resolve(1, key, false, None).unwrap();
+        assert!(st.swaps.is_empty());
+        assert_eq!(st.players[1].hand.len(), 5, "bob is whole again");
+        assert!(st.players[1].hand.iter().any(|c| c.id == taken.id));
+        assert_eq!(
+            st.players[0].hand, alice_before,
+            "alice's hand is untouched"
+        );
+    }
+
+    /// **The taken card is private.** Only the caster knows what they pulled
+    /// — that is the entire tension of the card. The park itself is public,
+    /// because the room has to know who it is waiting on.
+    #[test]
+    fn test_a_taken_card_never_reaches_the_public_view() {
+        let st = play_trade("cider-11");
+        let taken = st.swaps[0].taken.clone().unwrap();
+        let view = st.public_view();
+        assert_eq!(view.swaps.len(), 1, "the park is public");
+        assert_eq!(view.swaps[0].source, 0);
+        assert_eq!(view.swaps[0].target, 1);
+        assert!(view.swaps[0].holding, "that a card is held is public");
+        let json = serde_json::to_string(&view).unwrap();
+        assert!(
+            !json.contains(taken.id.as_str()),
+            "the taken card id leaked: {json}"
+        );
+    }
+
+    /// Only the caster may answer, and only with the right key.
+    #[test]
+    fn test_swap_resolve_guards() {
+        let mut st = play_trade("cider-11");
+        let key = st.swaps[0].key;
+        let give = st.players[0].hand[0].id.clone();
+        assert_eq!(
+            st.swap_resolve(2, key, true, Some(&give)),
+            Err(LcError::WrongBeat),
+            "the target does not get a say"
+        );
+        assert_eq!(
+            st.swap_resolve(1, key + 9, true, Some(&give)),
+            Err(LcError::WrongBeat),
+            "a stale key"
+        );
+        assert_eq!(
+            st.swap_resolve(1, key, true, None),
+            Err(LcError::UnknownCard),
+            "keeping owes a card back"
+        );
+        assert_eq!(
+            st.swap_resolve(1, key, true, Some("nope")),
+            Err(LcError::UnknownCard)
+        );
+        // A rejected give must leave the state untouched, not half-applied.
+        assert_eq!(st.swaps.len(), 1);
+        assert_eq!(st.players[0].hand.len(), 5);
+    }
+
+    /// A trade against a target holding nothing has nothing to take. With a
+    /// give owed it still parks; with none it fizzles rather than parking on
+    /// a choice with no content.
+    #[test]
+    fn test_a_trade_on_an_empty_hand() {
+        let c = crate::lc_cards::card_by_id("wine-11").unwrap(); // take-only
+        let mut st = LastCallState::new(
+            vec![(1, "alice".into()), (2, "bob".into()), (3, "cara".into())],
+            42,
+        );
+        st.set_vessel(1, Deck::Wine, "glass").unwrap();
+        st.set_vessel(2, Deck::Cider, "bottle").unwrap();
+        st.set_vessel(3, Deck::Soft, "glass").unwrap();
+        st.beat = Beat::Lock;
+        st.players[0].hand.push(c);
+        st.arm(1, "wine-11").unwrap();
+        st.set_target(1, "wine-11", Some(1)).unwrap();
+        st.lock_in(1).unwrap();
+        let round = st.round;
+        st.advance_beat().unwrap();
+        st.advance_beat().unwrap();
+        st.players[1].hand.clear();
+        st.resolve().unwrap();
+        assert!(st.swaps.is_empty(), "nothing to take and nothing to give");
+        assert_eq!(st.round, round + 1, "the round rolled on");
+        assert!(st
+            .log
+            .iter()
+            .any(|e| matches!(e, LogEntry::Fizzle { seat: 0, .. })));
+    }
+
+    /// The take comes off the ENGINE's rng, so the same seed replays the
+    /// same theft — a route sampling it itself is the bug the deck overhaul
+    /// removed.
+    #[test]
+    fn test_a_theft_is_reproducible_from_the_seed() {
+        let a = play_trade("cider-11");
+        let b = play_trade("cider-11");
+        assert_eq!(
+            a.swaps[0].taken.as_ref().map(|c| c.id.clone()),
+            b.swaps[0].taken.as_ref().map(|c| c.id.clone()),
+            "same seed, same card"
+        );
+        assert_ne!(a.rng, LcRng::default(), "the engine rng actually advanced");
+    }
+
+    /// A parked trade survives a reload, taken card included — it lives in
+    /// the blob even though it never reaches `PublicView`.
+    #[test]
+    fn test_a_parked_swap_survives_a_snapshot() {
+        let st = play_trade("cider-11");
+        let back = LastCallState::from_json(&st.to_json());
+        assert_eq!(back.swaps, st.swaps);
+        assert!(back.swaps[0].taken.is_some(), "the held card must persist");
         assert!(back.parked());
     }
 
