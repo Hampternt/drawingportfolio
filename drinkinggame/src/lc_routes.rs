@@ -1525,10 +1525,20 @@ pub(crate) fn lc_advance_chain(st: &mut LastCallState) {
     if st.players.is_empty() {
         return; // M3: nothing to advance; resolve() no-ops here and would spin
     }
-    if st.challenge_pending() {
-        // Parked in the challenge phase (challenge-cards container): the
-        // vote flow owns the rollover; entering resolve() here would panic
-        // its expect on ChallengePending.
+    if st.parked() {
+        // The round is parked on people — a challenge vote, a pour's
+        // discards or a trade's choice. Whoever settles LAST owns the
+        // rollover; entering resolve() here would panic its expect on
+        // ChallengePending.
+        //
+        // This asks `parked()`, not `challenge_pending()`. It asked the
+        // narrow question until the pour and swap waves landed, which made
+        // every pour and every trade a panic on the very next chain entry:
+        // `resolve()` refuses on `parked()`, so a park this guard cannot see
+        // reaches the `expect` below. The two predicates must stay the same
+        // question — `resolve()`'s refusal and this guard's permission are
+        // two halves of one contract, and a fourth thing that parks the
+        // round has to reach both.
         return;
     }
     if st.beat == Beat::Resolve {
@@ -1543,10 +1553,12 @@ pub(crate) fn lc_advance_chain(st: &mut LastCallState) {
             st.beat_deadline_ms = None; // frozen final tableau (D16)
             return;
         }
-        if st.challenge_pending() {
+        if st.parked() {
             // resolve() just parked the round — same freeze shape as the
             // outcome gate above; without this the Resolve arm below would
-            // re-enter resolve() forever.
+            // re-enter resolve() and panic on its refusal. `parked()` for
+            // the reason the entry guard gives: this is the site that
+            // actually panicked for a pour.
             st.beat_deadline_ms = None;
             return;
         }
@@ -1990,6 +2002,87 @@ mod tests {
         assert_eq!(st.outcome(), Some(crate::last_call::LcOutcome::Winner(0)));
         assert_eq!(st.beat, Beat::Resolve);
         assert_eq!(st.beat_deadline_ms, None);
+    }
+
+    /// A pour parks the round mid-chain, and the chain must STOP there
+    /// rather than re-entering `resolve()`.
+    ///
+    /// This is a regression test for a real panic, not a hypothetical.
+    /// `lc_advance_chain` guarded on `challenge_pending()` while `resolve()`
+    /// refuses on `parked()` — the wider predicate — so from the moment the
+    /// pour wave landed, every pour that reached Resolve through the normal
+    /// ready path hit `resolve()` twice: once to park, then again on the
+    /// loop's next turn, where the refusal met
+    /// `.expect("resolve() at Beat::Resolve cannot fail")`. A panic inside a
+    /// route handler, holding the room mutex.
+    ///
+    /// Unreached in production only by luck: the pour cards are `copies: 0`
+    /// and `test/grant` is `test_mode`-gated. It would have shipped with the
+    /// first UI that raised `copies` above zero.
+    #[test]
+    fn test_advance_chain_stops_on_a_pour_park_instead_of_panicking() {
+        let mut st = LastCallState::new(
+            vec![(1, "alice".into()), (2, "bob".into()), (3, "cara".into())],
+            7,
+        );
+        st.set_vessel(1, Deck::Beer, "can").unwrap();
+        st.set_vessel(2, Deck::Cider, "bottle").unwrap();
+        st.set_vessel(3, Deck::Soft, "glass").unwrap();
+        st.players[0]
+            .hand
+            .push(crate::lc_cards::card_by_id("beer-10").unwrap());
+        st.beat = Beat::Lock;
+        st.arm(1, "beer-10").unwrap();
+        st.lock_in(1).unwrap();
+        st.lock_in(2).unwrap();
+        st.lock_in(3).unwrap();
+        let round = st.round;
+
+        lc_advance_chain(&mut st); // Lock -> Reveal
+        assert_eq!(st.beat, Beat::Reveal);
+        lc_advance_chain(&mut st); // Reveal -> Resolve -> resolve() parks
+
+        assert_eq!(st.pours.len(), 1, "the pour must be parked, not resolved");
+        assert_eq!(st.beat, Beat::Resolve, "a parked round holds at Resolve");
+        assert_eq!(
+            st.round, round,
+            "the settle owns the rollover, not the chain"
+        );
+        assert_eq!(st.beat_deadline_ms, None);
+
+        // And a SECOND chain entry (the ticker, or another seat's tap
+        // landing on the parked room) must be just as inert.
+        lc_advance_chain(&mut st);
+        assert_eq!(st.pours.len(), 1);
+        assert_eq!(st.round, round);
+    }
+
+    /// The trade half of the same guard. Worth its own test rather than a
+    /// loop over both: `parked()` ors three containers, and a guard narrowed
+    /// back to `!challenges.is_empty() || !pours.is_empty()` would pass a
+    /// pour-only test while still panicking on every trade.
+    #[test]
+    fn test_advance_chain_stops_on_a_swap_park_instead_of_panicking() {
+        let mut st = LastCallState::new(vec![(1, "alice".into()), (2, "bob".into())], 7);
+        st.set_vessel(1, Deck::Cider, "bottle").unwrap();
+        st.set_vessel(2, Deck::Beer, "can").unwrap();
+        st.players[0]
+            .hand
+            .push(crate::lc_cards::card_by_id("cider-11").unwrap());
+        st.beat = Beat::Lock;
+        st.arm(1, "cider-11").unwrap();
+        st.set_target(1, "cider-11", Some(1)).unwrap();
+        st.lock_in(1).unwrap();
+        st.lock_in(2).unwrap();
+        let round = st.round;
+
+        lc_advance_chain(&mut st); // Lock -> Reveal
+        assert_eq!(st.beat, Beat::Reveal);
+        lc_advance_chain(&mut st); // Reveal -> Resolve -> resolve() parks
+
+        assert_eq!(st.swaps.len(), 1, "the trade must be parked");
+        assert_eq!(st.beat, Beat::Resolve);
+        assert_eq!(st.round, round);
     }
 
     /// I1 (review): `resolve()`'s M3 hardening makes an empty-`players`
