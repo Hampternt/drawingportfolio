@@ -190,6 +190,30 @@ mod tests {
         assert_eq!(slugs.len(), seats.len());
     }
 
+    /// The default must not be the blocking variant.
+    ///
+    /// `PublicSeat::phase` is `#[serde(default)]`, so a payload written before
+    /// that field existed backfills whatever this is. `Acting` was the default
+    /// once, which meant a defaulted seat claimed the table was stuck on it
+    /// and lit the phone's "your turn" pulse. A derived value that failed to
+    /// derive should say "nothing is being asked of you", not raise an alarm.
+    #[test]
+    fn test_seat_phase_defaults_to_a_non_blocking_variant() {
+        assert_eq!(SeatPhase::default(), SeatPhase::Waiting);
+        assert!(
+            !SeatPhase::default().is_blocking(),
+            "a defaulted seat must never claim to be holding the beat up"
+        );
+    }
+
+    /// The game phase default is the pre-game state, so a blob that fails to
+    /// carry one does not claim a game is in progress.
+    #[test]
+    fn test_phase_defaults_to_lobby() {
+        assert_eq!(Phase::default(), Phase::Lobby);
+        assert!(!Phase::default().is_over());
+    }
+
     #[test]
     fn test_serde_shape() {
         assert_eq!(serde_json::to_string(&Phase::Lobby).unwrap(), "\"lobby\"");
