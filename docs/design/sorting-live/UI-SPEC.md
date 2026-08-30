@@ -148,6 +148,15 @@ its neighbour entirely is a stack that broke the ±3 rule.
 `matrix()`; every label is a separate upright chip positioned at a projected
 point. Sheared text is unreadable at arm's length in the rain.
 
+**The `−1` in the kerb face's matrix is load-bearing.** The face toward the right
+wall is `matrix(-1, ry/rx, 0, 1, e, f)` on a `rx`-wide div; `skewY()` cannot
+produce it at any origin, and substituting one mirrors every right-hand face.
+
+**Scale.** The picture is height-bound: `k = min(1, SCENE.w/bw, SCENE.h/bh)`
+comes out **0.982** in a 1014 × 734 box, giving a 10.8px crate and a 118px
+column. `k` saturates at 1.0 once the box is 748 tall, so there is nothing to
+gain past that.
+
 ---
 
 ## 5. Three levels of foresight
@@ -171,8 +180,7 @@ sorted with a manifest and one sorted blind must land in the same van.
 
 ### 6.1 Landscape anatomy — 1440 × 840
 
-Four regions. The picture takes the diagonal; the two dead corners the diagonal
-leaves are exactly where the header and the console go.
+Three regions, and the third one stands inside the second.
 
 ```
 ┌──────────────────────────────────────────────────┬────────────────┐
@@ -180,28 +188,35 @@ leaves are exactly where the header and the console go.
 │                              ╱▔▔▔╲     ╲         │                │
 │                         ╱▔▔▔╲ van ╲     ╲  ┌SIDE1┤ ▸ Olavstoppen  │
 │                    ╱▔▔▔╲      ╲     ╲    ╲ ┌SIDE2┤ ▸ Jåtten       │
-│               ╱▔▔▔╲     ╲      ╲     ╲   ╱ ┌SIDE3┤ ▸ Hinna  side│rear
-│          ╱▔▔▔╲     ╲     ╲      ╲    ╱  ╱        │ ▸ Sverdrup     │
-│     ╲▁▁▁╱ back doors ╲    ╲     ╱   ╱            │ ▸ Frøystad     │
-│  ┌BACK1┐┌BACK2┐       ╲▁▁▁╱▁▁▁▁╱                 │ ▸ Marlink      │
-├──────────────────────────────────────────────────┤                │
-│ SIDE 1 · HINNA                        stop 4 of 6│  ⚠ warnings    │
-│ [−][+ 1][ Push in 2 ][+2 on top][ Done ]         │ [Undo][⚑][❄]   │
+│               ╱▔▔▔╲     ╲      ╲     ╲   ╱ ┌SIDE3┤ ▸ Hinna  side│move
+│          ╱▔▔▔╲     ╲     ╲   ┌──────────┐        │ ▸ Sverdrup     │
+│     ╲▁▁▁╱ back doors ╲    ╲  │  DOCK    │        │ ▸ Frøystad     │
+│  ┌BACK1┐┌BACK2┐       ╲▁▁▁╱  └──────────┘        │ ▸ Marlink      │
+│                                                  │  ⚠ warnings    │
+│                                                  │ [⚑ odd][❄]     │
 └──────────────────────────────────────────────────┴────────────────┘
 ```
 
 | region | box | why there |
 |---|---|---|
 | header | `24, 14` — over the top-left dead corner | the diagonal never reaches it |
-| picture | `16, 86, 1014 × 596`, scaled to fit | the diagonal |
-| console | `16, 698, 1014 wide` | the bottom of the picture is the corner the driver is standing at |
+| picture | `16, 70, 1014 × 734`, scaled to fit | the diagonal |
+| **dock** | `566, 520, 464 × 284` | see below |
 | queue rail | `right 16, top 14, 376 × 812` | the hand that is not carrying a crate |
 
-**WEAK — everything above is a pixel budget, not a law.** The one thing that is
-not negotiable: the picture must not run under the console or the rail, and a
-van stacked to the roof must still fit. Both are asserted, in `board.test.js`,
-by computing the painted corners of every sheared box — a `matrix()` reports
-nothing useful to a layout engine, so nothing else catches it.
+**The dock stands on the pavement, inside the picture.** Invert `P` on its
+top-left corner and it lands at roughly `(u, v) = (3, 5.5)` — kerb-side ground
+aft of the side door and outboard of the back doors, between the two clusters of
+packing spots and touching neither. That is where a driver stands with the back
+doors open.
+
+**WEAK — the pixel budget.** **FIXED — that nothing is ever drawn into the dock.**
+The clearance is single digits: an eight-high stack at R6·R reaches x = 557
+against the dock's left edge at 566, and a full pile on SIDE 3 bottoms out at
+y = 516 against its top edge at 520. `board.test.js` asserts it with all
+eighteen positions stacked to the roof and all five spots piled high, using a
+separating-axis test on the real parallelograms — a bounding box says the floor
+slab covers the dock when the slab itself is nowhere near it.
 
 ### 6.2 The queue rail — the way in
 
@@ -221,29 +236,45 @@ what a door shutting mid-order actually calls for.
 Rows flex to fill the rail — six stops give 96px rows, a fifteen-stop route gives
 62px — so a short route is not a wall of small targets.
 
-### 6.3 The console — the single most-used control
+### 6.3 The dock — the single most-used control
 
-Docked bottom-left, spanning the picture. **Its buttons never move**, including
-the top-up, which keeps its slot and greys out rather than disappearing: a
-button that vanishes shifts every button beside it under a hand already reaching
-for one of them.
+Two rows, tethered by a line to whichever packing spot it is driving, and
+bordered in that customer's colour. The user asked for the push button to be
+*on the packing area the customer is being packed in*; a control that jumps
+between five pads is a mis-tap generator, so it is one fixed control that says,
+visibly, which pad it belongs to.
 
-| control | width | does |
+**Row A — the loop, run a hundred times a load. These never move.**
+
+| control | width × height | does |
 |---|---|---|
-| `−` | 56 | takes a crate back off the spot |
-| `+ 1 (n)` | 132 | counts one onto the spot |
-| **`Push in n`** | 216 | commits the spot's pile to one van position |
-| `+n on top` | 150 | puts the pile, or one crate of it, on an existing stack |
-| `Done` | 104 | closes the stop out, hands the console back |
+| `−` | 56 × 76 | takes a crate back off the spot |
+| `+ 1 (n)` | 128 × 76 | counts one onto the spot |
+| **`Push in n`** | **238 × 76** | commits the spot's pile to one van position |
 
-All 76px tall. The push is tapped once per position for a whole load, so it is
-the largest thing on the board.
+**Row B — everything that ends something.**
+
+| control | width × height | does |
+|---|---|---|
+| `+n on top` | 208 × 60 | puts the pile, or one crate of it, on an existing stack |
+| `Done` | 112 × 60 | closes the stop out, hands the dock back |
+| `Undo` | 102 × 60 | steps the whole board back one action |
+
+`Done` sits **246px from `Push in`**, on a different row, at half the height and
+in a different colour. There are no confirmations anywhere on this board, so
+separation is the only guard against the one action whose consequence is not
+visible on the van.
 
 **A push with nothing counted is allowed and is never green.** It records an
 unknown, not a zero, and the sub-line says `R4 · R · not counted`. Tapping `+ 1`
 until the number is right turns the same button green. That is the whole bargain
 of the fast flow: you may load blind, and the board will not pretend it knows
-what you loaded.
+what you loaded — the headline stat switches from `CRATES IN` to `POSITIONS IN ·
+n blind` the moment anything goes in uncounted.
+
+The dock is **226px tall with nothing to explain and 284px with**, growing
+downward only — the buttons are top-anchored, so nothing under a reaching hand
+ever moves.
 
 ### 6.4 A packing spot
 
@@ -281,7 +312,33 @@ Not a word on a button: the crates themselves, in the customer's colour at half
 opacity with a dashed amber edge, standing on the host stack. `+2`. Tapping
 another legal stack moves them there.
 
-### 6.7 The van shell
+### 6.7 The slide
+
+A stack that has just been pushed in arrives from the spot it was built on:
+260ms, `cubic-bezier(.22,.61,.36,1)`, over 95–342px depending on the pad.
+
+The mechanism matters, because the obvious one is unimplementable here. The
+runtime rebuilds the entire tree on every paint (`host.textContent = ''`), so a
+JS-held clone is destroyed about 16ms into any transition. The one that works
+needs no JS at all:
+
+```css
+@keyframes sc-push { from { translate: var(--dx) var(--dy); } to { translate: 0 0; } }
+```
+
+`translate` is an independent transform property that composes **outside**
+`transform`, so the stack's shear matrix is untouched, and a freshly created
+element always starts its animation — the full re-render is what *drives* the
+motion rather than what breaks it. The keyframe lives in the helmet, the only
+place in this document where a style block belongs.
+
+**It is decoration on a board that is already correct.** The model commits at
+tap time, and the target position carries its accent outline *before* the tap,
+so a driver whose eyes are on the crate never depends on seeing it. The flash is
+consumed on the first paint without a `setState`, or every later repaint would
+replay it.
+
+### 6.8 The van shell
 
 Only the two walls that stand **behind** the load are drawn full height — the
 left wall and the cab bulkhead — each with a lit top rail. The right wall is
@@ -346,11 +403,12 @@ enforce three.
 |---|---|---|---|
 | ready, counted | green | `Push in 2` · `R4 · L` | — |
 | ready, uncounted | quiet | `Push in` · `R4 · R · not counted` | — |
-| out of order, blocker staged | amber | `Push in anyway` | `Olavstoppen goes in first — they are on SIDE 2.` |
-| out of order, blocker aboard | amber | `Push in anyway` | `Tap Done on Olavstoppen first, or push this anyway.` |
-| out of order, blocker nowhere | amber | `Push in anyway` | `Olavstoppen has not been staged — push this and it lands in front of them.` |
+| **would break depth order** | amber | `Push in anyway` | `Olavstoppen is at R5 · L and comes out at stop 6. Putting Jåtten Skole deeper than them at R1 · L means moving Olavstoppen to reach the other.` |
+| out of order, blocker still on a spot | amber | `Push in anyway` | `Olavstoppen goes in first — they are on SIDE 2.` |
+| out of order, blocker not staged at all | amber | `Push in anyway` | `Olavstoppen has not been staged — push this and it lands in front of them.` |
 | too tall for the window | amber | `Push in 5 of 10` | `All 10 will not stand at R2 · L — 8 is its ceiling. Split it 5 + 5: R2 · L, then R2 · R.` |
 | too thin for the window | amber | `Push in anyway` | `Only 3 next to R3 · L’s 7 — 4 apart, and 4 is the floor here.  Hinna’s stack at R2 · R would take them — but two customers on one stack is how the wrong crate gets carried into a building.` |
+| the window has closed entirely | amber | `Push in anyway` | …plus `No height works at R2 · L — its neighbours cannot both be satisfied. Something has to come back out.` |
 | side rows full, 2+ crates, a back spot free | amber | `Carry round the back` · `to BACK 1` | `Rows 1–4 are full, so nothing more goes in this way — it would have to travel past what is already aboard. Carry this round to the back.` |
 | side rows full, 2+ crates, no back spot | red | `Round the back` | as above |
 | side rows full, 1 crate | green | `Put it at the side door` | `One crate — the side door is the easy place to reach it from, and it keeps Jåtten Skole off anybody else’s stack. The freeze ware shares this space at the end.` |
@@ -365,6 +423,10 @@ filled. Red now means red: there is genuinely nowhere left.
 
 ### 7.5 Warnings
 
+Loudest first. A depth fault is not a forecast — it is a statement about crates
+that are already in the van in an order that will cost an unload:
+
+- **Depth fault**: `Jåtten Skole at R1 · L is deeper than Olavstoppen at R5 · L, and comes out first — Olavstoppen has to come off to reach them.`
 - **Side-door budget**, on the door line: `3 positions left · 3 staged here` and,
   when more are staged than can still fit, it **names them** — in loading order,
   so the ones that fit are not the ones flagged:
@@ -381,6 +443,62 @@ filled. Red now means red: there is genuinely nowhere left.
   surface two pallets later. Tapping a finished stop in the load-order strip
   reopens it.
 - A doorway stack can be taken back out.
+
+---
+
+### 7.7 Depth order — the rule the load runs backwards to produce
+
+**Nothing may sit deeper in the van than a stop delivered before it.** This is
+the whole reason loading runs in reverse delivery order, and until it was checked
+directly, nothing checked it.
+
+The sequence guard in §7.4 is a warning about the order of the *taps*, and one
+press of `Done` dissolves it — so it never caught the case that matters, which is
+the two doors worked in parallel:
+
+```
+Olavstoppen (stop 6, loads first)  → rear → R5 · L, Done
+Jåtten Skole (stop 5)              → side → R1 · L      ← the button was solid green
+```
+
+At stop 5 you unload Olavstoppen to reach Jåtten. Side rows are strictly deeper
+than back rows, the two zones fill independently, and the global "who loads next"
+comparison had nothing to say about it.
+
+Two checks, both count-free:
+
+- `depthFaultAt(st, position, customer)` — would this push create one? Runs
+  before the window checks, because it is worse than a thin stack.
+- `depthFaults(st)` — scan the board. Surfaced as a persistent warning, because
+  a fault created some other way (a hand-picked position, a reopened stop) must
+  not go quiet.
+
+**The sequence guard is per-door now.** A stop standing on the other door's spot
+is not competing for this door's positions, and comparing against it made the
+second door amber on the ordinary path — the same amber that carries "Round the
+back", the split, the thin stack and the hand-picked gap. A warning that fires
+when nothing is wrong stops being read.
+
+### 7.8 Three floors under the rules
+
+Not decisions — guards, so that state the board displays as fact cannot be
+written in the first place.
+
+- **The roof.** `doPush` and `doStack` refuse anything that would record a stack
+  taller than `CAP`. Nothing in the dock offers it, but what a push records is
+  read back as truth by `windowAt` and `planAhead`, so it is refused at the point
+  of writing rather than trusted not to happen.
+- **A window can close.** Two neighbours three apart in opposite directions — an
+  8 in front and a 1 behind — leave `{lo: 5, hi: 4}`: no legal height at all.
+  `lo` and `hi` keep their values so every caller's arithmetic is unchanged, and
+  the crossing gets its own field, `boxedIn`.
+- **Blind is not empty.** A stack pushed without a count records an unknown. A
+  customer already fully loaded that way used to score zero crates aboard, so the
+  forecast planned their whole order again and drew a confident blue ghost onto
+  every empty position for crates that were already in the van. With no count
+  there is nothing to subtract, so there is nothing honest to plan: the forecast
+  says it does not know, and the headline switches from `CRATES IN` to
+  `POSITIONS IN · n blind`.
 
 ---
 
@@ -456,6 +574,24 @@ Worth knowing so a redesign does not rediscover them.
    landed on its neighbour. Push it out along the axis the row does not run down.
 8. **Eighteen positions each drawing eight dashed capacity slots reads as graph
    paper.** It is why stack height is now drawn as height instead.
+9. **A bounding box is the wrong shape to test a sheared thing against.** The
+   floor slab's axis-aligned box covers most of the picture while the slab
+   itself is nowhere near the dock. Use a separating-axis test on the four
+   painted corners; a bbox is right for "is it inside the frame" and wrong for
+   "does it hit that rectangle".
+10. **`(l.n || 0)` scores an unknown as nothing.** It made `cratesIn` return 0
+   with five stacks aboard, and made `planAhead` re-plan a customer who was
+   already fully loaded — drawing a confident forecast over crates that were
+   already in the van. Under a gesture where loading blind is normal, every sum
+   over crate counts has to decide what it does about `null` explicitly.
+11. **A guard that one tap dissolves is not a guard.** The loading-order warning
+   goes quiet the moment `Done` is pressed, so it never caught the two doors
+   worked in parallel. The invariant had to be checked on the van rather than on
+   the sequence of taps.
+12. **A JS-held clone cannot animate here.** The runtime rebuilds the whole tree
+   on every paint, so anything holding a node across a state change is destroyed
+   about 16ms in. `translate` in a keyframe composes outside `transform` and the
+   re-render itself starts the animation.
 
 ---
 
@@ -484,7 +620,7 @@ A working, tappable version of everything above is in this folder:
 
 ```
 demo.html          open it directly — no build, no server, no dependencies
-src/model.js       every rule in §3 and §7, as ~750 lines of plain JS
+src/model.js       every rule in §3 and §7, as ~830 lines of plain JS
 src/board.js       the rules turned into the picture and the controls
 src/board.html     the markup — {{holes}}, <sc-for>, <sc-if>, onClick, nothing else
 src/runtime.js     the ~70-line template runtime that renders it

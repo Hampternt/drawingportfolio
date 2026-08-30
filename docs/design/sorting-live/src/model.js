@@ -202,6 +202,16 @@ function cratesIn(st) {
   ALL_POS.forEach(function (id) { (st.van[id] || []).forEach(function (l) { n += (l.n || 0); }); });
   return n;
 }
+// Positions is the number that is always exact. Crates is not: under a gesture
+// where pushing blind is normal, cratesIn read 0 with five stacks aboard.
+function positionsIn(st) {
+  return ALL_POS.filter(function (id) { return (st.van[id] || []).length; }).length;
+}
+function uncountedIn(st) {
+  return ALL_POS.filter(function (id) {
+    return (st.van[id] || []).some(function (l) { return l.n == null; });
+  }).length;
+}
 // Space is limited before it is gone. The doorway gets offered while there is
 // still a choice about what goes in it, not once there is none.
 function stopsNotAboard(st) {
@@ -281,9 +291,13 @@ function windowAt(st, id) {
     hi = Math.min(hi, h + STAB);
     lo = Math.max(lo, h - STAB);
   });
-  return { lo: Math.max(0, lo), hi: hi };
+  // Two neighbours three apart in opposite directions leave no legal height at
+  // all — an 8 in front and a 1 behind gives {lo: 5, hi: 4}. lo and hi keep
+  // their values so every caller's arithmetic is unchanged; the fact that they
+  // crossed gets its own field, because a board that cannot say "nothing fits
+  // here" says "push in anyway" instead.
+  return { lo: Math.max(0, lo), hi: hi, boxedIn: Math.max(0, lo) > hi };
 }
-function maxAllowedAt(st, id) { return windowAt(st, id).hi; }
 
 // Splitting a big order, solved rather than guessed.
 //
@@ -350,11 +364,26 @@ function planAhead(counts, from) {
   // aboard the only useful question is where the REST of them go.
   var st = from ? cloneState(from) : emptyState(), byCust = {}, short = [];
   if (from) { st.closed = {}; SPOTS.forEach(function (sp) { st.staged[sp.id] = null; }); }
+  var unknown = {};
   QUEUE.forEach(function (cust) {
-    var already = 0;
+    var already = 0, blind = false;
     if (from) ALL_POS.forEach(function (id) {
-      (st.van[id] || []).forEach(function (l) { if (l.cust === cust) already += (l.n || 0); });
+      (st.van[id] || []).forEach(function (l) {
+        if (l.cust !== cust) return;
+        if (l.n == null) blind = true; else already += l.n;
+      });
     });
+    // A stack that went in uncounted scored zero here, so a customer already
+    // fully loaded blind had their whole order planned again — and the board
+    // drew a confident blue ghost onto every empty position for crates that
+    // were already in the van. With no count there is nothing to subtract, so
+    // there is nothing honest to plan: say so instead.
+    if (blind) {
+      unknown[cust] = true;
+      st.closed[cust] = true;
+      Object.keys(st.held).forEach(function (id) { if (st.held[id] === cust) delete st.held[id]; });
+      return;
+    }
     var left = Math.max(0, (counts[cust] || 0) - already), guard = 0;
     while (left > 0 && guard++ < 40) {
       var door = sideDoorOpen(st) ? 'side' : 'back';
@@ -388,7 +417,71 @@ function planAhead(counts, from) {
     st.closed[cust] = true;
     Object.keys(st.held).forEach(function (id) { if (st.held[id] === cust) delete st.held[id]; });
   });
-  return { van: st.van, byCust: byCust, short: short };
+  return { van: st.van, byCust: byCust, short: short, unknown: unknown };
+}
+
+// ── depth order ──────────────────────────────────────────────────────────────
+// The rule the whole reverse-delivery load exists to produce: nothing deeper in
+// the van than a stop delivered before it. The ordering guard below is a warning
+// about the SEQUENCE of taps, and one tap of Done dissolves it — so it never
+// catches the case that matters, which is the two doors worked in parallel:
+//
+//   OLA (stop 6) in through the back to R5·L, Done.
+//   JAT (stop 5) in through the side to R1·L — and pushState said 'ready'.
+//
+// At stop 5 you unload Olavstoppen to reach Jåtten. This checks the board
+// itself rather than the order of the taps, so nothing dissolves it.
+function depthFaults(st) {
+  var out = [], seen = {};
+  ORDER.forEach(function (deep) {
+    if (isEmpty(st, deep)) return;
+    ORDER.forEach(function (shallow) {
+      if (isEmpty(st, shallow) || rowOf(deep) >= rowOf(shallow)) return;
+      st.van[deep].forEach(function (a) {
+        st.van[shallow].forEach(function (b) {
+          if (stopOf(a.cust).i >= stopOf(b.cust).i) return;
+          var key = a.cust + '>' + b.cust;
+          if (seen[key]) return;
+          seen[key] = true;
+          out.push({ deep: deep, deepCust: a.cust, shallow: shallow, shallowCust: b.cust });
+        });
+      });
+    });
+  });
+  return out;
+}
+// Would putting this customer here create one? Cheaper than the full scan and,
+// unlike the sequence guard, it is about the van rather than about the taps.
+function depthFaultAt(st, id, cust) {
+  if (isDoor(id)) return null;
+  var mine = stopOf(cust).i, hit = null;
+  ORDER.forEach(function (other) {
+    if (hit || isEmpty(st, other) || rowOf(other) === rowOf(id)) return;
+    var deeper = rowOf(other) < rowOf(id);
+    st.van[other].forEach(function (l) {
+      if (hit) return;
+      var theirs = stopOf(l.cust).i;
+      // Deeper means delivered later. Either direction can be the broken one.
+      if (deeper ? theirs < mine : theirs > mine) {
+        hit = { at: other, cust: l.cust, deeper: deeper };
+      }
+    });
+  });
+  return hit;
+}
+// Who this door is waiting for. A stop being packed at the OTHER door is not
+// competing for this door's positions, and comparing against it made the second
+// door amber on the ordinary path — an amber that fires when nothing is wrong
+// stops being read, and it is the same amber that carries the real warnings.
+function expectedNextAtDoor(st, door) {
+  for (var i = 0; i < QUEUE.length; i++) {
+    var k = QUEUE[i];
+    if (st.closed[k]) continue;
+    var at = spotHolding(st, k);
+    if (at && at.door !== door) continue;
+    return k;
+  }
+  return null;
 }
 
 // ── the push-in guard ────────────────────────────────────────────────────────
@@ -426,7 +519,19 @@ function pushState(st, spotId, chosen) {
       why: 'You picked this one. ' + posLabel(skipped) + ' stays free — whoever fills it ends up deeper.' };
   }
 
-  var want = expectedNext(st);
+  // The van, before the taps: this one does not dissolve when somebody presses
+  // Done, because it is about where the crates actually are.
+  var fault = depthFaultAt(st, target, held.cust);
+  if (fault) {
+    return { kind: 'order', target: target, label: 'Push in anyway',
+      why: CUST[fault.cust].name + ' is at ' + posLabel(fault.at) + ' and comes out at stop '
+        + stopOf(fault.cust).i + '. Putting ' + CUST[held.cust].name + ' '
+        + (fault.deeper ? 'in front of them at ' : 'deeper than them at ') + posLabel(target)
+        + ' means moving ' + (fault.deeper ? CUST[held.cust].name : CUST[fault.cust].name)
+        + ' to reach the other.' };
+  }
+
+  var want = expectedNextAtDoor(st, spot.door);
   // A same-depth pair reads as harmless — two customers in one row, in either
   // order, still satisfies depth-monotone. It is not harmless, because the
   // customer being skipped is by definition unfinished: their next crates go
@@ -437,12 +542,18 @@ function pushState(st, spotId, chosen) {
   //
   // So the guard stays sequence-strict. It is amber, not a block, and it names
   // the tap that clears it.
-  if (want && want !== held.cust) {
-    var at = spotHolding(st, want);
-    var why;
-    if (at) why = CUST[want].name + ' goes in first — they are on ' + at.name + '.';
-    else if (isAboard(st, want)) why = 'Tap Done on ' + CUST[want].name + ' first, or push this anyway.';
-    else why = CUST[want].name + ' has not been staged — push this and it lands in front of them.';
+  // This guard is about crates that are not in the van yet, which is the one
+  // thing depthFaultAt above cannot see. So it fires when the stop being
+  // skipped is still standing on a spot — unfinished, more of them coming, and
+  // that next stack lands further out than this one — or when nothing of theirs
+  // has gone in at all. It stays quiet when they are simply aboard and not
+  // closed out: the depth check has looked at the actual arrangement and passed
+  // it, and saying it again is noise on a board that is doing fine.
+  var at = want && want !== held.cust ? spotHolding(st, want) : null;
+  if (want && want !== held.cust && (at || !isAboard(st, want))) {
+    var why = at
+      ? CUST[want].name + ' goes in first — they are on ' + at.name + '.'
+      : CUST[want].name + ' has not been staged — push this and it lands in front of them.';
     return { kind: 'order', target: target, label: 'Push in anyway', why: why };
   }
 
@@ -464,7 +575,9 @@ function pushState(st, spotId, chosen) {
     var tall = stabilityAt(st, target, held.n)[0];
     return { kind: 'thin', target: target, label: 'Push in anyway',
       why: 'Only ' + held.n + ' next to ' + posLabel(tall.neighbour) + '’s ' + tall.theirs
-         + ' — ' + tall.apart + ' apart, and ' + w.lo + ' is the floor here.' };
+         + ' — ' + tall.apart + ' apart, and ' + w.lo + ' is the floor here.'
+         + (w.boxedIn ? ' No height works at ' + posLabel(target)
+             + ' — its neighbours cannot both be satisfied. Something has to come back out.' : '') };
   }
   return { kind: 'ready', target: target, label: 'Push in → ' + posLabel(target), why: '' };
 }
@@ -676,12 +789,18 @@ function stackHosts(st, spotId, n) {
     if (isEmpty(st, id)) return;
     if (!canStackOn(st, id, held.cust).ok) return;
     var h = heightOf(st, id);
-    if (h == null || h + take > CAP) return;
-    if (stabilityAt(st, id, h + take).length) return;
-    out.push({ id: id, h: h, r: rowOf(id), below: st.van[id][st.van[id].length - 1].cust });
+    // An uncounted stack is not a stack we know is full — dropping it here was
+    // refusing the driver's own gesture and then blaming the roof for it.
+    if (h != null && h + take > CAP) return;
+    if (h != null && stabilityAt(st, id, h + take).length) return;
+    out.push({ id: id, h: h, r: rowOf(id), unknown: h == null,
+               below: st.van[id][st.van[id].length - 1].cust });
   });
-  // Outermost first, and among equals the shorter stack, so the column evens out.
-  out.sort(function (a, b) { return b.r - a.r || a.h - b.h; });
+  // Outermost first; among equals a known stack before an unknown one, then the
+  // shorter, so the column evens out and a guess is never the first offer.
+  out.sort(function (a, b) {
+    return b.r - a.r || (a.unknown ? 1 : 0) - (b.unknown ? 1 : 0) || (a.h || 0) - (b.h || 0);
+  });
   return out;
 }
 function topUpState(st, spotId, chosen, n) {
@@ -704,8 +823,9 @@ function topUpState(st, spotId, chosen, n) {
   return {
     kind: picked ? 'chosen' : 'ready', host: host, take: take,
     label: '+' + take + ' on top', target: host.id,
-    why: 'On ' + CUST[host.below].name + '’s ' + host.h + ' at ' + posLabel(host.id)
+    why: 'On ' + CUST[host.below].name + '’s ' + (host.unknown ? 'stack' : host.h) + ' at ' + posLabel(host.id)
       + ' — they are delivered later, so this comes off first.'
+      + (host.unknown ? ' That stack went in uncounted, so this only works if it is not already at ' + CAP + '.' : '')
       + (picked ? ' You picked this one.' : '')
   };
 }
@@ -752,6 +872,10 @@ function doPush(st, spotId, take, chosen, spill) {
   if (!h) return null;
   var target = resolveTarget(st, spot.door, chosen, h.cust); if (!target) return null;
   var n = take == null ? h.n : take;
+  // The roof is the one number in here that is a fact about the van. Nothing in
+  // the console offers a push past it, but the state it would record is read
+  // back as truth by windowAt and planAhead, so it never gets written.
+  if (n > CAP) return null;
   st.van[target].push({ cust: h.cust, n: n === 0 ? null : n });
   st.held = st.held || {};
   if (st.held[target] === h.cust) delete st.held[target];      // the hold was just used
@@ -779,6 +903,8 @@ function doClearDoorway(st, door) { st.van[doorwayOf(door)] = []; }
 function doStack(st, spotId, id, take) {
   var h = st.staged[spotId]; if (!h) return null;
   var n = take == null ? h.n : Math.min(take, h.n || take);
+  var was = heightOf(st, id);
+  if (was != null && n && was + n > CAP) return null;
   st.van[id].push({ cust: h.cust, n: n === 0 ? null : n });
   // A top-up moves part of the pile; the rest stays staged for the next move.
   if (take != null && h.n && take < h.n) h.n = h.n - take;

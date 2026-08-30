@@ -412,14 +412,89 @@ eq(zone('back')[zone('back').length - 1], 'r9-right', 'and now runs to row 9');
   // crate does not close the whole order out.
   configure({});
   var b = emptyState();
-  b.van['r1-left'] = [{ cust: 'OLA', n: 4 }];
+  b.van['r1-left'] = [{ cust: 'OLA', n: 3 }];
   doAssign(b, 'side-1', 'HIN'); doBump(b, 'side-1', 5);
   doStack(b, 'side-1', 'r1-left', 1);
-  eq(heightOf(b, 'r1-left'), 5, 'one crate went up');
+  eq(heightOf(b, 'r1-left'), 4, 'one crate went up');
   eq(b.staged['side-1'].n, 4, 'and four are still on the spot');
   doStack(b, 'side-1', 'r1-left');
   eq(b.staged['side-1'].n, 0, 'moving the rest empties it');
-  eq(heightOf(b, 'r1-left'), 9, 'and every crate is accounted for');
+  eq(heightOf(b, 'r1-left'), 8, 'and every crate is accounted for');
+}
+{
+  // The roof is a fact about the van. Nothing in the console offers a push past
+  // it, but what a push records is read back as truth by windowAt and planAhead,
+  // so it is refused at the point of writing rather than trusted not to happen.
+  configure({});
+  var b = emptyState();
+  doAssign(b, 'side-1', 'OLA'); doBump(b, 'side-1', CAP + 1);
+  eq(doPush(b, 'side-1'), null, 'a push past the roof is refused');
+  eq(b.van['r1-left'].length, 0, 'and records nothing');
+  b.van['r2-left'] = [{ cust: 'OLA', n: CAP - 1 }];
+  doAssign(b, 'side-2', 'HIN'); doBump(b, 'side-2', 3);
+  eq(doStack(b, 'side-2', 'r2-left', 3), null, 'and neither does a top-up that would go through it');
+  eq(heightOf(b, 'r2-left'), CAP - 1, 'leaving the stack as it was');
+}
+{
+  // A window can close entirely — an 8 in front and a 1 behind leave no legal
+  // height at all. lo and hi keep their values so every caller's arithmetic is
+  // unchanged; the crossing gets its own field.
+  configure({});
+  var b = emptyState();
+  // Depth order has to be sound in this fixture or the depth guard fires first
+  // and this never reaches the window at all: OLA (stop 6) deepest, HIN (stop 4)
+  // shallowest, JAT (stop 5) between them.
+  b.van['r1-left'] = [{ cust: 'OLA', n: 8 }];
+  b.van['r1-right'] = [{ cust: 'OLA', n: 8 }];   // so the frontier is r2-left
+  b.van['r3-left'] = [{ cust: 'HIN', n: 1 }];
+  var w = windowAt(b, 'r2-left');
+  eq([w.lo, w.hi, w.boxedIn], [5, 4, true], 'the board can say that nothing fits here');
+  eq(windowAt(b, 'r2-right').boxedIn, false, 'and that the other column is fine');
+  doAssign(b, 'side-1', 'JAT'); doBump(b, 'side-1', 4);
+  var ps = pushState(b, 'side-1');
+  eq(ps.kind, 'thin', 'four is still under the floor');
+  ok(/No height works at R2 · L/.test(ps.why), 'and it says the position is boxed in, not just that this stack is thin');
+}
+{
+  // Depth order: the rule the whole reverse-delivery load exists to produce.
+  // The sequence guard never caught this, because one tap of Done dissolves it.
+  configure({});
+  var b = emptyState();
+  doBegin(b, 'OLA', 'back'); doBump(b, 'back-1', 4); doPush(b, 'back-1'); doClose(b, 'back-1');
+  doBegin(b, 'JAT', 'side'); doBump(b, 'side-1', 4);
+  var ps = pushState(b, 'side-1');
+  eq(ps.kind, 'order', 'putting stop 5 deeper than stop 6 is a warning');
+  ok(/Olavstoppen is at R5 · L and comes out at stop 6/.test(ps.why), 'that names the stack you would be moving');
+  eq(depthFaults(b).length, 0, 'the board is still sound before the tap');
+  doPush(b, 'side-1');
+  eq(depthFaults(b).map(function (f) { return f.deepCust + '<' + f.shallowCust; }), ['JAT<OLA'],
+    'and faulted after it — checked on the van, not on the order of the taps');
+}
+{
+  // …and the ordinary case of working both doors at once must stay quiet, or
+  // the same amber that carries the real warnings gets ignored.
+  configure({});
+  var b = emptyState();
+  doBegin(b, 'OLA', 'side'); doBump(b, 'side-1', 4);
+  doBegin(b, 'JAT', 'back'); doBump(b, 'back-1', 4);
+  eq(pushState(b, 'side-1').kind, 'ready', 'the first stop at the side door is clean');
+  eq(pushState(b, 'back-1').kind, 'ready', 'and the second at the back is too — it is not competing for the same floor');
+  eq(expectedNextAtDoor(b, 'back'), 'JAT', 'each door is waiting for whoever is standing at it');
+  eq(expectedNextAtDoor(b, 'side'), 'OLA', 'not for whoever is at the other one');
+}
+{
+  // A customer loaded blind is not a customer with no crates.
+  configure({});
+  var b = emptyState();
+  doAssign(b, 'side-1', 'OLA'); doPush(b, 'side-1');
+  doAssign(b, 'side-1', 'OLA'); doPush(b, 'side-1');
+  eq(cratesIn(b), 0, 'the crate count genuinely knows nothing');
+  eq(positionsIn(b), 2, 'but two positions are unarguably in');
+  eq(uncountedIn(b), 2, 'both of them uncounted');
+  var pl = planAhead(COUNTS, b);
+  eq(pl.byCust.OLA, undefined, 'so the plan does not lay their whole order out again');
+  eq(pl.unknown.OLA, true, 'it says it does not know');
+  ok(pl.byCust.JAT && pl.byCust.JAT.length, 'and carries on planning everybody it does know about');
 }
 
 console.log((fails ? 'FAILED ' : 'passed ') + (checks - fails) + '/' + checks + ' checks');

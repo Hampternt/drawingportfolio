@@ -90,8 +90,69 @@ function sceneBounds(vals) {
   ok(b.x0 >= -1 && b.x1 <= 1441, 'the picture stays inside the board horizontally  ' + Math.round(b.x0) + '..' + Math.round(b.x1));
   ok(b.y0 >= -1 && b.y1 <= 841, 'the picture stays inside the board vertically  ' + Math.round(b.y0) + '..' + Math.round(b.y1));
   ok(b.x1 <= 1440 - 376 - 16 + 1, 'and clear of the queue rail  right edge ' + Math.round(b.x1));
-  const con = /top:(\d+)px/.exec(v.con.box);
-  ok(b.y1 <= +con[1] + 1, 'and clear of the console  bottom ' + Math.round(b.y1) + ' vs console at ' + con[1]);
+}
+// The dock stands inside the picture's bounding box, on the empty pavement wedge
+// between the two clusters of spots. Nothing may be drawn into it — and the
+// clearance is single digits, so this is checked against the worst board the van
+// can produce, not against the demo state.
+// The painted corners, not the axis-aligned box. A sheared floor slab's bounding
+// box covers most of the picture while the slab itself covers a parallelogram
+// nowhere near the dock, so a bbox test here answers the wrong question.
+function polyOf(style) {
+  const wh = /width:([-\d.]+)px;height:([-\d.]+)px/.exec(style);
+  const mx = /transform:matrix\(([^)]+)\)/.exec(style);
+  const lt = /left:([-\d.]+)(?:px)?;top:([-\d.]+)(?:px)?/.exec(style);
+  if (!lt) return null;
+  const L = +lt[1], T = +lt[2];
+  if (!mx || !wh) return [[L, T]];
+  const [a, b, c, d, e, f] = mx[1].split(',').map(Number);
+  const W = +wh[1], H = +wh[2];
+  return [[0, 0], [W, 0], [W, H], [0, H]].map(([x, y]) => [a * x + c * y + e + L, b * x + d * y + f + T]);
+}
+function convexHit(A, B) {
+  for (const poly of [A, B]) {
+    for (let i = 0; i < poly.length; i++) {
+      const p = poly[i], q = poly[(i + 1) % poly.length];
+      const ax = -(q[1] - p[1]), ay = q[0] - p[0];
+      if (!ax && !ay) continue;
+      let a0 = Infinity, a1 = -Infinity, b0 = Infinity, b1 = -Infinity;
+      for (const [x, y] of A) { const v = x * ax + y * ay; a0 = Math.min(a0, v); a1 = Math.max(a1, v); }
+      for (const [x, y] of B) { const v = x * ax + y * ay; b0 = Math.min(b0, v); b1 = Math.max(b1, v); }
+      const eps = 1 * Math.hypot(ax, ay);
+      if (a1 <= b0 + eps || b1 <= a0 + eps) return false;
+    }
+  }
+  return true;
+}
+function dockOverlaps(vals) {
+  const D = { x: +/left:(\d+)px/.exec(vals.con.box)[1], y: +/top:(\d+)px/.exec(vals.con.box)[1],
+              w: +/width:(\d+)px/.exec(vals.con.box)[1], h: +/height:(\d+)px/.exec(vals.con.box)[1] };
+  const off = /left:([-\d.]+)px;top:([-\d.]+)px/.exec(vals.scene.box);
+  const ox = +off[1], oy = +off[2], hits = [];
+  const rect = [[D.x, D.y], [D.x + D.w, D.y], [D.x + D.w, D.y + D.h], [D.x, D.y + D.h]];
+  for (const p of vals.scene.parts) {
+    if (/pointer-events:none/.test(p.style) && p.text === '') continue;   // the tether ends on the dock by design
+    const poly = polyOf(p.style);
+    if (!poly || poly.length < 4) continue;
+    if (convexHit(poly.map(([x, y]) => [x + ox, y + oy]), rect)) {
+      hits.push(p.text || Math.round(poly[0][0] + ox) + ',' + Math.round(poly[0][1] + oy));
+    }
+  }
+  return hits;
+}
+{
+  const t = new Component({ accent: '#B48EF7' });
+  configure({});
+  const st = emptyState();
+  for (let r = 1; r <= 9; r++) for (const col of ['left', 'right']) st.van['r' + r + '-' + col] = [{ cust: 'OLA', n: 8 }];
+  SPOTS.forEach(sp => { st.staged[sp.id] = { cust: 'SVE', n: 8 }; });
+  st.van['door-side'] = [{ cust: 'JAT', n: 2 }];
+  st.van['door-back'] = [{ cust: 'HIN', n: 2 }];
+  t.state = { st: st, focus: 'side-1', target: null, host: null, flash: null, hist: [] };
+  const hits = dockOverlaps(t.renderVals());
+  eq(hits.slice(0, 4), [], 'a van stacked to the roof with every spot piled high stays out of the dock');
+  eq(dockOverlaps(new Component({ accent: '#B48EF7', tier: 2 }).renderVals()).slice(0, 4), [],
+    'and so does the planned forecast drawn over an empty one');
 }
 // A seven-row van has to fit the same frame, and a full one has to fit too.
 for (const rows of [7, 9, 11]) {
@@ -191,7 +252,7 @@ const done = t => t.renderVals().con.done();
   begin(t, 'MAR', 'side'); bump(t, 3);
   const con = t.renderVals().con;
   eq(con.pushLabel, 'Push in anyway', 'a thin stack beside a tall one is allowed but never quiet');
-  ok(con.hasTop && con.topNote !== 'no stack for it', 'and the board offers the stack it could go on instead');
+  ok(con.topNote !== 'no stack for it', 'and the board offers the stack it could go on instead');
   eq(con.topLabel, '+3 on top', 'a small order goes up whole, not one crate at a time');
   eq(con.topNote, 'R2 · R', 'onto the outermost stack that will legally take it');
   ok(con.showWhy && /wrong crate/.test(con.why), 'and says what mixing a stack costs');
@@ -286,7 +347,7 @@ const done = t => t.renderVals().con.done();
   const before = JSON.stringify(t.state.st.van);
   push(t);
   ok(JSON.stringify(t.state.st.van) !== before, 'a push changes the van');
-  t.renderVals().tools[0].tap();
+  t.renderVals().con.undo();
   eq(JSON.stringify(t.state.st.van), before, 'and Undo puts it back exactly');
 }
 { // a closed stop can be reopened, because Done is an assertion and not a fact
@@ -322,6 +383,20 @@ const done = t => t.renderVals().con.done();
   eq(t.renderVals().con.pushNote, 'R5 · L', 'and the back doors start at the first row they can reach');
 }
 
+{
+  // The longest reason the board can produce, in the most cramped state, still
+  // has to leave the buttons inside the frame.
+  const t = fresh();
+  for (let r = 1; r <= 9; r++) for (const col of ['left', 'right']) t.state.st.van['r' + r + '-' + col] = [{ cust: 'OLA', n: 5 }];
+  begin(t, 'SVE', 'back'); bump(t, 3);
+  const con = t.renderVals().con;
+  ok(/doorway/i.test(con.pushLabel), 'a full van offers the doorway');
+  ok(con.why.length > 80, 'with a reason long enough to wrap');
+  const cy = /top:(\d+)px/.exec(con.box), ch = /height:(\d+)px/.exec(con.box);
+  ok(cy && ch && +cy[1] + +ch[1] <= 840, 'and the console is a fixed box that cannot grow past the board');
+  ok(/line-clamp/.test(con.whyStyle), 'because the reason is clamped rather than allowed to push it');
+}
+
 // ── the two counts that cross before anybody notices ────────────────────────
 {
   const t = fresh();
@@ -334,6 +409,7 @@ const done = t => t.renderVals().con.done();
   ok(/1 position left through the side door and 3 stacks/.test(w.text), 'counting both sides of it');
   ok(/SIDE 2 \(Hinna\) and SIDE 3 \(Sverdrup\)/.test(w.text),
     'and naming the ones that lose, in loading order — not just the shortfall');
+  ok(!/\) and SIDE \d+ \(.*\) and /.test(w.text), 'as a list, not "A and B and C"');
   ok(!/SIDE 1/.test(w.text), 'the one that still fits is not flagged');
 }
 {
@@ -345,6 +421,59 @@ const done = t => t.renderVals().con.done();
 }
 {
   eq(fresh().renderVals().warn.show, false, 'an empty van with a whole route ahead of it warns about nothing');
+}
+
+// ── the slide ───────────────────────────────────────────────────────────────
+// The runtime rebuilds the whole tree on every paint, so a JS-held clone would
+// be destroyed ~16ms in. `translate` composes outside the sheared `transform`,
+// and a freshly created element starts its animation on its own — so the full
+// re-render drives the motion rather than breaking it.
+{
+  const t = fresh();
+  begin(t, 'OLA', 'side'); bump(t, 3);
+  eq(t.renderVals().scene.parts.filter(p => /sc-push/.test(p.style)).length, 0, 'nothing animates before the tap');
+  push(t);
+  const moving = t.renderVals().scene.parts.filter(p => /sc-push/.test(p.style));
+  eq(moving.length, 3, 'the three faces of the stack that just landed carry the slide');
+  ok(moving.every(p => /--dx:[-\d.]+px;--dy:[-\d.]+px/.test(p.style)), 'each with the offset from the spot it was built on');
+  ok(!/transform:translate/.test(moving[0].style), 'and never inside transform, which would fight the shear');
+  const dx = +/--dx:([-\d.]+)px/.exec(moving[0].style)[1];
+  ok(Math.abs(dx) > 100, 'the offset is a real distance across the picture  ' + Math.round(dx));
+  eq(t.renderVals().scene.parts.filter(p => /sc-push/.test(p.style)).length, 0,
+    'and it is consumed on the first paint, so no later repaint replays it');
+}
+{
+  // The keyframe it depends on has to exist, and it is the one thing that
+  // cannot live in the board's own markup.
+  const helmet = markup.split('</helmet>')[0];
+  ok(/@keyframes sc-push/.test(helmet), 'the keyframe is declared in the helmet');
+  ok(/translate: var\(--dx\) var\(--dy\)/.test(helmet), 'as an independent translate, not a transform');
+}
+
+// ── the two numbers that used to lie ────────────────────────────────────────
+{
+  const t = fresh();
+  begin(t, 'OLA', 'side'); push(t); push(t);          // two blind pushes
+  const stat = t.renderVals().stats.filter(s => /POSITIONS IN|CRATES IN/.test(s.label))[0];
+  eq(stat.label, 'POSITIONS IN', 'with anything aboard uncounted the headline stops claiming a crate count');
+  eq(stat.value, '2 · 2 blind', 'and says how much of it is a guess');
+  done(t);
+  ok(/DONE · 2 positions · uncounted/.test(t.renderVals().queue[QUEUE.indexOf('OLA')].state),
+    'the queue row says the same rather than reporting nought crates');
+  const t2 = fresh();
+  begin(t2, 'OLA', 'side'); bump(t2, 3); push(t2);
+  eq(t2.renderVals().stats.filter(s => /CRATES IN/.test(s.label))[0].value, '3',
+    'and when everything aboard was counted it is a crate count again');
+}
+{
+  // Depth order is stated on the board, not only guarded at the tap.
+  const t = fresh();
+  begin(t, 'OLA', 'back'); bump(t, 4); push(t); done(t);
+  begin(t, 'JAT', 'side'); bump(t, 4); push(t);
+  const w = t.renderVals().warn;
+  ok(w.show && /Jåtten Skole at R1 · L is deeper than Olavstoppen at R5 · L/.test(w.text),
+    'a load that will cost an unload says so, and keeps saying it');
+  ok(/has to come off to reach them/.test(w.text), 'in terms of what it costs to fix');
 }
 
 // ── what the picture says about the door ────────────────────────────────────

@@ -10,6 +10,8 @@ height: the ±3 rule is why the van reads as a staircase rather than a wall.
 Open it, tap through it, and switch between three levels of scanning to see how
 much foresight each one buys.
 
+![the board](board.png)
+
 ## Running it
 
 The demo is one self-contained file. No build, no server, no dependencies:
@@ -58,8 +60,14 @@ the board cannot make for you.
    position: a ten-crate order comes out 5 + 5 across one row, two taps.
 4. **`+n on top`** puts a small order, or one leftover crate, on an existing
    stack instead. The crates are drawn where they would land before you commit.
-5. **`Done`** when there are no more crates. The console hands itself to whoever
-   is on a spot next.
+5. **`Done`** when there are no more crates. The dock hands itself to whoever is
+   on a spot next.
+
+The controls live in one **dock** standing on the pavement between the two
+clusters of packing spots — where the driver is actually standing — tethered by
+a line to whichever spot it is driving and bordered in that customer's colour.
+It never moves, because the push button is tapped once per position for a whole
+load and a control that jumps between five pads is a mis-tap generator.
 
 ## What to try
 
@@ -75,6 +83,13 @@ the board cannot make for you.
   board says what the gap will cost. Tap a stack and the top-up goes there.
 - Switch to **Order + crate counts** and watch the empty positions fill with
   translucent blue volumes — what the plan says belongs there.
+- Work both doors at once: put Olavstoppen in through the rear, tap **Done**,
+  then start Jåtten at the side. The push goes amber and names the unload it
+  would cost — the loading-order guard never caught that one, because pressing
+  Done dissolves it.
+- Push twice without counting. The button stays grey, the van shows `?`, and the
+  headline switches from **CRATES IN** to **POSITIONS IN · 2 blind** rather than
+  reporting nought crates with two stacks aboard.
 - Hit **Start over** to reset.
 
 ## Rebuilding
@@ -92,7 +107,7 @@ into the picture and the controls. `src/board.html` is the markup, shared
 verbatim with the design canvas; `src/runtime.js` is the ~70-line template
 runtime that renders it, so the demo and the design cannot drift apart.
 
-The two test files run on plain `node` with no dependencies — 271 checks over
+The two test files run on plain `node` with no dependencies — 313 checks over
 the rules, the rendering, and the geometry. The geometric ones matter more than
 they look: a sheared box reports its *untransformed* rectangle to the browser,
 so the only way to know the van has not been drawn out through the side of the

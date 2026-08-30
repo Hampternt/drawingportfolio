@@ -14,6 +14,13 @@
     body { margin: 0; font-family: "Space Grotesk", system-ui, sans-serif; }
     a { color: #CBB0FF; } a:hover { color: #DED0FF; }
     * { box-sizing: border-box; }
+    /* A stack arriving in the van slides from the spot it was built on.
+       `translate` is an independent transform property, so it composes OUTSIDE
+       the sheared `transform` the stack already carries and leaves the matrix
+       alone. The runtime rebuilds the tree on every paint, and a freshly created
+       element always starts its animation — so the full re-render is what drives
+       this rather than what breaks it. */
+    @keyframes sc-push { from { translate: var(--dx) var(--dy); } to { translate: 0 0; } }
   </style>
 </helmet>
 
@@ -49,16 +56,17 @@
     </div>
   </div>
 
-  <!-- ── the console ────────────────────────────────────────────────────────
-       Docked at the bottom of the picture, which is the corner of the van the
-       driver is standing at. The push button is tapped once per position for a
-       whole load, so it is the one thing on the screen that never moves. -->
+  <!-- ── the dock ───────────────────────────────────────────────────────────
+       Standing on the pavement wedge between the two clusters of packing spots,
+       tethered by a line to whichever one it is driving. The top row is the loop
+       the driver runs a hundred times a load and its buttons never move; the
+       bottom row is everything that ends something. -->
   <div style="{{con.box}}">
-    <div style="display: flex; align-items: baseline; gap: 10px; min-width: 0;">
+    <div style="display: flex; align-items: baseline; gap: 9px; min-width: 0; flex: none;">
       <span style="{{con.eyebrowStyle}}">{{con.eyebrow}}</span>
       <span style="{{con.noteStyle}}">{{con.note}}</span>
     </div>
-    <div style="display: flex; gap: 7px; align-items: stretch;">
+    <div style="display: flex; gap: 8px; align-items: stretch; flex: none;">
       <div onClick="{{con.minus}}" style="{{con.minusStyle}}">&#8722;</div>
       <div onClick="{{con.plus}}" style="{{con.plusStyle}}">
         <span style="{{con.plusBig}}">{{con.plusLabel}}</span>
@@ -68,15 +76,14 @@
         <span style="{{con.pushBig}}">{{con.pushLabel}}</span>
         <span style="{{con.pushSub}}">{{con.pushNote}}</span>
       </div>
-      <sc-if value="{{con.hasTop}}" hint-placeholder-val="{{true}}">
-        <div onClick="{{con.top}}" style="{{con.topStyle}}">
-          <span style="{{con.topBig}}">{{con.topLabel}}</span>
-          <span style="{{con.topSub}}">{{con.topNote}}</span>
-        </div>
-      </sc-if>
-      <div onClick="{{con.done}}" style="{{con.doneStyle}}">
-        <span style="{{con.doneBig}}">{{con.doneLabel}}</span>
+    </div>
+    <div style="display: flex; gap: 8px; align-items: stretch; flex: none;">
+      <div onClick="{{con.top}}" style="{{con.topStyle}}">
+        <span style="{{con.topBig}}">{{con.topLabel}}</span>
+        <span style="{{con.topSub}}">{{con.topNote}}</span>
       </div>
+      <div onClick="{{con.done}}" style="{{con.doneStyle}}"><span style="{{con.doneBig}}">{{con.doneLabel}}</span></div>
+      <div onClick="{{con.undo}}" style="{{con.undoStyle}}"><span style="{{con.undoBig}}">{{con.undoLabel}}</span></div>
     </div>
     <sc-if value="{{con.showWhy}}" hint-placeholder-val="{{true}}">
       <div style="{{con.whyStyle}}">{{con.why}}</div>

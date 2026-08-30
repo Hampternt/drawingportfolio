@@ -1,3 +1,11 @@
+> **Superseded.** The board drawn in `Van loading board.dc.html` is the flex-band
+> plan view. The live prototype has since been reworked into an isometric picture
+> of the van seen from its rear-right corner, with the packing flow driven from
+> the route rail and a dock standing on the pavement — see
+> `docs/design/sorting-live/`, which is now the reference for both the layout and
+> the rules. This document is kept as the record of the design pass that preceded
+> it; do not feed it to a design tool expecting the current screen.
+
 # Van loading board — design document
 
 `Van loading board.dc.html` is a design document for the live loading board, on
