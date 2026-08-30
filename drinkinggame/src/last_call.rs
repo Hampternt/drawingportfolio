@@ -1013,9 +1013,14 @@ impl LastCallState {
     /// unlocked and not drawing, `Status::Alive`. Tabs are NOT empty at
     /// seating (DDv2 §2.6, H7): every seat is dealt its opening tab,
     /// `tab_for(rng_seed, seat, 0).id`, as part of this constructor. Round 1,
-    /// `Beat::Draw`, `first_seat = 0`, `seq = 0`. `deck_counts` is
-    /// initialized from `Deck::ALL` at `0` — settable but never set by this
-    /// slice (spec §4.1).
+    /// `Beat::Draw`, `first_seat = 0`, `seq = 0`. The table starts with no
+    /// open shoes — a deck's pile is built the first time somebody picks it as
+    /// a vessel (`set_vessel` -> `open_deck`).
+    ///
+    /// This is also where the engine's RNG is seeded from `rng_seed`, which is
+    /// the entropy handoff the whole determinism story rests on: the seed
+    /// enters once, here, and every shuffle and deal afterwards is a pure
+    /// function of it.
     ///
     /// Caps at `MAX_SEATS`: a room with more members than that (everyone
     /// pressed join before anyone pressed START) seats only the first
@@ -1648,6 +1653,15 @@ impl LastCallState {
                 Err(LcError::WrongBeat)
             };
         };
+        if key < active.key {
+            // Names a trigger older than the active one, i.e. one that has
+            // already cleared: a retry of an ack that succeeded. Report the
+            // truth (nothing to do) without dismissing the active trigger.
+            // Gating this on "the queue happens to be empty" instead made the
+            // same retry return Ok or WrongBeat depending on whether somebody
+            // else's card had queued a trigger in the meantime.
+            return Ok(());
+        }
         if active.key != key {
             return Err(LcError::WrongBeat);
         }
@@ -1811,43 +1825,48 @@ impl LastCallState {
             container: container.to_string(),
         });
         // The opening hand is a fixed, named set (`lc_cards::opening_hand`,
-        // F6), not a random draw — so it is pulled OUT of the pile by
-        // identity rather than dealt off the top, which keeps the pile
-        // honest about what it still holds.
+        // F6), not a random draw, so it is pulled out of the pile by identity
+        // via `Shoe::take_named_or_top` — the pile API's one by-name operation.
+        // Doing this inline used to reach into `shoe.draw_pile` directly, which
+        // is what the "every card movement goes through the pile API" rule in
+        // CLAUDE.md exists to prevent.
         //
-        // Two ways a named opener can be unavailable, and they are handled
-        // differently on purpose:
+        // The dedup skip covers the RE-PICK case only: a player switching
+        // back to a deck they already hold cards from should not be handed a
+        // second copy of an opener they already have. It is not a promise
+        // that the hand contains five distinct cards, and it never could be —
+        // the substitution below hands out the top of the pile, which is
+        // whatever a real shuffle put there. A pile genuinely contains
+        // `copies` of a card, so a duplicate in an opening hand is a fact
+        // about the deck, not a bug. (An earlier comment here claimed "hands
+        // stay deduplicated", which the substitution branch made false.)
         //
-        // * This player already holds a copy (they are re-picking a deck
-        //   they were already on) — skipped, so hands stay deduplicated.
-        // * The pile is out of that card, because earlier players on this
-        //   deck took every copy. The scarcest opener is `cider-04` at 4
-        //   copies, so a FIFTH cider drinker hits this — well inside
-        //   `MAX_SEATS`, and a plausible table where everyone is drinking
-        //   the same thing. Substituting the top of the pile keeps the hand
-        //   at five rather than quietly short-changing the last person to
-        //   pick, which is the kind of thing nobody would notice and
-        //   everybody would resent.
+        // The named openers themselves cannot duplicate: `opening_hand` is
+        // five distinct ids.
         let openers = crate::lc_cards::opening_hand(deck);
         let mut dealt: Vec<Card> = Vec::with_capacity(openers.len());
-        if let Some(shoe) = self.table.shoe_mut(deck) {
-            for card in openers {
-                if p.hand.iter().any(|c| c.id == card.id) {
-                    continue; // already held — the re-pick case
-                }
-                match shoe.draw_pile.iter().position(|c| c.id == card.id) {
-                    Some(pos) => dealt.push(shoe.draw_pile.remove(pos)),
-                    None => {
-                        if let Some(sub) = shoe.draw_pile.pop() {
-                            dealt.push(sub);
-                        }
-                    }
-                }
+        for card in openers {
+            if self.players[seat].hand.iter().any(|c| c.id == card.id) {
+                continue; // re-pick: already held
+            }
+            let Some(shoe) = self.table.shoe_mut(deck) else {
+                break;
+            };
+            match shoe.take_named_or_top(&card.id) {
+                Some(got) => dealt.push(got),
+                None => break, // pile exhausted
             }
         }
         let p = &mut self.players[seat];
         p.cards_drawn += dealt.len() as u32;
+        let ids: Vec<String> = dealt.iter().map(|c| c.id.clone()).collect();
         p.hand.extend(dealt);
+        // Opening-hand cards fire `OnDraw` like any other card entering a
+        // hand — `deal()` is not the only such path, so it cannot be the only
+        // place that fires them.
+        for id in ids {
+            self.fire_trigger(&id, TriggerWhen::OnDraw, seat);
+        }
         self.seq += 1;
         self.push_log(LogEntry::Vessel { seat, deck });
         Ok(())
@@ -1971,10 +1990,15 @@ impl LastCallState {
         for idx in order {
             removed.push(p.hand.remove(idx));
         }
-        // Discard FIRST, then draw. That ordering is the mechanic: the card
-        // you throw back is in the pile you draw from, so a mulligan on the
-        // last Beer card can return that same card. Drawing first would make
-        // the discarded card unreachable and quietly shrink the live pool.
+        // Discard FIRST, then draw. On a healthy pile this changes nothing —
+        // the discarded card goes to the DISCARD pile and the replacement
+        // comes off the DRAW pile, so you cannot get the same card straight
+        // back. It matters only at the edge: on an exhausted pile the draw
+        // triggers a reshuffle, and discarding first means the card you just
+        // threw is part of what gets reshuffled in rather than stranded
+        // outside the live pool. `test_a_mulligan_discards_before_it_draws`
+        // pins that exhausted case, which is the only one where the ordering
+        // is observable at all.
         let wanted: Vec<Deck> = removed.iter().map(|c| c.deck).collect();
         self.discard(Some(seat), removed);
         for deck in wanted {
@@ -2109,14 +2133,15 @@ impl LastCallState {
             // `lc_render`'s `pile_deck` (`deck_counts.first()`, documented
             // there as "ordered, not filtered") assumes.
             //
-            // Do NOT project `table.counts()` / `table.discard_counts()`
-            // here. Those are open-shoes-only, and using them cost two bugs at
-            // once: the zip paired one entry per OPEN deck against one entry
-            // per deck, so a table on Wine and Liquor rendered WINE's row with
-            // Beer's discard count; and `pile_deck` silently moved from
-            // always-Beer to first-open-deck. The engine's own view of the
-            // table is open-shoes-only; the PUBLIC view is padded to all five.
-            // Different shapes, on purpose.
+            // Do NOT rebuild these from an open-shoes-only walk of
+            // `table.shoes`. That is how this broke once: the zip paired one
+            // entry per OPEN deck against one entry per deck, so a table on
+            // Wine and Liquor rendered WINE's row with Beer's discard count,
+            // and `pile_deck` silently moved from always-Beer to
+            // first-open-deck. The engine's own view of the table is
+            // open-shoes-only; the PUBLIC view is padded to all five. The two
+            // open-only projections that used to live on `LcTable` were
+            // deleted so the mistake is no longer one call away.
             deck_counts: Deck::ALL.iter().map(|&d| (d, self.deck_count(d))).collect(),
             discard_count: self.table.discard_total(),
             discard_counts: Deck::ALL
@@ -3153,11 +3178,14 @@ impl LastCallState {
     ///    `Resolve`, the frozen final tableau (D16).
     /// 7. Otherwise roll over: `first_seat` rotates (D13), `round`
     ///    advances, `beat` resets to `Draw`, every player's `locked`/
-    ///    `drawing`/`draws_this_round` resets, and any deck whose count sits
-    ///    at 0 reclaims its cards from `discards` (8.4/§12) — the shoe is a
-    ///    count, not a deck of identities (D6), so "reshuffle" here is a
-    ///    fold: every discarded card of that deck moves back into the count
-    ///    and out of `discards`, with no ordering to restore.
+    ///    `drawing`/`draws_this_round` resets, and any deck whose DRAW PILE
+    ///    is empty reshuffles its discard pile back underneath it (8.4/§12).
+    ///    These are real piles, so ORDER MATTERS: `Shoe::reshuffle` puts the
+    ///    reclaimed cards at the bottom, keeping whatever was still waiting on
+    ///    top. Note `Shoe::draw` also reshuffles on demand when it runs dry
+    ///    mid-draw, so this pass is no longer load-bearing for correctness —
+    ///    it is what makes the deck counts and the log line right going into
+    ///    the next Draw beat.
     pub fn resolve(&mut self) -> Result<(), LcError> {
         if self.beat != Beat::Resolve {
             return Err(LcError::WrongBeat);
@@ -3292,13 +3320,18 @@ impl LastCallState {
             // that the same as an eliminated source — no effect, the card
             // still leaves play — rather than panic on `self.players[..]`.
             let Some(source) = self.players.get(play.source_seat) else {
+                // No source seat to attribute to — this arm exists precisely
+                // because `play.source_seat` names a player who is gone, so
+                // the card goes straight to the table rather than through
+                // `discard`, which would fire triggers for a seat that is not
+                // there.
                 self.table.discard([play.card]);
                 continue;
             };
             if source.status == Status::Eliminated {
                 // 7.6: a source eliminated earlier this resolve plays
                 // nothing, but the card still leaves play (8.4).
-                self.table.discard([play.card]);
+                self.discard(Some(play.source_seat), [play.card]);
                 continue;
             }
 
@@ -3376,7 +3409,7 @@ impl LastCallState {
                 // still discards and the pulls already spent at reveal stay
                 // spent (7.5 parity); any haunt votes on it are wasted
                 // (Task 3).
-                self.table.discard([play.card]);
+                self.discard(Some(play.source_seat), [play.card]);
                 continue;
             }
 
@@ -3400,7 +3433,7 @@ impl LastCallState {
                     play.card.id.clone(),
                     reflected.get(&play.order_key).copied(),
                 ));
-                self.table.discard([play.card]);
+                self.discard(Some(play.source_seat), [play.card]);
                 continue;
             }
 
@@ -3466,7 +3499,7 @@ impl LastCallState {
                                 seat: play.source_seat,
                                 title: play.card.title.clone(),
                             });
-                            self.table.discard([play.card]);
+                            self.discard(Some(play.source_seat), [play.card]);
                             continue;
                         }
                     },
@@ -3560,7 +3593,7 @@ impl LastCallState {
                     }
                 }
             }
-            self.table.discard([play.card]);
+            self.discard(Some(play.source_seat), [play.card]);
         }
 
         // I11/8.4 parity: reactions die with the round, resolved or wasted
@@ -4749,6 +4782,57 @@ mod tests {
         assert_eq!(st.table.shoe(Deck::Wine).unwrap().discarded(), 0);
     }
 
+    /// Conservation across the DRAW beat — the paths that actually move cards
+    /// between a pile and a hand (`set_vessel`, `finish_and_draw`, `mulligan`).
+    ///
+    /// The round-scoped test below starts from `locked_table()` and only spans
+    /// Reveal->Resolve, so its census never runs across a draw. That left the
+    /// one place in production that manipulates a pile by identity —
+    /// `set_vessel`'s opening deal — outside the guard CLAUDE.md names as the
+    /// conservation check. Duplicating a card there stayed green.
+    #[test]
+    fn test_cards_are_conserved_across_the_draw_beat() {
+        let census = |st: &LastCallState| -> usize {
+            st.table.total()
+                + st.players
+                    .iter()
+                    .map(|p| p.hand.len() + p.armed.len())
+                    .sum::<usize>()
+        };
+        let mut st = seated();
+
+        st.set_vessel(1, Deck::Beer, "can").unwrap();
+        let after_open = census(&st);
+        assert_eq!(after_open, LC_DECK_SIZE as usize, "opening a deck");
+
+        // A second player on the same deck draws from the same pile.
+        st.set_vessel(2, Deck::Beer, "can").unwrap();
+        assert_eq!(census(&st), after_open, "second vessel on the same deck");
+
+        // A second DECK adds exactly one shoe's worth and nothing more.
+        st.set_vessel(3, Deck::Wine, "glass").unwrap();
+        assert_eq!(
+            census(&st),
+            after_open + LC_DECK_SIZE as usize,
+            "second deck"
+        );
+        let total = census(&st);
+
+        st.finish_and_draw(1, 0).unwrap();
+        assert_eq!(census(&st), total, "finish_and_draw");
+
+        let ids: Vec<String> = st.players[0].hand[..2]
+            .iter()
+            .map(|c| c.id.clone())
+            .collect();
+        st.mulligan(1, &ids).unwrap();
+        assert_eq!(census(&st), total, "mulligan");
+
+        // And a re-pick of a deck already held conjures nothing.
+        st.set_vessel(1, Deck::Beer, "pint").unwrap();
+        assert_eq!(census(&st), total, "re-picking a held deck");
+    }
+
     #[test]
     fn test_cards_are_conserved_across_a_whole_round() {
         // Nothing may create or destroy a card: every card is in a draw
@@ -5070,8 +5154,18 @@ mod tests {
         }
         let second = st.pending_trigger().unwrap().key;
         assert_ne!(first, second);
-        assert_eq!(st.ack_trigger(1, first), Err(LcError::WrongBeat));
+        // The stale key names a trigger that already cleared, so this is a
+        // retry of an ack that succeeded: it reports Ok and, crucially, does
+        // NOT touch the active trigger. It used to return WrongBeat here and
+        // Ok when the queue happened to be empty — the same retry succeeding
+        // or failing depending on whether someone else had queued a trigger.
+        assert_eq!(st.ack_trigger(1, first), Ok(()));
         assert!(st.pending_trigger().is_some());
+        assert_eq!(st.pending_trigger().unwrap().key, second);
+        assert!(
+            st.pending_trigger().unwrap().acked.is_empty(),
+            "a stale ack must not count toward the active trigger"
+        );
     }
 
     #[test]
@@ -7004,8 +7098,9 @@ mod tests {
             1
         );
 
-        assert!(st.table.counts().iter().any(|&(_, c)| c == 0));
-        assert!(st.table.counts().iter().any(|&(_, c)| (1..5).contains(&c)));
+        let counts: Vec<u16> = Deck::ALL.iter().map(|&d| st.deck_count(d)).collect();
+        assert!(counts.contains(&0));
+        assert!(counts.iter().any(|&c| (1..5).contains(&c)));
     }
 
     #[test]
@@ -7107,7 +7202,10 @@ mod tests {
                 "player {pid} was short-changed"
             );
         }
-        // The pile paid for all 25 of them and nothing was conjured.
+        // The pile paid for all 25 of them and nothing was conjured. Note a
+        // substituted card MAY duplicate one already in that hand — a shuffled
+        // pile holds `copies` of a card and the substitute is whatever is on
+        // top. Full hands matter; distinctness was never the promise.
         assert_eq!(st.deck_count(Deck::Cider), LC_DECK_SIZE - 25);
         // `cider-04` really is exhausted — this test would pass vacuously
         // if the scarcity it targets ever disappeared.

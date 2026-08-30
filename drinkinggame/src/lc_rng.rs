@@ -18,6 +18,14 @@
 //! left in the crate is the room-creation seed in `lc_routes`, which is
 //! exactly where entropy should enter.
 //!
+//! Deliberately minimal: `seeded`, `next_u64`, `below` and `shuffle` are what
+//! the engine actually calls, and nothing else lives here. A `fork`/`range`/
+//! `pick` trio was written speculatively, went unused, and shipped two latent
+//! bugs nothing could catch because nothing called them (`fork(0)` returned a
+//! stream identical to its parent, since `state ^ 0` is `state`; `range`
+//! overflowed `hi - lo + 1` on a full-width span). Add a helper here when a
+//! caller needs it, with the caller.
+//!
 //! Not cryptographic, and it must not become load-bearing for secrecy: a
 //! player who knows the seed can predict the shoe. Secrecy in Last Call is
 //! enforced by `PublicView`'s projection, never by unguessability — see the
@@ -37,24 +45,12 @@ pub struct LcRng {
 impl LcRng {
     /// A stream seeded from the room's `rng_seed`.
     ///
-    /// The seed is mixed with an odd constant rather than used raw: two
-    /// rooms created in the same millisecond can land on neighbouring seeds,
-    /// and SplitMix64's first output for seed *n* and seed *n+1* are not
-    /// visibly related, but seeding a *derived* stream (see `fork`) from raw
-    /// neighbours would be. Mixing once up front makes the whole family
-    /// well-separated for free.
+    /// The seed is mixed with an odd constant rather than used raw: two rooms
+    /// created in the same millisecond can land on neighbouring seeds, and
+    /// mixing once up front separates the whole family for free.
     pub fn seeded(seed: u64) -> Self {
         LcRng {
             state: seed ^ 0x9E37_79B9_7F4A_7C15,
-        }
-    }
-
-    /// A stream derived from this one *without* advancing it — for
-    /// reproducible side-channels that must not perturb the main deal order
-    /// (a preview shuffle, a test fixture). `domain` separates uses.
-    pub fn fork(&self, domain: u64) -> Self {
-        LcRng {
-            state: self.state ^ domain.wrapping_mul(0xBF58_476D_1CE4_E5B9),
         }
     }
 
@@ -91,14 +87,6 @@ impl LcRng {
         }
     }
 
-    /// An inclusive range roll, `lo..=hi`. `hi < lo` yields `lo`.
-    pub fn range(&mut self, lo: u32, hi: u32) -> u32 {
-        if hi <= lo {
-            return lo;
-        }
-        lo + self.below((hi - lo + 1) as usize) as u32
-    }
-
     /// In-place Fisher-Yates. Walks back-to-front so index `i` draws from
     /// `0..=i`, the form that is uniform over all permutations — the
     /// forward-walking variant that draws from the whole slice every step
@@ -111,15 +99,6 @@ impl LcRng {
             let j = self.below(i + 1);
             items.swap(i, j);
         }
-    }
-
-    /// A borrowed element, or `None` when empty.
-    pub fn pick<'a, T>(&mut self, items: &'a [T]) -> Option<&'a T> {
-        if items.is_empty() {
-            return None;
-        }
-        let i = self.below(items.len());
-        Some(&items[i])
     }
 }
 
@@ -221,53 +200,6 @@ mod tests {
         assert_eq!(seen.len(), 6, "not every permutation is reachable");
         for (perm, &n) in &seen {
             assert!((700..1_300).contains(&n), "{perm:?} = {n}");
-        }
-    }
-
-    #[test]
-    fn test_fork_does_not_advance_the_parent() {
-        let mut parent = LcRng::seeded(11);
-        let expected = parent.next_u64();
-
-        let mut parent2 = LcRng::seeded(11);
-        let mut child = parent2.fork(7);
-        child.next_u64();
-        child.next_u64();
-        assert_eq!(parent2.next_u64(), expected); // parent untouched
-    }
-
-    #[test]
-    fn test_fork_domains_are_separated() {
-        let base = LcRng::seeded(11);
-        let mut a = base.fork(1);
-        let mut b = base.fork(2);
-        assert_ne!(a.next_u64(), b.next_u64());
-    }
-
-    #[test]
-    fn test_range_is_inclusive_and_total() {
-        let mut r = LcRng::seeded(64);
-        let mut lo_seen = false;
-        let mut hi_seen = false;
-        for _ in 0..500 {
-            let v = r.range(3, 6);
-            assert!((3..=6).contains(&v));
-            lo_seen |= v == 3;
-            hi_seen |= v == 6;
-        }
-        assert!(lo_seen && hi_seen, "range never reached its endpoints");
-        assert_eq!(r.range(5, 5), 5);
-        assert_eq!(r.range(9, 2), 9); // inverted range is total, not a panic
-    }
-
-    #[test]
-    fn test_pick() {
-        let mut r = LcRng::seeded(8);
-        assert_eq!(r.pick::<u8>(&[]), None);
-        assert_eq!(r.pick(&[7]), Some(&7));
-        let pool = [1, 2, 3, 4];
-        for _ in 0..50 {
-            assert!(pool.contains(r.pick(&pool).unwrap()));
         }
     }
 }

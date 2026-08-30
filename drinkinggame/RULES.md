@@ -75,8 +75,9 @@ That's the trade: cards cost drinking, and getting more cards costs drinking
 faster. You never *have* to draw. You just run out of cards if you don't.
 
 You may also **mulligan** once — throw any number of cards back and draw the
-same number again from the same decks. The cards you throw go back into the
-deck they came from, so you can get one straight back.
+same number again from the same decks. The cards you throw go onto that deck's
+discard pile, so you won't see them again until the deck runs out and gets
+reshuffled — unless it's already running low, in which case you might.
 
 ### 2. DEAL
 

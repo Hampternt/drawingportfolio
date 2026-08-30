@@ -23,13 +23,14 @@
 //! hands never changes — so "how many Beer cards are left" is now a fact
 //! about a pile rather than a counter that happened to be decremented.
 //!
-//! `counts()` projects a `Vec<(Deck, u16)>` over the OPEN shoes — the
-//! engine's own view of what is on the table. It is deliberately NOT what
-//! `PublicView::deck_counts` carries: that one is padded to all five
-//! `Deck::ALL` entries, because `lc_render` zips it positionally against
-//! `discard_counts` and reads `deck_counts.first()` as the pile's deck. Using
-//! the open-only shape there paired each deck's row with another deck's
-//! discard count. See `public_view()`'s comment for the full story.
+//! Note what this module does NOT provide: an open-shoes-only
+//! `Vec<(Deck, u16)>` projection. It used to, and `public_view()` used it for
+//! `PublicView::deck_counts` — which `lc_render` zips positionally against
+//! `discard_counts` and reads `.first()` from as the pile's deck. One entry
+//! per OPEN deck against one entry per deck paired each row with another
+//! deck's discard count. The public projection is built over `Deck::ALL` in
+//! `public_view()` and padded with zeros; per-deck reads here go through
+//! `remaining`/`discarded`, which name their deck and cannot be mis-zipped.
 //!
 //! Confidentiality: a `Shoe`'s ORDER is the secret, not its size. Counts are
 //! public (DDv2 beat 6 — discards are open information), and
@@ -142,6 +143,27 @@ impl Shoe {
     pub fn discard(&mut self, cards: impl IntoIterator<Item = Card>) {
         self.discard_pile.extend(cards);
     }
+
+    /// Take one named card out of the draw pile, or the top card if that name
+    /// is exhausted. `None` only when the pile is empty.
+    ///
+    /// The opening hand is a fixed, named set (`lc_cards::opening_hand`, F6)
+    /// rather than a random draw, so it is pulled out by identity — which is
+    /// the one operation `draw` cannot express. It lives here, not at the call
+    /// site, because reaching into `draw_pile` from outside this module is
+    /// exactly what the "every card movement goes through the pile API" rule
+    /// exists to prevent.
+    ///
+    /// Substitution matters: the scarcest opener (`cider-04`) has 4 copies, so
+    /// a fifth drinker on that deck cannot be dealt the named set. Handing
+    /// them the top of the pile keeps the hand at full size instead of
+    /// silently short-changing whoever picked last.
+    pub fn take_named_or_top(&mut self, id: &str) -> Option<Card> {
+        match self.draw_pile.iter().position(|c| c.id == id) {
+            Some(pos) => Some(self.draw_pile.remove(pos)),
+            None => self.draw_pile.pop(),
+        }
+    }
 }
 
 /// Every open shoe on the table.
@@ -223,22 +245,6 @@ impl LcTable {
     /// Cards left to draw in `deck` — `0` for an unopened deck.
     pub fn remaining(&self, deck: Deck) -> usize {
         self.shoe(deck).map(|s| s.remaining()).unwrap_or(0)
-    }
-
-    /// The legacy `deck_counts` projection: `(deck, cards left)` per open
-    /// shoe, `Deck::ALL` order. `PublicView::deck_counts` carries this
-    /// verbatim, so `lc_render` needs no change.
-    pub fn counts(&self) -> Vec<(Deck, u16)> {
-        self.shoes
-            .iter()
-            .map(|s| (s.deck, s.remaining().min(u16::MAX as usize) as u16))
-            .collect()
-    }
-
-    /// Per-deck discard counts, `Deck::ALL` order over OPEN shoes — feeds
-    /// `PublicView::discard_counts`.
-    pub fn discard_counts(&self) -> Vec<(Deck, usize)> {
-        self.shoes.iter().map(|s| (s.deck, s.discarded())).collect()
     }
 
     /// Every discarded card across all shoes — the flat view the old
@@ -407,12 +413,11 @@ mod tests {
     fn test_table_open_is_idempotent_and_ordered() {
         let mut r = rng();
         let mut t = LcTable::new();
-        // Open out of order; `counts()` must still come back in Deck::ALL
-        // order, which `lc_render`'s pile picker depends on.
+        // Open out of order; `shoes` must still be kept in Deck::ALL order.
         t.open(Deck::Wine, &mut r);
         t.open(Deck::Beer, &mut r);
         t.open(Deck::Soft, &mut r);
-        let order: Vec<Deck> = t.counts().iter().map(|&(d, _)| d).collect();
+        let order: Vec<Deck> = t.shoes.iter().map(|sh| sh.deck).collect();
         assert_eq!(order, vec![Deck::Beer, Deck::Wine, Deck::Soft]);
 
         // Re-opening must not deal 40 fresh cards into a live deck.
@@ -430,7 +435,7 @@ mod tests {
         assert_eq!(t.remaining(Deck::Beer), 0);
         assert!(t.draw(Deck::Beer, 5, &mut r).is_empty());
         assert_eq!(t.reshuffle(Deck::Beer, &mut r), 0);
-        assert!(t.counts().is_empty());
+        assert!(t.shoes.is_empty());
     }
 
     #[test]
@@ -456,13 +461,12 @@ mod tests {
         assert_eq!(t.total(), LC_DECK_SIZE as usize * 2);
 
         let hand = t.draw(Deck::Beer, 4, &mut r);
-        assert_eq!(
-            t.counts(),
-            vec![(Deck::Beer, LC_DECK_SIZE - 4), (Deck::Cider, LC_DECK_SIZE)]
-        );
+        assert_eq!(t.remaining(Deck::Beer), LC_DECK_SIZE as usize - 4);
+        assert_eq!(t.remaining(Deck::Cider), LC_DECK_SIZE as usize);
         t.discard(hand);
         assert_eq!(t.discard_total(), 4);
-        assert_eq!(t.discard_counts(), vec![(Deck::Beer, 4), (Deck::Cider, 0)]);
+        assert_eq!(t.shoe(Deck::Beer).unwrap().discarded(), 4);
+        assert_eq!(t.shoe(Deck::Cider).unwrap().discarded(), 0);
         assert_eq!(t.all_discards().len(), 4);
     }
 

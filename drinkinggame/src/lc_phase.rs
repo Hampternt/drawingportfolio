@@ -86,7 +86,6 @@ impl Phase {
 pub enum SeatPhase {
     /// Alive, the beat wants something from this seat, and it hasn't been
     /// given. This is the ONLY variant that holds a beat up.
-    #[default]
     Acting,
     /// Alive and has signalled done for this beat (`ready`) — waiting on
     /// others.
@@ -95,6 +94,14 @@ pub enum SeatPhase {
     /// until the reveal.
     Locked,
     /// Alive, but this beat asks nothing of this seat.
+    ///
+    /// The `Default`, deliberately. `PublicSeat::phase` is `#[serde(default)]`,
+    /// so a payload written before that field existed backfills this value —
+    /// and `Acting` is the one variant `is_blocking()` returns true for, which
+    /// would make every defaulted seat claim the table is stuck on it and set
+    /// off the phone's "your turn" pulse. A derived value that failed to
+    /// derive should say "nothing is being asked of you", not raise an alarm.
+    #[default]
     Waiting,
     /// Eliminated. Can still haunt (one ghost vote a round) and vote on
     /// challenges, but holds up nothing.
