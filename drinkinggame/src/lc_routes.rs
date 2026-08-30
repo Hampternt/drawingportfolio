@@ -1837,6 +1837,53 @@ pub async fn lc_pour_discard_handler(
 }
 
 #[derive(Deserialize)]
+pub struct ResolutionAckForm {
+    /// The report's identity token (`Resolution::key`) — the
+    /// `PourDiscardForm`/`SwapForm` precedent. Echoed back so a tap from a
+    /// screen still showing last round's receipt cannot confirm this round's.
+    pub resolution: u64,
+}
+
+/// `POST /room/{code}/lastcall/resolution-ack` (report wave) — public
+/// (`persist_and_broadcast_lc`): who has confirmed is on every surface, and
+/// the last confirmation rolls the round over.
+///
+/// This is the settle route for the park that fires on nearly every round,
+/// which makes it the most load-bearing of the four. The pour and trade waves
+/// shipped their routes ahead of any UI on the reasoning that a park without
+/// a settle path is a frozen room rather than an inert feature; that
+/// reasoning applies here with no `copies: 0` safety net at all, because
+/// there is no card to withhold — every round that lands anything builds a
+/// report.
+///
+/// The engine owns every guard (`ack_resolution`), including the one that
+/// matters most: a seat that owed nothing still gets `Ok`. The receipt renders
+/// on every phone, so a spectator's thumb is a real request, and answering it
+/// with a 409 would make a working button look broken to the one player it
+/// cost nothing.
+pub async fn lc_resolution_ack_handler(
+    State(state): State<GameState>,
+    PlayerSession(player): PlayerSession,
+    Path(code): Path<String>,
+    Form(form): Form<ResolutionAckForm>,
+) -> axum::response::Response {
+    let lock = match lc_lock(&state, &code).await {
+        Ok(l) => l,
+        Err(r) => return r,
+    };
+    let _guard = lock.lock().await;
+    let mut ctx = match load_lc(&state, &code, &player).await {
+        Ok(c) => c,
+        Err(r) => return r,
+    };
+    if let Err(e) = ctx.st.ack_resolution(player.id, form.resolution) {
+        return map_lc(e);
+    }
+    persist_and_broadcast_lc(&state, &ctx).await;
+    StatusCode::NO_CONTENT.into_response()
+}
+
+#[derive(Deserialize)]
 pub struct SwapForm {
     /// The trade's identity token (`SwapState::key`) — the `PourDiscardForm`
     /// precedent.
@@ -2246,7 +2293,13 @@ mod tests {
         st.lock_in(1).unwrap();
         st.advance_beat().unwrap(); // Reveal
         st.advance_beat().unwrap(); // Resolve
-        st.resolve().unwrap(); // non-terminal: bob survives, round rolls over
+        st.resolve().unwrap(); // non-terminal: bob survives
+                               // The round report parks this resolve (alice's hit is a blow), so the
+                               // rollover waits on bob's confirmation. Worth noting what this test
+                               // now also proves: the G5 park re-stamp already handled a parked
+                               // resolve — the break is stamped for the round players LAND on, and
+                               // the report park is simply another way to reach it.
+        st.confirm_report();
 
         let brk = *st.pact_breaks.last().unwrap();
         assert_eq!(

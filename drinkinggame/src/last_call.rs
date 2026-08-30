@@ -395,6 +395,18 @@ pub struct Effect {
     /// fields: `Effect` otherwise stays strict.
     #[serde(default)]
     pub source_seat: usize,
+    /// The card id this effect came from — attribution for a `Dot`'s tick,
+    /// which fires rounds after the `Play` that laid it is gone.
+    ///
+    /// This is the honest version of what `source_play` above only looks
+    /// like it does. `order_key` is not an identity and cannot be made into
+    /// one; a card id is, it is stable across rounds, and it is what a
+    /// report and a sound cue both key off. Field-level `#[serde(default)]`,
+    /// the `source_seat` precedent: an older blob's dot ticks with an empty
+    /// id and renders as its subject's own lingering damage rather than
+    /// naming a card that was never recorded.
+    #[serde(default)]
+    pub source_card: String,
 }
 
 /// A formed pact between two seats — mutual and symmetric; the invariant
@@ -744,6 +756,19 @@ pub struct LastCallState {
     /// trigger, never reset (the `challenge_seq` precedent).
     #[serde(default)]
     pub trigger_seq: u64,
+    /// The round resolution report the table is confirming (`lc_report`),
+    /// front entry active — the `challenges`/`pours`/`swaps` shape.
+    ///
+    /// A `Vec` rather than an `Option` for one reason: every other park in
+    /// this engine is a `Vec` whose front entry is active, and `parked()`
+    /// asks all four the same way. A lone `Option` would be a fifth spelling
+    /// of the same idea and the one nobody remembers to check.
+    #[serde(default)]
+    pub resolutions: Vec<crate::lc_report::Resolution>,
+    /// Monotonic identity for `Resolution::key`, never reset (the
+    /// `challenge_seq` precedent).
+    #[serde(default)]
+    pub resolution_seq: u64,
     /// J1/J3: the public round log, capped at `LC_LOG_CAP` (oldest evicted
     /// first) — every append goes through `push_log`, never `.push()`
     /// directly. Container-level `#[serde(default)]` (see the comment above)
@@ -1060,6 +1085,20 @@ pub struct PublicView {
     /// chooses to pitch stays private until they pitch it.
     #[serde(default)]
     pub pours: Vec<PourState>,
+    /// The round report the table is confirming (`lc_report`), front entry
+    /// active. Projected verbatim — and verbatim is SAFE here only because
+    /// of how `Blow` is built, not because nothing was checked.
+    ///
+    /// `Blow::card_id` always names the card that caused a blow, never one
+    /// that moved because of it: a `Pickpocket` records its own id against
+    /// its victim, and the card it stole has no field here to live in. A
+    /// reveal records how many cards were shown, never which. So the type
+    /// carries no secret to strip — which is a stronger guarantee than a
+    /// filter, since a filter has to be remembered when a field is added and
+    /// this cannot be got wrong without inventing a place to put the secret
+    /// first. `test_no_blow_can_name_a_moved_card` holds the line.
+    #[serde(default)]
+    pub resolutions: Vec<crate::lc_report::Resolution>,
     /// Hands revealed to the WHOLE TABLE this round — the `seer: None`
     /// entries of `LastCallState::reveals`, and only those.
     ///
@@ -1261,6 +1300,8 @@ impl LastCallState {
             swap_seq: 0,
             reveals: Vec::new(),
             trigger_seq: 0,
+            resolutions: Vec::new(),
+            resolution_seq: 0,
             log: Vec::new(),
         };
         state.push_log(LogEntry::Round { round: 1 });
@@ -1495,6 +1536,21 @@ impl LastCallState {
         if p.status == Status::Eliminated {
             return SeatPhase::Ghost;
         }
+        // A round report outranks everything: it parks at the end of the
+        // resolve that built it, so any other park it shares a round with is
+        // still open underneath it.
+        //
+        // Note the missing `else`. Every arm below returns BOTH ways — a
+        // trigger answers `Waiting` for a seat that has acked, a trade
+        // answers `Waiting` for anyone but the caster — because each of those
+        // parks alone. This one coexists with all three, so answering
+        // `Waiting` here would tell a seat it has nothing to do while its own
+        // pour debt sits unpaid two arms below. It only ever speaks up.
+        if let Some(r) = self.resolutions.first() {
+            if r.awaiting(seat) {
+                return SeatPhase::Acting;
+            }
+        }
         // A pending trigger outranks the beat: the table is held up on the
         // acknowledgement, so a seat that still owes one is Acting whatever
         // beat it is.
@@ -1680,7 +1736,7 @@ impl LastCallState {
         if self.players[seat].status != Status::Alive {
             return;
         }
-        self.shield_from(seat, magnitude, rounds, source, 0);
+        self.shield_from(seat, magnitude, rounds, source, 0, "");
     }
 
     /// `shield` with an explicit `source_play`, for `resolve()`'s per-play
@@ -1693,6 +1749,7 @@ impl LastCallState {
         rounds: u32,
         source: Option<usize>,
         source_play: u32,
+        source_card: &str,
     ) {
         if magnitude <= 0 || seat >= self.players.len() {
             return;
@@ -1709,6 +1766,7 @@ impl LastCallState {
             magnitude,
             expires_round: self.round + rounds,
             source_seat: source.unwrap_or(seat),
+            source_card: source_card.to_string(),
         });
         self.push_log(LogEntry::Shield {
             seat,
@@ -1737,6 +1795,50 @@ impl LastCallState {
             }
         }
         drained
+    }
+
+    /// `damage`, with the blow recorded for the round report.
+    ///
+    /// The shield delta is measured ACROSS the call because `absorbed` is
+    /// not recoverable afterwards: `damage` returns what got through, and
+    /// "what got through" cannot be subtracted from "what was asked for" to
+    /// find the shield's share — a hit on a seat at 1 HP clamps, so the
+    /// difference is mostly the clamp. Two `shield_total` reads are the only
+    /// honest way to get it.
+    ///
+    /// Records nothing when nothing happened (`applied` and `absorbed` both
+    /// 0): an attack on an already-dead seat, or one blunted to zero by a
+    /// Reduce before it ever reached a shield. A receipt line reading "0
+    /// damage, 0 absorbed" tells its reader less than its absence does.
+    fn damage_reported(
+        &mut self,
+        blows: &mut Vec<crate::lc_report::Blow>,
+        subject: usize,
+        amount: i32,
+        source: Option<usize>,
+        card_id: &str,
+        title: &str,
+        landed: crate::lc_report::BlowKind,
+    ) -> i32 {
+        let before = self.shield_total(subject);
+        let applied = self.damage(subject, amount, source);
+        let absorbed = (before - self.shield_total(subject)).max(0);
+        if applied > 0 || absorbed > 0 {
+            blows.push(crate::lc_report::Blow {
+                card_id: card_id.to_string(),
+                title: title.to_string(),
+                source,
+                subject,
+                kind: if applied > 0 {
+                    landed
+                } else {
+                    crate::lc_report::BlowKind::Blocked
+                },
+                amount: applied,
+                absorbed,
+            });
+        }
+        applied
     }
 
     /// Current shield absorption remaining on `seat`, summed. `0` when
@@ -1787,7 +1889,10 @@ impl LastCallState {
     /// outstanding. A settle that rolled over unconditionally would advance
     /// the round out from under the other park, stranding it forever.
     pub fn parked(&self) -> bool {
-        !self.challenges.is_empty() || !self.pours.is_empty() || !self.swaps.is_empty()
+        !self.challenges.is_empty()
+            || !self.pours.is_empty()
+            || !self.swaps.is_empty()
+            || !self.resolutions.is_empty()
     }
 
     /// The active trade, if the table is parked on one.
@@ -1798,6 +1903,103 @@ impl LastCallState {
     /// The active pour, if the table is parked on one.
     pub fn pending_pour(&self) -> Option<&PourState> {
         self.pours.first()
+    }
+
+    /// The round report the table is confirming, if any (`lc_report`).
+    pub fn pending_resolution(&self) -> Option<&crate::lc_report::Resolution> {
+        self.resolutions.first()
+    }
+
+    /// Acknowledge the active round report on behalf of `player_id`, naming
+    /// it by `key`. Settles — and rolls the round over — once every seat that
+    /// owed one has tapped.
+    ///
+    /// Guard order and staleness semantics are `ack_trigger`'s exactly, and
+    /// for the same reasons: a `key` at or below the high-water mark named a
+    /// report that existed and has since cleared, so a retry of a tap that
+    /// already worked is a no-op rather than an error, while a key naming a
+    /// report that never existed is rejected. Copied rather than shared
+    /// because the two acks settle differently — a trigger just clears, a
+    /// report owns a rollover — and folding them together would put a branch
+    /// inside the one function whose job is to be obvious.
+    ///
+    /// A seat that owed nothing taps successfully and changes nothing. That
+    /// is not a courtesy: the receipt is on every phone, so a spectator's tap
+    /// is a real thing a real thumb will do, and answering it with an error
+    /// would make the button look broken to the one player it cost nothing.
+    pub fn ack_resolution(&mut self, player_id: i64, key: u64) -> Result<(), LcError> {
+        let Some(seat) = self.seat_of(player_id) else {
+            return Err(LcError::NotSeated);
+        };
+        let Some(active) = self.resolutions.first() else {
+            return if key < self.resolution_seq {
+                Ok(())
+            } else {
+                Err(LcError::WrongBeat)
+            };
+        };
+        if key < active.key {
+            return Ok(());
+        }
+        if active.key != key {
+            return Err(LcError::WrongBeat);
+        }
+        if !active.awaiting(seat) {
+            return Ok(()); // idempotent, and free for a seat that owed nothing
+        }
+        self.resolutions[0].acked.push(seat);
+        self.seq += 1;
+        if self.resolutions[0].settled() {
+            self.settle_resolution();
+        }
+        Ok(())
+    }
+
+    /// Test-only: tap the active report on behalf of every seat that owes
+    /// one, settling it exactly as a table of real thumbs would.
+    ///
+    /// Exists so the ~seventeen tests that predate the confirm gate can keep
+    /// asserting what they were written to assert — that a dot ticks, that a
+    /// betrayal bars a seat, that damage rolls the round over — without each
+    /// one growing an ack loop that has nothing to do with its subject. It
+    /// goes through the real `ack_resolution`, so a report that could not be
+    /// settled still fails those tests rather than being waved past: this is
+    /// a shortcut through the KEYSTROKES, not through the gate.
+    #[cfg(test)]
+    pub(crate) fn confirm_report(&mut self) {
+        let Some(r) = self.resolutions.first() else {
+            return;
+        };
+        let key = r.key;
+        let ids: Vec<i64> = r
+            .owed
+            .iter()
+            .filter_map(|&seat| self.players.get(seat).map(|p| p.player_id))
+            .collect();
+        for id in ids {
+            self.ack_resolution(id, key)
+                .expect("a seat that owes an ack can always give it");
+        }
+        assert!(
+            self.resolutions.is_empty(),
+            "every owed seat tapped and the report did not settle"
+        );
+    }
+
+    /// Clear the confirmed report and, if nothing else still holds the round,
+    /// roll it over.
+    ///
+    /// The `settle_pour`/`settle_challenge` tail, and it must stay that shape:
+    /// the report parks on almost every round, so it is very often the LAST
+    /// park to settle and therefore the one that owns the rollover. Rolling
+    /// over unconditionally here would advance the round out from under a
+    /// pour or a challenge that is still waiting on somebody.
+    fn settle_resolution(&mut self) {
+        self.resolutions.remove(0);
+        if self.parked() {
+            return;
+        }
+        self.rollover(self.pact_breaks.len());
     }
 
     pub fn pending_trigger(&self) -> Option<&TriggerEvent> {
@@ -2485,6 +2687,7 @@ impl LastCallState {
             // the private one, so a third scope added later is excluded by
             // default instead of leaking until somebody remembers it.
             pours: self.pours.clone(),
+            resolutions: self.resolutions.clone(),
             swaps: self
                 .swaps
                 .iter()
@@ -3530,6 +3733,23 @@ impl LastCallState {
         // program `plays` actually gets emptied.
         let round_plays = self.plays.clone();
 
+        // The round report's accumulator (`lc_report`). A local, not a field:
+        // it is built from scratch every resolve and either becomes a
+        // `Resolution` at Step 7.7 or is dropped, so there is no half-built
+        // report a reload could ever find on the state.
+        let mut blows: Vec<crate::lc_report::Blow> = Vec::new();
+        // The active event's own id and title, for the blows its hooks land
+        // in Step 2.5. An event is not a card, but from the wearer's seat it
+        // is indistinguishable from one — HP moves and something has to be
+        // named — so it is attributed like one, with `source: None` marking
+        // that nobody chose it.
+        let (event_id, event_title): (String, String) = self
+            .event
+            .as_deref()
+            .and_then(crate::lc_events::event_def)
+            .map(|e| (e.id.to_string(), e.title.to_string()))
+            .unwrap_or_default();
+
         // Step 1: resolve plays in order_key order. `plays` is drained up
         // front (§14: the queue empties every round) and iterated as owned
         // data so mutating `self.players`/`self.effects`/`self.discards`
@@ -3703,6 +3923,19 @@ impl LastCallState {
             }
 
             if cancelled.contains(&play.order_key) {
+                // Report: a cancelled play is invisible in the log (nothing
+                // landed, so nothing logs) and highly visible at the table —
+                // somebody spent pulls and a reaction to erase it. The seat
+                // it was aimed at is entitled to know it was aimed at.
+                blows.push(crate::lc_report::Blow {
+                    card_id: play.card.id.clone(),
+                    title: play.card.title.clone(),
+                    source: Some(play.source_seat),
+                    subject: play.target.unwrap_or(play.source_seat),
+                    kind: crate::lc_report::BlowKind::Cancelled,
+                    amount: 0,
+                    absorbed: 0,
+                });
                 // I11/§12 (Plan I review, I-2): cancelled resolves as
                 // nothing at all — no subject computation, no fx. The
                 // betrayal check above already ran on the raw aim, ahead of
@@ -3747,6 +3980,19 @@ impl LastCallState {
             // out-of-range seat fizzles exactly like a dead one, instead of
             // panicking.
             let subjects: Vec<usize> = if reflected.contains_key(&play.order_key) {
+                // Report: the caster is about to be hit by their own card
+                // and the numeric blows below will name them as both source
+                // and subject, which reads as self-harm without this line to
+                // explain it.
+                blows.push(crate::lc_report::Blow {
+                    card_id: play.card.id.clone(),
+                    title: play.card.title.clone(),
+                    source: Some(play.source_seat),
+                    subject: play.source_seat,
+                    kind: crate::lc_report::BlowKind::Reflected,
+                    amount: 0,
+                    absorbed: 0,
+                });
                 // I11: reflected sends the play home to its own source,
                 // bypassing the normal target/redirect/fizzle derivation
                 // below entirely — `play_reaction`'s BadTarget guard already
@@ -3797,6 +4043,15 @@ impl LastCallState {
                         _ => {
                             // 7.5: fizzle — no effect, pulls stay spent, the
                             // card still occupied its slot.
+                            blows.push(crate::lc_report::Blow {
+                                card_id: play.card.id.clone(),
+                                title: play.card.title.clone(),
+                                source: Some(play.source_seat),
+                                subject: play.target.unwrap_or(play.source_seat),
+                                kind: crate::lc_report::BlowKind::Fizzled,
+                                amount: 0,
+                                absorbed: 0,
+                            });
                             self.push_log(LogEntry::Fizzle {
                                 seat: play.source_seat,
                                 title: play.card.title.clone(),
@@ -3836,7 +4091,21 @@ impl LastCallState {
                     // "makes you drink" without moving pulls is decoration.
                     // No source seat: a table-wide round is authorless, the
                     // same convention the event hooks use.
-                    self.drain(subject, po.n as i32, None);
+                    let drank = self.drain(subject, po.n as i32, None);
+                    // Report: recorded even at 0 pulls, unlike every other
+                    // blow. A dry vessel still owes cards — the debt lands at
+                    // Step 7.6 regardless — so a seat whose glass was already
+                    // empty must still be told why it is being asked to
+                    // discard.
+                    blows.push(crate::lc_report::Blow {
+                        card_id: play.card.id.clone(),
+                        title: play.card.title.clone(),
+                        source: Some(play.source_seat),
+                        subject,
+                        kind: crate::lc_report::BlowKind::Poured,
+                        amount: drank,
+                        absorbed: 0,
+                    });
                 }
                 collected_pours.push((play.source_seat, play.card.id.clone(), subjects.clone()));
                 self.discard(Some(play.source_seat), [play.card]);
@@ -3850,7 +4119,16 @@ impl LastCallState {
             // seat named and it is never the caster.
             if let Some(sw) = crate::lc_cards::card_swfx(&play.card.id) {
                 let target = subjects.first().copied();
-                let fizzle = |st: &mut Self| {
+                let fizzle = |st: &mut Self, blows: &mut Vec<crate::lc_report::Blow>| {
+                    blows.push(crate::lc_report::Blow {
+                        card_id: play.card.id.clone(),
+                        title: play.card.title.clone(),
+                        source: Some(play.source_seat),
+                        subject: target.unwrap_or(play.source_seat),
+                        kind: crate::lc_report::BlowKind::Fizzled,
+                        amount: 0,
+                        absorbed: 0,
+                    });
                     st.push_log(LogEntry::Fizzle {
                         seat: play.source_seat,
                         title: play.card.title.clone(),
@@ -3867,12 +4145,29 @@ impl LastCallState {
                         } else {
                             None
                         };
+                        // Report: `card_id` is the TRADE card, never the card
+                        // it pulled. That is the module's confidentiality
+                        // rule holding by construction rather than by a
+                        // filter — there is no field here a stolen card
+                        // could be written into, so no projection has to
+                        // remember to strip one.
+                        if taken.is_some() {
+                            blows.push(crate::lc_report::Blow {
+                                card_id: play.card.id.clone(),
+                                title: play.card.title.clone(),
+                                source: Some(play.source_seat),
+                                subject: t,
+                                kind: crate::lc_report::BlowKind::Taken,
+                                amount: 1,
+                                absorbed: 0,
+                            });
+                        }
                         // Nothing to take and nothing to give: the card did
                         // nothing, so say so rather than parking on a choice
                         // with no content.
                         let can_give = sw.give && !self.players[play.source_seat].hand.is_empty();
                         if taken.is_none() && !can_give {
-                            fizzle(self);
+                            fizzle(self, &mut blows);
                         } else if !sw.give {
                             // Take-only (`Pickpocket`): no choice to make, so
                             // it resolves here rather than parking.
@@ -3893,7 +4188,7 @@ impl LastCallState {
                             });
                         }
                     }
-                    _ => fizzle(self),
+                    _ => fizzle(self, &mut blows),
                 }
                 self.discard(Some(play.source_seat), [play.card]);
                 continue;
@@ -3921,6 +4216,20 @@ impl LastCallState {
                 };
                 for &subject in &subjects {
                     let cards = self.players[subject].hand.clone();
+                    // Report: how many cards were shown, never which. The ACT
+                    // is public — `LogEntry::Play` named this card and its
+                    // target at the reveal beat — but the contents are the
+                    // whole product being sold, and a report is a public
+                    // projection like any other.
+                    blows.push(crate::lc_report::Blow {
+                        card_id: play.card.id.clone(),
+                        title: play.card.title.clone(),
+                        source: Some(play.source_seat),
+                        subject,
+                        kind: crate::lc_report::BlowKind::Revealed,
+                        amount: cards.len() as i32,
+                        absorbed: 0,
+                    });
                     self.reveals.push(Reveal {
                         subject,
                         seer,
@@ -3974,13 +4283,44 @@ impl LastCallState {
                                 // `Hit` line — and logs only when something
                                 // actually landed, so a fully shielded hit
                                 // doesn't pad the log with `Hit{amount: 0}`.
-                                self.damage(subject, reduced.max(0), Some(play.source_seat));
+                                self.damage_reported(
+                                    &mut blows,
+                                    subject,
+                                    reduced.max(0),
+                                    Some(play.source_seat),
+                                    &play.card.id,
+                                    &play.card.title,
+                                    crate::lc_report::BlowKind::Hit,
+                                );
                             }
                             EffectOp::Heal => {
-                                self.heal(subject, f.magnitude);
+                                let healed = self.heal(subject, f.magnitude);
+                                if healed > 0 {
+                                    blows.push(crate::lc_report::Blow {
+                                        card_id: play.card.id.clone(),
+                                        title: play.card.title.clone(),
+                                        source: Some(play.source_seat),
+                                        subject,
+                                        kind: crate::lc_report::BlowKind::Heal,
+                                        amount: healed,
+                                        absorbed: 0,
+                                    });
+                                }
                             }
                             EffectOp::PullDrain => {
-                                self.drain(subject, f.magnitude, Some(play.source_seat));
+                                let drained =
+                                    self.drain(subject, f.magnitude, Some(play.source_seat));
+                                if drained > 0 {
+                                    blows.push(crate::lc_report::Blow {
+                                        card_id: play.card.id.clone(),
+                                        title: play.card.title.clone(),
+                                        source: Some(play.source_seat),
+                                        subject,
+                                        kind: crate::lc_report::BlowKind::Drain,
+                                        amount: drained,
+                                        absorbed: 0,
+                                    });
+                                }
                             }
                             // F8: shields register NOW (not queued), so they
                             // absorb later plays in this round's order.
@@ -3992,7 +4332,17 @@ impl LastCallState {
                                     f.rounds,
                                     Some(play.source_seat),
                                     play.order_key,
+                                    &play.card.id,
                                 );
+                                blows.push(crate::lc_report::Blow {
+                                    card_id: play.card.id.clone(),
+                                    title: play.card.title.clone(),
+                                    source: Some(play.source_seat),
+                                    subject,
+                                    kind: crate::lc_report::BlowKind::Shield,
+                                    amount: f.magnitude,
+                                    absorbed: 0,
+                                });
                             }
                             // Dots still queue (appended at step 3): never
                             // tick in their own creation round. No log line
@@ -4006,6 +4356,7 @@ impl LastCallState {
                                     magnitude: f.magnitude,
                                     expires_round: self.round + f.rounds,
                                     source_seat: play.source_seat,
+                                    source_card: play.card.id.clone(),
                                 });
                             }
                         }
@@ -4036,7 +4387,7 @@ impl LastCallState {
         // snapshotted entry. Bounds-checked (M3): a corrupt blob's effect
         // could name a subject seat that no longer exists — skip it rather
         // than panic.
-        let dot_ticks: Vec<(usize, i32, usize)> = self
+        let dot_ticks: Vec<(usize, i32, usize, String)> = self
             .effects
             .iter()
             .filter(|e| {
@@ -4046,7 +4397,7 @@ impl LastCallState {
                         .get(e.subject)
                         .is_some_and(|p| p.status == Status::Alive)
             })
-            .map(|e| (e.subject, e.magnitude, e.source_seat))
+            .map(|e| (e.subject, e.magnitude, e.source_seat, e.source_card.clone()))
             .collect();
         // `house-pour`'s `DotBoost` (H4): every tick this round hits harder
         // by `mult`. Stored `effect.magnitude` and `expires_round` are
@@ -4055,7 +4406,7 @@ impl LastCallState {
             Some(crate::lc_events::EventHook::DotBoost { mult }) => mult,
             _ => 1,
         };
-        for (subject, magnitude, source_seat) in dot_ticks {
+        for (subject, magnitude, source_seat, source_card) in dot_ticks {
             // J2/J5: the dot-tick half of "per damage actually applied" —
             // see the immediate-fx `Damage` arm above for why this is
             // attributed and gated the same way. `source_seat` is the
@@ -4068,7 +4419,22 @@ impl LastCallState {
             // `source_seat` and logs the `Hit` only when HP actually moved,
             // and is bounds-safe if a corrupt blob's `source_seat` names a
             // seat that no longer exists.
-            self.damage(subject, magnitude * dot_mult, Some(source_seat));
+            // Report: a tick is the one blow whose card was played rounds
+            // ago, which is exactly why `Effect::source_card` exists. An
+            // older blob has none, and the empty id renders as unattributed
+            // lingering damage rather than naming the wrong card.
+            let title = crate::lc_cards::card_by_id(&source_card)
+                .map(|c| c.title.to_string())
+                .unwrap_or_else(|| "LINGERING".to_string());
+            self.damage_reported(
+                &mut blows,
+                subject,
+                magnitude * dot_mult,
+                Some(source_seat),
+                &source_card,
+                &title,
+                crate::lc_report::BlowKind::Dot,
+            );
         }
 
         // Step 2.5: the end-of-round event program (H4) — after dots,
@@ -4085,7 +4451,21 @@ impl LastCallState {
                 for s in victims {
                     // `None` source: an event has no author, so no `Hit`
                     // line — but `damage_taken` still moves.
-                    self.damage(s, dmg, None);
+                    //
+                    // Reported all the same. An event is not a card, but a
+                    // report that skipped it would not reconcile with the HP
+                    // it moved, and an unexplained drop is the exact thing
+                    // this screen exists to remove. `source: None` is what
+                    // says nobody did this to you.
+                    self.damage_reported(
+                        &mut blows,
+                        s,
+                        dmg,
+                        None,
+                        &event_id,
+                        &event_title,
+                        crate::lc_report::BlowKind::Hit,
+                    );
                 }
             }
             Some(crate::lc_events::EventHook::TopSpenderHit { dmg }) => {
@@ -4097,7 +4477,15 @@ impl LastCallState {
                         .filter(|&s| self.players[s].status == Status::Alive && spent[s] == max)
                         .collect();
                     for s in victims {
-                        self.damage(s, dmg, None);
+                        self.damage_reported(
+                            &mut blows,
+                            s,
+                            dmg,
+                            None,
+                            &event_id,
+                            &event_title,
+                            crate::lc_report::BlowKind::Hit,
+                        );
                     }
                 }
             }
@@ -4111,7 +4499,18 @@ impl LastCallState {
                     .map(|p| p.seat)
                     .collect();
                 for seat in alive {
-                    self.heal_quiet(seat, heal);
+                    let healed = self.heal_quiet(seat, heal);
+                    if healed > 0 {
+                        blows.push(crate::lc_report::Blow {
+                            card_id: event_id.clone(),
+                            title: event_title.clone(),
+                            source: None,
+                            subject: seat,
+                            kind: crate::lc_report::BlowKind::Heal,
+                            amount: healed,
+                            absorbed: 0,
+                        });
+                    }
                 }
             }
             _ => {}
@@ -4366,6 +4765,58 @@ impl LastCallState {
                 owed,
                 round: self.round,
             });
+        }
+
+        // Step 7.7 (report wave): turn this resolve's blows into the round
+        // report the table confirms. LAST of the three park steps, and it has
+        // to be: a challenge activating at 7.5 or a pour debt derived at 7.6
+        // can eliminate nobody and take nothing, but they can both FIZZLE,
+        // and a fizzle is a blow. Building the report before them would ship
+        // a receipt that disagreed with the round.
+        //
+        // Two ways a round produces no gate, both deliberate:
+        //
+        // * **Nothing landed.** An empty `blows` is a round where every seat
+        //   locked nothing, or every play fizzled into a dead table. Parking
+        //   there would demand a tap from everyone to confirm that nothing
+        //   happened, which is how a confirm button becomes something players
+        //   learn to hit without reading.
+        // * **Nobody survived to tap.** `owed` is the Alive subjects only. A
+        //   seat eliminated by this very resolve is not asked to confirm its
+        //   own death — it cannot, and waiting on it would freeze the room.
+        //   If that empties `owed`, the report is dropped rather than parked
+        //   with no one able to settle it. The blows are in the log either
+        //   way; what is lost is the gate, and a gate nobody can open is the
+        //   frozen-room bug this engine has already shipped once.
+        //
+        // Only the SECOND guard is load-bearing, and mutation-testing is how
+        // that is known rather than assumed: `if !blows.is_empty()` can be
+        // replaced with `if true` and the whole suite stays green, because no
+        // blows means no subjects means an empty `owed`, which the inner
+        // guard already refuses to park on. It is kept as a cheap early-out —
+        // it skips an O(seats x blows) scan on every quiet round — and NOT
+        // because it protects anything. Do not read the pair as two
+        // independent checks: delete the inner one and the room freezes, with
+        // the outer one still sitting there looking like a guard.
+        if !blows.is_empty() {
+            let owed: Vec<usize> = self
+                .players
+                .iter()
+                .filter(|p| p.status == Status::Alive)
+                .map(|p| p.seat)
+                .filter(|&seat| blows.iter().any(|b| b.subject == seat))
+                .collect();
+            if !owed.is_empty() {
+                let key = self.resolution_seq;
+                self.resolution_seq += 1;
+                self.resolutions.push(crate::lc_report::Resolution {
+                    key,
+                    round: self.round,
+                    blows,
+                    owed,
+                    acked: Vec::new(),
+                });
+            }
         }
 
         if self.parked() {
@@ -6266,6 +6717,7 @@ mod tests {
             magnitude: -2,
             expires_round: 3,
             source_seat: 0,
+            source_card: String::new(),
         });
         push_discards(
             &mut st,
@@ -6481,6 +6933,7 @@ mod tests {
         st.advance_beat().unwrap(); // Reveal
         st.advance_beat().unwrap(); // Resolve
         st.resolve().unwrap();
+        st.confirm_report();
         assert_eq!(st.players[1].hp, 13);
         assert!(st.pacts.is_empty());
         // G5 erratum: the break is not terminal (nobody died), so it rolled
@@ -7359,6 +7812,10 @@ mod tests {
         st.advance_beat().unwrap(); // Reveal
         st.advance_beat().unwrap(); // Resolve
         st.resolve().unwrap();
+        // The report parks every resolve that lands anything, and a reveal
+        // lands a `Revealed` blow — so the fixture confirms it to get the
+        // rollover these tests are written against.
+        st.confirm_report();
         st
     }
 
@@ -7510,6 +7967,7 @@ mod tests {
         // Run the table through one more full round.
         st.beat = Beat::Resolve;
         st.resolve().unwrap();
+        st.confirm_report();
         assert!(
             st.reveals.is_empty(),
             "the next rollover drops it — a reveal is not permanent"
@@ -7631,7 +8089,12 @@ mod tests {
         let key = st.pours[0].key;
         st.pour_discard(4, key, &[id]).unwrap();
         assert!(st.pours.is_empty(), "settled");
-        assert_eq!(st.round, round + 1, "the last debt paid rolls the round");
+        // The pour is settled but the round report still holds the round —
+        // whoever settles LAST owns the rollover, and that is now almost
+        // always the report.
+        assert_eq!(st.round, round, "the report still holds it");
+        st.confirm_report();
+        assert_eq!(st.round, round + 1, "the last park rolls the round");
         assert_eq!(st.beat, Beat::Draw);
     }
 
@@ -7697,6 +8160,7 @@ mod tests {
         }
         st.resolve().unwrap();
         assert!(st.pours.is_empty(), "nothing to wait for");
+        st.confirm_report();
         assert_eq!(st.round, round + 1, "the round rolled over normally");
     }
 
@@ -7764,6 +8228,409 @@ mod tests {
         );
     }
 
+    // -----------------------------------------------------------------
+    // The round report (`lc_report`) and its confirm gate.
+    // -----------------------------------------------------------------
+
+    /// The headline: a hit is reported with the card that caused it and the
+    /// player who played it — the join the LOG tab cannot make, because
+    /// `LogEntry::Play` and `LogEntry::Hit` are separate rows and nothing
+    /// links them.
+    #[test]
+    fn test_a_hit_is_reported_with_its_card_and_its_source() {
+        let mut st = at_lock();
+        st.arm(1, "beer-01").unwrap(); // Damage 2, targets "one"
+        st.set_target(1, "beer-01", Some(1)).unwrap();
+        st.lock_in(1).unwrap();
+        st.lock_in(2).unwrap();
+        st.lock_in(3).unwrap();
+        st.advance_beat().unwrap();
+        st.advance_beat().unwrap();
+        st.resolve().unwrap();
+
+        let r = st
+            .pending_resolution()
+            .expect("the round parks on its report");
+        let mine = r.for_seat(1);
+        assert_eq!(mine.len(), 1);
+        assert_eq!(mine[0].card_id, "beer-01", "the card, not just the seat");
+        assert_eq!(mine[0].source, Some(0), "and who played it");
+        assert_eq!(mine[0].kind, crate::lc_report::BlowKind::Hit);
+        assert_eq!(mine[0].amount, 2);
+        assert_eq!(mine[0].absorbed, 0);
+    }
+
+    /// **The case the log cannot show.** `damage` logs a `Hit` only when HP
+    /// actually moved, so a fully shielded hit writes nothing anywhere — the
+    /// victim has no evidence they were attacked at all. The report is the
+    /// only surface that can tell them, which is most of why it exists.
+    #[test]
+    fn test_a_fully_blocked_hit_is_reported_though_the_log_stays_silent() {
+        let mut st = at_lock();
+        // A shield big enough to eat beer-01's 2 whole.
+        st.shield(1, 5, 2, None);
+        let log_before = st.log.len();
+        st.arm(1, "beer-01").unwrap();
+        st.set_target(1, "beer-01", Some(1)).unwrap();
+        st.lock_in(1).unwrap();
+        st.lock_in(2).unwrap();
+        st.lock_in(3).unwrap();
+        st.advance_beat().unwrap();
+        st.advance_beat().unwrap();
+        st.resolve().unwrap();
+
+        assert!(
+            !st.log[log_before..]
+                .iter()
+                .any(|e| matches!(e, LogEntry::Hit { .. })),
+            "the log is silent by design — nothing landed"
+        );
+        let r = st.pending_resolution().expect("parked");
+        let mine = r.for_seat(1);
+        assert_eq!(mine.len(), 1, "the report is not silent");
+        assert_eq!(mine[0].kind, crate::lc_report::BlowKind::Blocked);
+        assert_eq!(mine[0].amount, 0, "nothing got through");
+        assert_eq!(mine[0].absorbed, 2, "and this is where it went");
+        assert_eq!(mine[0].card_id, "beer-01");
+    }
+
+    /// A round where nothing lands must not stop the game. Confirming that
+    /// nothing happened is how a confirm button becomes a reflex.
+    #[test]
+    fn test_a_round_that_lands_nothing_does_not_park() {
+        let mut st = at_lock();
+        let round = st.round;
+        st.lock_in(1).unwrap(); // nobody armed anything
+        st.lock_in(2).unwrap();
+        st.lock_in(3).unwrap();
+        st.advance_beat().unwrap();
+        st.advance_beat().unwrap();
+        st.resolve().unwrap();
+
+        assert!(st.resolutions.is_empty(), "no blows, no gate");
+        assert!(!st.parked());
+        assert_eq!(st.round, round + 1, "and the round rolls straight over");
+    }
+
+    /// Only the seats a blow landed on gate the round. A bystander sees the
+    /// report and is not asked to confirm somebody else's bruise — the
+    /// difference between one tap and five on a round that hit one player.
+    #[test]
+    fn test_only_the_seats_a_blow_landed_on_owe_a_confirmation() {
+        let mut st = at_lock();
+        st.arm(1, "beer-01").unwrap();
+        st.set_target(1, "beer-01", Some(1)).unwrap();
+        st.lock_in(1).unwrap();
+        st.lock_in(2).unwrap();
+        st.lock_in(3).unwrap();
+        st.advance_beat().unwrap();
+        st.advance_beat().unwrap();
+        st.resolve().unwrap();
+
+        let r = st.pending_resolution().unwrap();
+        assert_eq!(r.owed, vec![1], "only bob wore anything");
+        assert_eq!(st.seat_phase(1), SeatPhase::Acting);
+        assert_eq!(st.seat_phase(0), SeatPhase::Waiting, "the attacker waits");
+        assert_eq!(
+            st.seat_phase(2),
+            SeatPhase::Waiting,
+            "so does the bystander"
+        );
+        assert_eq!(st.blocking_seats(), vec![1]);
+
+        // And one tap settles it.
+        let key = r.key;
+        let round = st.round;
+        st.ack_resolution(2, key).unwrap(); // bob is player_id 2
+        assert!(st.resolutions.is_empty());
+        assert_eq!(st.round, round + 1);
+    }
+
+    /// A seat with nothing against it can still tap — the receipt renders on
+    /// every phone, so a spectator's thumb is a real request. It must be
+    /// answered `Ok` and change nothing, rather than 409 on a working button.
+    #[test]
+    fn test_a_spectator_tap_is_accepted_and_settles_nothing() {
+        let mut st = at_lock();
+        st.arm(1, "beer-01").unwrap();
+        st.set_target(1, "beer-01", Some(1)).unwrap();
+        st.lock_in(1).unwrap();
+        st.lock_in(2).unwrap();
+        st.lock_in(3).unwrap();
+        st.advance_beat().unwrap();
+        st.advance_beat().unwrap();
+        st.resolve().unwrap();
+
+        let key = st.pending_resolution().unwrap().key;
+        let round = st.round;
+        st.ack_resolution(3, key)
+            .expect("cara owed nothing but may tap");
+        assert_eq!(st.resolutions.len(), 1, "still waiting on bob");
+        assert_eq!(st.round, round);
+        assert!(
+            !st.resolutions[0].acked.contains(&2),
+            "a tap from a seat that owed nothing is not recorded as one that did"
+        );
+    }
+
+    /// A report nobody survives to confirm must not park. A seat eliminated
+    /// by this very resolve cannot tap, and waiting on it is the frozen-room
+    /// bug this engine has already shipped once.
+    #[test]
+    fn test_a_report_whose_only_victim_died_does_not_park() {
+        let mut st = at_lock();
+        st.players[1].hp = 1; // one hit from dead
+        st.arm(1, "beer-01").unwrap();
+        st.set_target(1, "beer-01", Some(1)).unwrap();
+        st.lock_in(1).unwrap();
+        st.lock_in(2).unwrap();
+        st.lock_in(3).unwrap();
+        st.advance_beat().unwrap();
+        st.advance_beat().unwrap();
+        st.resolve().unwrap();
+
+        assert_eq!(st.players[1].status, Status::Eliminated);
+        assert!(
+            st.resolutions.is_empty(),
+            "the only subject is a ghost — nobody can settle this"
+        );
+        assert!(!st.parked(), "and the room must not be stuck on it");
+    }
+
+    /// A stale key — a tap from a screen still showing last round's receipt —
+    /// must not confirm this round's report. `ChallengeState::key`'s rule.
+    #[test]
+    fn test_a_stale_key_cannot_confirm_a_later_report() {
+        let mut st = at_lock();
+        st.arm(1, "beer-01").unwrap();
+        st.set_target(1, "beer-01", Some(1)).unwrap();
+        st.lock_in(1).unwrap();
+        st.lock_in(2).unwrap();
+        st.lock_in(3).unwrap();
+        st.advance_beat().unwrap();
+        st.advance_beat().unwrap();
+        st.resolve().unwrap();
+
+        let key = st.pending_resolution().unwrap().key;
+        // A key naming a report that never existed is refused outright.
+        assert_eq!(st.ack_resolution(2, key + 99), Err(LcError::WrongBeat));
+        assert_eq!(st.resolutions.len(), 1);
+
+        // Settle it, then replay the same tap: the report it named is gone,
+        // so this is a retry of something that already worked — `Ok`, and it
+        // must NOT reach forward onto whatever parks next.
+        st.ack_resolution(2, key).unwrap();
+        assert!(st.resolutions.is_empty());
+        st.ack_resolution(2, key).expect("a retry is not an error");
+    }
+
+    /// A dot ticks rounds after the play that laid it is gone, which is
+    /// exactly why `Effect::source_card` exists — `source_play` cannot do
+    /// this job, as its own doc comment says.
+    #[test]
+    fn test_a_dot_tick_names_the_card_that_laid_it() {
+        let mut st = at_lock();
+        st.arm(2, "cider-01").unwrap(); // a Dot
+        st.set_target(2, "cider-01", Some(0)).unwrap();
+        st.lock_in(1).unwrap();
+        st.lock_in(2).unwrap();
+        st.lock_in(3).unwrap();
+        st.advance_beat().unwrap();
+        st.advance_beat().unwrap();
+        st.resolve().unwrap(); // round 1: laid, no tick
+        st.confirm_report();
+        assert_eq!(st.effects[0].source_card, "cider-01", "the card is kept");
+
+        st.beat = Beat::Resolve;
+        st.resolve().unwrap(); // round 2: it ticks
+        let r = st.pending_resolution().expect("a tick is a blow");
+        let tick = r
+            .for_seat(0)
+            .into_iter()
+            .find(|b| b.kind == crate::lc_report::BlowKind::Dot)
+            .expect("the tick is reported as a Dot");
+        assert_eq!(tick.card_id, "cider-01", "named, rounds later");
+        assert_eq!(tick.source, Some(1), "and still attributed to bob");
+    }
+
+    /// An event moves HP with no author. Reported anyway — a report that
+    /// skipped it would not reconcile with the HP it moved, and an
+    /// unexplained drop is the thing this screen exists to remove.
+    #[test]
+    fn test_an_event_hook_is_reported_with_no_source() {
+        let mut st = at_lock();
+        st.event = Some("last-orders".to_string()); // NoPlayPenalty
+        st.lock_in(1).unwrap();
+        st.lock_in(2).unwrap();
+        st.lock_in(3).unwrap();
+        st.advance_beat().unwrap();
+        st.advance_beat().unwrap();
+        st.resolve().unwrap();
+
+        let r = st
+            .pending_resolution()
+            .expect("an event hit is still a blow");
+        let b = &r.blows[0];
+        assert_eq!(b.source, None, "nobody chose this");
+        assert_eq!(b.card_id, "last-orders", "the event names itself");
+        assert!(!b.title.is_empty());
+        assert_eq!(r.owed.len(), 3, "it landed on everyone who played nothing");
+    }
+
+    /// **Confidentiality, structurally.** A trade's blow names the TRADE
+    /// card, never the card it moved. There is no field on `Blow` a stolen
+    /// card could be written into — which is a stronger guarantee than a
+    /// projection filter, because a filter has to be remembered when a field
+    /// is added and this cannot be got wrong without inventing somewhere to
+    /// put the secret first.
+    #[test]
+    fn test_no_blow_can_name_a_moved_card() {
+        let st = play_trade("wine-11"); // Pickpocket: take, no give
+        let r = st.pending_resolution().expect("a theft is a blow");
+        let taken = r
+            .for_seat(1)
+            .into_iter()
+            .find(|b| b.kind == crate::lc_report::BlowKind::Taken)
+            .expect("the victim is told they were robbed");
+        assert_eq!(taken.card_id, "wine-11", "the trade card names itself");
+        assert_eq!(taken.amount, 1, "one card, never which one");
+
+        // The stolen card is now in the thief's hand. Its id must appear in
+        // no blow anywhere — not in this report, and not on any surface the
+        // public view carries.
+        let stolen = st.players[0]
+            .hand
+            .last()
+            .expect("the thief holds it")
+            .id
+            .clone();
+        assert_ne!(stolen, "wine-11", "rig must not make this vacuous");
+        let view = st.public_view();
+        for res in &view.resolutions {
+            for b in &res.blows {
+                assert_ne!(b.card_id, stolen, "a moved card reached the report");
+            }
+        }
+        assert!(
+            !serde_json::to_string(&view).unwrap().contains(&stolen),
+            "the stolen card leaked into the public view"
+        );
+    }
+
+    /// **Both settle orders.** The report parks alongside a pour, and
+    /// whichever settles LAST owns the rollover. Mutation-testing the pour
+    /// wave showed a single-order test leaves the other guard deletable, so
+    /// both are driven here.
+    #[test]
+    fn test_the_report_and_a_pour_can_park_the_same_round() {
+        // Report last.
+        let mut st = play_pour("beer-10", None);
+        let round = st.round;
+        assert!(!st.resolutions.is_empty(), "the pour is also a blow");
+        let key = st.pours[0].key;
+        for pid in [1, 2, 3, 4] {
+            let Some(seat) = st.seat_of(pid) else {
+                continue;
+            };
+            if !st.pours[0].owed.iter().any(|d| d.seat == seat) {
+                continue;
+            }
+            let id = st.players[seat].hand[0].id.clone();
+            st.pour_discard(pid, key, &[id]).unwrap();
+        }
+        assert!(st.pours.is_empty(), "pour settled first");
+        assert_eq!(st.round, round, "and did NOT roll the round over");
+        st.confirm_report();
+        assert_eq!(st.round, round + 1, "the report, settling last, owns it");
+
+        // Report first.
+        let mut st = play_pour("beer-10", None);
+        let round = st.round;
+        st.confirm_report();
+        assert!(!st.pours.is_empty(), "the pour still stands");
+        assert_eq!(st.round, round, "the report must NOT roll it over");
+        let key = st.pours[0].key;
+        for pid in [1, 2, 3, 4] {
+            let Some(seat) = st.seat_of(pid) else {
+                continue;
+            };
+            if !st.pours[0].owed.iter().any(|d| d.seat == seat) {
+                continue;
+            }
+            let id = st.players[seat].hand[0].id.clone();
+            st.pour_discard(pid, key, &[id]).unwrap();
+        }
+        assert_eq!(st.round, round + 1, "the pour, settling last, owns it");
+    }
+
+    /// A game-ending resolve builds no report. Step 7's D16 freeze returns
+    /// before Step 7.7 ever runs, which is the behaviour we want — but it is
+    /// load-bearing rather than incidental: a report parked on a finished
+    /// game would show a confirm button whose settle can never roll anything
+    /// over, and `parked()` would answer true forever.
+    #[test]
+    fn test_a_game_ending_resolve_builds_no_report() {
+        let mut st = LastCallState::new(vec![(1, "alice".into()), (2, "bob".into())], 1);
+        st.set_vessel(1, Deck::Beer, "can").unwrap();
+        st.set_vessel(2, Deck::Cider, "bottle").unwrap();
+        st.beat = Beat::Lock;
+        st.arm(1, "beer-01").unwrap();
+        st.set_target(1, "beer-01", Some(1)).unwrap();
+        st.lock_in(1).unwrap();
+        st.lock_in(2).unwrap();
+        st.players[1].hp = 1; // one hit from dead
+        st.advance_beat().unwrap();
+        st.advance_beat().unwrap();
+        st.resolve().unwrap();
+
+        assert_eq!(st.outcome(), Some(LcOutcome::Winner(0)));
+        assert!(
+            st.resolutions.is_empty(),
+            "the end card owns this screen; a gate here could never settle"
+        );
+        assert!(
+            !st.parked(),
+            "and the frozen tableau must not read as parked"
+        );
+        assert_eq!(st.beat, Beat::Resolve, "D16 freeze, unchanged");
+    }
+
+    /// A parked report has to survive a reload — the room persists between
+    /// every request, and a gate that evaporated would strand the round.
+    #[test]
+    fn test_a_parked_report_survives_a_snapshot() {
+        let mut st = at_lock();
+        st.arm(1, "beer-01").unwrap();
+        st.set_target(1, "beer-01", Some(1)).unwrap();
+        st.lock_in(1).unwrap();
+        st.lock_in(2).unwrap();
+        st.lock_in(3).unwrap();
+        st.advance_beat().unwrap();
+        st.advance_beat().unwrap();
+        st.resolve().unwrap();
+
+        let back = LastCallState::from_json(&st.to_json());
+        assert_eq!(back.resolutions, st.resolutions);
+        assert!(back.parked(), "and it still holds the round");
+        assert_eq!(back.resolution_seq, st.resolution_seq, "keys keep counting");
+    }
+
+    /// A blob written before the report existed has no `resolutions` field.
+    /// It must load as an unparked room, not a room stuck on a gate it has
+    /// no way to describe.
+    #[test]
+    fn test_a_blob_predating_the_report_loads_unparked() {
+        let st = at_lock();
+        let mut v: serde_json::Value = serde_json::from_str(&st.to_json()).unwrap();
+        let obj = v.as_object_mut().unwrap();
+        obj.remove("resolutions");
+        obj.remove("resolution_seq");
+        let back = LastCallState::from_json(&v.to_string());
+        assert!(back.resolutions.is_empty());
+        assert_eq!(back.resolution_seq, 0);
+        assert!(!back.parked());
+    }
+
     /// A seat that still owes cards is `Acting` — it is genuinely holding
     /// the table up, and the phone's "your turn" pulse reads this field.
     #[test]
@@ -7774,7 +8641,19 @@ mod tests {
         let seat = st.seat_of(1).unwrap();
         let id = st.players[seat].hand[0].id.clone();
         st.pour_discard(1, key, &[id]).unwrap();
-        assert_eq!(st.seat_phase(0), SeatPhase::Waiting, "alice has paid");
+        // Alice has paid her debt and STILL blocks: the pour and the round
+        // report park the same round, and she was poured, so she owes an
+        // acknowledgement too. Two things to do is two things to do — the
+        // report's phase arm carries no `else` precisely so that settling one
+        // park cannot report the other as finished.
+        assert_eq!(
+            st.seat_phase(0),
+            SeatPhase::Acting,
+            "the report is still hers to confirm"
+        );
+        let rkey = st.resolutions[0].key;
+        st.ack_resolution(1, rkey).unwrap();
+        assert_eq!(st.seat_phase(0), SeatPhase::Waiting, "paid and confirmed");
         assert_eq!(st.blocking_seats(), vec![1, 2, 3]);
     }
 
@@ -7846,6 +8725,7 @@ mod tests {
             let pid = st.players[seat].player_id;
             st.challenge_vote(pid, ckey, true).unwrap();
         }
+        st.confirm_report();
         assert!(!st.parked());
         assert_eq!(st.round, round + 1, "the last park rolls the round over");
     }
@@ -7914,6 +8794,7 @@ mod tests {
             let id = st.players[seat].hand[0].id.clone();
             st.pour_discard(pid, key, &[id]).unwrap();
         }
+        st.confirm_report();
         assert!(!st.parked());
         assert_eq!(st.round, round + 1);
     }
@@ -8107,6 +8988,7 @@ mod tests {
         st.players[1].hand.clear();
         st.resolve().unwrap();
         assert!(st.swaps.is_empty(), "nothing to take and nothing to give");
+        st.confirm_report();
         assert_eq!(st.round, round + 1, "the round rolled on");
         assert!(st
             .log
@@ -8876,6 +9758,7 @@ mod tests {
         st.advance_beat().unwrap(); // Reveal
         st.advance_beat().unwrap(); // Resolve
         st.resolve().unwrap();
+        st.confirm_report();
         assert_eq!(st.players[1].hp, 9); // 15 - 2 (beer-01) - 4 (beer-02)
         assert_eq!(st.players[0].hp, 9); // 15 - 6 (cider-04)
         assert!(st.plays.is_empty()); // the queue empties every round (§14)
@@ -8964,6 +9847,7 @@ mod tests {
             magnitude: 5,
             expires_round: 99,
             source_seat: 0,
+            source_card: String::new(),
         });
         st.resolve().unwrap(); // must not panic
     }
@@ -9051,6 +9935,7 @@ mod tests {
         st.advance_beat().unwrap();
         st.advance_beat().unwrap();
         st.resolve().unwrap(); // round 1: created, no tick
+        st.confirm_report();
         assert_eq!(st.players[0].hp, 15);
         assert_eq!(st.effects.len(), 1);
         assert_eq!(st.effects[0].expires_round, 3); // 1 + cider-01's 2 rounds
@@ -9062,6 +9947,7 @@ mod tests {
             // change hp for reasons unrelated to curse-duration semantics.
             st.beat = Beat::Resolve;
             st.resolve().unwrap();
+            st.confirm_report();
             assert_eq!(st.players[0].hp, expected_hp);
         }
         assert!(st.effects.is_empty()); // expired after round 3
@@ -9082,6 +9968,7 @@ mod tests {
             magnitude: 2,
             expires_round: 9,
             source_seat: 0,
+            source_card: String::new(),
         });
         st.arm(2, "cider-01").unwrap();
         st.set_target(2, "cider-01", Some(0)).unwrap();
@@ -9108,6 +9995,7 @@ mod tests {
             magnitude: 3,
             expires_round: 9,
             source_seat: 0,
+            source_card: String::new(),
         });
         st.arm(1, "beer-02").unwrap(); // 4 dmg → bob
         st.set_target(1, "beer-02", Some(1)).unwrap();
@@ -9596,11 +10484,13 @@ mod tests {
             magnitude: 1,
             expires_round: 9,
             source_seat: 0,
+            source_card: String::new(),
         });
         st.event = Some("house-pour".into());
         st.advance_beat().unwrap();
         st.advance_beat().unwrap();
         st.resolve().unwrap();
+        st.confirm_report();
         assert_eq!(st.players[0].hp, 13); // 15 - 1*2 — and event now cleared
                                           // The rollover already cleared `event` (H2). Step straight to
                                           // Resolve rather than walking Draw->Deal again: that edge would
@@ -9612,6 +10502,7 @@ mod tests {
         assert_eq!(st.event, None);
         st.beat = Beat::Resolve;
         st.resolve().unwrap();
+        st.confirm_report();
         assert_eq!(st.players[0].hp, 12); // back to 1 per tick
     }
 
@@ -9793,6 +10684,7 @@ mod tests {
         st.advance_beat().unwrap();
         st.advance_beat().unwrap();
         st.resolve().unwrap();
+        st.confirm_report();
         assert!(st.tab_ledger.is_empty()); // hostile play: not met
                                            // Round 2: a heal alone settles it.
         st.players[2].tabs = vec!["peacemaker".into()]; // re-pin for isolation
@@ -9803,6 +10695,7 @@ mod tests {
         st.advance_beat().unwrap();
         st.advance_beat().unwrap();
         st.resolve().unwrap();
+        st.confirm_report();
         assert_eq!(st.tab_ledger.len(), 1);
         assert_eq!(st.tab_ledger[0].tab, "peacemaker");
     }
@@ -9878,6 +10771,7 @@ mod tests {
             magnitude: 10, // kills bob at Step 2's tick, before anyone plays
             expires_round: 5,
             source_seat: 0,
+            source_card: String::new(),
         });
         st.beat = Beat::Resolve; // nobody plays — alice's round stays empty
         st.resolve().unwrap();
@@ -10092,6 +10986,7 @@ mod tests {
         st.play_reaction(2, "cider-08", 1).unwrap();
         st.advance_beat().unwrap(); // Reveal → Resolve
         st.resolve().unwrap();
+        st.confirm_report();
         assert_eq!(st.players[1].hp, 15); // cancelled
         assert_eq!(st.players[0].vessels[0].pulls_left, 6); // 7.5: no refund
         assert_eq!(discard_count(&st), 2); // beer-02 + cider-08
@@ -10317,6 +11212,7 @@ mod tests {
         assert_eq!(st.haunt(3, 1), Err(LcError::AlreadyHaunted)); // one per round
         st.advance_beat().unwrap();
         st.resolve().unwrap();
+        st.confirm_report();
         assert_eq!(st.players[1].hp, 10); // 15 − (4 + HAUNT_BONUS)
         assert!(st.haunts.is_empty());
 
@@ -10478,6 +11374,7 @@ mod tests {
             magnitude: 999,
             expires_round: 99,
             source_seat: 0,
+            source_card: String::new(),
         });
         st.resolve().unwrap();
         assert_eq!(st.players[1].status, Status::Eliminated);
@@ -10492,6 +11389,7 @@ mod tests {
             magnitude: 999,
             expires_round: 99,
             source_seat: 0,
+            source_card: String::new(),
         });
         st.resolve().unwrap();
         assert_eq!(st.players[2].status, Status::Eliminated);
@@ -10759,6 +11657,7 @@ mod tests {
         st.play_reaction(2, "cider-08", key).unwrap();
         st.advance_beat().unwrap(); // -> Resolve
         st.resolve().unwrap();
+        st.confirm_report();
         assert!(!st.challenge_pending());
         assert_eq!(st.round, 2, "round rolled over normally");
         assert_eq!(st.beat, Beat::Draw);
@@ -11076,6 +11975,7 @@ mod tests {
             magnitude: 7,
             expires_round: 2,
             source_seat: 2,
+            source_card: String::new(),
         });
         let hp = st.players[2].hp;
         vote(&mut st, 2, true).unwrap(); // cara loses Bar Court's 4
@@ -11168,6 +12068,7 @@ mod tests {
         );
         vote(&mut st, 1, true).unwrap();
         vote(&mut st, 2, true).unwrap();
+        st.confirm_report();
         assert_eq!(st.round, 2);
         assert_eq!(st.pact_breaks[0].round, st.round, "visible all round 2");
     }

@@ -1093,6 +1093,10 @@ pub fn router() -> Router<GameState> {
             post(crate::lc_routes::lc_pour_discard_handler),
         )
         .route(
+            "/room/{code}/lastcall/resolution-ack",
+            post(crate::lc_routes::lc_resolution_ack_handler),
+        )
+        .route(
             "/room/{code}/lastcall/swap",
             post(crate::lc_routes::lc_swap_handler),
         )

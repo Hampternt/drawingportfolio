@@ -121,8 +121,18 @@ Automatic, and in a strict order: **the biggest spender goes first.** Spend
 more pulls, act earlier. Ties break by seat position.
 
 Then, in order: damage and healing land, shields absorb, curses tick,
-anybody at 0 HP is eliminated, effects expire, hands trim to 12 cards, tabs
-pay out, and the round rolls over.
+anybody at 0 HP is eliminated, effects expire, hands trim to 12 cards and
+tabs pay out.
+
+**Then the round stops and shows you the damage.** THE ROUND lists everything
+that just happened — who played what at whom, and what it did. It includes
+the things you would otherwise never see: a hit your shield ate whole, a card
+that fizzled because its target was already out, a play somebody cancelled out
+from under its owner.
+
+Anyone the round touched has to tap **GOT IT** before it rolls over. If
+nothing landed on you, you do not have to tap — but you can, and it costs
+nothing. A round where nothing happened at all does not stop.
 
 ---
 

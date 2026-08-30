@@ -15,6 +15,7 @@ pub mod lc_layout;
 pub mod lc_phase;
 pub mod lc_preview;
 pub mod lc_render;
+pub mod lc_report;
 pub mod lc_rng;
 pub mod lc_routes;
 pub mod lc_tabs;

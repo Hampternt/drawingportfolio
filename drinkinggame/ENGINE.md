@@ -24,6 +24,8 @@ list and it's worth knowing you already have them.
 | **Health / shields / drains** | `damage`/`heal`/`shield`/`drain` | You said these are fine as-is. They are, and everything routes through them. |
 | **Trading cards between hands** | `lc_cards::SwapDef`, `SwapState`, `swap_resolve()` | Take at random and/or give by choice. The take is off the engine's `LcRng`, so a theft replays from the seed; the taken card is private and gets its own projection type to stay that way. |
 | **Rounds of drinks** | `lc_cards::PourDef`, `PourState`, `pour_discard()` | Drink `n`, pitch `n` cards of your choice. The drink lands at resolve; the discard parks the round, and `parked()` is now the one definition of "waiting on people" so a pour and a challenge can hold the same round without either rolling it over early. |
+| **Round resolution report** | `lc_report.rs` — `Blow`/`BlowKind`/`Resolution`, `ack_resolution()` | What landed on whom this round, with the card and the player behind each blow. Ordered (a timeline, so a UI can step it), carries the outcomes the log omits by design (blocked, fizzled, cancelled), and parks the round until the seats it landed on confirm. |
+| **Confirm gate at resolve** | `Resolution::owed`/`acked`, `POST …/resolution-ack` | Only seats a blow landed on gate the round; a round that lands nothing does not park at all. A tap from a seat that owed nothing is accepted and changes nothing, so one button serves every viewer. |
 | **Revealing a hand** | `lc_cards::RevealDef`, `LastCallState::reveals`, `reveals_for()` | Snapshot at resolve, readable through the following round. Two scopes: table (rides `PublicView`) and caster-only (served per viewer, never projected publicly). Three cards at `copies: 0`. |
 
 So the log and the challenge verdict flow **exist** — what's missing on both
@@ -60,6 +62,15 @@ it unlocks your "salute the leader" case.
 
 ### 0. Nothing renders a reveal, a pour or a trade
 
+**The round report is the exception** — it renders. `resolution_strip` draws
+the receipt into the banner slot (above the challenge strip, since the report
+parks last and so is what the table is actually waiting on), and the GOT IT
+button rides the house `data-lc-post` contract. That was not optional: the
+report parks on nearly every round, so shipping it without a way to press the
+button would have frozen every game rather than leaving an inert feature.
+
+Everything else below still has no surface.
+
 The `Reveal` and `Pour` engines are built and tested, but no surface draws
 one: the per-viewer hand pane doesn't call `reveals_for()`, `PublicView`'s
 `reveals`/`pours` reach the big screen unread, and nothing offers the discard
@@ -84,30 +95,43 @@ per-viewer hand pane doesn't call `reveals_for()`, and `PublicView::reveals`
 reaches the big screen unread. Same shape as the trigger queue above — the
 logic lands before the UI, deliberately.
 
-### 1. Resolve-stage attribution — "whose card hit whom"
+### 1. Resolve-stage attribution — **built** (`lc_report.rs`)
 
-This is the real gap in the log. Today:
+This was the real gap in the log, and it is now filled by a second record
+beside the log rather than by a richer log.
 
-- `LogEntry::Play { seat, title, target }` names the card.
-- `LogEntry::Hit { source, target, amount }` names the damage.
+The problem was that `LogEntry::Play` named the card and `LogEntry::Hit`
+named the damage, with nothing linking them — a table-wide card producing six
+`Hit` lines makes any correlate-adjacent-entries guess wrong. `Effect::source_play`
+looked like the join key and was not one: `order_key` resets to 1 at every
+reveal.
 
-Nothing links them. A UI can't say *"ALEX's LAST ORDERS hit SAM for 4"* — it
-would have to guess by correlating adjacent entries, and a table-wide card
-producing six `Hit` lines makes that guess wrong.
+**What was built instead of a stable play id.** A `Resolution` carrying an
+ordered `Vec<Blow>`, each naming `card_id`, `title`, `source`, `subject`,
+`kind`, `amount` and `absorbed`. Three reasons it is not the log:
 
-The blocker is documented in the code: `Effect::source_play` holds a
-`Play.order_key`, which **resets to 1 at every reveal**, so it is not an
-identity and two rounds' effects can collide on it.
+- The log is permanent and capped at `LC_LOG_CAP`, evicting oldest first, so
+  any identity written into it can outlive the row it points at. A report is
+  bounded by its round.
+- **The log deliberately omits the null results.** `damage()` logs a `Hit`
+  only when HP actually moved, so a fully shielded hit logs *nothing* — the
+  player who blocked an attack has no evidence they were attacked. Same for a
+  fizzle and a cancelled play. Those are exactly what a "what happened to me"
+  screen must show and exactly what a permanent log should not accumulate.
+- It is ordered, which is what lets a UI step through a round one beat at a
+  time — and therefore what lets a sound land on the right moment.
 
-**What it needs:** a stable play id — either a monotonic counter on
-`LastCallState`, or `(round, order_key)` carried as a pair — threaded onto
-`Play`, `Effect`, and the `Hit`/`Heal`/`Shield`/`Drain` log variants. Once a
-log line can name the play that caused it, the visual layer is a rendering
-job rather than a guessing job.
+`Effect::source_card` was added alongside: a dot ticks rounds after the play
+that laid it is gone, so the tick needs the card id the `order_key` could
+never be. That is the honest version of what `source_play` only looked like it
+did; `source_play` is still not an identity and still should not be treated as
+one.
 
-Do this one **before** the sound work. Sound cues want the same
-"what just happened, caused by whom" signal, and building it twice would be
-the mistake.
+**What is NOT in the report,** deliberately: a challenge's penalty, which
+lands at the verdict after the report is already built and has the challenge
+screen of its own; and the give half of a trade, which is settled later for
+the same reason. A report that reopened after people had confirmed it would be
+asking them to confirm something they never saw.
 
 ### 2. Sound + visual cues on cards
 
