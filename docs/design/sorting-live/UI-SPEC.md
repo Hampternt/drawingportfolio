@@ -347,12 +347,48 @@ between the camera and everything it holds, so it is cut down to a sill, and
 knee-low across rows 1–4 while it is open, red when rows 1–4 fill and it shuts.
 No roof. Row numbers run down the outside of the left wall.
 
+### 6.9 The rules screen
+
+Reached from `⚙ Rules` in the tools row, and it is a screen rather than a sheet
+because it is read standing still, between loads, not with a crate in the other
+hand.
+
+Three columns at 1440 × 840. **The van** on the left — rows, stack height, how
+far the side door reaches, how many packing spots at each door — as steppers,
+because every one of them is a small integer and a stepper cannot be typed
+wrong. **What the board reaches for** in the middle: the priority as a list you
+move with ↑ ↓, then the toggles. **The live session** on the right: the same
+projection at 520 × 560, the four figures the settings produce, and the van as
+it currently stands.
+
+**A stepper stops rather than the reshape dropping a loaded position.** Rows
+cannot go below the deepest row in use, stack height below the tallest stack
+aboard, or a spot count below the number holding something — and the sub-line
+says which of those is holding it (`deepest row in use is 7`). The model will
+happily forget a position that stops existing, and a lost stack is not something
+to find out about at the stop.
+
+**Settings apply as they are tapped.** There is no Save, because there is
+nothing to lose by trying one: the preview redraws, and `Restore defaults` is
+one tap away and greys out when nothing has been changed.
+
 ---
 
-## 7. The decision rules — FIXED
+## 7. The decision rules
 
 This is the part that must survive a redesign intact. It is what the driver
 actually asked for.
+
+**Two of them are FIXED and the rest are settings** (§6.9), which is the honest
+split: the fill order and depth order are what the whole method is for, and a
+board that let you turn them off would be a board that could quietly load the
+van backwards. Everything else — the stability tolerance, what counts as a small
+order, whether two customers may share a stack, whether a lone crate goes to the
+well, whether the side well is kept for freeze ware, whether loading out of turn
+warns, and **the order the board reaches for a home in** — is a preference, and
+belongs to the driver rather than to me. Each one is checked by a test that puts
+the model in a state it decides; a screen of toggles that changed nothing would
+be worse than no screen.
 
 ### 7.1 Where a pushed-in stack lands
 
@@ -601,11 +637,10 @@ Worth knowing so a redesign does not rediscover them.
   three at the side, two at the back — and that is the default. The driver once
   said two at the side. It is a dial on the start screen either way, and every
   layout in here is computed from the count rather than drawn for three.
-- **A settings page for the loading rules.** The driver has asked for one:
-  which priority wins, whether the side well is reserved for freeze ware, how
-  many spots there are, how many rows. Everything it would control is already a
-  parameter — `configure()` takes rows, capacity, side-door reach and spot
-  counts — so this is a screen, not a rewrite.
+- **Where the settings live between sessions.** They are a screen now (§6.9),
+  but the prototype holds them in memory: the demo forgets them on reload. In
+  the app they belong on the account, not the session — a van does not change
+  shape between mornings.
 - **Portrait.** The board is authored landscape and scales rather than reflows.
   A portrait artboard existed for the previous plan view and has not been
   redrawn for this one. Turning the van through ninety degrees in this
@@ -622,9 +657,9 @@ A working, tappable version of everything above is in this folder:
 demo.html          open it directly — no build, no server, no dependencies
 src/model.js       every rule in §3 and §7, as ~880 lines of plain JS
 src/board.js       the rules turned into the picture and the controls
-src/board.html     the markup — {{holes}}, <sc-for>, <sc-if>, onClick, nothing else
 src/runtime.js     the ~70-line template runtime that renders it
-src/*.test.js      316 checks, run on plain node, no dependencies
+src/board.html     the board; src/settings.html the rules screen
+src/*.test.js      395 checks, run on plain node, no dependencies
 build.mjs          src/ -> demo.html
 ```
 

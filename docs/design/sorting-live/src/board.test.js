@@ -13,8 +13,10 @@ const c = new Component({ accent: '#B48EF7', capacity: 8 });
 let v = c.renderVals();
 
 // ── every hole in the markup has a producer ─────────────────────────────────
+// Two screens now, each against its own value tree. The board is checked here
+// and the settings below, with the same machinery.
 const markup = fs.readFileSync(join(__dirname, 'board.html'), 'utf8');
-const scopes = {};
+let scopes = {};
 for (const m of markup.matchAll(/<sc-for\s+list="\{\{([^}]+)\}\}"\s+as="([^"]+)"/g)) scopes[m[2]] = m[1];
 function dig(obj, path) { return path.split('.').reduce((o, k) => (o == null ? undefined : o[k]), obj); }
 // Sample the first item of a list that actually carries the path being checked.
@@ -28,26 +30,36 @@ function listAt(listPath) {
   }
   return dig(v, listPath) || [];
 }
-const memo = {};
+let memo = {};
 function listFor(p) { return memo[p] || (memo[p] = listAt(p)); }
-const missing = [];
-const holeSrc = markup.replace(/hint-placeholder-val="\{\{[^}]*\}\}"/g, '');
-for (const m of holeSrc.matchAll(/\{\{([^}]+)\}\}/g)) {
-  const path = m[1].trim(), parts = path.split('.');
-  let val;
-  if (scopes[parts[0]]) {
-    const rest = parts.slice(1).join('.');
-    const items = listFor(scopes[parts[0]]);
-    ok(items.length > 0, 'the list behind ' + path + ' is not empty');
-    val = items.some(it => dig(it, rest) !== undefined) ? true : undefined;
-  } else val = dig(v, path);
-  if (val === undefined) missing.push(path);
+function checkHoles(src, vals, what) {
+  v = vals; memo = {}; scopes = {};
+  for (const m of src.matchAll(/<sc-for\s+list="\{\{([^}]+)\}\}"\s+as="([^"]+)"/g)) scopes[m[2]] = m[1];
+  const missing = [];
+  const holeSrc = src.replace(/hint-placeholder-val="\{\{[^}]*\}\}"/g, '');
+  for (const m of holeSrc.matchAll(/\{\{([^}]+)\}\}/g)) {
+    const path = m[1].trim(), parts = path.split('.');
+    let val;
+    if (scopes[parts[0]]) {
+      const rest = parts.slice(1).join('.');
+      const items = listFor(scopes[parts[0]]);
+      ok(items.length > 0, what + ': the list behind ' + path + ' is not empty');
+      val = items.some(it => dig(it, rest) !== undefined) ? true : undefined;
+    } else val = dig(vals, path);
+    if (val === undefined) missing.push(path);
+  }
+  eq(missing, [], what + ': every {{hole}} resolves');
+  eq((src.match(/<sc-for/g) || []).length, (src.match(/<\/sc-for>/g) || []).length, what + ': sc-for tags balance');
+  eq((src.match(/<sc-if/g) || []).length, (src.match(/<\/sc-if>/g) || []).length, what + ': sc-if tags balance');
+  ok(!/<style|<script/i.test(src.split('</helmet>')[1]), what + ': no style or script blocks in the screen itself');
 }
-eq(missing, [], 'every {{hole}} resolves');
-eq((markup.match(/<sc-for/g) || []).length, (markup.match(/<\/sc-for>/g) || []).length, 'sc-for tags balance');
-eq((markup.match(/<sc-if/g) || []).length, (markup.match(/<\/sc-if>/g) || []).length, 'sc-if tags balance');
-const bodyOnly = markup.split('</helmet>')[1];
-ok(!/<style|<script/i.test(bodyOnly), 'no style or script blocks in the board itself');
+checkHoles(markup, v, 'board');
+{
+  const t = new Component({ accent: '#B48EF7' });
+  t.state.screen = 'settings';
+  checkHoles(fs.readFileSync(join(__dirname, 'settings.html'), 'utf8'), t.renderVals(), 'settings');
+}
+v = c.renderVals();
 
 // Every part of the picture has to answer every hole, or the runtime renders
 // the literal word "undefined" into the van.
@@ -435,6 +447,56 @@ const done = t => t.renderVals().con.done();
 }
 {
   eq(fresh().renderVals().warn.show, false, 'an empty van with a whole route ahead of it warns about nothing');
+}
+
+// ── the settings screen ─────────────────────────────────────────────────────
+{
+  const t = new Component({ accent: '#B48EF7' });
+  t.state.screen = 'settings';
+  const v = t.renderVals();
+  eq(v.screen, 'settings', 'the values say which screen they are for');
+  ok(v.cols.length === 2 && v.preview.parts.length > 20, 'two columns and a live preview of the van');
+  eq(v.facts[0].value, '18', 'nine rows two across is eighteen positions');
+
+  // Shrinking and growing the van again is the move that finds the bug: the
+  // state has to be reshaped before either screen reads a position out of it.
+  // Each tap has to come from a fresh render — a handler captured before the
+  // last one ran still carries the value it was built with, which is why the
+  // runtime rebuilds the tree rather than patching it.
+  const rowsRow = () => t.renderVals().cols[0].sections[0].rows[0];
+  rowsRow().dec(); rowsRow().dec();
+  eq(t.renderVals().facts[0].value, '14', 'two rows off the back is four positions fewer');
+  t.renderVals().reset();
+  eq(t.renderVals().facts[0].value, '18', 'and restoring defaults grows it back without throwing');
+
+  // …and it will not shrink past what is already loaded.
+  const t2 = new Component({ accent: '#B48EF7' });
+  t2.state.screen = 'settings';
+  t2.state.st.van['r7-left'] = [{ cust: 'OLA', n: 3 }];
+  const r = t2.renderVals().cols[0].sections[0].rows[0];
+  ok(/deepest row in use is 7/.test(r.note), 'the stepper says what is holding it');
+  for (let i = 0; i < 6; i++) t2.renderVals().cols[0].sections[0].rows[0].dec();
+  eq(t2.renderVals().facts[0].value, '14', 'and stops at seven rows rather than dropping a loaded position');
+  ok(heightOf(t2.state.st, 'r7-left') === 3, 'with the stack still there');
+}
+{
+  // Each setting reaches the board it is a setting for.
+  const t = fresh();
+  begin(t, 'OLA', 'side'); bump(t, 2);
+  t.props.rules = { priority: ['well', 'own', 'top'] };
+  eq(t.renderVals().con.pushLabel, 'Stand it in the doorway', 'ranking the well first makes it the green button');
+  eq(t.renderVals().con.topLabel, 'Push in 2', 'and a position of its own becomes the runner-up');
+  t.props.rules = { priority: ['own', 'well', 'top'] };
+  eq(t.renderVals().con.pushLabel, 'Push in 2', 'putting it back puts the push back');
+  ok(!/doorway/i.test(t.renderVals().con.topLabel), 'and an empty well is not offered just for being empty');
+}
+{
+  const t = fresh();
+  t.state.st.van['r1-left'] = [{ cust: 'OLA', n: 4 }];
+  begin(t, 'HIN', 'side'); bump(t, 2);
+  ok(/on top/.test(t.renderVals().con.topLabel), 'combining is offered by default');
+  t.props.rules = { allowCombine: false };
+  eq(t.renderVals().con.topNote, 'combining is off', 'and the slot says why when it is switched off');
 }
 
 // ── the slide ───────────────────────────────────────────────────────────────

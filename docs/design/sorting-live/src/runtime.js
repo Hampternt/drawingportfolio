@@ -65,9 +65,11 @@ function schedule() {
   requestAnimationFrame(function () { PENDING = false; paint(); });
 }
 function paint() {
-  var tpl = document.getElementById('board-template');
   var host = document.getElementById('board');
   var vals = COMPONENT.renderVals();
+  // The board and the settings are two screens against one component, so the
+  // values say which markup they are for rather than the caller guessing.
+  var tpl = document.getElementById((vals.screen || 'board') + '-template');
   host.textContent = '';
   Array.prototype.forEach.call(tpl.content.childNodes, function (c) {
     build(c, vals).forEach(function (n) { host.appendChild(n); });

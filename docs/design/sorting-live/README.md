@@ -12,6 +12,8 @@ much foresight each one buys.
 
 ![the board](board.png)
 
+![the rules screen](rules.png)
+
 ## Running it
 
 The demo is one self-contained file. No build, no server, no dependencies:
@@ -90,6 +92,12 @@ load and a control that jumps between five pads is a mis-tap generator.
 - Push twice without counting. The button stays grey, the van shows `?`, and the
   headline switches from **CRATES IN** to **POSITIONS IN · 2 blind** rather than
   reporting nought crates with two stacks aboard.
+- Hit **⚙ Rules**. Move **the door well** above **a position of its own** and go
+  back: the green button becomes *Stand it in the doorway* and the push drops to
+  the runner-up slot. Turn **two customers may share a stack** off and the
+  top-up says so instead of blaming the roof. Take the van down to seven rows
+  and watch the picture redraw — it will not go below the deepest row you have
+  loaded, and says which row is holding it.
 - Hit **Start over** to reset.
 
 ## Rebuilding
@@ -101,14 +109,18 @@ node docs/design/sorting-live/src/board.test.js
 ```
 
 `src/model.js` is the whole rule set — fill order, the ±3 window, splitting,
-combining, the doors, the doorways, and the live packing verbs (`beginState`,
-`doBegin`, `doMoveSpot`, `stackHosts`, `topUpState`). `src/board.js` projects it
-into the picture and the controls. `src/board.html` is the markup, shared
-verbatim with the design canvas; `src/runtime.js` is the ~70-line template
-runtime that renders it, so the demo and the design cannot drift apart.
+combining, the doors, the doorways, the live packing verbs (`beginState`,
+`doBegin`, `doMoveSpot`, `stackHosts`, `topUpState`) and `RULES`, the half of it
+that is the driver's to set. `src/board.js` projects it into the picture and the
+controls. `src/board.html` and `src/settings.html` are the two screens' markup,
+shared verbatim with the design canvas; `src/runtime.js` is the ~70-line
+template runtime that renders them, so the demo and the design cannot drift
+apart.
 
-The two test files run on plain `node` with no dependencies — 316 checks over
-the rules, the rendering, and the geometry. The geometric ones matter more than
+The two test files run on plain `node` with no dependencies — 395 checks over
+the rules, the rendering, the geometry and the settings. Every setting is
+checked by putting the model in a state it decides: a screen of toggles that
+changed nothing would be worse than no screen. The geometric ones matter more than
 they look: a sheared box reports its *untransformed* rectangle to the browser,
 so the only way to know the van has not been drawn out through the side of the
 frame is to multiply its corners through the matrix, which `board.test.js` does

@@ -22,6 +22,7 @@ class DCLogic { constructor(p) { this.props = p || {}; } setState(o) { Object.as
 globalThis.DCLogic = DCLogic;
 const Component = eval(read('model.js') + read('board.js') + '\n;Component');
 const TPL = boardTemplate(read('board.html'));
+const SET = boardTemplate(read('settings.html'));
 
 let fails = 0;
 const ok = (c, m) => { if (!c) { fails++; console.log('  FAIL  ' + m); } };
@@ -57,7 +58,27 @@ const live = await p.evaluate(`(${shape})()`.replace('document.body', 'document.
 await p.goto('file://' + path);
 await p.waitForTimeout(200);
 const ssr = await p.evaluate(`(${shape})()`);
+
+// …and the settings screen, through the same machinery
+const c2 = new Component({ accent: '#B48EF7' });
+c2.state.screen = 'settings';
+const setHtml = render(SET, c2.renderVals());
+const setPath = join(tmpdir(), 'ssr-check-settings.html');
+writeFileSync(setPath, `<!doctype html><meta charset="utf-8"><style>html,body{margin:0}</style>${setHtml}`);
+await p.goto('file://' + join(here, '..', 'sorting-live', 'demo.html'));
+await p.waitForTimeout(400);
+await p.evaluate(() => { COMPONENT.setState({ screen: 'settings' }); });
+await p.waitForTimeout(200);
+const liveSet = await p.evaluate(`(${shape})()`.replace('document.body', 'document.getElementById("board")'));
+await p.goto('file://' + setPath);
+await p.waitForTimeout(200);
+const ssrSet = await p.evaluate(`(${shape})()`);
 await b.close();
+
+ok(liveSet.length > 100, 'the settings screen rendered something too  ' + liveSet.length + ' nodes');
+let sdiff = 0;
+for (let i = 0; i < Math.max(liveSet.length, ssrSet.length); i++) if (liveSet[i] !== ssrSet[i]) sdiff++;
+ok(sdiff === 0, 'the settings screen matches as well  ' + sdiff + ' of ' + liveSet.length + ' differ');
 
 ok(live.length > 150, 'the live board rendered something to compare against  ' + live.length + ' nodes');
 ok(live.length === ssr.length, 'the same number of nodes  live ' + live.length + ' ssr ' + ssr.length);
@@ -69,5 +90,6 @@ for (let i = 0; i < Math.max(live.length, ssr.length); i++) {
   }
 }
 ok(diff === 0, diff + ' of ' + live.length + ' nodes differ');
-console.log(fails ? `\n  ${fails} failed` : `passed — the static render is the live board, ${live.length} nodes identical`);
+console.log(fails ? `\n  ${fails} failed`
+  : `passed — the static render is the live screen: board ${live.length} nodes, settings ${liveSet.length} nodes, all identical`);
 process.exit(fails ? 1 : 0);

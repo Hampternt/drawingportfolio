@@ -497,5 +497,99 @@ eq(zone('back')[zone('back').length - 1], 'r9-right', 'and now runs to row 9');
   ok(pl.byCust.JAT && pl.byCust.JAT.length, 'and carries on planning everybody it does know about');
 }
 
+// ── 13. the rules are settings, and every one of them does something ────────
+// The driver asked for a screen to set these. A screen of toggles that do not
+// change what the board does would be worse than no screen, so each one is
+// checked by putting the model in a state it decides.
+{
+  configure({}); resetRules();
+  function tall() {                              // an 8 in front, one crate staged
+    var b = emptyState();
+    b.van['r1-left'] = [{ cust: 'OLA', n: 8 }];
+    b.van['r1-right'] = [{ cust: 'OLA', n: 8 }];
+    doAssign(b, 'side-1', 'JAT'); doBump(b, 'side-1', 1);
+    return b;
+  }
+  eq(pushState(tall(), 'side-1').kind, 'thin', 'at ±3 a one beside an eight is a warning');
+  configureRules({ stability: null });
+  eq(pushState(tall(), 'side-1').kind, 'ready', 'with the stability rule off it is not');
+  eq(windowAt(tall(), 'r2-left').hi, CAP, 'and the window opens to the roof');
+  configureRules({ stability: 1 });
+  ok(windowAt(tall(), 'r2-left').lo === 7, 'a tighter tolerance narrows it the other way');
+  resetRules();
+}
+{
+  configure({}); resetRules();
+  var b = emptyState();
+  b.van['r1-left'] = [{ cust: 'OLA', n: 4 }];
+  doAssign(b, 'side-1', 'HIN'); doBump(b, 'side-1', 3);
+  eq(stackHosts(b, 'side-1', 3).length > 0, true, 'three crates can go on a stack by default');
+  configureRules({ allowCombine: false });
+  eq(stackHosts(b, 'side-1', 3), [], 'switching combining off takes every host away');
+  ok(/switched off in the settings/.test(topUpState(b, 'side-1', null, 3).why),
+    'and the board says that is why, rather than blaming the roof');
+  eq(hostReason(b, 'side-1'), null, 'so it is never urged either');
+  resetRules();
+}
+{
+  configure({}); resetRules();
+  var b = emptyState();
+  b.van['r1-left'] = [{ cust: 'OLA', n: 5 }];
+  doAssign(b, 'side-1', 'HIN'); doBump(b, 'side-1', 3);
+  ok(stackHost(b, 'side-1'), 'three crates is a small order at the default threshold');
+  configureRules({ thin: 2 });
+  eq(stackHost(b, 'side-1'), null, 'raising the bar makes it a full order that wants its own position');
+  resetRules();
+}
+{
+  // A lone crate behind a shut side door: the well, or round the back.
+  configure({}); resetRules();
+  var b = emptyState();
+  for (var r = 1; r <= SIDE_DOOR_ROWS; r++) {
+    b.van['r' + r + '-left'] = [{ cust: 'OLA', n: 4 }];
+    b.van['r' + r + '-right'] = [{ cust: 'OLA', n: 4 }];
+  }
+  doAssign(b, 'side-1', 'SVE'); doBump(b, 'side-1', 1);
+  eq(pushState(b, 'side-1').kind, 'doorway', 'by default one crate goes in the side well');
+  configureRules({ singleCrateWell: false });
+  eq(pushState(b, 'side-1').kind, 'physical', 'switched off, it is carried round like anything else');
+  eq(singleCrateDoor(b, 'side-1'), false, 'and the board stops offering it');
+  resetRules();
+}
+{
+  configure({}); resetRules();
+  var b = emptyState();
+  doAssign(b, 'side-1', 'JAT'); doBump(b, 'side-1', 3);
+  eq(pushState(b, 'side-1').kind, 'order', 'loading out of turn warns by default');
+  configureRules({ orderGuard: false });
+  eq(pushState(b, 'side-1').kind, 'ready', 'and can be switched off');
+  // …but the rule the whole method exists for cannot be.
+  doPush(b, 'side-1'); doClose(b, 'side-1');
+  var c = emptyState();
+  doBegin(c, 'OLA', 'back'); doBump(c, 'back-1', 4); doPush(c, 'back-1'); doClose(c, 'back-1');
+  doBegin(c, 'JAT', 'side'); doBump(c, 'side-1', 4);
+  eq(pushState(c, 'side-1').kind, 'order', 'depth order still warns with the sequence guard off');
+  ok(/comes out at stop 6/.test(pushState(c, 'side-1').why), 'because it is a different check');
+  eq(Object.keys(RULE_DEFAULTS).indexOf('depthGuard'), -1, 'and there is no setting that would turn it off');
+  resetRules();
+}
+{
+  configure({}); resetRules();
+  eq(emptyState().frozenAtDoor, true, 'the side well is kept for freeze ware by default');
+  configureRules({ freezeAtWell: false });
+  eq(emptyState().frozenAtDoor, false, 'and a route with none says so from the start');
+  resetRules();
+}
+{
+  configure({}); resetRules();
+  eq(RULES.priority, ['own', 'well', 'top'], 'a position of its own comes first by default');
+  configureRules({ priority: ['well', 'own', 'top'] });
+  eq(RULES.priority, ['well', 'own', 'top'], 'and the order is the driver’s to set');
+  resetRules();
+  configureRules({ notARule: 1 });
+  eq(RULES.notARule, undefined, 'a setting the model does not have is ignored rather than stored');
+  resetRules();
+}
+
 console.log((fails ? 'FAILED ' : 'passed ') + (checks - fails) + '/' + checks + ' checks');
 process.exit(fails ? 1 : 0);

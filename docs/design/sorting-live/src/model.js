@@ -91,6 +91,57 @@ var PALLETS = { OLA: 'B', JAT: 'C', HIN: 'C', SVE: 'A', FRO: 'A', MAR: 'B' };
 
 var ROWS, CAP, SIDE_DOOR_ROWS, STAB = 3, ORDER = [], SPOTS = [], DOORS = [], ALL_POS = [];
 
+// ── the rules, as settings ───────────────────────────────────────────────────
+// The driver asked for a screen to set these, and the reason is that they are
+// preferences rather than physics. What is NOT here is deliberate: the fill
+// order, and depth order — nothing deeper in the van than a stop delivered
+// before it. Those are what the whole method is for, and a board that let you
+// turn them off would be a board that could quietly load the van backwards.
+var THIN = 3;
+var RULE_DEFAULTS = {
+  // How far apart two neighbouring stacks in one column may be. null is no
+  // limit, which is a real answer for a van being loaded with one customer's
+  // goods, and a bad one for a route.
+  stability: 3,
+  // At or under this many crates an order counts as small — the size that can
+  // go up on somebody else's stack rather than take a position of its own.
+  thin: 3,
+  // What the board reaches for first when a pile needs somewhere to go. The
+  // first available one is the green button; the rest stay on the screen as
+  // the quieter ones.
+  priority: ['own', 'well', 'top'],
+  // A stop with one crate belongs at the side door: easy to reach, and off
+  // anybody else's stack. Wins over the order above when it applies.
+  singleCrateWell: true,
+  // Two customers on one stack. Off means the board will not offer it at all,
+  // and says to take crates back off or carry them round instead.
+  allowCombine: true,
+  // The freeze ware shares the side well at the end of the load.
+  freezeAtWell: true,
+  // Warn when a stop goes in ahead of one that loads before it. Depth order is
+  // checked separately and is not optional.
+  orderGuard: true
+};
+var RULES = {};
+function configureRules(cfg) {
+  Object.keys(cfg || {}).forEach(function (k) {
+    if (RULE_DEFAULTS[k] !== undefined) RULES[k] = cfg[k];
+  });
+  STAB = RULES.stability == null ? Infinity : RULES.stability;
+  THIN = RULES.thin;
+  return RULES;
+}
+function resetRules() {
+  RULES = {};
+  Object.keys(RULE_DEFAULTS).forEach(function (k) {
+    RULES[k] = Array.isArray(RULE_DEFAULTS[k]) ? RULE_DEFAULTS[k].slice() : RULE_DEFAULTS[k];
+  });
+  STAB = RULES.stability == null ? Infinity : RULES.stability;
+  THIN = RULES.thin;
+  return RULES;
+}
+resetRules();
+
 function configure(cfg) {
   cfg = cfg || {};
   ROWS = cfg.rows == null ? 9 : cfg.rows;
@@ -288,6 +339,7 @@ function windowAt(st, id) {
     if (isEmpty(st, nid)) return;                 // an empty position is exempt
     var h = heightOf(st, nid);
     if (h == null) return;                        // so is one that went in uncounted
+    if (STAB === Infinity) return;                // no limit set: every height is legal
     hi = Math.min(hi, h + STAB);
     lo = Math.max(lo, h - STAB);
   });
@@ -500,7 +552,7 @@ function pushState(st, spotId, chosen) {
       // round to the back, and the well is only the answer when there is no
       // back left to carry it to. A single crate is the exception: it belongs
       // at the side door anyway, and walking it round the van earns nothing.
-      if (doorwayFree(st, 'side') && (held.n === 1 || spaceIsTight(st))) return doorwayState(st, spotId);
+      if (doorwayFree(st, 'side') && ((RULES.singleCrateWell && held.n === 1) || spaceIsTight(st))) return doorwayState(st, spotId);
       return { kind: 'physical', label: 'Round the back',
         why: 'Rows 1–' + SIDE_DOOR_ROWS + ' are full, so nothing more goes in this way — it would have to '
           + 'travel past what is already aboard. Carry this round to the back.' };
@@ -550,7 +602,7 @@ function pushState(st, spotId, chosen) {
   // closed out: the depth check has looked at the actual arrangement and passed
   // it, and saying it again is noise on a board that is doing fine.
   var at = want && want !== held.cust ? spotHolding(st, want) : null;
-  if (want && want !== held.cust && (at || !isAboard(st, want))) {
+  if (RULES.orderGuard && want && want !== held.cust && (at || !isAboard(st, want))) {
     var why = at
       ? CUST[want].name + ' goes in first — they are on ' + at.name + '.'
       : CUST[want].name + ' has not been staged — push this and it lands in front of them.';
@@ -588,7 +640,7 @@ function pushState(st, spotId, chosen) {
 function doorwayState(st, spotId) {
   var spot = spotById(spotId), held = st.staged[spotId];
   var first = firstPending(st), mine = stopOf(held.cust), why, good;
-  if (held.n === 1 && spot.door === 'side') {
+  if (RULES.singleCrateWell && held.n === 1 && spot.door === 'side') {
     why = 'One crate — the side door is the easy place to reach it from, and it keeps '
       + CUST[held.cust].name + ' off anybody else\u2019s stack.';
     good = true;
@@ -633,7 +685,6 @@ function canStackOn(st, id, cust) {
 // is the awkward move, and burying a customer further forward than they need to
 // be is the one mistake this rule exists to avoid. Ties go to the shorter stack
 // so the column evens out.
-var THIN = 3;
 function hostReason(st, spotId) {
   var held = st.staged[spotId];
   if (!held || !held.n) return null;
@@ -649,7 +700,8 @@ function hostReason(st, spotId) {
 // stack. Offered, never forced.
 function singleCrateDoor(st, spotId) {
   var held = st.staged[spotId];
-  return !!(held && held.n === 1 && spotById(spotId).door === 'side' && doorwayFree(st, 'side'));
+  return !!(RULES.singleCrateWell && held && held.n === 1
+    && spotById(spotId).door === 'side' && doorwayFree(st, 'side'));
 }
 // How many customers a position is carrying. More than one is the thing worth
 // seeing from across the van at delivery time.
@@ -781,7 +833,7 @@ function suggestAt(st, id) {
 // they have to be.
 function stackHosts(st, spotId, n) {
   var spot = spotById(spotId), held = st.staged[spotId];
-  if (!spot || !held) return [];
+  if (!spot || !held || !RULES.allowCombine) return [];
   var take = n == null ? held.n : n;
   if (!take) return [];
   var out = [];
@@ -811,7 +863,9 @@ function topUpState(st, spotId, chosen, n) {
   if (!hosts.length) {
     // Say which of the three reasons it is, because they call for different moves.
     var any = zone(spotById(spotId).door).filter(function (id) { return !isEmpty(st, id); });
-    var why = !any.length ? 'Nothing is aboard on this side yet — there is no stack to put it on.'
+    var why = !RULES.allowCombine
+        ? 'Two customers on one stack is switched off in the settings — take some crates back off, or carry them round.'
+      : !any.length ? 'Nothing is aboard on this side yet — there is no stack to put it on.'
       : (any.every(function (id) { return !canStackOn(st, id, held.cust).ok; })
           ? CUST[held.cust].name + ' is delivered before everything aboard on this side, so they would '
             + 'have to go underneath. Give them their own position.'
@@ -834,7 +888,7 @@ function topUpState(st, spotId, chosen, n) {
 function emptyState() {
   var van = {}; ALL_POS.forEach(function (id) { van[id] = []; });
   var staged = {}; SPOTS.forEach(function (s) { staged[s.id] = null; });
-  return { van: van, staged: staged, closed: {}, flags: 0, frozenAtDoor: true, held: {} };
+  return { van: van, staged: staged, closed: {}, flags: 0, frozenAtDoor: RULES.freezeAtWell, held: {} };
 }
 function cloneState(st) {
   var van = {}; ALL_POS.forEach(function (id) { van[id] = (st.van[id] || []).map(function (l) { return { cust: l.cust, n: l.n }; }); });

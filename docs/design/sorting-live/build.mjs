@@ -7,10 +7,13 @@ import { fileURLToPath } from 'node:url';
 const here = dirname(fileURLToPath(import.meta.url));
 const read = f => readFileSync(join(here, 'src', f), 'utf8');
 
-const markup = read('board.html');
-const body = markup.split('<x-dc>')[1].split('</x-dc>')[0];
-const helmet = /<helmet>([\s\S]*?)<\/helmet>/.exec(body)[1].trim();
-const board = body.split('</helmet>')[1].trim();
+const screen = f => {
+  const body = read(f).split('<x-dc>')[1].split('</x-dc>')[0];
+  return { helmet: /<helmet>([\s\S]*?)<\/helmet>/.exec(body)[1].trim(), markup: body.split('</helmet>')[1].trim() };
+};
+const board = screen('board.html');
+const settings = screen('settings.html');
+const helmet = board.helmet;
 
 const TIERS = [
   [1, 'Customer order only',
@@ -70,7 +73,11 @@ ${buttons}
 <div id="stage"><div id="scaler"><div id="board"></div></div></div>
 
 <template id="board-template">
-${board}
+${board.markup}
+</template>
+
+<template id="settings-template">
+${settings.markup}
 </template>
 
 <script>

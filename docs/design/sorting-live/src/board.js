@@ -136,8 +136,9 @@ class Component extends DCLogic {
   }
 
   // ── the picture ────────────────────────────────────────────────────────────
-  scene(st, accent, plan) {
+  scene(st, accent, plan, box) {
     var self = this, V = VIEW, parts = [];
+    box = box || SCENE;
     var sideSpots = SPOTS.filter(function (s) { return s.door === 'side'; });
     var backSpots = SPOTS.filter(function (s) { return s.door === 'back'; });
     var top = Math.max(CAP, V.wall);
@@ -160,10 +161,10 @@ class Component extends DCLogic {
     var ys = pts.map(function (p) { return p[0] * V.cy + p[1] * V.ry - p[2] * V.ch; });
     var minX = Math.min.apply(null, xs), maxX = Math.max.apply(null, xs);
     var minY = Math.min.apply(null, ys), maxY = Math.max.apply(null, ys);
-    var k = Math.min(1, SCENE.w / (maxX - minX), SCENE.h / (maxY - minY));
+    var k = Math.min(1, box.w / (maxX - minX), box.h / (maxY - minY));
     var cx = V.cx * k, cy = V.cy * k, rx = V.rx * k, ry = V.ry * k, ch = V.ch * k;
-    var ox = SCENE.x - minX * k + (SCENE.w - (maxX - minX) * k) / 2;
-    var oy = SCENE.y - minY * k + (SCENE.h - (maxY - minY) * k) / 2;
+    var ox = box.x - minX * k + (box.w - (maxX - minX) * k) / 2;
+    var oy = box.y - minY * k + (box.h - (maxY - minY) * k) / 2;
     function P(u, v, w) { return [u * cx - v * rx, u * cy + v * ry - (w || 0) * ch]; }
     var COL = [cx, cy], ROW = [-rx, ry];
     function mul(a, n) { return [a[0] * n, a[1] * n]; }
@@ -383,7 +384,7 @@ class Component extends DCLogic {
     // A line from the focused pad to the dock, so "the packing area this
     // customer is being packed in" and the controls that act on it are visibly
     // one thing even though the controls never move.
-    if (focus) {
+    if (focus && box.tether !== false) {
       var pc = padCentre(spotById(focus));
       var ax = pc[0] + ox, ay = pc[1] + oy;
       var bx = Math.max(DOCK.x, Math.min(DOCK.x + DOCK.w, ax));
@@ -484,49 +485,85 @@ class Component extends DCLogic {
     var forced = hostReason(st, focus);
     var suggest = ps.target ? suggestAt(st, ps.target) : null;
 
-    var kind = 'go', label = ps.label, act;
-    var note = ps.target ? posLabel(ps.target) + (held.n ? '' : ' · not counted') : '';
     var chosen = this.state.target;
     // The animation is decoration on a board that is already correct: the model
     // commits at tap time and the target already carries an accent outline, so a
     // driver whose eyes are on the crate never depends on seeing the motion.
-    var flashFrom = spot.id;
-    act = function () {
-      var landed = null;
-      self.apply(function (s) {
-        if (ps.kind === 'doorway') landed = doDoorway(s, focus);
-        else if (ps.kind === 'split') landed = doPush(s, focus, ps.take, chosen, ps.plan ? ps.plan.cells[1] : null);
-        else landed = doPush(s, focus, null, chosen);
-      });
-      self.setState({ target: null, host: null, flash: landed ? { id: landed, from: flashFrom } : null });
-    };
-    if (ps.kind === 'ready')         { kind = held.n ? 'go' : 'quiet'; label = 'Push in' + (held.n ? ' ' + held.n : ''); }
-    else if (ps.kind === 'chosen')   { kind = 'warn'; label = 'Push in' + (held.n ? ' ' + held.n : ''); }
-    else if (ps.kind === 'split')    { kind = 'warn'; label = 'Push in ' + ps.take + ' of ' + held.n; }
-    else if (ps.kind === 'order')    { kind = 'warn'; label = 'Push in anyway'; }
-    else if (ps.kind === 'thin')     { kind = 'warn'; label = 'Push in anyway'; }
-    else if (ps.kind === 'doorway')  { kind = ps.good ? 'go' : 'warn'; label = ps.label; note = posLabel(ps.target); }
-    else if (ps.kind === 'nofit')    { kind = 'stop'; label = ps.label; act = noop; }
-    else if (ps.kind === 'physical') {
-      kind = 'stop'; label = ps.label; act = noop;
+    function landing(fn) {
+      return function () {
+        var landed = null;
+        self.apply(function (s) { landed = fn(s); });
+        self.setState({ target: null, host: null, flash: landed ? { id: landed, from: focus } : null });
+      };
+    }
+
+    // ── what could be done with this pile ────────────────────────────────────
+    // Which of these is the green button is a preference, not a rule, so it
+    // comes from RULES.priority rather than from an if-chain. What the guards
+    // have to say about each one does not: that is still the model's answer.
+    var cand = {};
+    if (ps.target && !isDoor(ps.target)) {
+      var tone = 'go', text = 'Push in' + (held.n ? ' ' + held.n : '');
+      if (ps.kind === 'ready') tone = held.n ? 'go' : 'quiet';
+      else if (ps.kind === 'chosen') tone = 'warn';
+      else if (ps.kind === 'split') { tone = 'warn'; text = 'Push in ' + ps.take + ' of ' + held.n; }
+      else if (ps.kind === 'order' || ps.kind === 'thin') { tone = 'warn'; text = 'Push in anyway'; }
+      else if (ps.kind === 'nofit') { tone = 'stop'; text = ps.label; }
+      cand.own = {
+        tone: tone, label: text, note: posLabel(ps.target) + (held.n ? '' : ' · not counted'), why: ps.why,
+        act: ps.kind === 'nofit' ? noop : landing(function (s) {
+          return ps.kind === 'split'
+            ? doPush(s, focus, ps.take, chosen, ps.plan ? ps.plan.cells[1] : null)
+            : doPush(s, focus, null, chosen);
+        })
+      };
+    }
+    // The well is a last resort by the driver's own account — a stack standing in
+    // it blocks the door it stands in — so an empty well is not on offer just
+    // for being empty. It becomes a candidate when the model has already
+    // reached for it (nowhere else to go, or the lone-crate rule), or when the
+    // settings rank it above a position of its own, which is the driver saying
+    // out loud that they want it.
+    var wellRanked = (RULES.priority || []).indexOf('well') < (RULES.priority || []).indexOf('own');
+    if (doorwayFree(st, spot.door) && (ps.kind === 'doorway' || wellRanked)) {
+      var ds = ps.kind === 'doorway' ? ps : doorwayState(st, focus);
+      cand.well = { tone: ds.good ? 'go' : 'warn', label: ds.label, note: posLabel(doorwayOf(spot.door)),
+        why: ds.why, act: landing(function (s) { return doDoorway(s, focus); }) };
+    }
+    if (tu.kind !== 'nohost') {
+      cand.top = { tone: forced ? 'warn' : 'quiet', label: '+' + take + ' on top', note: posLabel(tu.host.id),
+        why: '', act: landing(function (s) { return doStack(s, focus, tu.host.id, take); }) };
+    }
+
+    var order = (RULES.priority || ['own', 'well', 'top']).filter(function (x) { return cand[x]; });
+    // A lone crate at the side door is the driver's own rule and outranks the
+    // list — it is about reaching it at the stop, not about filling the van.
+    if (singleCrateDoor(st, focus) && cand.well) {
+      order = ['well'].concat(order.filter(function (x) { return x !== 'well'; }));
+    }
+
+    var primary = cand[order[0]], runner = cand[order[1]] || cand[order[2]];
+    if (ps.kind === 'physical') {
       // "Round the back" is an instruction, so it has to be a button. Without one
       // the board tells the driver what to do and gives them no way to record
       // having done it — and the order is stranded on a shut door.
       var other = spot.door === 'side' ? 'back' : 'side';
-      var landing = freeSpotAt(st, other);
+      var land = freeSpotAt(st, other);
       // …and only when there is floor on the other side to carry it to. With
       // every position taken the refusal is the van, not the door, and offering
       // to walk a stack round the vehicle for nothing is worse than saying no.
-      if (landing && positionsLeft(st, other)) {
-        kind = 'warn'; label = 'Carry round the back'; note = 'to ' + landing.name;
-        act = function () {
-          self.apply(function (s) { doMoveSpot(s, focus, other); });
-          self.setState({ focus: landing.id, target: null, host: null, flash: null });
-        };
-      }
+      primary = (land && positionsLeft(st, other))
+        ? { tone: 'warn', label: 'Carry round the back', note: 'to ' + land.name, why: ps.why,
+            act: function () {
+              self.apply(function (s) { doMoveSpot(s, focus, other); });
+              self.setState({ focus: land.id, target: null, host: null, flash: null });
+            } }
+        : { tone: 'stop', label: ps.label, note: '', why: ps.why, act: noop };
+      runner = cand.top || null;
     }
+    if (!primary) primary = { tone: 'stop', label: ps.label || '—', note: '', why: ps.why, act: noop };
 
-    var showWhy = !!(ps.why || (forced && tu.kind !== 'nohost'));
+    var showWhy = !!(primary.why || (forced && tu.kind !== 'nohost'));
     return Object.assign({
       box: dockBox(showWhy),
       eyebrow: spot.name + ' · ' + CUST[held.cust].name.toUpperCase(),
@@ -545,17 +582,18 @@ class Component extends DCLogic {
       plusNote: held.n ? 'on the spot' : (suggest ? 'or push ' + suggest + ' blind' : 'uncounted'),
       plusBig: big, plusSub: sub,
 
-      push: act,
-      pushStyle: this.btn(kind, 76, accent) + 'width:238px;',
-      pushLabel: label, pushNote: note, pushBig: big, pushSub: sub,
+      push: primary.act,
+      pushStyle: this.btn(primary.tone, 76, accent) + 'width:238px;',
+      pushLabel: primary.label, pushNote: primary.note, pushBig: big, pushSub: sub,
 
-      top: tu.kind === 'nohost' ? noop : function () {
-        self.apply(function (s) { doStack(s, focus, tu.host.id, take); });
-        self.setState({ host: null, flash: tu.host ? { id: tu.host.id, from: focus } : null });
-      },
-      topStyle: this.btn(tu.kind === 'nohost' ? 'off' : (forced ? 'warn' : 'quiet'), 60, accent) + 'width:208px;',
-      topLabel: '+' + take + ' on top',
-      topNote: tu.host ? posLabel(tu.host.id) : 'no stack for it', topBig: mid, topSub: sub,
+      // The runner-up, whatever the settings made it. The slot stays whether or
+      // not there is one, because a button that disappears moves every button
+      // beside it under a hand that is already reaching for one of them.
+      top: runner ? runner.act : noop,
+      topStyle: this.btn(runner ? runner.tone : 'off', 60, accent) + 'width:208px;',
+      topLabel: runner ? runner.label : '+' + take + ' on top',
+      topNote: runner ? runner.note : (RULES.allowCombine ? 'no stack for it' : 'combining is off'),
+      topBig: mid, topSub: sub,
 
       done: function () {
         self.apply(function (s) { doClose(s, focus); });
@@ -568,23 +606,209 @@ class Component extends DCLogic {
       // amber, the other says what the remedy costs. Showing only the first is
       // how the driver ends up mixing a stack without being told what mixing is.
       showWhy: showWhy,
-      why: [ps.why, forced && tu.host
+      why: [primary.why, forced && tu.host
         ? (forced === 'space' ? 'The floor is running short. ' : '')
           + CUST[tu.host.below].name + '’s stack at ' + posLabel(tu.host.id) + ' would take them — '
           + 'but two customers on one stack is how the wrong crate gets carried into a building.'
         : ''].filter(function (x) { return x; }).join('  '),
       whyStyle: 'font:400 13px/1.35 "Space Grotesk",sans-serif;color:'
-        + (kind === 'stop' ? '#F7768E' : '#FFB570') + ';'
+        + (primary.tone === 'stop' ? '#F7768E' : '#FFB570') + ';'
         + 'display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;'
     }, undo);
+  }
+
+  // ── the settings screen ────────────────────────────────────────────────────
+  // Everything on here already existed as a parameter or a constant; the screen
+  // is what makes it the driver's rather than mine. Two things are deliberately
+  // absent: the fill order, and depth order. Those are what the whole method is
+  // for, and a board that let you turn them off would be a board that could
+  // quietly load the van backwards.
+  settingsVals(accent) {
+    var self = this, st = this.state.st;
+    var rules = this.props.rules = this.props.rules || {};
+    var setProp = function (k, v) { self.props[k] = v; self.setState({ target: null, host: null }); };
+    var setRule = function (k, v) { rules[k] = v; self.setState({ target: null, host: null }); };
+
+    // A van cannot be made smaller than what is already in it. The steppers stop
+    // rather than the reshape silently dropping a loaded position — the model
+    // will happily forget one, and a lost stack is not something to find out
+    // about at the stop.
+    var used = ORDER.filter(function (id) { return !isEmpty(st, id); });
+    var minRows = used.reduce(function (a, id) { return Math.max(a, rowOf(id)); }, 1);
+    var minCap = ALL_POS.reduce(function (a, id) {
+      var h = heightOf(st, id); return h == null ? a : Math.max(a, h);
+    }, 1);
+    var heldAt = function (door) {
+      return SPOTS.filter(function (sp) { return sp.door === door && st.staged[sp.id]; }).length;
+    };
+
+    var mono = "font-family:'IBM Plex Mono',monospace;";
+    var rowTile = 'display:flex;align-items:center;gap:12px;padding:11px 12px;border-radius:11px;'
+      + 'background:#0E0C14;border:1px solid #1B1826;min-height:62px;';
+    var nameStyle = "font:600 14px/1.25 'Space Grotesk',sans-serif;color:#F2EEF8;";
+    var noteStyle = "font:400 11.5px/1.3 'Space Grotesk',sans-serif;color:#5F5876;";
+    var blank = { isStep: false, isToggle: false, isRank: false, isFixed: false,
+      dec: noop, decStyle: '', inc: noop, incStyle: '', value: '', valueStyle: '',
+      toggle: noop, toggleStyle: '', toggleLabel: '',
+      up: noop, upStyle: '', down: noop, downStyle: '', mark: '', markStyle: '' };
+    var pill = function (live) {
+      return 'width:46px;height:44px;flex:none;border-radius:10px;display:flex;align-items:center;'
+        + 'justify-content:center;font-size:20px;'
+        + (live ? 'background:rgba(242,238,248,.06);border:1px solid #2A2438;color:#CDC6DD;'
+                : 'background:rgba(242,238,248,.02);color:#3A3548;');
+    };
+
+    function step(name, note, value, lo, hi, set, fmt) {
+      return Object.assign({}, blank, {
+        tile: rowTile, name: name, nameStyle: nameStyle, note: note, noteStyle: noteStyle,
+        isStep: true,
+        dec: value > lo ? function () { set(value - 1); } : noop, decStyle: pill(value > lo),
+        inc: value < hi ? function () { set(value + 1); } : noop, incStyle: pill(value < hi),
+        value: fmt ? fmt(value) : String(value),
+        valueStyle: 'min-width:62px;text-align:center;font:800 20px/1 Archivo,system-ui,sans-serif;'
+          + 'letter-spacing:-.02em;color:#F2EEF8;'
+      });
+    }
+    function toggle(name, note, on, set) {
+      return Object.assign({}, blank, {
+        tile: rowTile, name: name, nameStyle: nameStyle, note: note, noteStyle: noteStyle,
+        isToggle: true, toggle: function () { set(!on); },
+        toggleStyle: 'width:96px;height:44px;flex:none;border-radius:10px;display:flex;align-items:center;'
+          + "justify-content:center;font:700 13px/1 'Space Grotesk',sans-serif;"
+          + (on ? 'background:rgba(79,214,168,.14);border:1px solid rgba(79,214,168,.5);color:#4FD6A8;'
+                : 'background:rgba(242,238,248,.03);border:1px solid #2A2438;color:#5F5876;'),
+        toggleLabel: on ? 'on' : 'off'
+      });
+    }
+    function rankRow(name, note, i, len, move) {
+      return Object.assign({}, blank, {
+        tile: rowTile, name: (i + 1) + '.  ' + name, nameStyle: nameStyle, note: note, noteStyle: noteStyle,
+        isRank: true,
+        up: i > 0 ? function () { move(i, -1); } : noop, upStyle: pill(i > 0),
+        down: i < len - 1 ? function () { move(i, 1); } : noop, downStyle: pill(i < len - 1)
+      });
+    }
+    function fixedRow(name, note) {
+      return Object.assign({}, blank, {
+        tile: rowTile + 'opacity:.72;', name: name, nameStyle: nameStyle, note: note, noteStyle: noteStyle,
+        isFixed: true, mark: 'always on',
+        markStyle: mono + 'font-size:11px;letter-spacing:.08em;color:#4FD6A8;flex:none;'
+      });
+    }
+
+    var nSide = SPOTS.filter(function (x) { return x.door === 'side'; }).length;
+    var nBack = SPOTS.filter(function (x) { return x.door === 'back'; }).length;
+    var PRI = { own: ['A position of its own', 'the safe default — one customer, one position'],
+      well: ['The door well', 'reachable, but a stack standing in it blocks the door'],
+      top: ['On top of another stop', 'saves a position, and is how the wrong goods get carried in'] };
+    var pri = (RULES.priority || []).slice();
+    var movePri = function (i, d) {
+      var next = pri.slice(), t = next[i];
+      next[i] = next[i + d]; next[i + d] = t;
+      setRule('priority', next);
+    };
+
+    var colStyle = 'display:flex;flex-direction:column;gap:16px;';
+    var sectionStyle = 'display:flex;flex-direction:column;gap:6px;';
+    var titleStyle = mono + 'font-size:11px;font-weight:600;letter-spacing:.11em;color:#8D87A0;padding-left:2px;';
+    var cols = [
+      { style: 'position:absolute;left:24px;top:104px;width:426px;' + colStyle, sections: [
+        { title: 'THE VAN', titleStyle: titleStyle, style: sectionStyle, rows: [
+          step('Rows', minRows > 1 ? 'deepest row in use is ' + minRows : 'front to back', ROWS,
+            Math.max(5, minRows), 12, function (v) { setProp('rows', v); }),
+          step('Stack height', minCap > 1 ? 'tallest stack aboard is ' + minCap : 'the roof', CAP,
+            Math.max(4, minCap), 10, function (v) { setProp('capacity', v); }),
+          step('Side door reaches', 'rows 1–N; 0 is a van without one', SIDE_DOOR_ROWS, 0, ROWS,
+            function (v) { setProp('sideDoorRows', v); },
+            function (v) { return v ? '1–' + v : 'none'; }),
+          step('Packing spots, side', heldAt('side') ? heldAt('side') + ' holding something' : 'on the kerb',
+            nSide, Math.max(0, heldAt('side')), 4, function (v) { setProp('sideSpots', v); }),
+          step('Packing spots, back', heldAt('back') ? heldAt('back') + ' holding something' : 'behind the doors',
+            nBack, Math.max(0, heldAt('back')), 3, function (v) { setProp('backSpots', v); })
+        ] },
+        { title: 'THE NUMBERS', titleStyle: titleStyle, style: sectionStyle, rows: [
+          step('Stability, ±', 'how far apart two stacks in one column may be', RULES.stability == null ? 6 : RULES.stability,
+            1, 6, function (v) { setRule('stability', v > 5 ? null : v); },
+            function (v) { return v > 5 ? 'off' : '± ' + v; }),
+          step('A small order is', 'at or under this many crates it can go up on a stack',
+            RULES.thin, 1, 4, function (v) { setRule('thin', v); },
+            function (v) { return '≤ ' + v; })
+        ] }
+      ] },
+      { style: 'position:absolute;left:466px;top:104px;width:414px;' + colStyle, sections: [
+        { title: 'WHEN A PILE NEEDS SOMEWHERE TO GO', titleStyle: titleStyle, style: sectionStyle,
+          rows: pri.map(function (k, i) {
+            return rankRow(PRI[k][0], PRI[k][1], i, pri.length, movePri);
+          }) },
+        { title: 'AND THESE', titleStyle: titleStyle, style: sectionStyle, rows: [
+          toggle('A lone crate goes to the side well', 'easy to reach, and off anybody else’s stack',
+            RULES.singleCrateWell, function (v) { setRule('singleCrateWell', v); }),
+          toggle('Two customers may share a stack', 'off means the board will not offer it at all',
+            RULES.allowCombine, function (v) { setRule('allowCombine', v); }),
+          toggle('The side well is kept for freeze ware', 'it has to still fit at the end of the load',
+            RULES.freezeAtWell, function (v) { setRule('freezeAtWell', v); }),
+          toggle('Warn when a stop loads out of turn', 'a warning about the order of the taps',
+            RULES.orderGuard, function (v) { setRule('orderGuard', v); }),
+          fixedRow('Nothing deeper than a stop delivered before it',
+            'the rule the whole load runs backwards to produce')
+        ] }
+      ] }
+    ];
+
+    // The live session, not an illustration of one — so the shape on the right
+    // is the shape the next crate actually goes into. No tether: there is no
+    // dock on this screen for one to run to.
+    var S = this.scene(st, accent, null, { x: 896, y: 156, w: 520, h: 560, tether: false });
+    var facts = [
+      ['POSITIONS', String(ORDER.length)],
+      ['THROUGH THE SIDE', String(SIDE_DOOR_ROWS * 2)],
+      ['PACKING SPOTS', nSide + ' + ' + nBack],
+      ['STACK', 'up to ' + CAP]
+    ].map(function (f) {
+      return { label: f[0], value: f[1],
+        labelStyle: mono + 'font-size:10px;letter-spacing:.09em;color:#5F5876;',
+        valueStyle: 'font:800 19px/1.15 Archivo,system-ui,sans-serif;letter-spacing:-.02em;color:#F2EEF8;' };
+    });
+    var same = JSON.stringify(RULES) === JSON.stringify(RULE_DEFAULTS)
+      && ROWS === 9 && CAP === 8 && SIDE_DOOR_ROWS === 4 && nSide === 3 && nBack === 2;
+
+    return {
+      screen: 'settings',
+      title: 'Loading rules',
+      sub: 'THE VAN, AND WHAT THE BOARD REACHES FOR FIRST',
+      cols: cols,
+      preview: { box: S.box, parts: S.parts },
+      facts: facts,
+      reset: function () {
+        ['rows', 'capacity', 'sideDoorRows', 'sideSpots', 'backSpots'].forEach(function (k) { delete self.props[k]; });
+        self.props.rules = {};
+        resetRules();
+        self.setState({ target: null, host: null });
+      },
+      resetStyle: this.btn(same ? 'off' : 'quiet', 48, accent) + 'width:172px;font-size:14px;',
+      resetLabel: same ? 'Defaults' : 'Restore defaults',
+      back: function () { self.setState({ screen: 'board' }); },
+      backStyle: this.btn('go', 48, accent) + 'width:176px;font-size:15px;',
+      backLabel: 'Back to the board'
+    };
   }
 
   renderVals() {
     var self = this;
     // The van is a setting, and there is more than one van. Reshape first, then
-    // make the board's state fit the shape it just got.
+    // make the board's state fit the shape it just got. The rules are reset and
+    // re-applied every paint so a component carries its own and nothing leaks
+    // between two of them sharing the module.
     configure(this.props);
+    resetRules();
+    configureRules(this.props.rules || {});
+    // Reshape the state to whatever the van has just become BEFORE either screen
+    // reads it. Growing the van back after shrinking it leaves the state without
+    // the positions that just came into existence, and everything that walks
+    // ORDER then reads an undefined stack.
     var st = normalize(this.state.st);
+    var accentIn = this.props.accent == null ? '#B48EF7' : this.props.accent;
+    if (this.state.screen === 'settings') return this.settingsVals(accentIn);
     var tier = this.props.tier == null ? 1 : this.props.tier;
     var plan = tier >= 2 ? planAhead(COUNTS, st) : null;
     var accent = this.props.accent == null ? '#B48EF7' : this.props.accent;
@@ -714,13 +938,17 @@ class Component extends DCLogic {
     var toolBig = "font:700 15px/1 'Space Grotesk',sans-serif;";
     var toolSub = "font:400 10px/1 'IBM Plex Mono',monospace;letter-spacing:.07em;opacity:.7;";
     var tools = [
-      { label: '⚑ Odd crate', sub: st.flags ? st.flags + ' flagged' : 'unlabelled or off route',
+      { label: '⚙ Rules', sub: 'the van, the priority',
+        tap: function () { self.setState({ screen: 'settings' }); },
+        style: this.btn('quiet', 58, accent) + 'width:116px;',
+        bigStyle: toolBig, subStyle: toolSub },
+      { label: '⚑ Odd crate', sub: st.flags ? st.flags + ' flagged' : 'off route',
         tap: function () { self.apply(function (s) { s.flags = (s.flags || 0) + 1; }); },
-        style: this.btn(st.flags ? 'warn' : 'quiet', 58, accent) + 'width:184px;',
+        style: this.btn(st.flags ? 'warn' : 'quiet', 58, accent) + 'width:128px;',
         bigStyle: toolBig, subStyle: toolSub },
       { label: '❄ Freeze', sub: st.frozenAtDoor ? 'side well' : 'none today',
         tap: function () { self.apply(function (s) { s.frozenAtDoor = !s.frozenAtDoor; }); },
-        style: this.btn(st.frozenAtDoor ? 'quiet' : 'off', 58, accent) + 'width:186px;',
+        style: this.btn(st.frozenAtDoor ? 'quiet' : 'off', 58, accent) + 'width:118px;',
         bigStyle: toolBig, subStyle: toolSub }
     ];
 
@@ -733,6 +961,7 @@ class Component extends DCLogic {
               sub: 'WED 19 AUG · ' + STOPS.length + ' STOPS · '
                 + (tier === 1 ? 'ROUTE ONLY' : (tier === 2 ? 'COUNTS KNOWN' : 'FULLY SCANNED')) },
       stats: stats,
+      screen: 'board',
       scene: { box: S.box, parts: S.parts, geo: S.geo },
       con: this.consoleVals(st, accent, plan, S),
       queue: queue, warn: warn, tools: tools

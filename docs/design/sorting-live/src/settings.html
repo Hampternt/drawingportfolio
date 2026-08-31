@@ -1,0 +1,94 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=IBM+Plex+Mono:wght@400;500;600&family=Space+Grotesk:wght@400;500;600;700&display=swap">
+  <style>
+    body { margin: 0; font-family: "Space Grotesk", system-ui, sans-serif; }
+    * { box-sizing: border-box; }
+  </style>
+</helmet>
+
+<div style="width: 1440px; height: 840px; background: #0B0910; color: #CDC6DD; position: relative; overflow: hidden; font-size: 16px;">
+
+  <div style="position: absolute; left: 24px; top: 16px; display: flex; flex-direction: column; gap: 1px;">
+    <div style="font: 800 22px/1.2 Archivo, system-ui, sans-serif; letter-spacing: -0.025em; color: #F2EEF8;">{{title}}</div>
+    <div style="font: 500 11px/1.4 'IBM Plex Mono', monospace; letter-spacing: 0.09em; color: #8D87A0;">{{sub}}</div>
+  </div>
+  <div style="position: absolute; right: 24px; top: 18px; display: flex; gap: 8px;">
+    <div onClick="{{reset}}" style="{{resetStyle}}">{{resetLabel}}</div>
+    <div onClick="{{back}}" style="{{backStyle}}">{{backLabel}}</div>
+  </div>
+
+  <!-- ── the settings ───────────────────────────────────────────────────────
+       Two columns: the numbers that describe the van on the left, and what the
+       board should reach for on the right. Every row here was already a
+       parameter or a constant — the screen is what makes it the driver's. -->
+  <sc-for list="{{cols}}" as="col" hint-placeholder-count="2">
+    <div style="{{col.style}}">
+      <sc-for list="{{col.sections}}" as="sec" hint-placeholder-count="2">
+        <div style="{{sec.style}}">
+          <span style="{{sec.titleStyle}}">{{sec.title}}</span>
+          <sc-for list="{{sec.rows}}" as="r" hint-placeholder-count="5">
+            <div style="{{r.tile}}">
+              <div style="display: flex; flex-direction: column; gap: 2px; flex: 1 1 0; min-width: 0;">
+                <span style="{{r.nameStyle}}">{{r.name}}</span>
+                <span style="{{r.noteStyle}}">{{r.note}}</span>
+              </div>
+              <sc-if value="{{r.isStep}}" hint-placeholder-val="{{true}}">
+                <div style="display: flex; align-items: center; gap: 6px; flex: none;">
+                  <div onClick="{{r.dec}}" style="{{r.decStyle}}">&#8722;</div>
+                  <span style="{{r.valueStyle}}">{{r.value}}</span>
+                  <div onClick="{{r.inc}}" style="{{r.incStyle}}">+</div>
+                </div>
+              </sc-if>
+              <sc-if value="{{r.isToggle}}" hint-placeholder-val="{{false}}">
+                <div onClick="{{r.toggle}}" style="{{r.toggleStyle}}">{{r.toggleLabel}}</div>
+              </sc-if>
+              <sc-if value="{{r.isRank}}" hint-placeholder-val="{{false}}">
+                <div style="display: flex; gap: 6px; flex: none;">
+                  <div onClick="{{r.up}}" style="{{r.upStyle}}">&#8593;</div>
+                  <div onClick="{{r.down}}" style="{{r.downStyle}}">&#8595;</div>
+                </div>
+              </sc-if>
+              <sc-if value="{{r.isFixed}}" hint-placeholder-val="{{false}}">
+                <span style="{{r.markStyle}}">{{r.mark}}</span>
+              </sc-if>
+            </div>
+          </sc-for>
+        </div>
+      </sc-for>
+    </div>
+  </sc-for>
+
+  <!-- ── the van these settings make ────────────────────────────────────────
+       Drawn from the live session, so the shape on the right is the shape the
+       next crate goes into rather than an illustration of one. -->
+  <div style="position: absolute; left: 896px; top: 104px; width: 520px; display: flex; justify-content: space-between;">
+    <sc-for list="{{facts}}" as="f" hint-placeholder-count="4">
+      <div style="display: flex; flex-direction: column; gap: 2px;">
+        <span style="{{f.labelStyle}}">{{f.label}}</span>
+        <span style="{{f.valueStyle}}">{{f.value}}</span>
+      </div>
+    </sc-for>
+  </div>
+  <div style="position: absolute; left: 896px; top: 748px; width: 520px; font: 400 12px/1.4 'Space Grotesk', sans-serif; color: #5F5876;">
+    The van drawn here is the one in the session, so a shape that would drop a loaded position is not offered — the steppers stop instead.
+  </div>
+  <div style="{{preview.box}}">
+    <sc-for list="{{preview.parts}}" as="p" hint-placeholder-count="40">
+      <div style="{{p.style}}"><sc-for list="{{p.kids}}" as="k" hint-placeholder-count="4"><div style="{{k.style}}"></div></sc-for>{{p.text}}</div>
+    </sc-for>
+  </div>
+
+</div>
+</x-dc>
+</body>
+</html>

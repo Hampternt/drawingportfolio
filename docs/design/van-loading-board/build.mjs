@@ -27,6 +27,7 @@ const M = {};
 `))(M, DCLogic);
 M.configure({});
 const TPL = boardTemplate(read('board.html'));
+const SET = boardTemplate(read('settings.html'));
 
 // ── a board state, built by tapping the real model ──────────────────────────
 function board(mutate, props = {}) {
@@ -40,8 +41,10 @@ function board(mutate, props = {}) {
 }
 // box-sizing is not border-box on this page the way it is inside the board's own
 // helmet, so the frame carries its border explicitly rather than growing by it.
-const draw = c => `<div style="box-sizing:border-box;width:1442px;height:842px;flex:none;
-  border-radius:14px;overflow:hidden;border:1px solid var(--border-default)">${render(TPL, c.renderVals())}</div>`;
+const frame = html => `<div style="box-sizing:border-box;width:1442px;height:842px;flex:none;
+  border-radius:14px;overflow:hidden;border:1px solid var(--border-default)">${html}</div>`;
+const draw = c => frame(render(TPL, c.renderVals()));
+const drawSettings = c => { c.state.screen = 'settings'; const h = frame(render(SET, c.renderVals())); c.state.screen = 'board'; return h; };
 
 // ── tokens, quoted from the design system rather than guessed ───────────────
 const T = {
@@ -85,6 +88,8 @@ const LATER = board(st => {
   st.closed.OLA = true; st.closed.JAT = true; st.closed.HIN = true; st.closed.SVE = true;
   st.staged['back-1'] = { cust: 'MAR', n: 3 };
 }, { tier: 3 });
+
+const SETTINGS = board(midState);
 
 // ── the projection, quoted from the code that computes it ───────────────────
 const GEO = MID.renderVals().scene.geo;
@@ -286,7 +291,11 @@ ${section('S2', 'S2', 'The same board, with the counts scanned', `Nothing has mo
 
 ${section('S3', 'S3', 'Later, with the side door shut', `Rows 1–4 are full, so nothing more can be pushed in that way — it would have to travel past what is already aboard. The sill has gone from amber to red, the still-empty side positions have gone with it, and Marlink is being packed at the back instead. With the pallets read in too, the dock names the one to pull from next.`, draw(LATER))}
 
-${section('S4', 'S4', 'The projection', `A parallel projection from the van&rsquo;s rear-right corner, raised. It is <strong style="color:${T.body}">dimetric rather than true isometric</strong>, and it has to be: at 30° on both axes, nine rows of van is 950px wide and 850 tall before a crate goes in, which does not fit a 1440 × 840 board that also has to hold a queue. Two floor basis vectors and one vertical, scaled by a single factor to fit the box — the projection is linear in that factor, so the picture&rsquo;s bounding box is too, and the fit is one division rather than a search.`,
+${section('S4', 'S4', 'The rules, as a screen', `Every row on here was already a parameter or a constant; the screen is what makes it the driver&rsquo;s rather than mine. The left column is the van — and it will not shrink past what is already loaded, because the reshape would drop those positions and a lost stack is not something to find out about at the stop. The right column is <strong style="color:${T.body}">what the board reaches for first</strong>, which was an if-chain and is now an order you can move. The preview is the live session, not an illustration of one.
+
+<br><br>Two things are deliberately absent, and the last row says so out loud: the fill order, and depth order. Those are what the whole method is for, and a board that let you turn them off would be a board that could quietly load the van backwards.`, drawSettings(SETTINGS))}
+
+${section('S5', 'S5', 'The projection', `A parallel projection from the van&rsquo;s rear-right corner, raised. It is <strong style="color:${T.body}">dimetric rather than true isometric</strong>, and it has to be: at 30° on both axes, nine rows of van is 950px wide and 850 tall before a crate goes in, which does not fit a 1440 × 840 board that also has to hold a queue. Two floor basis vectors and one vertical, scaled by a single factor to fit the box — the projection is linear in that factor, so the picture&rsquo;s bounding box is too, and the fit is one division rather than a search.`,
 `<div style="display:flex;flex-direction:column;gap:26px">
   ${projection()}
   <div style="display:flex;flex-direction:column;gap:10px">
@@ -309,11 +318,11 @@ ${section('S4', 'S4', 'The projection', `A parallel projection from the van&rsqu
   </div>
 </div>`)}
 
-${section('S5', 'S5', 'What every push button can say', `Amber means <em>allowed, and here is what it costs</em>. Red means <em>the van physically cannot</em>. <strong style="color:${T.body}">Every red state that names an action has a button that performs it</strong> — the board used to say &ldquo;round the back&rdquo; and offer no way to do it, which stranded whoever was mid-order when rows 1–4 filled. These rows are not written out: each one puts the model in a state and prints what the dock then says.`, ladder())}
+${section('S6', 'S6', 'What every push button can say', `Amber means <em>allowed, and here is what it costs</em>. Red means <em>the van physically cannot</em>. <strong style="color:${T.body}">Every red state that names an action has a button that performs it</strong> — the board used to say &ldquo;round the back&rdquo; and offer no way to do it, which stranded whoever was mid-order when rows 1–4 filled. These rows are not written out: each one puts the model in a state and prints what the dock then says.`, ladder())}
 
-${section('S6', 'S6', 'Starting a stop — the two rail buttons', `The route runs down the right in loading order, and the only decision the board cannot make is which door you are packing a stop at. Almost nothing here is a hard no; the buttons say which choice is worse and let the driver make it anyway. <strong style="color:${T.body}">Only two states are untappable</strong>, and neither of them is &ldquo;the side door is shut&rdquo; — rows 1–4 filling stops crates being pushed in that way, but the well is still floor, and it is where a single-crate stop belongs.`, railStates())}
+${section('S7', 'S7', 'Starting a stop — the two rail buttons', `The route runs down the right in loading order, and the only decision the board cannot make is which door you are packing a stop at. Almost nothing here is a hard no; the buttons say which choice is worse and let the driver make it anyway. <strong style="color:${T.body}">Only two states are untappable</strong>, and neither of them is &ldquo;the side door is shut&rdquo; — rows 1–4 filling stops crates being pushed in that way, but the well is still floor, and it is where a single-crate stop belongs.`, railStates())}
 
-${section('S7', 'S7', 'What changed, and what it cost', `The previous board was a plan view in flex bands, with a stack gauge in each cell and a console strip along the bottom.`, list([
+${section('S8', 'S8', 'What changed, and what it cost', `The previous board was a plan view in flex bands, with a stack gauge in each cell and a console strip along the bottom.`, list([
   ['Height is the gauge', 'A stack drawn at its real height needs no bar beside it, and eighteen positions stop reading as graph paper. The space/identity toggle went with it: colour and a three-letter code answer “who”, the silhouette answers “how full”.', true],
   ['The spots are where they are', 'Three pads outboard of the kerb flank beside the rows the side door reaches, two on the ground aft of the back doors — and the pile you have built stands on its pad at true crate height, so the stack you made and the stack it is about to become are the same picture.', true],
   ['The controls stand where the driver does', 'One dock on the pavement wedge, tethered by a line to the spot it is driving and bordered in that customer’s colour. The user asked for the push button to be on the packing area; a control that jumps between five pads is a mis-tap generator, so it says which pad it belongs to instead of moving to it.', true],
@@ -321,10 +330,11 @@ ${section('S7', 'S7', 'What changed, and what it cost', `The previous board was 
   ['Blind is not empty', 'A push with nothing counted records an unknown, and the headline says <code style="' + mono + '">POSITIONS IN · 2 blind</code> rather than reporting nought crates with two stacks aboard.', true],
   ['The proposal is drawn before it is committed', 'A top-up shows the crates themselves standing on the host; a pushed stack slides in from the spot it was built on.', true],
   ['A skipped tap still cannot be detected', 'Nothing here fixes that — the app has no independent view of the van. The route rail is what it was tapped in as, which is honesty rather than a solution.', false],
+  ['The rules are the driver’s', 'Stability, what counts as a small order, whether two customers may share a stack, whether a lone crate goes to the well — and the order the board reaches for them in. All of it was a constant.', true],
   ['Portrait has not been redrawn', 'The board is authored landscape and scales rather than reflows. Turning this projection through ninety degrees is a different picture, not the same one rotated.', false],
 ], true))}
 
-${section('S8', 'S8', 'Notes on the design system', `Three deliberate departures, all because this screen is used standing up in a cold warehouse rather than at a desk.`, list([
+${section('S9', 'S9', 'Notes on the design system', `Three deliberate departures, all because this screen is used standing up in a cold warehouse rather than at a desk.`, list([
   ['Controls are taller than the kit', 'The largest button in the system is ' + code('--control-height-lg') + ' at 42px. The push button here is 238 × 76, because the driver is often gloved and a dropped tap commits a crate to a position. Everything else — colour, type, radius, spacing — comes straight from the tokens.'],
   ['No hover state carries meaning', 'This is a touch screen with no pointer. Anything the kit expresses through ' + code(':hover') + ' has to also be visible at rest.'],
   ['The picture is not a component', 'Floor tiles and stack faces are sheared with ' + code('matrix()') + ' and cannot take type; every readable thing is a separate upright chip positioned at a projected point. Sheared text is unreadable at arm’s length in the rain.'],
