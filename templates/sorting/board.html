@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% block title %}{{ route_name }} · Sorting{% endblock %}
+
+{% block body_class %}sorting-dark{% endblock %}
+
+{% block content %}
+<!-- `.sorting-page` is the marker base.html's syncBodyTheme() re-derives the
+     body class from after a boosted navigation — it must stay outermost.
+     `.sorting-board` carries this screen's own wide layout. -->
+<section class="sorting-page sorting-board"
+         data-session-id="{{ session_id }}">
+
+  <!-- The document and the ticks, handed to sorting.js. Both are
+       application/json rather than an inline script literal: the browser never
+       parses this as code, and Rust escaped every angle bracket to its \u003c
+       form on the way out, so nothing inside a customer name can close the
+       element early. -->
+  <script type="application/json" id="sorting-payload">{{ payload_json|safe }}</script>
+  <script type="application/json" id="sorting-progress">{{ progress_json|safe }}</script>
+
+  <header class="sort-bhead">
+    <a class="sort-bhead__back" href="/sorting" aria-label="All sessions">←</a>
+    <div class="sort-bhead__id">
+      <h1 class="sort-bhead__route">{{ route_name }}</h1>
+      <p class="sort-bhead__when">
+        {{ date_label }}{% if !time_window.is_empty() %} · {{ time_window }}{% endif %}
+      </p>
+    </div>
+    <div class="sort-bhead__prog">
+      <span class="sort-bhead__count" id="sort-progress-text">—</span>
+      <div class="sort-bhead__meter"><span class="sort-bhead__fill" id="sort-progress-fill"></span></div>
+    </div>
+    <span class="sort-sync" id="sort-sync" hidden></span>
+  </header>
+
+  <nav class="sort-tabs" role="tablist" aria-label="Board panes">
+    <button type="button" class="sort-tab is-active" role="tab" data-tab="sort" aria-selected="true">Sort</button>
+    <button type="button" class="sort-tab sort-tab--van" role="tab" data-tab="van" aria-selected="false">Van</button>
+    <button type="button" class="sort-tab" role="tab" data-tab="checks" aria-selected="false">
+      Checks
+      {% if attention_count > 0 %}
+      <span class="sort-tab__badge{% if critical_count > 0 %} is-critical{% endif %}">{{ attention_count }}</span>
+      {% endif %}
+    </button>
+  </nav>
+
+  <div class="sort-panes">
+
+    <!-- ── The sort: what to pick up next ───────────────────────────── -->
+    <div class="sort-pane is-active" data-pane="sort" role="tabpanel">
+      <div id="sort-focus" class="sort-focus" aria-live="polite"></div>
+      <div class="sort-steps__head">
+        <h2>Every move</h2>
+        <button type="button" class="hm-btn hm-btn--sm hm-btn--ghost" id="sort-toggle-done"
+                aria-pressed="false">Show done</button>
+      </div>
+      <ol id="sort-steps" class="sort-steps"></ol>
+    </div>
+
+    <!-- ── The van: where it all ends up ────────────────────────────── -->
+    <div class="sort-pane" data-pane="van" role="tabpanel">
+      <div id="sort-van" class="sort-van"></div>
+    </div>
+
+    <!-- ── The checks: what to look at before lifting anything ──────── -->
+    <div class="sort-pane" data-pane="checks" role="tabpanel">
+      <section class="sort-section">
+        <h2 class="sort-section__title">Before you start</h2>
+        <div class="sort-checks">{{ checks_html|safe }}</div>
+      </section>
+
+      <section class="sort-section">
+        <h2 class="sort-section__title">Crate manifest</h2>
+        {{ manifest_html|safe }}
+      </section>
+
+      <section class="sort-section">
+        <h2 class="sort-section__title">Route, in delivery order</h2>
+        {{ stops_html|safe }}
+      </section>
+
+      <section class="sort-section">
+        <h2 class="sort-section__title">Pallets, as photographed</h2>
+        {{ stacks_html|safe }}
+      </section>
+
+      <section class="sort-section">
+        <h2 class="sort-section__title">Start over</h2>
+        <p class="sort-hint">Clears every tick on this route. The plan itself is kept.</p>
+        <form method="post" action="/api/sorting/sessions/{{ session_id }}/reset"
+              onsubmit="return confirm('Clear all progress on this route?')">
+          <button type="submit" class="hm-btn hm-btn--ghost">Reset progress</button>
+        </form>
+      </section>
+    </div>
+
+  </div>
+</section>
+<script src="/static/sorting.js?v={{ crate::assets::asset_version() }}" defer></script>
+{% endblock %}

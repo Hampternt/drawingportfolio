@@ -15,7 +15,7 @@ mod db; // All database queries (SQLite via sqlx)
 mod middleware; // Extractors: AuthSession, RequireAdmin, OptionalAdmin, LocalhostOnly
 mod models; // Plain data structs that mirror database rows
 mod pin; // Name + PIN credentials: Argon2 hashing, validation, lockout limits
-mod routes; // One sub-module per feature area (hub, feed, admin, auth, nutrition, tasks)
+mod routes; // One sub-module per feature area (hub, feed, admin, auth, nutrition, tasks, sorting)
 mod storage; // S3-compatible object storage wrapper (Hetzner)
 
 use axum::extract::DefaultBodyLimit;
@@ -144,6 +144,7 @@ async fn main() {
         .merge(routes::auth::router()) // POST /api/auth/... (WebAuthn ceremonies)
         .merge(routes::nutrition::router()) // GET /fitness, POST/DELETE /api/nutrition/...
         .merge(routes::tasks::router()) // GET /tasks, POST/DELETE /api/tasks/...
+        .merge(routes::sorting::router()) // GET /sorting, POST/DELETE /api/sorting/...
         .merge(routes::users::router()) // GET /admin/users (owner), /fitness/account
         .nest_service("/drinks", drinks) // party drink tracker (drinkinggame crate)
         // Serve files from the `static/` directory on disk at the /static URL prefix.

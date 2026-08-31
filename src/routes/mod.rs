@@ -3,5 +3,6 @@ pub mod auth;
 pub mod feed;
 pub mod hub;
 pub mod nutrition;
+pub mod sorting;
 pub mod tasks;
 pub mod users;

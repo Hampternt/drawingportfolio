@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT st.step as \"step!: i64\" FROM sorting_step_state st\n           JOIN sorting_sessions s ON s.id = st.session_id\n           WHERE st.session_id = ? AND s.user_id = ?\n           ORDER BY st.step ASC",
+  "describe": {
+    "columns": [
+      {
+        "name": "step!: i64",
+        "ordinal": 0,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "529deba9c92b26012c6ebbe627d8cac2fe2dd6fc11b32fe21457114f6a7eada5"
+}

@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% block title %}Sorting{% endblock %}
+
+{% block body_class %}sorting-dark{% endblock %}
+
+{% block content %}
+<!-- Two classes, two jobs. `.sorting-page` must stay the outermost element
+     inside this block: base.html's syncBodyTheme() looks for it to re-derive
+     the sorting-dark body class after a boosted navigation. `.sorting-index`
+     is what this screen's layout hangs off — the board is also a
+     `.sorting-page`, and keying the list's narrow shell on that name would
+     squeeze the board too. -->
+<section class="sorting-page sorting-index">
+
+  <header class="sort-head">
+    <div>
+      <h1 class="sort-head__title">Sorting</h1>
+      <p class="sort-head__sub">Crate sort and van load, one route at a time.</p>
+    </div>
+  </header>
+
+  {% if !error.is_empty() %}
+  <div class="sort-alert" role="alert">
+    <strong>That paste was not saved.</strong>
+    <p>{{ error }}</p>
+  </div>
+  {% endif %}
+
+  <details class="sort-new" {% if !error.is_empty() || sessions.is_empty() %}open{% endif %}>
+    <summary class="sort-new__summary">
+      <span class="sort-new__plus" aria-hidden="true">+</span>
+      New sorting session
+    </summary>
+
+    <form class="sort-new__form" method="post" action="/sorting">
+      <label class="sort-new__label" for="sort-payload">
+        Paste the plan JSON
+        <span class="sort-new__hint">Comments and trailing commas are fine — they get stripped.</span>
+      </label>
+      <textarea id="sort-payload"
+                name="payload"
+                class="sort-new__box"
+                rows="10"
+                spellcheck="false"
+                autocapitalize="off"
+                autocomplete="off"
+                placeholder='{ "session": { "routeName": "…" }, "stops": [ … ], "manifest": [ … ] }'>{{ draft }}</textarea>
+      <div class="sort-new__actions">
+        <label class="hm-btn hm-btn--ghost sort-new__file">
+          Load a .json file
+          <input type="file" id="sort-file" accept=".json,application/json" hidden>
+        </label>
+        <button type="submit" class="hm-btn hm-btn--primary">Open the board</button>
+      </div>
+    </form>
+  </details>
+
+  {% if sessions.is_empty() %}
+  <div class="sort-empty-state">
+    <p><strong>No sessions yet.</strong></p>
+    <p>Paste a generated plan above and it becomes a checklist, a van diagram and a set of sanity checks.</p>
+  </div>
+  {% else %}
+  <ul class="sort-list">
+    {% for s in sessions %}
+    <li class="sort-list__item" id="sort-session-{{ s.id }}">
+      <a class="sort-list__link" href="/sorting/{{ s.id }}">
+        <div class="sort-list__top">
+          <span class="sort-list__route">{{ s.route_name }}</span>
+          <span class="sort-list__date">{{ s.date_label }}</span>
+        </div>
+        <div class="sort-list__meter" role="img"
+             aria-label="{{ s.completed_steps }} of {{ s.total_steps }} moves done">
+          <span class="sort-list__fill" style="width: {{ s.percent }}%"></span>
+        </div>
+        <div class="sort-list__bottom">
+          <span class="sort-list__count">{{ s.completed_steps }} / {{ s.total_steps }} moves</span>
+          <span class="sort-list__crates">{{ s.total_crates }} crates</span>
+          <span class="sort-list__status">{{ s.status }}</span>
+        </div>
+      </a>
+      <button type="button"
+              class="hm-btn hm-btn--sm hm-btn--ghost sort-list__delete"
+              data-delete-session="{{ s.id }}"
+              data-route="{{ s.route_name }} · {{ s.session_date }}"
+              aria-label="Delete {{ s.route_name }}">Delete</button>
+    </li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+
+</section>
+<script src="/static/sorting.js?v={{ crate::assets::asset_version() }}" defer></script>
+{% endblock %}

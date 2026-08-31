@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM sorting_step_state WHERE session_id = ? AND step = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "073a7b9b45803531d03208af9e32d939abab95cf5168078f464263753f01d9c3"
+}

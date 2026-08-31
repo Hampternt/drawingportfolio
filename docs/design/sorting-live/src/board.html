@@ -1,0 +1,141 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=IBM+Plex+Mono:wght@400;500;600&family=Space+Grotesk:wght@400;500;600;700&display=swap">
+  <style>
+    body { margin: 0; font-family: "Space Grotesk", system-ui, sans-serif; }
+    a { color: #CBB0FF; } a:hover { color: #DED0FF; }
+    * { box-sizing: border-box; }
+    /* A stack arriving in the van slides from the spot it was built on.
+       `translate` is an independent transform property, so it composes OUTSIDE
+       the sheared `transform` the stack already carries and leaves the matrix
+       alone. The runtime rebuilds the tree on every paint, and a freshly created
+       element always starts its animation — so the full re-render is what drives
+       this rather than what breaks it. */
+    @keyframes sc-push { from { translate: var(--dx) var(--dy); } to { translate: 0 0; } }
+  </style>
+</helmet>
+
+<div style="width: 1440px; height: 840px; background: #0B0910; color: #CDC6DD; position: relative; overflow: hidden; font-size: 16px;">
+
+  <!-- ── the van, drawn from its rear right corner ───────────────────────────
+       Every piece of the picture is one absolutely positioned div carrying its
+       own transform, emitted back to front, so paint order is depth order and
+       no z-index is needed. Floor tiles and stack faces are sheared; anything
+       with words in it is a separate upright chip, because sheared text is
+       unreadable and this is read at arm's length in the rain. -->
+  <div style="{{scene.box}}">
+    <sc-for list="{{scene.parts}}" as="p" hint-placeholder-count="40">
+      <div onClick="{{p.tap}}" style="{{p.style}}"><sc-for list="{{p.kids}}" as="k" hint-placeholder-count="4"><div style="{{k.style}}"></div></sc-for>{{p.text}}</div>
+    </sc-for>
+  </div>
+
+  <!-- ── header ─────────────────────────────────────────────────────────────
+       Over the empty corner the diagonal leaves at the top left. -->
+  <div style="position: absolute; left: 24px; top: 14px; display: flex; align-items: center; gap: 14px;">
+    <div style="width: 42px; height: 42px; border: 1px solid #262232; border-radius: 10px; display: flex; align-items: center; justify-content: center; color: #8D87A0; font-size: 19px; flex: none;">&#8592;</div>
+    <div style="display: flex; flex-direction: column; gap: 1px;">
+      <div style="font: 800 19px/1.2 Archivo, system-ui, sans-serif; letter-spacing: -0.025em; color: #F2EEF8;">{{head.title}}</div>
+      <div style="font: 500 11px/1.4 'IBM Plex Mono', monospace; letter-spacing: 0.09em; color: #8D87A0;">{{head.sub}}</div>
+    </div>
+    <div style="display: flex; gap: 22px; margin-left: 24px;">
+      <sc-for list="{{stats}}" as="s" hint-placeholder-count="4">
+        <div style="display: flex; flex-direction: column; gap: 2px;">
+          <span style="font: 500 10px/1 'IBM Plex Mono', monospace; letter-spacing: 0.09em; color: #5F5876; white-space: nowrap;">{{s.label}}</span>
+          <span style="{{s.style}}">{{s.value}}</span>
+        </div>
+      </sc-for>
+    </div>
+  </div>
+
+  <!-- ── the dock ───────────────────────────────────────────────────────────
+       Standing on the pavement wedge between the two clusters of packing spots,
+       tethered by a line to whichever one it is driving. The top row is the loop
+       the driver runs a hundred times a load and its buttons never move; the
+       bottom row is everything that ends something. -->
+  <div style="{{con.box}}">
+    <div style="display: flex; align-items: baseline; gap: 9px; min-width: 0; flex: none;">
+      <span style="{{con.eyebrowStyle}}">{{con.eyebrow}}</span>
+      <span style="{{con.noteStyle}}">{{con.note}}</span>
+    </div>
+    <div style="display: flex; gap: 8px; align-items: stretch; flex: none;">
+      <div onClick="{{con.minus}}" style="{{con.minusStyle}}">&#8722;</div>
+      <div onClick="{{con.plus}}" style="{{con.plusStyle}}">
+        <span style="{{con.plusBig}}">{{con.plusLabel}}</span>
+        <span style="{{con.plusSub}}">{{con.plusNote}}</span>
+      </div>
+      <div onClick="{{con.push}}" style="{{con.pushStyle}}">
+        <span style="{{con.pushBig}}">{{con.pushLabel}}</span>
+        <span style="{{con.pushSub}}">{{con.pushNote}}</span>
+      </div>
+    </div>
+    <div style="display: flex; gap: 8px; align-items: stretch; flex: none;">
+      <div onClick="{{con.top}}" style="{{con.topStyle}}">
+        <span style="{{con.topBig}}">{{con.topLabel}}</span>
+        <span style="{{con.topSub}}">{{con.topNote}}</span>
+      </div>
+      <div onClick="{{con.done}}" style="{{con.doneStyle}}"><span style="{{con.doneBig}}">{{con.doneLabel}}</span></div>
+      <div onClick="{{con.undo}}" style="{{con.undoStyle}}"><span style="{{con.undoBig}}">{{con.undoLabel}}</span></div>
+    </div>
+    <sc-if value="{{con.showWhy}}" hint-placeholder-val="{{true}}">
+      <div style="{{con.whyStyle}}">{{con.why}}</div>
+    </sc-if>
+  </div>
+
+  <!-- ── the route, in loading order ────────────────────────────────────────
+       Reverse of delivery: the last drop goes in first and ends up deepest.
+       Each stop says which door to pack it at, because that is the only choice
+       the board cannot make for you. -->
+  <div style="position: absolute; right: 16px; top: 14px; width: 376px; height: 812px; display: flex; flex-direction: column; gap: 6px;">
+    <div style="display: flex; align-items: baseline; justify-content: space-between; padding: 0 3px 2px; flex: none;">
+      <span style="font: 600 11px/1 'IBM Plex Mono', monospace; letter-spacing: 0.10em; color: #8D87A0;">LOADING ORDER</span>
+      <span style="font: 400 11px/1 'Space Grotesk', sans-serif; color: #5F5876;">last delivery in first</span>
+    </div>
+
+    <sc-for list="{{queue}}" as="q" hint-placeholder-count="6">
+      <div onClick="{{q.tap}}" style="{{q.tile}}">
+        <div style="{{q.barStyle}}"></div>
+        <div style="display: flex; flex-direction: column; gap: 1px; flex: 1 1 0; min-width: 0;">
+          <span style="{{q.nameStyle}}">{{q.name}}</span>
+          <span style="{{q.stateStyle}}">{{q.state}}</span>
+        </div>
+        <sc-if value="{{q.hasDoors}}" hint-placeholder-val="{{true}}">
+          <div style="display: flex; gap: 5px; flex: none;">
+            <div onClick="{{q.side}}" style="{{q.sideStyle}}">{{q.sideLabel}}</div>
+            <div onClick="{{q.rear}}" style="{{q.rearStyle}}">{{q.rearLabel}}</div>
+          </div>
+        </sc-if>
+        <sc-if value="{{q.hasReopen}}" hint-placeholder-val="{{false}}">
+          <div onClick="{{q.reopen}}" style="{{q.reopenStyle}}">reopen</div>
+        </sc-if>
+      </div>
+    </sc-for>
+
+    <div style="flex: 1 1 0; min-height: 0;"></div>
+
+    <sc-if value="{{warn.show}}" hint-placeholder-val="{{false}}">
+      <div style="{{warn.style}}">{{warn.text}}</div>
+    </sc-if>
+
+    <div style="display: flex; gap: 6px; flex: none;">
+      <sc-for list="{{tools}}" as="t" hint-placeholder-count="3">
+        <div onClick="{{t.tap}}" style="{{t.style}}">
+          <span style="{{t.bigStyle}}">{{t.label}}</span>
+          <span style="{{t.subStyle}}">{{t.sub}}</span>
+        </div>
+      </sc-for>
+    </div>
+  </div>
+
+</div>
+</x-dc>
+</body>
+</html>
