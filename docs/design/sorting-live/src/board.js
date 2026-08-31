@@ -421,6 +421,10 @@ class Component extends DCLogic {
     });
 
     return { box: 'position:absolute;left:' + fx(ox) + 'px;top:' + fx(oy) + 'px;width:0;height:0;', parts: parts,
+             // The fit, for anything that has to quote it rather than re-derive
+             // it — the design document's projection table, and the tests.
+             geo: { k: k, cx: cx, cy: cy, rx: rx, ry: ry, ch: ch, ox: ox, oy: oy,
+                    w: (maxX - minX) * k, h: (maxY - minY) * k },
              ox: ox, oy: oy, P: P,
              focus: focus, held: held, door: door, frontier: frontier, picked: picked,
              hosts: hosts, hostNow: hostNow, shut: shut };
@@ -510,7 +514,10 @@ class Component extends DCLogic {
       // having done it — and the order is stranded on a shut door.
       var other = spot.door === 'side' ? 'back' : 'side';
       var landing = freeSpotAt(st, other);
-      if (landing) {
+      // …and only when there is floor on the other side to carry it to. With
+      // every position taken the refusal is the van, not the door, and offering
+      // to walk a stack round the vehicle for nothing is worse than saying no.
+      if (landing && positionsLeft(st, other)) {
         kind = 'warn'; label = 'Carry round the back'; note = 'to ' + landing.name;
         act = function () {
           self.apply(function (s) { doMoveSpot(s, focus, other); });
@@ -726,7 +733,7 @@ class Component extends DCLogic {
               sub: 'WED 19 AUG · ' + STOPS.length + ' STOPS · '
                 + (tier === 1 ? 'ROUTE ONLY' : (tier === 2 ? 'COUNTS KNOWN' : 'FULLY SCANNED')) },
       stats: stats,
-      scene: { box: S.box, parts: S.parts },
+      scene: { box: S.box, parts: S.parts, geo: S.geo },
       con: this.consoleVals(st, accent, plan, S),
       queue: queue, warn: warn, tools: tools
     };

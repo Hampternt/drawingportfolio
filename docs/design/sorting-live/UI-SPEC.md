@@ -620,13 +620,19 @@ A working, tappable version of everything above is in this folder:
 
 ```
 demo.html          open it directly — no build, no server, no dependencies
-src/model.js       every rule in §3 and §7, as ~830 lines of plain JS
+src/model.js       every rule in §3 and §7, as ~880 lines of plain JS
 src/board.js       the rules turned into the picture and the controls
 src/board.html     the markup — {{holes}}, <sc-for>, <sc-if>, onClick, nothing else
 src/runtime.js     the ~70-line template runtime that renders it
-src/*.test.js      271 checks, run on plain node, no dependencies
+src/*.test.js      316 checks, run on plain node, no dependencies
 build.mjs          src/ -> demo.html
 ```
+
+There is also a design document at `../van-loading-board/`, on the Hampter
+design system. The boards on it are not drawings of this screen — `ssr.mjs`
+renders `src/board.html` against the same values, with no browser, and
+`ssr.test.mjs` checks that static render against the browser's own DOM node for
+node. So the design document, the prototype and the rules cannot disagree.
 
 Every figure and every sentence quoted in this document is produced by that
 code. If the two disagree, the code is right and this document is stale.

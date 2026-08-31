@@ -107,7 +107,7 @@ into the picture and the controls. `src/board.html` is the markup, shared
 verbatim with the design canvas; `src/runtime.js` is the ~70-line template
 runtime that renders it, so the demo and the design cannot drift apart.
 
-The two test files run on plain `node` with no dependencies — 313 checks over
+The two test files run on plain `node` with no dependencies — 316 checks over
 the rules, the rendering, and the geometry. The geometric ones matter more than
 they look: a sheared box reports its *untransformed* rectangle to the browser,
 so the only way to know the van has not been drawn out through the side of the

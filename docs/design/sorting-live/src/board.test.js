@@ -314,6 +314,20 @@ const done = t => t.renderVals().con.done();
   ok(t.renderVals().con.pushStyle.indexOf('247,118,142') > -1, 'in the colour of a hard no');
 }
 {
+  // Carrying round is an answer to a shut door, not to a full van: with every
+  // position taken the refusal is the vehicle, and walking a stack round it
+  // achieves nothing.
+  const t = fresh();
+  for (let r = 1; r <= 9; r++) for (const col of ['left', 'right']) t.state.st.van['r' + r + '-' + col] = [{ cust: 'OLA', n: 4 }];
+  t.state.st.van['door-side'] = [{ cust: 'JAT', n: 2 }];
+  t.state.st.van['door-back'] = [{ cust: 'HIN', n: 2 }];
+  begin(t, 'SVE', 'back'); bump(t, 3);
+  const con = t.renderVals().con;
+  eq(con.pushLabel, 'Van full', 'a full van says so');
+  ok(con.pushStyle.indexOf('247,118,142') > -1, 'in red');
+  ok(!/Carry/.test(con.pushLabel), 'and never offers to walk it round to a door with no floor behind it');
+}
+{
   // A push with nothing counted is allowed — it is the fast flow — but it
   // records a question mark, so it is never the green one.
   const t = fresh();
