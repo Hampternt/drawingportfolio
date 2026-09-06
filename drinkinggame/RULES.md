@@ -157,6 +157,13 @@ shield replaces the old one, so there's no banking them.
 **Healing has no ceiling.** You can go above 15. A big heal is a real
 comeback, not a wasted card.
 
+**Rules** are cards that pin an instruction to somebody for a few rounds —
+the **Hat of Compliments** is the one to know. Play it on anyone, *yourself
+included*, and for two rounds anybody who refers to them without a compliment
+drinks. The app remembers who's wearing what and when it runs out; enforcing
+it is on you. Crowning yourself is a perfectly legal move and costs two pulls,
+which is roughly what the adoration is worth.
+
 ### Challenge cards
 
 A challenge is a contest you settle **in real life**, and the table votes on

@@ -438,6 +438,7 @@ body.lc { margin: 0; min-height: 100vh; display: flex; flex-direction: column;
 .lc-blow:not([data-hostile]) .lc-blow-amount { color: var(--lc-good, #6fcf97); }
 .lc-blow[data-kind="blocked"] .lc-blow-amount,
 .lc-blow[data-kind="fizzled"] .lc-blow-amount,
+.lc-blow[data-kind="ruled"] .lc-blow-amount,
 .lc-blow[data-kind="cancelled"] .lc-blow-amount { color: var(--lc-faint);
                                                   font-weight: 700; }
 .lc-blow-soak { flex-basis: 100%; padding-left: 2px; font-size: 10px;
@@ -450,6 +451,19 @@ body.lc { margin: 0; min-height: 100vh; display: flex; flex-direction: column;
                      text-overflow: ellipsis; white-space: nowrap; }
 .lc-report-ok { margin-left: auto; }
 .lc-report-ok[disabled] { opacity: .45; }
+
+/* A standing rule (`PlayerRule`) on a player's plaque. Deliberately loud:
+   an unenforced rule is the same as no rule, so it reads as a band across
+   the plaque rather than a subtle badge. `title` carries the same text for
+   the truncated case. */
+.lc-rules { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 3px; }
+.lc-rule { padding: 1px 6px; border-radius: 999px;
+           background: var(--lc-grid, rgba(141, 135, 160, .16));
+           border: 1px solid var(--lc-hair);
+           font-family: var(--font-ui); font-size: 9.5px; font-weight: 700;
+           letter-spacing: .04em; color: var(--lc-text);
+           overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+           max-width: 100%; }
 
 .lc-tabs { padding: 0 18px; display: flex; border-bottom: 1px solid var(--lc-hair); }
 /* Pack 2 (lc-mobile-play-flow): the tab row's right side — mode badge +

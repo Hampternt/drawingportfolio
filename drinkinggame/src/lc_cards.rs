@@ -76,6 +76,51 @@ pub enum Penalty {
     Rule(&'static str, u32),
 }
 
+/// A rule card's rules — the standing social instruction its target carries.
+///
+/// The same `(text, rounds)` shape as `Penalty::Rule`, and deliberately not
+/// shared with it: a penalty is imposed by a verdict on a LOSER, a rule card
+/// is aimed by a player at a SUBJECT, and the two arrive by different paths.
+/// What they share is the stored form — `PlayerRule { card_id, expires_round }`
+/// either way, with the text resolved from the catalog by id at render time
+/// (`rule_text`), so a reword reaches games in flight.
+///
+/// Note which direction the rule points. `Penalty::Rule` binds its carrier
+/// ("speak only in questions"); a rule card can bind the TABLE about its
+/// carrier ("compliment them or drink"). The engine cannot tell the
+/// difference and does not need to — enforcement is real life for both, and
+/// the engine only announces and expires. The text says who is bound.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RuleDef {
+    /// Read aloud beside the carrier's name while it is in force.
+    pub text: &'static str,
+    /// Rounds it stands after the one it lands in.
+    pub rounds: u32,
+}
+
+/// The non-numeric effect a card carries.
+///
+/// **One field, not four `Option`s.** These systems are mutually exclusive:
+/// `resolve()` runs each in its own block, so a card carrying two would fire
+/// both. That used to be a catalog test asserting exactly one of
+/// `rvfx`/`pofx`/`swfx` was `Some` — a check that had to be remembered and
+/// widened every time a system was added. An enum makes the same invariant
+/// unrepresentable instead, which is why CLAUDE.md said to collapse at the
+/// sixth rather than add a seventh `Option` alongside.
+///
+/// `fx` (numeric), `rfx` (reactions) and `chfx` (challenges) stay as their
+/// own fields: none of them resolves in the per-subject block these four
+/// share. A reaction is looked up when it is PLAYED, in a different beat; a
+/// challenge is collected and activated after the numeric program finishes.
+/// Folding those in would put three unrelated lifetimes behind one name.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CardEffect {
+    Reveal(RevealDef),
+    Pour(PourDef),
+    Swap(SwapDef),
+    Rule(RuleDef),
+}
+
 /// Who gets to see a hand a reveal card opens.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RevealScope {
@@ -170,9 +215,9 @@ pub struct CardDef {
     pub fx: Option<FxDef>,          // None ⇔ kind == Reaction or Challenge (F5)
     pub rfx: Option<ReactionFx>,    // Some ⇔ kind == Reaction — the reaction's rules (I4/I6)
     pub chfx: Option<ChallengeDef>, // Some ⇔ kind == Challenge — the contest's rules
-    pub rvfx: Option<RevealDef>,    // Some ⇔ a reveal card — Util kind, no numeric fx
-    pub pofx: Option<PourDef>,      // Some ⇔ a round-of-drinks card — Util kind, no numeric fx
-    pub swfx: Option<SwapDef>,      // Some ⇔ a card-trading card — Util kind, no numeric fx
+    /// The non-numeric effect — reveal, pour, trade or rule. One field
+    /// because they are mutually exclusive; see `CardEffect`.
+    pub eff: Option<CardEffect>,
 }
 
 const fn fx(op: EffectOp, magnitude: i32, rounds: u32) -> Option<FxDef> {
@@ -199,7 +244,7 @@ const fn drain(m: i32) -> Option<FxDef> {
 }
 
 /// F7 — mechanical keywords, each a tested predicate over card data.
-pub const MECHANICAL_KW: [&str; 12] = [
+pub const MECHANICAL_KW: [&str; 13] = [
     "aoe",
     "burst",
     "dot",
@@ -212,6 +257,7 @@ pub const MECHANICAL_KW: [&str; 12] = [
     "draw",
     "pour",
     "trade",
+    "rule",
 ];
 /// F7 — tone keywords: cosmetic vocabulary, whitelisted, NO rules attach.
 pub const TONE_KW: [&str; 6] = ["loud", "public", "petty", "slow", "showy", "quiet"];
@@ -247,160 +293,160 @@ const OPENERS: [(Deck, [&str; 5]); 5] = [
     ),
 ];
 
-pub const CATALOG: [CardDef; 52] = [
+pub const CATALOG: [CardDef; 53] = [
     // ---- Beer — Attrition, costs 1-2, 8 pulls. Par 2 dmg/pull, no hit > 4.
     CardDef { id: "beer-01", deck: Deck::Beer, kind: CardKind::Atk, cost: 1,
-        targets: "one", title: "Nudge", copies: 6, keywords: &[], fx: dmg(2), rfx: None, chfx: None, rvfx: None, pofx: None, swfx: None,
+        targets: "one", title: "Nudge", copies: 6, keywords: &[], fx: dmg(2), rfx: None, chfx: None, eff: None,
         text: "Deal 2 damage. Small, boring, and there is always another one." },
     CardDef { id: "beer-02", deck: Deck::Beer, kind: CardKind::Atk, cost: 2,
-        targets: "one", title: "Grind", copies: 6, keywords: &["slow"], fx: dmg(4), rfx: None, chfx: None, rvfx: None, pofx: None, swfx: None,
+        targets: "one", title: "Grind", copies: 6, keywords: &["slow"], fx: dmg(4), rfx: None, chfx: None, eff: None,
         text: "Deal 4 damage. Nothing flashy, the tab just keeps running." },
     CardDef { id: "beer-03", deck: Deck::Beer, kind: CardKind::Buff, cost: 1,
-        targets: "self", title: "Second Wind", copies: 6, keywords: &["heal"], fx: heal(2), rfx: None, chfx: None, rvfx: None, pofx: None, swfx: None,
+        targets: "self", title: "Second Wind", copies: 6, keywords: &["heal"], fx: heal(2), rfx: None, chfx: None, eff: None,
         text: "Heal 2. Shake it off, it was only a nudge." },
     CardDef { id: "beer-04", deck: Deck::Beer, kind: CardKind::Buff, cost: 2,
         targets: "self", title: "Head of Foam", copies: 6, keywords: &["shield"],
-        fx: shield(4, 2), rfx: None, chfx: None, rvfx: None, pofx: None, swfx: None,
+        fx: shield(4, 2), rfx: None, chfx: None, eff: None,
         text: "Gain a shield that absorbs 4 damage this round and the next 2." },
     CardDef { id: "beer-05", deck: Deck::Beer, kind: CardKind::Atk, cost: 2,
         targets: "all", title: "One For The Table", copies: 5, keywords: &["aoe"],
-        fx: dmg(1), rfx: None, chfx: None, rvfx: None, pofx: None, swfx: None,
+        fx: dmg(1), rfx: None, chfx: None, eff: None,
         text: "Deal 1 damage to every player at the table. Yes, including you." },
     CardDef { id: "beer-06", deck: Deck::Beer, kind: CardKind::Buff, cost: 2,
-        targets: "self", title: "Steady Pour", copies: 5, keywords: &["heal"], fx: heal(4), rfx: None, chfx: None, rvfx: None, pofx: None, swfx: None,
+        targets: "self", title: "Steady Pour", copies: 5, keywords: &["heal"], fx: heal(4), rfx: None, chfx: None, eff: None,
         text: "Heal 4. Slow beer, long night." },
     CardDef { id: "beer-07", deck: Deck::Beer, kind: CardKind::Curse, cost: 2,
         targets: "one", title: "Tab Runs Long", copies: 4, keywords: &["dot", "slow"],
-        fx: dot(1, 5), rfx: None, chfx: None, rvfx: None, pofx: None, swfx: None,
+        fx: dot(1, 5), rfx: None, chfx: None, eff: None,
         text: "Deal 1 damage a round for 5 rounds. It did not seem like much at the time." },
     CardDef { id: "beer-08", deck: Deck::Beer, kind: CardKind::Reaction, cost: 1,
         targets: "self", title: "Coaster", copies: 2, keywords: &["reaction"], fx: None,
-        rfx: Some(ReactionFx::Reduce(3)), chfx: None, rvfx: None, pofx: None, swfx: None,
+        rfx: Some(ReactionFx::Reduce(3)), chfx: None, eff: None,
         text: "Reaction: a revealed play deals 3 less damage to you. Slide it over your glass." },
     // ---- Cider — Trickster, costs 1-3, 10 pulls. Par hits + pull drains.
     CardDef { id: "cider-01", deck: Deck::Cider, kind: CardKind::Curse, cost: 1,
-        targets: "one", title: "Sticky Pour", copies: 6, keywords: &["dot"], fx: dot(1, 2), rfx: None, chfx: None, rvfx: None, pofx: None, swfx: None,
+        targets: "one", title: "Sticky Pour", copies: 6, keywords: &["dot"], fx: dot(1, 2), rfx: None, chfx: None, eff: None,
         text: "Deal 1 damage a round for 2 rounds. Something inconvenient, later." },
     CardDef { id: "cider-02", deck: Deck::Cider, kind: CardKind::Util, cost: 1,
         targets: "one", title: "Spilled", copies: 6, keywords: &["drain", "petty"],
-        fx: drain(2), rfx: None, chfx: None, rvfx: None, pofx: None, swfx: None,
+        fx: drain(2), rfx: None, chfx: None, eff: None,
         text: "Drain 2 pulls from a player's fullest vessel. Whoops." },
     CardDef { id: "cider-03", deck: Deck::Cider, kind: CardKind::Util, cost: 2,
         targets: "one", title: "Watered Down", copies: 6, keywords: &["drain"],
-        fx: drain(3), rfx: None, chfx: None, rvfx: None, pofx: None, swfx: None,
+        fx: drain(3), rfx: None, chfx: None, eff: None,
         text: "Drain 3 pulls from a player's fullest vessel. They will taste it eventually." },
     CardDef { id: "cider-04", deck: Deck::Cider, kind: CardKind::Atk, cost: 3,
         targets: "one", title: "Windfall", copies: 4,
-        keywords: &["burst", "loud", "public", "petty", "showy"], fx: dmg(6), rfx: None, chfx: None, rvfx: None, pofx: None, swfx: None,
+        keywords: &["burst", "loud", "public", "petty", "showy"], fx: dmg(6), rfx: None, chfx: None, eff: None,
         text: "Deal 6 damage. The whole orchard at once, and everyone hears it land." },
     CardDef { id: "cider-05", deck: Deck::Cider, kind: CardKind::Atk, cost: 2,
-        targets: "one", title: "Sour Turn", copies: 6, keywords: &[], fx: dmg(4), rfx: None, chfx: None, rvfx: None, pofx: None, swfx: None,
+        targets: "one", title: "Sour Turn", copies: 6, keywords: &[], fx: dmg(4), rfx: None, chfx: None, eff: None,
         text: "Deal 4 damage. Sweet up front, then it bites." },
     CardDef { id: "cider-06", deck: Deck::Cider, kind: CardKind::Util, cost: 3,
         targets: "all", title: "Happy Hour Panic", copies: 5, keywords: &["aoe", "drain"],
-        fx: drain(1), rfx: None, chfx: None, rvfx: None, pofx: None, swfx: None,
+        fx: drain(1), rfx: None, chfx: None, eff: None,
         text: "Drain 1 pull from every player at the table, you included. Last orders moved up." },
     CardDef { id: "cider-07", deck: Deck::Cider, kind: CardKind::Curse, cost: 2,
-        targets: "one", title: "Two Straws", copies: 5, keywords: &["dot"], fx: dot(2, 2), rfx: None, chfx: None, rvfx: None, pofx: None, swfx: None,
+        targets: "one", title: "Two Straws", copies: 5, keywords: &["dot"], fx: dot(2, 2), rfx: None, chfx: None, eff: None,
         text: "Deal 2 damage a round for 2 rounds. Double the trouble, half the dignity." },
     CardDef { id: "cider-08", deck: Deck::Cider, kind: CardKind::Reaction, cost: 2,
         targets: "one", title: "Not So Fast, Friend", copies: 2, keywords: &["reaction"],
         fx: None,
-        rfx: Some(ReactionFx::Cancel), chfx: None, rvfx: None, pofx: None, swfx: None,
+        rfx: Some(ReactionFx::Cancel), chfx: None, eff: None,
         text: "Reaction: cancel any revealed play, whoever it was aimed at. Keep it where they can see it." },
     // ---- Wine — Control, costs 2-3, 6 pulls. Dots at 2.0-3.0 total/pull.
     CardDef { id: "wine-01", deck: Deck::Wine, kind: CardKind::Curse, cost: 2,
-        targets: "one", title: "Decant", copies: 6, keywords: &["dot"], fx: dot(2, 2), rfx: None, chfx: None, rvfx: None, pofx: None, swfx: None,
+        targets: "one", title: "Decant", copies: 6, keywords: &["dot"], fx: dot(2, 2), rfx: None, chfx: None, eff: None,
         text: "Deal 2 damage a round for 2 rounds. Poured slowly, from a great height, \
                while keeping eye contact the whole time, a patient problem that keeps \
                arriving well after the glass is set down." },
     CardDef { id: "wine-02", deck: Deck::Wine, kind: CardKind::Curse, cost: 2,
         targets: "one", title: "Let It Breathe", copies: 6, keywords: &["dot", "slow"],
-        fx: dot(1, 4), rfx: None, chfx: None, rvfx: None, pofx: None, swfx: None,
+        fx: dot(1, 4), rfx: None, chfx: None, eff: None,
         text: "Deal 1 damage a round for 4 rounds. It only improves with time." },
     CardDef { id: "wine-03", deck: Deck::Wine, kind: CardKind::Atk, cost: 2,
-        targets: "one", title: "Tannin Bite", copies: 6, keywords: &[], fx: dmg(4), rfx: None, chfx: None, rvfx: None, pofx: None, swfx: None,
+        targets: "one", title: "Tannin Bite", copies: 6, keywords: &[], fx: dmg(4), rfx: None, chfx: None, eff: None,
         text: "Deal 4 damage. Dry, sharp, structured." },
     CardDef { id: "wine-04", deck: Deck::Wine, kind: CardKind::Atk, cost: 3,
-        targets: "one", title: "Corked", copies: 5, keywords: &["burst"], fx: dmg(6), rfx: None, chfx: None, rvfx: None, pofx: None, swfx: None,
+        targets: "one", title: "Corked", copies: 5, keywords: &["burst"], fx: dmg(6), rfx: None, chfx: None, eff: None,
         text: "Deal 6 damage. Control, delivered as damage." },
     CardDef { id: "wine-05", deck: Deck::Wine, kind: CardKind::Util, cost: 3,
         targets: "all", title: "House Rules Amendment", copies: 5,
-        keywords: &["aoe", "drain", "public"], fx: drain(1), rfx: None, chfx: None, rvfx: None, pofx: None, swfx: None,
+        keywords: &["aoe", "drain", "public"], fx: drain(1), rfx: None, chfx: None, eff: None,
         text: "Drain 1 pull from every player at the table, you included. Motion carried." },
     CardDef { id: "wine-06", deck: Deck::Wine, kind: CardKind::Curse, cost: 3,
-        targets: "one", title: "Cellar Chill", copies: 6, keywords: &["dot"], fx: dot(2, 3), rfx: None, chfx: None, rvfx: None, pofx: None, swfx: None,
+        targets: "one", title: "Cellar Chill", copies: 6, keywords: &["dot"], fx: dot(2, 3), rfx: None, chfx: None, eff: None,
         text: "Deal 2 damage a round for 3 rounds. Best served cold and repeatedly." },
     CardDef { id: "wine-07", deck: Deck::Wine, kind: CardKind::Curse, cost: 3,
         targets: "one", title: "The Long Decant of Winter", copies: 4,
-        keywords: &["dot", "slow", "showy"], fx: dot(3, 3), rfx: None, chfx: None, rvfx: None, pofx: None, swfx: None,
+        keywords: &["dot", "slow", "showy"], fx: dot(3, 3), rfx: None, chfx: None, eff: None,
         text: "Deal 3 damage a round for 3 rounds. A vintage grudge, opened at last." },
     CardDef { id: "wine-08", deck: Deck::Wine, kind: CardKind::Reaction, cost: 2,
         targets: "one", title: "Send It Back", copies: 2, keywords: &["reaction"], fx: None,
-        rfx: Some(ReactionFx::Reflect), chfx: None, rvfx: None, pofx: None, swfx: None,
+        rfx: Some(ReactionFx::Reflect), chfx: None, eff: None,
         text: "Reaction: a revealed play aimed at one player resolves against its owner instead. Summon the sommelier." },
     // ---- Liquor — Burst, costs 2-3, 4 pulls. Premium 2.5-2.67 dmg/pull.
     CardDef { id: "liquor-01", deck: Deck::Liquor, kind: CardKind::Atk, cost: 2,
-        targets: "one", title: "Shot Called", copies: 6, keywords: &["burst"], fx: dmg(5), rfx: None, chfx: None, rvfx: None, pofx: None, swfx: None,
+        targets: "one", title: "Shot Called", copies: 6, keywords: &["burst"], fx: dmg(5), rfx: None, chfx: None, eff: None,
         text: "Deal 5 damage. Loud and immediate." },
     CardDef { id: "liquor-02", deck: Deck::Liquor, kind: CardKind::Atk, cost: 3,
         targets: "one", title: "Double", copies: 5, keywords: &["burst", "loud"],
-        fx: dmg(7), rfx: None, chfx: None, rvfx: None, pofx: None, swfx: None,
+        fx: dmg(7), rfx: None, chfx: None, eff: None,
         text: "Deal 7 damage. Louder and more immediate." },
     CardDef { id: "liquor-03", deck: Deck::Liquor, kind: CardKind::Curse, cost: 2,
-        targets: "one", title: "Hangover", copies: 6, keywords: &["dot"], fx: dot(2, 2), rfx: None, chfx: None, rvfx: None, pofx: None, swfx: None,
+        targets: "one", title: "Hangover", copies: 6, keywords: &["dot"], fx: dot(2, 2), rfx: None, chfx: None, eff: None,
         text: "Deal 2 damage a round for 2 rounds. Payable next round, with interest." },
     CardDef { id: "liquor-04", deck: Deck::Liquor, kind: CardKind::Buff, cost: 2,
-        targets: "self", title: "Chaser", copies: 6, keywords: &["heal"], fx: heal(4), rfx: None, chfx: None, rvfx: None, pofx: None, swfx: None,
+        targets: "self", title: "Chaser", copies: 6, keywords: &["heal"], fx: heal(4), rfx: None, chfx: None, eff: None,
         text: "Heal 4. Something soft to land on." },
     CardDef { id: "liquor-05", deck: Deck::Liquor, kind: CardKind::Atk, cost: 3,
         targets: "all", title: "Neat, No Ice, No Mercy", copies: 5,
-        keywords: &["aoe", "loud"], fx: dmg(2), rfx: None, chfx: None, rvfx: None, pofx: None, swfx: None,
+        keywords: &["aoe", "loud"], fx: dmg(2), rfx: None, chfx: None, eff: None,
         text: "Deal 2 damage to every player at the table, you included. A round of shots is still a round." },
     CardDef { id: "liquor-06", deck: Deck::Liquor, kind: CardKind::Buff, cost: 3,
         targets: "self", title: "Dutch Courage", copies: 6, keywords: &["shield"],
-        fx: shield(7, 2), rfx: None, chfx: None, rvfx: None, pofx: None, swfx: None,
+        fx: shield(7, 2), rfx: None, chfx: None, eff: None,
         text: "Gain a shield that absorbs 7 damage this round and the next 2. Liquid confidence, briefly real." },
     CardDef { id: "liquor-07", deck: Deck::Liquor, kind: CardKind::Atk, cost: 3,
         targets: "one", title: "Last Call", copies: 4,
-        keywords: &["burst", "loud", "showy", "public"], fx: dmg(8), rfx: None, chfx: None, rvfx: None, pofx: None, swfx: None,
+        keywords: &["burst", "loud", "showy", "public"], fx: dmg(8), rfx: None, chfx: None, eff: None,
         text: "Deal 8 damage. The biggest hit in the game, named after the night's last mistake." },
     CardDef { id: "liquor-08", deck: Deck::Liquor, kind: CardKind::Reaction, cost: 2,
         targets: "self", title: "Spit It Out", copies: 2, keywords: &["reaction"], fx: None,
-        rfx: Some(ReactionFx::Cancel), chfx: None, rvfx: None, pofx: None, swfx: None,
+        rfx: Some(ReactionFx::Cancel), chfx: None, eff: None,
         text: "Reaction: cancel a revealed play aimed at you. Undignified but effective." },
     // ---- Soft — Support, costs 1-2, 6 pulls. Shields at premium, one chip.
     CardDef { id: "soft-01", deck: Deck::Soft, kind: CardKind::Buff, cost: 1,
-        targets: "one", title: "Water Round", copies: 6, keywords: &["heal"], fx: heal(2), rfx: None, chfx: None, rvfx: None, pofx: None, swfx: None,
+        targets: "one", title: "Water Round", copies: 6, keywords: &["heal"], fx: heal(2), rfx: None, chfx: None, eff: None,
         text: "Heal 2 on any player. Someone feels better." },
     CardDef { id: "soft-02", deck: Deck::Soft, kind: CardKind::Buff, cost: 1,
         targets: "one", title: "Designated", copies: 6, keywords: &["shield"],
-        fx: shield(3, 2), rfx: None, chfx: None, rvfx: None, pofx: None, swfx: None,
+        fx: shield(3, 2), rfx: None, chfx: None, eff: None,
         text: "Shield any player for 3 damage this round and the next 2. You take it for them." },
     CardDef { id: "soft-03", deck: Deck::Soft, kind: CardKind::Buff, cost: 2,
         targets: "all", title: "Snack Table", copies: 6, keywords: &["aoe", "heal"],
-        fx: heal(1), rfx: None, chfx: None, rvfx: None, pofx: None, swfx: None,
+        fx: heal(1), rfx: None, chfx: None, eff: None,
         text: "Heal 1 on every player at the table, you included. Crisps solve most things." },
     CardDef { id: "soft-04", deck: Deck::Soft, kind: CardKind::Reaction, cost: 1,
         targets: "self", title: "The Long Sober Look Across The Table", copies: 2,
         keywords: &["reaction"], fx: None,
-        rfx: Some(ReactionFx::Reduce(4)), chfx: None, rvfx: None, pofx: None, swfx: None,
+        rfx: Some(ReactionFx::Reduce(4)), chfx: None, eff: None,
         text: "Reaction: a revealed play deals 4 less damage to you. You know what you did." },
     CardDef { id: "soft-05", deck: Deck::Soft, kind: CardKind::Util, cost: 2,
         targets: "one", title: "Cut Them Off", copies: 6, keywords: &["drain", "petty"],
-        fx: drain(3), rfx: None, chfx: None, rvfx: None, pofx: None, swfx: None,
+        fx: drain(3), rfx: None, chfx: None, eff: None,
         text: "Drain 3 pulls from a player's fullest vessel. It is for their own good." },
     CardDef { id: "soft-06", deck: Deck::Soft, kind: CardKind::Atk, cost: 1,
         targets: "one", title: "Splash of Cold Water", copies: 5, keywords: &[],
-        fx: dmg(2), rfx: None, chfx: None, rvfx: None, pofx: None, swfx: None,
+        fx: dmg(2), rfx: None, chfx: None, eff: None,
         text: "Deal 2 damage. Rude, refreshing, effective." },
     CardDef { id: "soft-07", deck: Deck::Soft, kind: CardKind::Buff, cost: 2,
         targets: "one", title: "Glass Wall", copies: 5, keywords: &["shield"],
-        fx: shield(5, 2), rfx: None, chfx: None, rvfx: None, pofx: None, swfx: None,
+        fx: shield(5, 2), rfx: None, chfx: None, eff: None,
         text: "Shield any player for 5 damage this round and the next 2. Politely impenetrable." },
     CardDef { id: "soft-08", deck: Deck::Soft, kind: CardKind::Buff, cost: 2,
         targets: "all", title: "Mother Hen", copies: 4,
-        keywords: &["aoe", "shield", "quiet"], fx: shield(2, 2), rfx: None, chfx: None, rvfx: None, pofx: None, swfx: None,
+        keywords: &["aoe", "shield", "quiet"], fx: shield(2, 2), rfx: None, chfx: None, eff: None,
         text: "Shield every player for 2 damage this round and the next 2, you included. Everyone gets a coaster." },
     // ---- Challenge prototype (challenge-cards container, Pack 1). Ships at
     // copies: 0 — catalog-present so the engine and test mode can exercise
@@ -409,19 +455,19 @@ pub const CATALOG: [CardDef; 52] = [
         targets: "right", title: "Bar Court", copies: 0,
         keywords: &["challenge", "loud", "public"], fx: None, rfx: None,
         chfx: Some(ChallengeDef { contest: Contest::Duel, penalty: Penalty::Damage(4) }),
-        rvfx: None, pofx: None, swfx: None,
+        eff: None,
         text: "Challenge: state your case against the player on your right — the table votes a winner, and the loser takes 4 damage. Court is now in session." },
     CardDef { id: "soft-09", deck: Deck::Soft, kind: CardKind::Challenge, cost: 1,
         targets: "self", title: "Floor Show", copies: 0,
         keywords: &["challenge", "showy"], fx: None, rfx: None,
         chfx: Some(ChallengeDef { contest: Contest::Solo, penalty: Penalty::Drink(2) }),
-        rvfx: None, pofx: None, swfx: None,
+        eff: None,
         text: "Challenge: put on a thirty-second performance of the table's choosing. If they are not impressed, drink 2. No refunds." },
     CardDef { id: "beer-09", deck: Deck::Beer, kind: CardKind::Challenge, cost: 1,
         targets: "right", title: "House Etiquette", copies: 0,
         keywords: &["challenge", "petty"], fx: None, rfx: None,
         chfx: Some(ChallengeDef { contest: Contest::Duel, penalty: Penalty::Rule("Speak only in questions.", 2) }),
-        rvfx: None, pofx: None, swfx: None,
+        eff: None,
         text: "Challenge: out-argue the player on your right — the table votes, and the loser speaks only in questions for the next 2 rounds. House rules are house rules." },
     // ---- Reveal wave (generic cards, CARDS-DRAFT.md group A). Ships at
     // copies: 0, the challenge prototypes' convention: catalog-present so
@@ -435,20 +481,17 @@ pub const CATALOG: [CardDef; 52] = [
     CardDef { id: "wine-10", deck: Deck::Wine, kind: CardKind::Util, cost: 2,
         targets: "one", title: "Open Book", copies: 0,
         keywords: &["reveal", "loud", "public"], fx: None, rfx: None, chfx: None,
-        rvfx: Some(RevealDef { scope: RevealScope::Table, draw: 0 }),
-        pofx: None, swfx: None,
+        eff: Some(CardEffect::Reveal(RevealDef { scope: RevealScope::Table, draw: 0 })),
         text: "Any player shows the whole table their hand. Everyone can study it for the next round. There is nowhere left to put your elbows." },
     CardDef { id: "cider-10", deck: Deck::Cider, kind: CardKind::Util, cost: 2,
         targets: "other", title: "Barman's Eye", copies: 0,
         keywords: &["reveal", "quiet"], fx: None, rfx: None, chfx: None,
-        rvfx: Some(RevealDef { scope: RevealScope::Caster, draw: 0 }),
-        pofx: None, swfx: None,
+        eff: Some(CardEffect::Reveal(RevealDef { scope: RevealScope::Caster, draw: 0 })),
         text: "You alone see another player's hand, and you keep the look for the next round. You know. They know you know. Nobody else does." },
     CardDef { id: "soft-10", deck: Deck::Soft, kind: CardKind::Util, cost: 1,
         targets: "self", title: "Nothing Up My Sleeves", copies: 0,
         keywords: &["reveal", "draw", "showy"], fx: None, rfx: None, chfx: None,
-        rvfx: Some(RevealDef { scope: RevealScope::Table, draw: 2 }),
-        pofx: None, swfx: None,
+        eff: Some(CardEffect::Reveal(RevealDef { scope: RevealScope::Table, draw: 2 })),
         text: "Show the table your own hand, then draw 2. Honesty is a tempo play. Somebody is going to believe you." },
     // ---- Pour wave (generic cards, CARDS-DRAFT.md group C). copies: 0 like
     // the reveal and challenge prototypes.
@@ -459,21 +502,15 @@ pub const CATALOG: [CardDef; 52] = [
     // copies: 0 is load-bearing here in a way it is not for the reveal wave.
     CardDef { id: "beer-10", deck: Deck::Beer, kind: CardKind::Util, cost: 1,
         targets: "all", title: "One for the Road", copies: 0,
-        keywords: &["aoe", "pour", "quiet"], fx: None, rfx: None, chfx: None, rvfx: None,
-        pofx: Some(PourDef { n: 1 }),
-        swfx: None,
+        keywords: &["aoe", "pour", "quiet"], fx: None, rfx: None, chfx: None, eff: Some(CardEffect::Pour(PourDef { n: 1 })),
         text: "Everyone drinks 1 and pitches a card of their choosing, you included. A small round, and a small price." },
     CardDef { id: "liquor-10", deck: Deck::Liquor, kind: CardKind::Util, cost: 3,
         targets: "all", title: "Closing Time", copies: 0,
-        keywords: &["aoe", "pour", "loud"], fx: None, rfx: None, chfx: None, rvfx: None,
-        pofx: Some(PourDef { n: 3 }),
-        swfx: None,
+        keywords: &["aoe", "pour", "loud"], fx: None, rfx: None, chfx: None, eff: Some(CardEffect::Pour(PourDef { n: 3 })),
         text: "Everyone drinks 3 and pitches 3 cards, you included. Glasses down, hands empty. The lights are coming on." },
     CardDef { id: "beer-11", deck: Deck::Beer, kind: CardKind::Util, cost: 2,
         targets: "one", title: "Spillage", copies: 0,
-        keywords: &["pour", "petty"], fx: None, rfx: None, chfx: None, rvfx: None,
-        pofx: Some(PourDef { n: 2 }),
-        swfx: None,
+        keywords: &["pour", "petty"], fx: None, rfx: None, chfx: None, eff: Some(CardEffect::Pour(PourDef { n: 2 })),
         text: "One player drinks 2 and pitches 2 cards. Straight down the front, and some of that was your good stuff." },
     // ---- Trade wave (generic cards, CARDS-DRAFT.md group B). copies: 0.
     // Two of the three park the round, so the same warning as the pour wave
@@ -484,19 +521,29 @@ pub const CATALOG: [CardDef; 52] = [
     // nothing while charging for it.
     CardDef { id: "cider-11", deck: Deck::Cider, kind: CardKind::Util, cost: 2,
         targets: "other", title: "Swap You For It", copies: 0,
-        keywords: &["trade", "quiet"], fx: None, rfx: None, chfx: None, rvfx: None, pofx: None,
-        swfx: Some(SwapDef { take: true, give: true }),
+        keywords: &["trade", "quiet"], fx: None, rfx: None, chfx: None, eff: Some(CardEffect::Swap(SwapDef { take: true, give: true })),
         text: "Take a card at random from another player. Keep it and hand one of yours back, or return it and walk away. You do not have to like what you find." },
     CardDef { id: "beer-12", deck: Deck::Beer, kind: CardKind::Util, cost: 1,
         targets: "other", title: "A Gift", copies: 0,
-        keywords: &["trade", "petty"], fx: None, rfx: None, chfx: None, rvfx: None, pofx: None,
-        swfx: Some(SwapDef { take: false, give: true }),
+        keywords: &["trade", "petty"], fx: None, rfx: None, chfx: None, eff: Some(CardEffect::Swap(SwapDef { take: false, give: true })),
         text: "Hand another player a card of your choosing. They cannot refuse it. A present, absolutely no strings, enjoy it." },
     CardDef { id: "wine-11", deck: Deck::Wine, kind: CardKind::Util, cost: 3,
         targets: "other", title: "Pickpocket", copies: 0,
-        keywords: &["trade", "slow"], fx: None, rfx: None, chfx: None, rvfx: None, pofx: None,
-        swfx: Some(SwapDef { take: true, give: false }),
+        keywords: &["trade", "slow"], fx: None, rfx: None, chfx: None, eff: Some(CardEffect::Swap(SwapDef { take: true, give: false })),
         text: "Take a card at random from another player and give nothing back. They will notice. Not immediately." },
+    // ---- Rule wave. A card that pins a standing social instruction to a
+    // seat for a few rounds; the engine remembers and expires it, the table
+    // enforces it. `targets: "one"`, not "other" — hatting YOURSELF is the
+    // whole joke and a legitimate play, and "one" is the class that permits
+    // it. Ships at `copies: 0` like the other generic waves.
+    CardDef { id: "wine-12", deck: Deck::Wine, kind: CardKind::Util, cost: 2,
+        targets: "one", title: "Hat of Compliments", copies: 0,
+        keywords: &["rule", "loud"], fx: None, rfx: None, chfx: None,
+        eff: Some(CardEffect::Rule(RuleDef {
+            text: "Refer to them without a compliment and you drink.",
+            rounds: 2,
+        })),
+        text: "Hand someone the hat \u{2014} yourself included. For 2 rounds, anyone who mentions them without a compliment drinks. Wear it well." },
 ];
 
 fn to_card(def: &CardDef) -> Card {
@@ -554,19 +601,59 @@ pub fn card_chfx(id: &str) -> Option<ChallengeDef> {
 /// A reveal card's rules by id — `None` for non-reveals AND for an unknown
 /// id (fail-soft, mirrors `card_fx`/`card_rfx`/`card_chfx`).
 pub fn card_rvfx(id: &str) -> Option<RevealDef> {
-    CATALOG.iter().find(|def| def.id == id).and_then(|d| d.rvfx)
+    match card_eff(id) {
+        Some(CardEffect::Reveal(r)) => Some(r),
+        _ => None,
+    }
+}
+
+/// The raw non-numeric effect by id — `None` for a card with none AND for an
+/// unknown id (fail-soft, the rule every catalog lookup here follows).
+pub fn card_eff(id: &str) -> Option<CardEffect> {
+    CATALOG.iter().find(|def| def.id == id).and_then(|d| d.eff)
 }
 
 /// A pour card's rules by id — `None` for non-pours AND for an unknown id
 /// (fail-soft, mirrors the other four).
 pub fn card_pofx(id: &str) -> Option<PourDef> {
-    CATALOG.iter().find(|def| def.id == id).and_then(|d| d.pofx)
+    match card_eff(id) {
+        Some(CardEffect::Pour(p)) => Some(p),
+        _ => None,
+    }
 }
 
 /// A trade card's rules by id — `None` for non-trades AND for an unknown id
 /// (fail-soft, mirrors the other five).
 pub fn card_swfx(id: &str) -> Option<SwapDef> {
-    CATALOG.iter().find(|def| def.id == id).and_then(|d| d.swfx)
+    match card_eff(id) {
+        Some(CardEffect::Swap(sw)) => Some(sw),
+        _ => None,
+    }
+}
+
+/// A rule card's rules by id — `None` for non-rules AND for an unknown id.
+pub fn card_rufx(id: &str) -> Option<RuleDef> {
+    match card_eff(id) {
+        Some(CardEffect::Rule(r)) => Some(r),
+        _ => None,
+    }
+}
+
+/// The text of the standing rule card `card_id` imposes, from EITHER source:
+/// a rule card's own `CardEffect::Rule`, or a challenge card's
+/// `Penalty::Rule` that its loser carries.
+///
+/// One lookup because `PlayerRule` stores only a card id and cannot say which
+/// kind it came from — and must not have to. A renderer asking "what does
+/// this player's rule say" should not first have to know how they got it.
+pub fn rule_text(card_id: &str) -> Option<&'static str> {
+    if let Some(r) = card_rufx(card_id) {
+        return Some(r.text);
+    }
+    match card_chfx(card_id).map(|c| c.penalty) {
+        Some(Penalty::Rule(text, _)) => Some(text),
+        _ => None,
+    }
 }
 
 /// Whether a card belongs to the copy-weighted shoe (`copies >= 1`). A
@@ -621,7 +708,7 @@ mod tests {
 
     #[test]
     fn test_catalog_shape_and_copy_sums() {
-        assert_eq!(CATALOG.len(), 52);
+        assert_eq!(CATALOG.len(), 53);
         for deck in Deck::ALL {
             // Eight shoe-carrying cards per deck; copies: 0 prototypes sit
             // outside the shoe and outside this count.
@@ -642,11 +729,7 @@ mod tests {
             // was Challenge-only when the challenge prototypes introduced
             // it; the reveal wave (CARDS-DRAFT.md group A) uses it the same
             // way, so the exemption is now "prototype", not "challenge".
-            if def.kind == CardKind::Challenge
-                || def.rvfx.is_some()
-                || def.pofx.is_some()
-                || def.swfx.is_some()
-            {
+            if def.kind == CardKind::Challenge || def.eff.is_some() {
                 assert!((0..=6).contains(&def.copies), "{}", def.id);
             } else {
                 assert!((1..=6).contains(&def.copies), "{}", def.id);
@@ -696,8 +779,7 @@ mod tests {
                 // whole effect is `rvfx`. Gated on `rvfx` being present so
                 // this arm cannot become a hole that admits any fx-less
                 // Util card by accident.
-                (CardKind::Util, None)
-                    if def.rvfx.is_some() || def.pofx.is_some() || def.swfx.is_some() => {}
+                (CardKind::Util, None) if def.eff.is_some() => {}
                 (kind, fx) => panic!("{}: {kind:?} with fx {fx:?}", def.id),
             }
         }
@@ -715,19 +797,22 @@ mod tests {
                 def.id
             );
             // A reveal card carries rvfx and nothing else that resolves.
-            if def.rvfx.is_some() || def.pofx.is_some() || def.swfx.is_some() {
+            if def.eff.is_some() {
                 assert_eq!(def.kind, CardKind::Util, "{}", def.id);
                 assert!(def.fx.is_none(), "{}", def.id);
                 assert!(def.rfx.is_none() && def.chfx.is_none(), "{}", def.id);
                 // The two information/movement systems are mutually
                 // exclusive — resolve() runs each in its own block and a
-                // card carrying both would fire both.
-                let systems = [def.rvfx.is_some(), def.pofx.is_some(), def.swfx.is_some()];
-                assert_eq!(
-                    systems.iter().filter(|b| **b).count(),
-                    1,
-                    "{}: exactly one non-numeric effect system per card — resolve() runs \
-                     each in its own block and a card carrying two would fire both",
+                // card carrying two would fire both.
+                //
+                // That used to be a count-exactly-one assertion over three
+                // `Option` fields. `CardEffect` is an enum now, so "two at
+                // once" has no spelling and there is nothing left to count —
+                // what remains worth asserting is that a card in this arm
+                // carries one AT ALL.
+                assert!(
+                    def.eff.is_some(),
+                    "{}: a non-numeric card must carry a `CardEffect`",
                     def.id
                 );
             }
@@ -899,15 +984,24 @@ mod tests {
             assert_eq!(has("shield"), op(EffectOp::Shield), "{}", def.id);
             assert_eq!(has("heal"), op(EffectOp::Heal), "{}", def.id);
             assert_eq!(has("drain"), op(EffectOp::PullDrain), "{}", def.id);
-            assert_eq!(has("pour"), def.pofx.is_some(), "{}", def.id);
-            assert_eq!(has("trade"), def.swfx.is_some(), "{}", def.id);
+            assert_eq!(has("pour"), card_pofx(def.id).is_some(), "{}", def.id);
+            assert_eq!(has("trade"), card_swfx(def.id).is_some(), "{}", def.id);
+            // Rule wave: biconditional like every other mechanical keyword —
+            // a rule card must say `rule`, and only a rule card may. NOTE
+            // this reads `card_rufx`, which is the CARD's own rule, not
+            // `rule_text`, which also answers for a challenge card's
+            // `Penalty::Rule`. A challenge card is keyworded `challenge`; it
+            // imposes a rule by LOSING, which is a different thing from being
+            // one, and conflating them here would demand the `rule` keyword
+            // on every challenge that happens to punish with text.
+            assert_eq!(has("rule"), card_rufx(def.id).is_some(), "{}", def.id);
             // Reveal wave: both keywords are biconditional like every other
             // mechanical one — a reveal card must say `reveal`, and only a
             // reveal card may, so the renderer can key off it.
-            assert_eq!(has("reveal"), def.rvfx.is_some(), "{}", def.id);
+            assert_eq!(has("reveal"), card_rvfx(def.id).is_some(), "{}", def.id);
             assert_eq!(
                 has("draw"),
-                def.rvfx.is_some_and(|r| r.draw > 0),
+                card_rvfx(def.id).is_some_and(|r| r.draw > 0),
                 "{}",
                 def.id
             );

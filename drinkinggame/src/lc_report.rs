@@ -84,6 +84,10 @@ pub enum BlowKind {
     /// Sent home by a Reflect. `subject` is the caster who wore their own
     /// card.
     Reflected,
+    /// A standing rule was pinned to this seat. `amount` is how many rounds
+    /// it stands for; what it SAYS is resolved from the catalog at render
+    /// time, never carried here.
+    Ruled,
 }
 
 impl BlowKind {
@@ -104,6 +108,7 @@ impl BlowKind {
             BlowKind::Fizzled => "fizzled",
             BlowKind::Cancelled => "cancelled",
             BlowKind::Reflected => "reflected",
+            BlowKind::Ruled => "ruled",
         }
     }
 
@@ -123,6 +128,12 @@ impl BlowKind {
                 | BlowKind::Revealed
                 | BlowKind::Reflected
         )
+        // `Ruled` is deliberately absent, and it is the one kind where that
+        // is a judgement rather than a fact. A rule can bind its carrier
+        // ("speak only in questions") or bind the table in the carrier's
+        // favour ("compliment them or drink") — the engine cannot read the
+        // text and has no way to tell which. So it is treated like the other
+        // kinds that move no number: announced, not coloured.
     }
 }
 

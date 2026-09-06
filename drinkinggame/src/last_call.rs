@@ -976,6 +976,16 @@ pub struct PublicSeat {
     pub pulls_spent: u32,
     pub cards_played: u32,
     pub elim_order: Option<u32>,
+    /// Standing rules this seat carries (`PlayerRule`) — identity only, the
+    /// text resolved from the catalog at render time by `lc_cards::rule_text`.
+    ///
+    /// Public, and it has to be: a rule the table cannot see is a rule nobody
+    /// follows. Before this, `LcPlayer::rules` was written by the challenge
+    /// verdict, pruned at the rollover, and read by NOTHING — so `beer-09`'s
+    /// loser carried an invisible "speak only in questions" for two rounds.
+    /// The storage was all there; the projection was missing.
+    #[serde(default)]
+    pub rules: Vec<PlayerRule>,
     /// Pack 3 / D2 (lc-mobile-play-flow, decision 2026-08-13): per-deck
     /// hand-composition counts — `Deck::ALL` order, zero-count decks
     /// omitted. Counts are public; card identity stays private (this is a
@@ -2560,6 +2570,7 @@ impl LastCallState {
                     pulls_spent: p.pulls_spent,
                     cards_played: p.cards_played,
                     elim_order: p.elim_order,
+                    rules: p.rules.clone(),
                     // D2: deck counts over the same hand+armed+locked set
                     // as hand_len — see the field's doc comment.
                     phase: self.seat_phase(p.seat),
@@ -4192,6 +4203,45 @@ impl LastCallState {
                 }
                 self.discard(Some(play.source_seat), [play.card]);
                 continue;
+            }
+
+            // Rule wave: a standing social instruction pinned to a seat.
+            //
+            // The engine's whole job here is to remember and expire it. What
+            // the rule SAYS is real life — like a Salute trigger or a
+            // `Penalty::Drink`, the engine announces and the table enforces.
+            // Only the card id is stored; `lc_cards::rule_text` resolves the
+            // wording at render time, so a reword reaches games in flight.
+            //
+            // No `discard`/`deal` interaction and no numbers, so this sits
+            // beside the reveal block for the same reason it does: both need
+            // `subjects` by reference, and the numeric match below moves it.
+            if let Some(ru) = crate::lc_cards::card_rufx(&play.card.id) {
+                for &subject in &subjects {
+                    // Replace-not-stack by card id, the `Shield` rule (D10)
+                    // applied to rules: playing the same hat at the same seat
+                    // twice refreshes its clock rather than queueing a second
+                    // copy of identical text nobody could tell apart.
+                    self.players[subject]
+                        .rules
+                        .retain(|r| r.card_id != play.card.id);
+                    self.players[subject].rules.push(PlayerRule {
+                        card_id: play.card.id.clone(),
+                        // Active while `round < expires_round`, pruned at the
+                        // rollover — the `Penalty::Rule` arithmetic exactly,
+                        // so both sources of a rule expire the same way.
+                        expires_round: self.round + 1 + ru.rounds,
+                    });
+                    blows.push(crate::lc_report::Blow {
+                        card_id: play.card.id.clone(),
+                        title: play.card.title.clone(),
+                        source: Some(play.source_seat),
+                        subject,
+                        kind: crate::lc_report::BlowKind::Ruled,
+                        amount: ru.rounds as i32,
+                        absorbed: 0,
+                    });
+                }
             }
 
             // Reveal wave: an information effect, resolved by id from the
@@ -8593,6 +8643,162 @@ mod tests {
             "and the frozen tableau must not read as parked"
         );
         assert_eq!(st.beat, Beat::Resolve, "D16 freeze, unchanged");
+    }
+
+    // -----------------------------------------------------------------
+    // The rule wave — a standing social instruction pinned to a seat.
+    // -----------------------------------------------------------------
+
+    fn play_rule(target: Option<usize>) -> LastCallState {
+        let c = crate::lc_cards::card_by_id("wine-12").expect("catalog card");
+        let mut st = LastCallState::new(
+            vec![(1, "alice".into()), (2, "bob".into()), (3, "cara".into())],
+            11,
+        );
+        st.set_vessel(1, c.deck, "glass").unwrap();
+        st.set_vessel(2, Deck::Cider, "bottle").unwrap();
+        st.set_vessel(3, Deck::Soft, "glass").unwrap();
+        st.beat = Beat::Lock;
+        st.players[0].hand.push(c);
+        st.arm(1, "wine-12").unwrap();
+        st.set_target(1, "wine-12", target).unwrap();
+        st.lock_in(1).unwrap();
+        st.advance_beat().unwrap();
+        st.advance_beat().unwrap();
+        st.resolve().unwrap();
+        st
+    }
+
+    /// The hat lands on whoever it was aimed at, and the blob stores an id
+    /// and a clock — never the sentence.
+    #[test]
+    fn test_the_hat_pins_a_rule_to_its_target() {
+        let st = play_rule(Some(1));
+        assert_eq!(st.players[1].rules.len(), 1, "bob wears it");
+        assert_eq!(st.players[1].rules[0].card_id, "wine-12");
+        assert!(st.players[0].rules.is_empty(), "alice does not");
+        // The RULE's wording is catalog-side, so a reword reaches games in
+        // flight. Note what this can and cannot assert: a `Card` carries its
+        // own flavour `text` into the blob like every card does, and that
+        // text also happens to say "compliment" — so the check has to name
+        // the rule sentence exactly, not a word the two share. The claim is
+        // that `PlayerRule` stores an id and a clock, nothing else.
+        let json = st.to_json();
+        assert!(
+            !json.contains("Refer to them without a compliment"),
+            "the rule's wording must never enter the blob"
+        );
+        assert!(
+            json.contains(r#""card_id":"wine-12""#),
+            "only its identity does"
+        );
+        assert_eq!(
+            crate::lc_cards::rule_text("wine-12"),
+            Some("Refer to them without a compliment and you drink.")
+        );
+    }
+
+    /// Hatting YOURSELF is the point of the card, and `targets: "one"` is
+    /// the class that permits it — `"other"` would refuse.
+    #[test]
+    fn test_the_hat_can_be_worn_by_its_own_caster() {
+        let st = play_rule(Some(0));
+        assert_eq!(st.players[0].rules.len(), 1, "alice crowns herself");
+    }
+
+    /// It expires on its own clock, pruned at the rollover — the same
+    /// arithmetic `Penalty::Rule` uses, so both sources age out identically.
+    #[test]
+    fn test_the_hat_expires_after_its_rounds() {
+        let mut st = play_rule(Some(1));
+        st.confirm_report();
+        let expires = st.players[1].rules[0].expires_round;
+        assert_eq!(expires, 4, "landed in round 1, stands for 2 more");
+        while st.round < expires {
+            assert!(
+                !st.players[1].rules.is_empty(),
+                "still in force at round {}",
+                st.round
+            );
+            st.beat = Beat::Resolve;
+            st.resolve().unwrap();
+            st.confirm_report();
+        }
+        assert!(st.players[1].rules.is_empty(), "and gone once it expires");
+    }
+
+    /// Replace-not-stack by card id — the `Shield` rule (D10) applied to
+    /// rules. Playing the same hat at the same seat refreshes the clock
+    /// rather than queueing a second copy of identical text.
+    #[test]
+    fn test_a_second_hat_refreshes_rather_than_stacks() {
+        let mut st = play_rule(Some(1));
+        st.confirm_report();
+        let first = st.players[1].rules[0].expires_round;
+        st.players[0]
+            .hand
+            .push(crate::lc_cards::card_by_id("wine-12").unwrap());
+        st.beat = Beat::Lock;
+        st.arm(1, "wine-12").unwrap();
+        st.set_target(1, "wine-12", Some(1)).unwrap();
+        st.lock_in(1).unwrap();
+        st.advance_beat().unwrap();
+        st.advance_beat().unwrap();
+        st.resolve().unwrap();
+
+        assert_eq!(st.players[1].rules.len(), 1, "one hat, not two");
+        assert!(
+            st.players[1].rules[0].expires_round > first,
+            "and its clock was refreshed"
+        );
+    }
+
+    /// **The rule has to be visible or it is not a rule.** `LcPlayer::rules`
+    /// was written by the challenge verdict and read by nothing, so
+    /// `beer-09`'s loser carried an invisible instruction for two rounds.
+    #[test]
+    fn test_a_rule_reaches_the_table() {
+        let st = play_rule(Some(1));
+        let view = st.public_view();
+        assert_eq!(
+            view.seats[1].rules.len(),
+            1,
+            "the table can see who wears it"
+        );
+        assert_eq!(view.seats[1].rules[0].card_id, "wine-12");
+        assert!(view.seats[0].rules.is_empty());
+    }
+
+    /// The hat is reported like anything else done to a seat, so the round
+    /// report names who handed it over.
+    #[test]
+    fn test_the_hat_is_reported() {
+        let st = play_rule(Some(1));
+        let r = st.pending_resolution().expect("a hat is a blow");
+        let b = r
+            .for_seat(1)
+            .into_iter()
+            .find(|b| b.kind == crate::lc_report::BlowKind::Ruled)
+            .expect("recorded");
+        assert_eq!(b.card_id, "wine-12");
+        assert_eq!(b.source, Some(0), "and who put it there");
+        assert_eq!(b.amount, 2, "for two rounds");
+    }
+
+    /// `rule_text` answers for BOTH sources, because `PlayerRule` stores only
+    /// a card id and a renderer must not have to know how it was acquired.
+    #[test]
+    fn test_rule_text_resolves_a_challenge_penalty_too() {
+        // The card's own rule.
+        assert!(crate::lc_cards::rule_text("wine-12").is_some());
+        // A challenge card's `Penalty::Rule`, carried by its loser.
+        assert_eq!(
+            crate::lc_cards::rule_text("beer-09"),
+            Some("Speak only in questions.")
+        );
+        // Everything else, and an unknown id: fail-soft.
+        assert_eq!(crate::lc_cards::rule_text("beer-01"), None);
+        assert_eq!(crate::lc_cards::rule_text("nope"), None);
     }
 
     /// A parked report has to survive a reload — the room persists between

@@ -219,7 +219,37 @@ the game on a human decision, carry catalog-side rules that never enter the
 blob, and use a `key` so a stale screen can't answer the wrong prompt. Every
 card in B and C wants exactly that shape.
 
-**Order built:** `other` → `Reveal` → `Pour` → `Swap`. What remains is UI —
+## Group D — standing rules (built)
+
+A card that pins a social instruction to a seat for a few rounds. The engine
+remembers, announces and expires it; enforcement is real life, like a Salute
+trigger or a `Penalty::Drink`.
+
+| Card | Id | What it does |
+|---|---|---|
+| **Hat of Compliments** | `wine-12` | Cost 2, `targets: "one"`, 2 rounds. Refer to the wearer without a compliment and you drink. |
+
+Three things worth recording about it.
+
+**It targets `"one"`, not `"other"`** — hatting *yourself* is the whole joke
+and a legitimate play: pay two pulls, and for two rounds the table has to
+praise you or drink. `"other"` would have refused exactly the move the card
+is for.
+
+**The mechanic was already 90% built and 0% visible.** `LcPlayer::rules`
+stored a `PlayerRule { card_id, expires_round }`, survived reloads and got
+pruned at the rollover — and was read by *nothing*. `beer-09`'s loser had
+been carrying an invisible "speak only in questions" for two rounds. The rule
+wave adds the projection (`PublicSeat::rules`) and the plaque badge that make
+a rule enforceable rather than merely stored.
+
+**It triggered the enum collapse.** A rule effect was the sixth non-numeric
+system, and CLAUDE.md said to collapse at the sixth rather than add a seventh
+`Option`. `rvfx`/`pofx`/`swfx` are now one `eff: Option<CardEffect>` with
+`Reveal`/`Pour`/`Swap`/`Rule` variants — so "a card carrying two systems",
+which a catalog test used to check for, no longer has a spelling.
+
+**Order built:** `other` → `Reveal` → `Pour` → `Swap` → `Rule`. What remains is UI —
 and for the two parking waves it is not optional: a pour or a trade played
 without a picker freezes the round. The settle routes exist and are tested
 end to end, so the way out is reachable, but these cards must stay at

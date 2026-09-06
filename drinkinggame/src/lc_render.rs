@@ -716,8 +716,31 @@ pub fn player_plaque(seat: &PublicSeat) -> String {
     };
     let decks_attr = decks.iter().map(|d| d.slug()).collect::<Vec<_>>().join(",");
 
+    // Standing rules (`PlayerRule`) — the badge that makes a rule enforceable.
+    // Text comes from the catalog by card id, so a reword reaches games in
+    // flight and the blob never carries a sentence. An id the catalog no
+    // longer recognises renders nothing rather than an empty badge: the
+    // fail-soft every other catalog lookup in this crate uses.
+    let rules: String = seat
+        .rules
+        .iter()
+        .filter_map(|r| crate::lc_cards::rule_text(&r.card_id).map(|t| (r, t)))
+        .map(|(r, text)| {
+            format!(
+                r#"<span class="lc-rule" data-rule="{id}" title="{text}">{text}</span>"#,
+                id = html_escape(&r.card_id),
+                text = html_escape(text),
+            )
+        })
+        .collect();
+    let rules = if rules.is_empty() {
+        String::new()
+    } else {
+        format!(r#"<div class="lc-rules">{rules}</div>"#)
+    };
+
     format!(
-        r#"<div class="lc-plaque lc-deck-{first_slug}{state_classes}" data-seat="{seat_n}" data-decks="{decks_attr}" data-hp="{hp}" data-draws="{draws}" data-status="{status}" data-hand-size="{hand_len}" data-flight-anchor="plaque-seat-{seat_n}">{rule}<div class="lc-identity"><span class="lc-name">{name}{lock_tick}</span><span class="lc-hp">{hp_display}</span></div><div class="lc-drinks">{dots}<span class="lc-decknames">{deck_names}</span>{draws_badge}</div>{hand_strip}</div>"#,
+        r#"<div class="lc-plaque lc-deck-{first_slug}{state_classes}" data-seat="{seat_n}" data-decks="{decks_attr}" data-hp="{hp}" data-draws="{draws}" data-status="{status}" data-hand-size="{hand_len}" data-flight-anchor="plaque-seat-{seat_n}">{rule}<div class="lc-identity"><span class="lc-name">{name}{lock_tick}</span><span class="lc-hp">{hp_display}</span></div><div class="lc-drinks">{dots}<span class="lc-decknames">{deck_names}</span>{draws_badge}</div>{rules}{hand_strip}</div>"#,
         seat_n = seat.seat,
         hp = seat.hp,
         draws = seat.draws,
@@ -726,6 +749,7 @@ pub fn player_plaque(seat: &PublicSeat) -> String {
         rule = deck_rule(&decks),
         name = html_escape(&seat.name),
         hand_strip = hand_strip(&decks, seat.hand_len),
+        rules = rules,
     )
 }
 
@@ -910,6 +934,9 @@ fn resolution_strip(view: &PublicView, r: &crate::lc_report::Resolution) -> Stri
                 crate::lc_report::BlowKind::Fizzled => "FIZZLED".to_string(),
                 crate::lc_report::BlowKind::Cancelled => "CANCELLED".to_string(),
                 crate::lc_report::BlowKind::Reflected => "SENT HOME".to_string(),
+                crate::lc_report::BlowKind::Ruled => {
+                    format!("{} ROUNDS", b.amount)
+                }
             };
             // A shield that ate part of a landed hit is the answer to "why
             // did I only take one", so it rides alongside the amount rather
@@ -2687,6 +2714,7 @@ mod tests {
             pulls_spent: 0,
             cards_played: 0,
             elim_order: None,
+            rules: Vec::new(),
             phase: crate::lc_phase::SeatPhase::Waiting,
             drinks: 0,
             shield: 0,
@@ -2892,6 +2920,7 @@ mod tests {
             pulls_spent: 0,
             cards_played: 0,
             elim_order: None,
+            rules: Vec::new(),
             phase: crate::lc_phase::SeatPhase::Waiting,
             drinks: 0,
             shield: 0,
@@ -3263,6 +3292,7 @@ mod tests {
                 pulls_spent: 0,
                 cards_played: 0,
                 elim_order: None,
+                rules: Vec::new(),
                 phase: crate::lc_phase::SeatPhase::Waiting,
                 drinks: 0,
                 shield: 0,
@@ -4819,5 +4849,40 @@ mod tests {
             "the report claims the slot"
         );
         assert!(!html.contains("lc-event-text"), "and the event does not");
+    }
+    /// A standing rule renders on the plaque, resolved from the catalog by
+    /// id. Before the rule wave, `LcPlayer::rules` was written and read by
+    /// nothing at all, so this is the surface that makes a rule enforceable
+    /// rather than merely stored.
+    #[test]
+    fn test_a_standing_rule_renders_on_the_plaque() {
+        let mut view = ring_fixture(2);
+        view.seats[0].rules = vec![crate::last_call::PlayerRule {
+            card_id: "wine-12".into(),
+            expires_round: 4,
+        }];
+        let html = player_plaque(&view.seats[0]);
+        assert!(html.contains("lc-rules"), "the badge renders");
+        assert!(
+            html.contains("Refer to them without a compliment and you drink."),
+            "with the catalog's wording, not the blob's"
+        );
+        assert!(html.contains(r#"data-rule="wine-12""#));
+
+        // A seat with no rule grows no empty badge.
+        assert!(!player_plaque(&view.seats[1]).contains("lc-rules"));
+    }
+
+    /// An id the catalog no longer recognises renders nothing rather than an
+    /// empty badge — the fail-soft every catalog lookup in this crate uses,
+    /// and the case a deploy mid-game actually produces.
+    #[test]
+    fn test_an_unknown_rule_id_renders_nothing() {
+        let mut view = ring_fixture(2);
+        view.seats[0].rules = vec![crate::last_call::PlayerRule {
+            card_id: "removed-by-a-deploy".into(),
+            expires_round: 4,
+        }];
+        assert!(!player_plaque(&view.seats[0]).contains("lc-rules"));
     }
 }
