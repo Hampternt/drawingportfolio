@@ -30,8 +30,11 @@ npx http-server docs/design/sorting-live -p 8080     # then http://<your-ip>:808
 ```
 
 It is authored at exactly **1440 × 840 CSS px** — the Movink Pad Pro in
-landscape, after Chrome's URL bar. A narrower window scales the whole board
-rather than reflowing it, so what you tap here is what you tap there.
+landscape, after Chrome's URL bar. A smaller window scales the whole board
+rather than reflowing it, so what you tap here is what you tap there. It fits
+the height as well as the width: on a laptop under about 950 px tall the board
+would otherwise be cropped along the bottom edge, taking the rules and odd-crate
+buttons with it.
 
 ## The three test cases
 

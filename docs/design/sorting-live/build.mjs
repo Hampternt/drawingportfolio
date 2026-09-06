@@ -132,7 +132,14 @@ document.getElementById('reset').addEventListener('click', function () {
 });
 
 function fit() {
-  var s = Math.min(1, (window.innerWidth - 24) / 1440);
+  // The board is a fixed 1440x840 picture — it scales, it never reflows, so what
+  // you tap here is what you tap on the tablet. Fit the height as well as the
+  // width, or anything under about 950px tall (most laptops, and any panel the
+  // demo is embedded in) silently crops the row of buttons off the bottom edge.
+  // The chrome bar wraps at narrow widths, so measure it rather than assume it.
+  var head = document.getElementById('chrome').getBoundingClientRect().height;
+  var s = Math.max(0.25, Math.min(1, (window.innerWidth - 24) / 1440,
+                                 (window.innerHeight - head - 8) / 840));
   document.getElementById('scaler').style.transform = 'scale(' + s + ')';
   document.getElementById('stage').style.height = (840 * s) + 'px';
 }
