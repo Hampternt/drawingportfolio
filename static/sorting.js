@@ -834,11 +834,17 @@
       root.setAttribute('data-tab', name);
     }
 
-    // Above 1000px the van has its own column and its tab is hidden, so
+    // Above 62.5rem the van has its own column and its tab is hidden, so
     // "van" stops being a selectable pane. Rotating a tablet into landscape
     // with it selected is the one way to land there anyway — which would show
     // the van twice and the checklist not at all.
-    var wide = window.matchMedia('(min-width: 1000px)');
+    //
+    // The width is written the way the stylesheet writes it, and has to stay
+    // that way: a media query resolves rem against the browser's default text
+    // size, so a driver who has turned that up moves the breakpoint, and a
+    // stylesheet that moved it while this did not would hide the van's tab on a
+    // screen still laying it out as a tab. A test holds the two together.
+    var wide = window.matchMedia('(min-width: 62.5rem)');
     function ensureUsablePane() {
       if (wide.matches && root.getAttribute('data-tab') === 'van') switchTab('sort');
     }
@@ -853,6 +859,16 @@
       })(tabButtons[t]);
     }
     switchTab('sort');
+
+    var fullBtn = document.getElementById('sort-full');
+    if (fullBtn) {
+      fullBtn.addEventListener('click', function () {
+        var on = !root.classList.contains('is-full');
+        setBoardFull(on);
+        if (on) askFullScreen();
+        else dropFullScreen();
+      });
+    }
 
     var toggle = document.getElementById('sort-toggle-done');
     if (toggle) {
@@ -873,6 +889,60 @@
       window.addEventListener('online', function () {
         flush();
       });
+    }
+  }
+
+  // ── Full screen ─────────────────────────────────────────────────────────
+  //
+  // A tablet on a pallet has maybe 800 points of height, and the browser and
+  // the site take a fifth of it before the board starts. This gives that back.
+  //
+  // Two things happen at once, and deliberately not one: the page's own big
+  // layout — site chrome gone, the board reflowed into the room it leaves,
+  // nothing scaled, because this is a layout and not a drawing — and the
+  // browser's fullscreen on top of it. The API is allowed to refuse (an iframe
+  // without the permission, an iPad that never had it), and on a tablet the
+  // layout half is most of the win, so the button never waits on the request
+  // and the request never becomes the state.
+
+  function fullScreenEl() {
+    return document.fullscreenElement || document.webkitFullscreenElement || null;
+  }
+
+  function askFullScreen() {
+    var el = document.documentElement;
+    var req = el.requestFullscreen || el.webkitRequestFullscreen;
+    if (!req) return;
+    try {
+      var r = req.call(el);
+      // A rejected promise here is a refusal, not a fault: the big layout stands.
+      if (r && r.catch) r.catch(function () {});
+    } catch (e) {
+      // Same.
+    }
+  }
+
+  function dropFullScreen() {
+    var ex = document.exitFullscreen || document.webkitExitFullscreen;
+    if (!fullScreenEl() || !ex) return;
+    try {
+      var r = ex.call(document);
+      if (r && r.catch) r.catch(function () {});
+    } catch (e) {
+      // Already out.
+    }
+  }
+
+  // Looked up rather than closed over: this is called from document-level
+  // listeners that outlive any one board, and a boosted navigation replaces the
+  // element the board was bound to.
+  function setBoardFull(on) {
+    var board = document.querySelector('.sorting-board');
+    var btn = document.getElementById('sort-full');
+    if (board) board.classList.toggle('is-full', on);
+    if (btn) {
+      btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+      btn.textContent = on ? 'Exit full screen' : 'Full screen';
     }
   }
 
@@ -950,9 +1020,22 @@
 
     // hx-boost replaces the body's children without ever firing unload, so
     // this is the only notice the board gets that it is being navigated away
-    // from.
+    // from. The fullscreen goes with it: the class is on the section and leaves
+    // with the swap, but the browser's fullscreen would not, and it would strand
+    // the driver on the next page with no button and, on a tablet, no Escape.
     document.addEventListener('htmx:beforeSwap', function (e) {
-      if (e.target === document.body) releaseWakeLock();
+      if (e.target !== document.body) return;
+      releaseWakeLock();
+      dropFullScreen();
+    });
+
+    // Escape, or the system gesture, leaves the browser's fullscreen without
+    // telling the page — so follow it out and put the label back. A refused
+    // request fires nothing at all, which is why the big layout survives one.
+    ['fullscreenchange', 'webkitfullscreenchange'].forEach(function (ev) {
+      document.addEventListener(ev, function () {
+        if (!fullScreenEl()) setBoardFull(false);
+      });
     });
 
     document.addEventListener('visibilitychange', function () {
