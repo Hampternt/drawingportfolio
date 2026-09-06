@@ -480,7 +480,7 @@ pub fn lc_table_stack(
             let slug = card.deck.slug();
             let (arrow_attrs, tgt_label) = match card.targets.as_str() {
                 "self" => (format!(r#" data-arrow="{me}""#), "YOU".to_string()),
-                "one" => match target {
+                "one" | "other" => match target {
                     Some(t) => (
                         format!(r#" data-arrow="{t}""#),
                         seat_name_upper(view, *t),
@@ -529,6 +529,7 @@ pub fn lc_inspect_sheet(hand: &[Card], staging: bool) -> String {
             let slug = card.deck.slug();
             let targets_label = match card.targets.as_str() {
                 "one" => "ONE PLAYER".to_string(),
+                "other" => "ANOTHER PLAYER".to_string(),
                 "all" => "EVERYONE".to_string(),
                 "self" => "YOURSELF".to_string(),
                 other => html_escape(&other.to_uppercase()),
@@ -715,8 +716,31 @@ pub fn player_plaque(seat: &PublicSeat) -> String {
     };
     let decks_attr = decks.iter().map(|d| d.slug()).collect::<Vec<_>>().join(",");
 
+    // Standing rules (`PlayerRule`) — the badge that makes a rule enforceable.
+    // Text comes from the catalog by card id, so a reword reaches games in
+    // flight and the blob never carries a sentence. An id the catalog no
+    // longer recognises renders nothing rather than an empty badge: the
+    // fail-soft every other catalog lookup in this crate uses.
+    let rules: String = seat
+        .rules
+        .iter()
+        .filter_map(|r| crate::lc_cards::rule_text(&r.card_id).map(|t| (r, t)))
+        .map(|(r, text)| {
+            format!(
+                r#"<span class="lc-rule" data-rule="{id}" title="{text}">{text}</span>"#,
+                id = html_escape(&r.card_id),
+                text = html_escape(text),
+            )
+        })
+        .collect();
+    let rules = if rules.is_empty() {
+        String::new()
+    } else {
+        format!(r#"<div class="lc-rules">{rules}</div>"#)
+    };
+
     format!(
-        r#"<div class="lc-plaque lc-deck-{first_slug}{state_classes}" data-seat="{seat_n}" data-decks="{decks_attr}" data-hp="{hp}" data-draws="{draws}" data-status="{status}" data-hand-size="{hand_len}" data-flight-anchor="plaque-seat-{seat_n}">{rule}<div class="lc-identity"><span class="lc-name">{name}{lock_tick}</span><span class="lc-hp">{hp_display}</span></div><div class="lc-drinks">{dots}<span class="lc-decknames">{deck_names}</span>{draws_badge}</div>{hand_strip}</div>"#,
+        r#"<div class="lc-plaque lc-deck-{first_slug}{state_classes}" data-seat="{seat_n}" data-decks="{decks_attr}" data-hp="{hp}" data-draws="{draws}" data-status="{status}" data-hand-size="{hand_len}" data-flight-anchor="plaque-seat-{seat_n}">{rule}<div class="lc-identity"><span class="lc-name">{name}{lock_tick}</span><span class="lc-hp">{hp_display}</span></div><div class="lc-drinks">{dots}<span class="lc-decknames">{deck_names}</span>{draws_badge}</div>{rules}{hand_strip}</div>"#,
         seat_n = seat.seat,
         hp = seat.hp,
         draws = seat.draws,
@@ -725,6 +749,7 @@ pub fn player_plaque(seat: &PublicSeat) -> String {
         rule = deck_rule(&decks),
         name = html_escape(&seat.name),
         hand_strip = hand_strip(&decks, seat.hand_len),
+        rules = rules,
     )
 }
 
@@ -826,7 +851,11 @@ pub fn lc_banner(view: &PublicView) -> String {
     //    the tab id/title, which stays off `PublicView` entirely (H8).
     // An event id `event_def` does not recognise renders nothing — H3's
     // fail-soft, applied here at the display layer too.
-    let event_strip = if let Some(ch) = view.challenges.first() {
+    let event_strip = if let Some(r) = view.resolutions.first() {
+        // The report wave: what the table is waiting on right now. Outranks
+        // the challenge strip below — see `resolution_strip`.
+        resolution_strip(view, r)
+    } else if let Some(ch) = view.challenges.first() {
         // Challenge-cards container: the parked round's strip — one strip,
         // first match wins, and a live challenge outranks the event (the
         // numeric round is already over when the park begins).
@@ -853,6 +882,103 @@ pub fn lc_banner(view: &PublicView) -> String {
         round = view.round,
         label = beat.label(),
         index = beat.index(),
+    )
+}
+
+/// The round report's banner strip (`lc_report`) — what landed on whom this
+/// round, with the card and the player behind each blow, and the button that
+/// confirms it.
+///
+/// Rides the `.lc-event` strip slot and OUTRANKS the challenge strip, which
+/// outranks the event. That order is the order of what the table is waiting
+/// on: the report parks at the very end of the resolve, so anything it shares
+/// a round with was parked first and is sitting underneath it. Showing the
+/// challenge over the top would name the thing that is NOT next.
+///
+/// One button for everyone, deliberately. `ack_resolution` answers a tap from
+/// a seat that owed nothing with `Ok` and no state change, so there is no
+/// per-viewer variant to render and no `data-show-player` contract to get
+/// wrong — the spectator's thumb is simply free. What IS per-viewer is who
+/// still owes, and that is a name list, not a hidden element.
+fn resolution_strip(view: &PublicView, r: &crate::lc_report::Resolution) -> String {
+    let rows: String = r
+        .blows
+        .iter()
+        .map(|b| {
+            let who = match b.source {
+                Some(src) => format!(
+                    r#"<span class="lc-blow-src">{}</span>"#,
+                    log_seat_name(view, src)
+                ),
+                // An authorless blow — an event, a table-wide pour. The em
+                // dash is doing real work: "nobody did this to you" is a
+                // different sentence from "somebody did", and a report that
+                // silently dropped the attacker slot would read as the first
+                // while meaning the second.
+                None => r#"<span class="lc-blow-src lc-blow-noone">&mdash;</span>"#.to_string(),
+            };
+            let amount = match b.kind {
+                crate::lc_report::BlowKind::Hit | crate::lc_report::BlowKind::Dot => {
+                    format!("&minus;{}", b.amount)
+                }
+                crate::lc_report::BlowKind::Heal => format!("+{}", b.amount),
+                crate::lc_report::BlowKind::Shield => format!("&plus;{} SHIELD", b.amount),
+                crate::lc_report::BlowKind::Drain
+                | crate::lc_report::BlowKind::Poured => {
+                    format!("&minus;{} PULLS", b.amount)
+                }
+                crate::lc_report::BlowKind::Blocked => format!("BLOCKED {}", b.absorbed),
+                crate::lc_report::BlowKind::Revealed => format!("{} CARDS SEEN", b.amount),
+                crate::lc_report::BlowKind::Taken => "&minus;1 CARD".to_string(),
+                crate::lc_report::BlowKind::Given => "&plus;1 CARD".to_string(),
+                crate::lc_report::BlowKind::Fizzled => "FIZZLED".to_string(),
+                crate::lc_report::BlowKind::Cancelled => "CANCELLED".to_string(),
+                crate::lc_report::BlowKind::Reflected => "SENT HOME".to_string(),
+                crate::lc_report::BlowKind::Ruled => {
+                    format!("{} ROUNDS", b.amount)
+                }
+            };
+            // A shield that ate part of a landed hit is the answer to "why
+            // did I only take one", so it rides alongside the amount rather
+            // than replacing it — `Blocked` is the total-absorption case and
+            // already says so above.
+            let soak = if b.absorbed > 0 && b.kind != crate::lc_report::BlowKind::Blocked {
+                format!(
+                    r#"<span class="lc-blow-soak">shield ate {}</span>"#,
+                    b.absorbed
+                )
+            } else {
+                String::new()
+            };
+            format!(
+                r#"<li class="lc-blow" data-kind="{kind}" data-card="{card}"{hostile}>{who}<span class="lc-blow-card">{title}</span><span class="lc-blow-arrow">&rarr;</span><span class="lc-blow-subject">{subject}</span><span class="lc-blow-amount">{amount}</span>{soak}</li>"#,
+                kind = b.kind.slug(),
+                card = html_escape(&b.card_id),
+                hostile = if b.kind.is_hostile() {
+                    r#" data-hostile"#
+                } else {
+                    ""
+                },
+                title = html_escape(&b.title),
+                subject = log_seat_name(view, b.subject),
+            )
+        })
+        .collect();
+    let waiting: Vec<String> = r
+        .owed
+        .iter()
+        .filter(|s| !r.acked.contains(s))
+        .map(|&s| log_seat_name(view, s))
+        .collect();
+    let status = if waiting.is_empty() {
+        "SETTLING&hellip;".to_string()
+    } else {
+        format!("WAITING ON {}", waiting.join(", "))
+    };
+    format!(
+        r#"<div class="lc-event lc-report" data-report="{key}" data-round="{round}"><span class="lc-event-name">THE ROUND</span><ol class="lc-blows">{rows}</ol><div class="lc-report-foot"><span class="lc-report-waiting">{status}</span><button type="button" class="lc-btn lc-report-ok" data-lc-post="resolution-ack" data-lc-body="resolution={key}">GOT IT</button></div></div>"#,
+        key = r.key,
+        round = r.round,
     )
 }
 
@@ -982,6 +1108,7 @@ fn log_tag(entry: &LogEntry) -> &'static str {
         LogEntry::Fizzle { .. } => "fizzle",
         LogEntry::Eliminated { .. } => "eliminated",
         LogEntry::Reshuffle { .. } => "reshuffle",
+        LogEntry::Trigger { .. } => "trigger",
         LogEntry::GameOver { .. } => "game_over",
         LogEntry::PactBreak { .. } => "pact_break",
         LogEntry::TabSettle { .. } => "tab_settle",
@@ -1057,6 +1184,12 @@ fn log_line(view: &PublicView, entry: &LogEntry) -> String {
         LogEntry::Fizzle { title, .. } => format!("{} FIZZLES", html_escape(title)),
         LogEntry::Eliminated { seat } => format!("{} IS OUT", log_seat_name(view, *seat)),
         LogEntry::Reshuffle { deck } => format!("{} RESHUFFLES", deck.label()),
+        // The trigger's own title, already uppercase from the catalog. The
+        // seat is named because a trigger always has an author (whoever drew
+        // or played the card) — unlike a reshuffle, which the table does.
+        LogEntry::Trigger { seat, title } => {
+            format!("{} — {}", log_seat_name(view, *seat), html_escape(title))
+        }
         // Fix wave (Important 1): a pact win names both winners, matching
         // the end card's/banner's "THE PACT HOLDS" framing on the same
         // screen instead of the solo-outlast copy for one of the two.
@@ -2581,6 +2714,10 @@ mod tests {
             pulls_spent: 0,
             cards_played: 0,
             elim_order: None,
+            rules: Vec::new(),
+            phase: crate::lc_phase::SeatPhase::Waiting,
+            drinks: 0,
+            shield: 0,
             hand_by_deck: Vec::new(),
         };
         let plaque = player_plaque(&seat);
@@ -2783,6 +2920,10 @@ mod tests {
             pulls_spent: 0,
             cards_played: 0,
             elim_order: None,
+            rules: Vec::new(),
+            phase: crate::lc_phase::SeatPhase::Waiting,
+            drinks: 0,
+            shield: 0,
             hand_by_deck: Vec::new(),
         };
         let html = player_plaque(&seat);
@@ -3151,6 +3292,10 @@ mod tests {
                 pulls_spent: 0,
                 cards_played: 0,
                 elim_order: None,
+                rules: Vec::new(),
+                phase: crate::lc_phase::SeatPhase::Waiting,
+                drinks: 0,
+                shield: 0,
                 hand_by_deck: Vec::new(),
             })
             .collect();
@@ -3160,6 +3305,12 @@ mod tests {
             beat: Beat::Draw,
             first_seat: 0,
             deck_counts: Deck::ALL.iter().map(|&d| (d, 0)).collect(),
+            phase: crate::lc_phase::Phase::Playing,
+            triggers: Vec::new(),
+            pours: Vec::new(),
+            resolutions: Vec::new(),
+            swaps: Vec::new(),
+            reveals: Vec::new(),
             discard_count: 0,
             discard_counts: Deck::ALL.iter().map(|&d| (d, 0)).collect(),
             revealed: Vec::new(),
@@ -4565,5 +4716,173 @@ mod tests {
         assert!(html.contains("TAB SETTLED"));
         assert!(!html.contains("data-tab="));
         no_hex(&html);
+    }
+    /// The report strip names the card, the player and the number — the join
+    /// the LOG tab cannot make.
+    #[test]
+    fn test_the_report_strip_names_card_source_and_subject() {
+        let mut view = ring_fixture(3);
+        view.resolutions = vec![crate::lc_report::Resolution {
+            key: 3,
+            round: 2,
+            blows: vec![crate::lc_report::Blow {
+                card_id: "beer-01".into(),
+                title: "GLASSING".into(),
+                source: Some(0),
+                subject: 1,
+                kind: crate::lc_report::BlowKind::Hit,
+                amount: 2,
+                absorbed: 1,
+            }],
+            owed: vec![1],
+            acked: vec![],
+        }];
+        let html = lc_banner(&view);
+        assert!(html.contains("GLASSING"), "the card is named");
+        assert!(
+            html.contains(r#"data-card="beer-01""#),
+            "and keyed for a sound cue"
+        );
+        assert!(html.contains(r#"data-kind="hit""#));
+        assert!(html.contains("data-hostile"), "a hit is hostile");
+        assert!(
+            html.contains("shield ate 1"),
+            "partial absorption is explained"
+        );
+        assert!(
+            html.contains(r#"data-lc-body="resolution=3""#),
+            "the button carries the key, on the generic `data-lc-post` contract \
+             rather than a bespoke listener"
+        );
+        assert!(html.contains("WAITING ON"), "and says who is holding it up");
+    }
+
+    /// A blocked hit must render as blocked, not as a 0 that looks like
+    /// nothing happened — this is the whole reason the report exists beside
+    /// the log.
+    #[test]
+    fn test_a_blocked_blow_renders_as_blocked() {
+        let mut view = ring_fixture(3);
+        view.resolutions = vec![crate::lc_report::Resolution {
+            key: 1,
+            round: 2,
+            blows: vec![crate::lc_report::Blow {
+                card_id: "beer-01".into(),
+                title: "GLASSING".into(),
+                source: Some(0),
+                subject: 1,
+                kind: crate::lc_report::BlowKind::Blocked,
+                amount: 0,
+                absorbed: 2,
+            }],
+            owed: vec![1],
+            acked: vec![],
+        }];
+        let html = lc_banner(&view);
+        assert!(html.contains("BLOCKED 2"));
+        assert!(
+            !html.contains("shield ate"),
+            "total absorption says it once, not twice"
+        );
+    }
+
+    /// An authorless blow renders a dash, never an empty name slot that
+    /// looks like a rendering failure.
+    #[test]
+    fn test_an_authorless_blow_renders_a_dash() {
+        let mut view = ring_fixture(3);
+        view.resolutions = vec![crate::lc_report::Resolution {
+            key: 1,
+            round: 2,
+            blows: vec![crate::lc_report::Blow {
+                card_id: "last-orders".into(),
+                title: "LAST ORDERS".into(),
+                source: None,
+                subject: 1,
+                kind: crate::lc_report::BlowKind::Hit,
+                amount: 3,
+                absorbed: 0,
+            }],
+            owed: vec![1],
+            acked: vec![],
+        }];
+        let html = lc_banner(&view);
+        assert!(html.contains("lc-blow-noone"));
+        assert!(html.contains("&mdash;"));
+    }
+
+    /// The report outranks the challenge strip: it parks at the very end of
+    /// the resolve, so anything it shares a round with was parked first and
+    /// is sitting underneath it. Naming the challenge would name the thing
+    /// that is not next.
+    #[test]
+    fn test_the_report_strip_outranks_the_challenge_strip() {
+        let mut view = ring_fixture(3);
+        view.event = Some("last-orders".into());
+        view.challenges = vec![crate::last_call::ChallengeState {
+            key: 1,
+            card_id: "liquor-09".into(),
+            instigator: 0,
+            opponent: Some(1),
+            electorate: vec![2],
+            votes: vec![],
+            round: 2,
+        }];
+        view.resolutions = vec![crate::lc_report::Resolution {
+            key: 7,
+            round: 2,
+            blows: vec![crate::lc_report::Blow {
+                card_id: "beer-01".into(),
+                title: "GLASSING".into(),
+                source: Some(0),
+                subject: 1,
+                kind: crate::lc_report::BlowKind::Hit,
+                amount: 2,
+                absorbed: 0,
+            }],
+            owed: vec![1],
+            acked: vec![],
+        }];
+        let html = lc_banner(&view);
+        assert!(
+            html.contains(r#"data-report="7""#),
+            "the report claims the slot"
+        );
+        assert!(!html.contains("lc-event-text"), "and the event does not");
+    }
+    /// A standing rule renders on the plaque, resolved from the catalog by
+    /// id. Before the rule wave, `LcPlayer::rules` was written and read by
+    /// nothing at all, so this is the surface that makes a rule enforceable
+    /// rather than merely stored.
+    #[test]
+    fn test_a_standing_rule_renders_on_the_plaque() {
+        let mut view = ring_fixture(2);
+        view.seats[0].rules = vec![crate::last_call::PlayerRule {
+            card_id: "wine-12".into(),
+            expires_round: 4,
+        }];
+        let html = player_plaque(&view.seats[0]);
+        assert!(html.contains("lc-rules"), "the badge renders");
+        assert!(
+            html.contains("Refer to them without a compliment and you drink."),
+            "with the catalog's wording, not the blob's"
+        );
+        assert!(html.contains(r#"data-rule="wine-12""#));
+
+        // A seat with no rule grows no empty badge.
+        assert!(!player_plaque(&view.seats[1]).contains("lc-rules"));
+    }
+
+    /// An id the catalog no longer recognises renders nothing rather than an
+    /// empty badge — the fail-soft every catalog lookup in this crate uses,
+    /// and the case a deploy mid-game actually produces.
+    #[test]
+    fn test_an_unknown_rule_id_renders_nothing() {
+        let mut view = ring_fixture(2);
+        view.seats[0].rules = vec![crate::last_call::PlayerRule {
+            card_id: "removed-by-a-deploy".into(),
+            expires_round: 4,
+        }];
+        assert!(!player_plaque(&view.seats[0]).contains("lc-rules"));
     }
 }
