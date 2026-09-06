@@ -29,12 +29,18 @@ network):
 npx http-server docs/design/sorting-live -p 8080     # then http://<your-ip>:8080/demo.html
 ```
 
-It is authored at exactly **1440 × 840 CSS px** — the Movink Pad Pro in
-landscape, after Chrome's URL bar. A smaller window scales the whole board
-rather than reflowing it, so what you tap here is what you tap there. It fits
-the height as well as the width: on a laptop under about 950 px tall the board
-would otherwise be cropped along the bottom edge, taking the rules and odd-crate
-buttons with it.
+It is authored at exactly **90 × 52.5 rem** — 1440 × 840 at the browser's
+default, the Movink Pad Pro in landscape after Chrome's URL bar. Every length in
+the board is a multiple of that one unit, so a smaller window resizes the whole
+drawing by changing the root font size rather than reflowing it. What you tap
+here is what you tap there, at any size, and both the width *and* the height are
+fitted — nothing is cropped off an edge on a short laptop screen.
+
+**Full screen** — the button in the bar, or `f` — drops the tier descriptions so
+the bar goes from three lines to one, hands the board the difference, and asks
+the browser for real fullscreen on top. There the design size stops being a
+ceiling: on a large display the board grows past 1440 and stays sharp, because
+it is a drawing rather than a picture of one.
 
 ## The three test cases
 

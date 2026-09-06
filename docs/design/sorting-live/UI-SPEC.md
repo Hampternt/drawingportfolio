@@ -180,6 +180,10 @@ sorted with a manifest and one sorted blind must land in the same van.
 
 ### 6.1 Landscape anatomy — 1440 × 840
 
+Every coordinate in this section is in the units the board was drawn in, which
+are rem: 1440 × 840 is 90 × 52.5 rem, and the two are the same number at the
+browser's default. See §6.10.
+
 Three regions, and the third one stands inside the second.
 
 ```
@@ -397,6 +401,43 @@ Three things that matter more than the storage call:
 
 The load itself is **not** stored. It starts fresh each morning, which is what a
 morning is.
+
+---
+
+### 6.10 One unit, and full screen
+
+**FIXED — every length in the board is a multiple of one unit.** Nothing it
+emits is in pixels: `board.js` converts at the point of emission through a
+single `rem()`, and the two templates carry rem literals. Resizing is therefore
+one number — the root font size — instead of a `transform: scale()` wrapped
+around a picture of a fixed size.
+
+That is not only tidiness. A transform makes the board a composited bitmap of a
+fixed layout: it cannot grow past its design size without softening, and
+anything that reasons about geometry — hit testing, a focus ring, devtools —
+reads the untransformed box underneath. With one unit the layout *is* the final
+layout at every size, which is also what makes full screen two lines of CSS.
+
+**Full screen** hides the tier descriptions rather than the tier bar — three
+lines become one, the board takes the difference, and the way back out stays on
+screen — and asks the browser for real fullscreen on top. The two are
+deliberately separate: inside an iframe without the fullscreen permission the
+request is simply refused, and the slim bar is still the larger part of the win,
+so the layout never waits on the API and the API never becomes the state.
+`Esc` leaves the browser's fullscreen without telling the page, so
+`fullscreenchange` follows it out; a refused request fires no event at all,
+which is exactly why the big layout survives one. `f` toggles it.
+
+In full screen the design size stops being a ceiling. Normally the board caps at
+1:1 — it was drawn at that size and its type is tuned for it — but full screen
+means the whole screen, and a drawing measured in one unit gets bigger rather
+than blurrier: on a 2560 × 1400 display that is a board 2222 px across.
+
+**The chrome bar is inside the drawing**, 90rem wide like the board, so it wraps
+the same way at every viewport. That is what lets `fit()` measure its height
+once at the design size and treat the answer as a constant. Measuring it at the
+final size would be circular — the height being fitted depends on the size being
+computed from it.
 
 ---
 
@@ -654,6 +695,11 @@ Worth knowing so a redesign does not rediscover them.
    on every paint, so anything holding a node across a state change is destroyed
    about 16ms in. `translate` in a keyframe composes outside `transform` and the
    re-render itself starts the animation.
+13. **`matrix()`'s last two numbers are unitless pixels.** They are the one
+   length in CSS that cannot carry a unit, so a picture measured in rem cannot
+   keep its translation there. With `transform-origin: 0 0` the same map is
+   `left`/`top` plus a pure-shear matrix, and those are lengths like any other —
+   which is how every sheared box in the board is positioned.
 
 ---
 
@@ -669,7 +715,7 @@ Worth knowing so a redesign does not rediscover them.
   change shape between mornings, and a driver who picks up a different tablet
   should not have to set it up again. `writeSettings`/`readSettings` already
   produce and validate the payload that would be stored either way.
-- **Portrait.** The board is authored landscape and scales rather than reflows.
+- **Portrait.** The board is authored landscape and resizes rather than reflows.
   A portrait artboard existed for the previous plan view and has not been
   redrawn for this one. Turning the van through ninety degrees in this
   projection is a different picture, not the same one rotated.

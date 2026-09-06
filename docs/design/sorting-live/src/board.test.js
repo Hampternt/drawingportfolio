@@ -72,22 +72,32 @@ ok(v.queue.every(q => ['tap', 'side', 'rear', 'reopen'].every(f => typeof q[f] =
 // ── the picture stays inside the board ──────────────────────────────────────
 // Sheared boxes do not report their painted extent to any layout engine, so
 // this is the only thing that catches a stack drawn out through the frame.
+// Every length the board emits is a rem. These assertions are written in the
+// design pixels the picture was drawn in — 1440 across, the dock at 566 — so
+// read them back into those: one rem is DESIGN px, and the two are the same
+// number at the browser's default. The unit stays optional because a zero has
+// none.
+const DESIGN = 16;
+const LEN = '([-\\d.]+)(px|rem)?';
+const WH = new RegExp('width:' + LEN + ';height:' + LEN);
+const LT = new RegExp('left:' + LEN + ';top:' + LEN);
+function dpx(v, unit) { return unit === 'rem' ? +v * DESIGN : +v; }
 function boxOf(style) {
-  const wh = /width:([-\d.]+)px;height:([-\d.]+)px/.exec(style);
+  const wh = WH.exec(style);
   const mx = /transform:matrix\(([^)]+)\)/.exec(style);
-  const lt = /left:([-\d.]+)(?:px)?;top:([-\d.]+)(?:px)?/.exec(style);
+  const lt = LT.exec(style);
   if (!lt) return null;
-  const L = +lt[1], T = +lt[2];
+  const L = dpx(lt[1], lt[2]), T = dpx(lt[3], lt[4]);
   if (!mx || !wh) return { x: [L, L], y: [T, T] };
   const [a, b, cc, d, e, f] = mx[1].split(',').map(Number);
-  const W = +wh[1], H = +wh[2];
+  const W = dpx(wh[1], wh[2]), H = dpx(wh[3], wh[4]);
   const pts = [[0, 0], [W, 0], [0, H], [W, H]].map(([x, y]) => [a * x + cc * y + e + L, b * x + d * y + f + T]);
   return { x: [Math.min(...pts.map(p => p[0])), Math.max(...pts.map(p => p[0]))],
            y: [Math.min(...pts.map(p => p[1])), Math.max(...pts.map(p => p[1]))] };
 }
 function sceneBounds(vals) {
-  const off = /left:([-\d.]+)px;top:([-\d.]+)px/.exec(vals.scene.box);
-  const ox = +off[1], oy = +off[2];
+  const off = LT.exec(vals.scene.box);
+  const ox = dpx(off[1], off[2]), oy = dpx(off[3], off[4]);
   let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
   for (const p of vals.scene.parts) {
     const b = boxOf(p.style);
@@ -111,14 +121,14 @@ function sceneBounds(vals) {
 // box covers most of the picture while the slab itself covers a parallelogram
 // nowhere near the dock, so a bbox test here answers the wrong question.
 function polyOf(style) {
-  const wh = /width:([-\d.]+)px;height:([-\d.]+)px/.exec(style);
+  const wh = WH.exec(style);
   const mx = /transform:matrix\(([^)]+)\)/.exec(style);
-  const lt = /left:([-\d.]+)(?:px)?;top:([-\d.]+)(?:px)?/.exec(style);
+  const lt = LT.exec(style);
   if (!lt) return null;
-  const L = +lt[1], T = +lt[2];
+  const L = dpx(lt[1], lt[2]), T = dpx(lt[3], lt[4]);
   if (!mx || !wh) return [[L, T]];
   const [a, b, c, d, e, f] = mx[1].split(',').map(Number);
-  const W = +wh[1], H = +wh[2];
+  const W = dpx(wh[1], wh[2]), H = dpx(wh[3], wh[4]);
   return [[0, 0], [W, 0], [W, H], [0, H]].map(([x, y]) => [a * x + c * y + e + L, b * x + d * y + f + T]);
 }
 function convexHit(A, B) {
@@ -137,10 +147,11 @@ function convexHit(A, B) {
   return true;
 }
 function dockOverlaps(vals) {
-  const D = { x: +/left:(\d+)px/.exec(vals.con.box)[1], y: +/top:(\d+)px/.exec(vals.con.box)[1],
-              w: +/width:(\d+)px/.exec(vals.con.box)[1], h: +/height:(\d+)px/.exec(vals.con.box)[1] };
-  const off = /left:([-\d.]+)px;top:([-\d.]+)px/.exec(vals.scene.box);
-  const ox = +off[1], oy = +off[2], hits = [];
+  const cb = LT.exec(vals.con.box), cs = WH.exec(vals.con.box);
+  const D = { x: dpx(cb[1], cb[2]), y: dpx(cb[3], cb[4]),
+              w: dpx(cs[1], cs[2]), h: dpx(cs[3], cs[4]) };
+  const off = LT.exec(vals.scene.box);
+  const ox = dpx(off[1], off[2]), oy = dpx(off[3], off[4]), hits = [];
   const rect = [[D.x, D.y], [D.x + D.w, D.y], [D.x + D.w, D.y + D.h], [D.x, D.y + D.h]];
   for (const p of vals.scene.parts) {
     if (/pointer-events:none/.test(p.style) && p.text === '') continue;   // the tether ends on the dock by design
@@ -418,8 +429,9 @@ const done = t => t.renderVals().con.done();
   const con = t.renderVals().con;
   ok(/doorway/i.test(con.pushLabel), 'a full van offers the doorway');
   ok(con.why.length > 80, 'with a reason long enough to wrap');
-  const cy = /top:(\d+)px/.exec(con.box), ch = /height:(\d+)px/.exec(con.box);
-  ok(cy && ch && +cy[1] + +ch[1] <= 840, 'and the console is a fixed box that cannot grow past the board');
+  const cy = LT.exec(con.box), ch = WH.exec(con.box);
+  ok(cy && ch && dpx(cy[3], cy[4]) + dpx(ch[3], ch[4]) <= 840,
+    'and the console is a fixed box that cannot grow past the board');
   ok(/line-clamp/.test(con.whyStyle), 'because the reason is clamped rather than allowed to push it');
 }
 
@@ -511,9 +523,9 @@ const done = t => t.renderVals().con.done();
   push(t);
   const moving = t.renderVals().scene.parts.filter(p => /sc-push/.test(p.style));
   eq(moving.length, 3, 'the three faces of the stack that just landed carry the slide');
-  ok(moving.every(p => /--dx:[-\d.]+px;--dy:[-\d.]+px/.test(p.style)), 'each with the offset from the spot it was built on');
+  ok(moving.every(p => /--dx:[-\d.]+rem;--dy:[-\d.]+rem/.test(p.style)), 'each with the offset from the spot it was built on');
   ok(!/transform:translate/.test(moving[0].style), 'and never inside transform, which would fight the shear');
-  const dx = +/--dx:([-\d.]+)px/.exec(moving[0].style)[1];
+  const dx = dpx(/--dx:([-\d.]+)rem/.exec(moving[0].style)[1], 'rem');
   ok(Math.abs(dx) > 100, 'the offset is a real distance across the picture  ' + Math.round(dx));
   eq(t.renderVals().scene.parts.filter(p => /sc-push/.test(p.style)).length, 0,
     'and it is consumed on the first paint, so no later repaint replays it');

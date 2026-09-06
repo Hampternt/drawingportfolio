@@ -62,6 +62,14 @@ function listOf(a) {
   return a.slice(0, -1).join(', ') + ' and ' + a[a.length - 1];
 }
 function fx(n) { return (Math.round(n * 1000) / 1000); }
+// ── one unit for the whole drawing ───────────────────────────────────────────
+// Every length the board emits is a multiple of the root font size rather than
+// a pixel, so the picture is resized by changing that one number instead of
+// being painted at its design size and then squashed by a transform. REM is
+// that design size: at the browser default the board is the 1440x840 it was
+// drawn at, and nothing about the geometry below has to know that.
+var REM = 16;
+function rem(n) { return (Math.round(n / REM * 10000) / 10000) + 'rem'; }
 
 class Component extends DCLogic {
   constructor(props) {
@@ -125,13 +133,13 @@ class Component extends DCLogic {
   }
 
   btn(kind, h, accent) {
-    var base = 'height:' + h + 'px;border-radius:13px;display:flex;flex-direction:column;align-items:center;'
-      + 'justify-content:center;gap:2px;flex:none;padding:0 12px;text-align:center;';
+    var base = 'height:' + rem(h) + ';border-radius:0.8125rem;display:flex;flex-direction:column;align-items:center;'
+      + 'justify-content:center;gap:0.125rem;flex:none;padding:0 0.75rem;text-align:center;';
     if (kind === 'go')      return base + 'background:#4FD6A8;color:#0B2119;';
     if (kind === 'primary') return base + 'background:' + accent + ';color:#191624;';
-    if (kind === 'warn')    return base + 'background:rgba(255,181,112,.12);border:1px solid rgba(255,181,112,.45);color:#FFB570;';
-    if (kind === 'stop')    return base + 'background:rgba(247,118,142,.10);border:1px solid rgba(247,118,142,.42);color:#F7768E;';
-    if (kind === 'quiet')   return base + 'background:rgba(242,238,248,.05);border:1px solid #2A2438;color:#CDC6DD;';
+    if (kind === 'warn')    return base + 'background:rgba(255,181,112,.12);border:0.0625rem solid rgba(255,181,112,.45);color:#FFB570;';
+    if (kind === 'stop')    return base + 'background:rgba(247,118,142,.10);border:0.0625rem solid rgba(247,118,142,.42);color:#F7768E;';
+    if (kind === 'quiet')   return base + 'background:rgba(242,238,248,.05);border:0.0625rem solid #2A2438;color:#CDC6DD;';
     return base + 'background:rgba(242,238,248,.025);color:#3F3A52;';
   }
 
@@ -180,14 +188,15 @@ class Component extends DCLogic {
     function quad(o, a, b, style, tap) {
       parts.push({ kids: [], text: '',
         tap: tap || noop,
-        style: 'position:absolute;left:0;top:0;width:100px;height:100px;transform-origin:0 0;transform:matrix('
-          + [fx(a[0] / 100), fx(a[1] / 100), fx(b[0] / 100), fx(b[1] / 100), fx(o[0]), fx(o[1])].join(',')
+        style: 'position:absolute;left:' + rem(o[0]) + ';top:' + rem(o[1]) + ';'
+          + 'width:6.25rem;height:6.25rem;transform-origin:0 0;transform:matrix('
+          + [fx(a[0] / 100), fx(a[1] / 100), fx(b[0] / 100), fx(b[1] / 100), 0, 0].join(',')
           + ');' + style });
     }
     // Upright, centred on a projected point. Everything readable is one of these.
     function chip(p, text, style, tap) {
       parts.push({ kids: [], text: text, tap: tap || noop,
-        style: 'position:absolute;left:' + fx(p[0]) + 'px;top:' + fx(p[1]) + 'px;'
+        style: 'position:absolute;left:' + rem(p[0]) + ';top:' + rem(p[1]) + ';'
           + 'transform:translate(-50%,-50%);white-space:nowrap;pointer-events:none;' + style });
     }
     var mono = "font-family:'IBM Plex Mono',monospace;";
@@ -197,13 +206,13 @@ class Component extends DCLogic {
     // is between the camera and everything it holds, so it is cut down to a
     // sill — and the side door is the stretch of that sill it opens through.
     quad(P(0, 0), mul(ROW, ROWS), [0, -V.wall * ch],
-      'background:linear-gradient(to bottom,#1B1626,#0E0B15);box-shadow:inset 0 0 0 1px #342D48;');
+      'background:linear-gradient(to bottom,#1B1626,#0E0B15);box-shadow:inset 0 0 0 0.0625rem #342D48;');
     quad(P(0, 0), mul(COL, 2), [0, -V.wall * ch],
-      'background:linear-gradient(to bottom,#221C31,#14101F);box-shadow:inset 0 0 0 1px #3A3252;');
+      'background:linear-gradient(to bottom,#221C31,#14101F);box-shadow:inset 0 0 0 0.0625rem #3A3252;');
     quad(P(0, 0, V.wall), mul(ROW, ROWS), [0, 4], 'background:#584F76;');
     quad(P(0, 0, V.wall), mul(COL, 2), [0, 4], 'background:#6B6188;');
-    chip(P(1, 0.16, V.wall * 0.52), 'CAB', mono + 'font-size:' + fx(11 * k + 1) + 'px;letter-spacing:.16em;color:#6B6386;');
-    quad(P(0, 0), mul(COL, 2), mul(ROW, ROWS), 'background:#131020;box-shadow:inset 0 0 0 1px #3A3252;');
+    chip(P(1, 0.16, V.wall * 0.52), 'CAB', mono + 'font-size:' + rem(11 * k + 1) + ';letter-spacing:.16em;color:#6B6386;');
+    quad(P(0, 0), mul(COL, 2), mul(ROW, ROWS), 'background:#131020;box-shadow:inset 0 0 0 0.0625rem #3A3252;');
 
     // ── the state the picture has to answer ──────────────────────────────────
     var focus = this.focusSpot(st), fspot = focus ? spotById(focus) : null;
@@ -222,19 +231,19 @@ class Component extends DCLogic {
     for (var r = 0; r < ROWS; r++) {
       var isDoorRow = r < SIDE_DOOR_ROWS;
       quad(P(2, r), ROW, [0, -(isDoorRow ? 0.55 : 1.9) * ch],
-        isDoorRow ? (shut ? 'background:rgba(247,118,142,.16);box-shadow:inset 0 0 0 1px rgba(247,118,142,.5);'
-                          : 'background:rgba(255,181,112,.20);box-shadow:inset 0 0 0 1px rgba(255,181,112,.62);')
-                  : 'background:#171320;box-shadow:inset 0 0 0 1px #2A2438;');
+        isDoorRow ? (shut ? 'background:rgba(247,118,142,.16);box-shadow:inset 0 0 0 0.0625rem rgba(247,118,142,.5);'
+                          : 'background:rgba(255,181,112,.20);box-shadow:inset 0 0 0 0.0625rem rgba(255,181,112,.62);')
+                  : 'background:#171320;box-shadow:inset 0 0 0 0.0625rem #2A2438;');
     }
     if (SIDE_DOOR_ROWS > 0) {
       chip(P(2.02, 0.06, 1.1),
         shut ? 'SIDE DOOR · SHUT' : 'SIDE DOOR · ROWS 1–' + SIDE_DOOR_ROWS,
-        mono + 'font-size:' + fx(10 * k + 1) + 'px;font-weight:600;letter-spacing:.12em;transform:translate(1%,-50%);'
+        mono + 'font-size:' + rem(10 * k + 1) + ';font-weight:600;letter-spacing:.12em;transform:translate(1%,-50%);'
           + 'color:' + (shut ? '#F7768E' : '#FFB570') + ';');
     }
     for (var rr = 0; rr < ROWS; rr++) {
       chip(P(-V.gutter, rr + 0.5), 'R' + (rr + 1),
-        mono + 'font-size:' + fx(11 * k + 1) + 'px;color:' + (rr < SIDE_DOOR_ROWS && !shut ? '#7A6E58' : '#57506E') + ';');
+        mono + 'font-size:' + rem(11 * k + 1) + ';color:' + (rr < SIDE_DOOR_ROWS && !shut ? '#7A6E58' : '#57506E') + ';');
     }
 
     // ── the load, back to front ──────────────────────────────────────────────
@@ -243,9 +252,9 @@ class Component extends DCLogic {
     function stripes(layers, f) {
       return layers.slice().reverse().map(function (l) {
         return { style: 'flex:' + (l.n || 1) + ' 0 0;min-height:0;background:' + shade(CUST[l.cust].color, f) + ';'
-          + 'background-image:repeating-linear-gradient(to bottom,transparent 0,transparent ' + fx(ch - 1)
-          + 'px,rgba(0,0,0,.42) ' + fx(ch - 1) + 'px,rgba(0,0,0,.42) ' + fx(ch) + 'px);'
-          + 'box-shadow:inset 0 -1px 0 rgba(0,0,0,.5);' };
+          + 'background-image:repeating-linear-gradient(to bottom,transparent 0,transparent ' + rem(ch - 1)
+          + ',rgba(0,0,0,.42) ' + rem(ch - 1) + ',rgba(0,0,0,.42) ' + rem(ch) + ');'
+          + 'box-shadow:inset 0 -0.0625rem 0 rgba(0,0,0,.5);' };
       });
     }
     // Three faces per stack, not per crate: the one facing the back doors, the
@@ -255,16 +264,18 @@ class Component extends DCLogic {
       var h = n * ch;
       var o1 = P(u, v + 1, n);
       parts.push({ kids: stripes(layers, 0.70), text: '', tap: tap || noop,
-        style: 'position:absolute;left:0;top:0;width:' + fx(cx) + 'px;height:' + fx(h) + 'px;transform-origin:0 0;'
-          + 'transform:matrix(1,' + fx(cy / cx) + ',0,1,' + fx(o1[0]) + ',' + fx(o1[1]) + ');display:flex;flex-direction:column;'
+        style: 'position:absolute;left:' + rem(o1[0]) + ';top:' + rem(o1[1]) + ';'
+          + 'width:' + rem(cx) + ';height:' + rem(h) + ';transform-origin:0 0;'
+          + 'transform:matrix(1,' + fx(cy / cx) + ',0,1,0,0);display:flex;flex-direction:column;'
           + (slide || '') });
       var o2 = P(u + 1, v, n);
       parts.push({ kids: stripes(layers, 0.46), text: '', tap: tap || noop,
-        style: 'position:absolute;left:0;top:0;width:' + fx(rx) + 'px;height:' + fx(h) + 'px;transform-origin:0 0;'
-          + 'transform:matrix(-1,' + fx(ry / rx) + ',0,1,' + fx(o2[0]) + ',' + fx(o2[1]) + ');display:flex;flex-direction:column;'
+        style: 'position:absolute;left:' + rem(o2[0]) + ';top:' + rem(o2[1]) + ';'
+          + 'width:' + rem(rx) + ';height:' + rem(h) + ';transform-origin:0 0;'
+          + 'transform:matrix(-1,' + fx(ry / rx) + ',0,1,0,0);display:flex;flex-direction:column;'
           + (slide || '') });
       quad(P(u, v, n), COL, ROW, 'background:' + shade(CUST[layers[layers.length - 1].cust].color, 1)
-        + ';box-shadow:inset 0 0 0 1px rgba(0,0,0,.38);' + (slide || ''), tap);
+        + ';box-shadow:inset 0 0 0 0.0625rem rgba(0,0,0,.38);' + (slide || ''), tap);
     }
 
     for (var row = 0; row < ROWS; row++) {
@@ -278,10 +289,10 @@ class Component extends DCLogic {
           var ghost = (!layers.length && plan && plan.van[id] && plan.van[id].length) ? plan.van[id] : null;
 
           quad(P(col, row), COL, ROW,
-            (isNext ? 'background:' + accent + '2E;box-shadow:inset 0 0 0 2px ' + (picked ? '#FFB570' : accent) + ';'
-              : (layers.length ? 'background:rgba(0,0,0,.28);box-shadow:inset 0 0 0 1px rgba(203,176,255,.10);'
-                : (reach ? 'background:rgba(247,118,142,.05);box-shadow:inset 0 0 0 1px rgba(247,118,142,.16);'
-                  : 'background:rgba(203,176,255,.022);box-shadow:inset 0 0 0 1px rgba(203,176,255,.13);')))
+            (isNext ? 'background:' + accent + '2E;box-shadow:inset 0 0 0 0.125rem ' + (picked ? '#FFB570' : accent) + ';'
+              : (layers.length ? 'background:rgba(0,0,0,.28);box-shadow:inset 0 0 0 0.0625rem rgba(203,176,255,.10);'
+                : (reach ? 'background:rgba(247,118,142,.05);box-shadow:inset 0 0 0 0.0625rem rgba(247,118,142,.16);'
+                  : 'background:rgba(203,176,255,.022);box-shadow:inset 0 0 0 0.0625rem rgba(203,176,255,.13);')))
             + 'cursor:pointer;', tap);
 
           var gn = ghost ? ghost.reduce(function (a, l) { return a + l.n; }, 0) : 0;
@@ -291,19 +302,20 @@ class Component extends DCLogic {
             // mid-air over the position two rows behind it.
             var oF = P(col, row + 1, gn);
             parts.push({ kids: [], text: '', tap: tap,
-              style: 'position:absolute;left:0;top:0;width:' + fx(cx) + 'px;height:' + fx(gn * ch)
-                + 'px;transform-origin:0 0;transform:matrix(1,' + fx(cy / cx) + ',0,1,' + fx(oF[0]) + ',' + fx(oF[1])
-                + ');background:rgba(122,162,247,.07);border-left:1px dashed rgba(122,162,247,.4);'
-                + 'border-right:1px dashed rgba(122,162,247,.4);' });
+              style: 'position:absolute;left:' + rem(oF[0]) + ';top:' + rem(oF[1]) + ';'
+                + 'width:' + rem(cx) + ';height:' + rem(gn * ch)
+                + ';transform-origin:0 0;transform:matrix(1,' + fx(cy / cx) + ',0,1,0,0'
+                + ');background:rgba(122,162,247,.07);border-left:0.0625rem dashed rgba(122,162,247,.4);'
+                + 'border-right:0.0625rem dashed rgba(122,162,247,.4);' });
             quad(P(col, row, gn), COL, ROW,
-              'background:rgba(122,162,247,.10);box-shadow:inset 0 0 0 1px rgba(122,162,247,.55);', tap);
+              'background:rgba(122,162,247,.10);box-shadow:inset 0 0 0 0.0625rem rgba(122,162,247,.55);', tap);
           }
           if (layers.length) {
             var draw = unknown ? [{ cust: layers[0].cust, n: 1 }] : layers;
             var flash = self.state.flash, slide = '';
             if (flash && flash.id === id && spotById(flash.from)) {
               var from = padCentre(spotById(flash.from)), to = P(col + 0.5, row + 0.5);
-              slide = '--dx:' + fx(from[0] - to[0]) + 'px;--dy:' + fx(from[1] - to[1]) + 'px;'
+              slide = '--dx:' + rem(from[0] - to[0]) + ';--dy:' + rem(from[1] - to[1]) + ';'
                 + 'animation:sc-push 260ms cubic-bezier(.22,.61,.36,1);';
             }
             drawStack(col, row, draw, unknown ? 1 : n, tap, slide);
@@ -311,20 +323,21 @@ class Component extends DCLogic {
             layers.forEach(function (l) { if (names.indexOf(l.cust) < 0) names.push(l.cust); });
             chip(P(col + 0.5, row + 0.26, unknown ? 1 : n),
               names.map(function (c) { return CUST[c].code; }).join('+') + ' ' + (unknown ? '?' : n),
-              'font-family:Archivo,system-ui,sans-serif;font-weight:700;font-size:' + fx(12 * k + 1) + 'px;'
-              + 'color:#0B0910;text-shadow:0 1px 0 rgba(255,255,255,.28);');
+              'font-family:Archivo,system-ui,sans-serif;font-weight:700;font-size:' + rem(12 * k + 1) + ';'
+              + 'color:#0B0910;text-shadow:0 0.0625rem 0 rgba(255,255,255,.28);');
             if (isHost && hostTake) {
               // What the top-up would do, drawn where it would land: the crates
               // themselves, in the customer's colour, standing on the host.
               var base = unknown ? 1 : n, oG = P(col, row + 1, base + hostTake);
               parts.push({ kids: [], text: '', tap: tap,
-                style: 'position:absolute;left:0;top:0;width:' + fx(cx) + 'px;height:' + fx(hostTake * ch)
-                  + 'px;transform-origin:0 0;transform:matrix(1,' + fx(cy / cx) + ',0,1,' + fx(oG[0]) + ',' + fx(oG[1])
-                  + ');background:' + shade(CUST[held.cust].color, 0.7, 0.5) + ';border:1px dashed #FFB570;' });
+                style: 'position:absolute;left:' + rem(oG[0]) + ';top:' + rem(oG[1]) + ';'
+                  + 'width:' + rem(cx) + ';height:' + rem(hostTake * ch)
+                  + ';transform-origin:0 0;transform:matrix(1,' + fx(cy / cx) + ',0,1,0,0'
+                  + ');background:' + shade(CUST[held.cust].color, 0.7, 0.5) + ';border:0.0625rem dashed #FFB570;' });
               quad(P(col, row, base + hostTake), COL, ROW,
-                'background:' + shade(CUST[held.cust].color, 1, 0.55) + ';box-shadow:inset 0 0 0 2px #FFB570;', tap);
+                'background:' + shade(CUST[held.cust].color, 1, 0.55) + ';box-shadow:inset 0 0 0 0.125rem #FFB570;', tap);
               chip(P(col + 0.5, row + 0.24, base + hostTake), '+' + hostTake,
-                'font-family:Archivo,system-ui,sans-serif;font-weight:800;font-size:' + fx(12 * k + 1) + 'px;color:#FFF2E2;');
+                'font-family:Archivo,system-ui,sans-serif;font-weight:800;font-size:' + rem(12 * k + 1) + ';color:#FFF2E2;');
             }
           } else if (isNext || ghost) {
             // One chip per position. The next position with a plan on it has two
@@ -334,7 +347,7 @@ class Component extends DCLogic {
             chip(P(col + 0.5, row + (ghost ? 0.26 : 0.5), gn),
               isNext ? (picked ? 'PICKED' : 'NEXT') + (planned ? ' · ' + planned : ' IN') : planned,
               (ghost && !isNext ? "font-family:Archivo,system-ui,sans-serif;font-weight:700;" : mono + 'font-weight:600;letter-spacing:.09em;')
-              + 'font-size:' + fx((ghost && !isNext ? 11 : 10) * k + 1) + 'px;'
+              + 'font-size:' + rem((ghost && !isNext ? 11 : 10) * k + 1) + ';'
               + 'color:' + (picked ? '#FFB570' : (isNext ? '#CBB0FF' : '#7AA2F7')) + ';');
           }
         }(row, col));
@@ -350,7 +363,7 @@ class Component extends DCLogic {
       var col = on ? CUST[on.cust].color : '#5F5876';
       quad(P(u0, v0), mul(COL, w), mul(ROW, d),
         'background:' + (on ? 'rgba(242,238,248,.05)' : 'rgba(242,238,248,.022)')
-        + ';box-shadow:inset 0 0 0 ' + (isFocus ? '2px ' + accent : '1px ' + (on ? col + '66' : '#2A2438')) + ';cursor:pointer;',
+        + ';box-shadow:inset 0 0 0 ' + (isFocus ? '0.125rem ' + accent : '0.0625rem ' + (on ? col + '66' : '#2A2438')) + ';cursor:pointer;',
         function () { self.setState({ focus: spot.id, target: null, host: null }); });
       if (on && on.n) {
         // Inset, so the pad stays readable as ground with a pile standing on it.
@@ -358,27 +371,29 @@ class Component extends DCLogic {
         var n = Math.min(on.n, STAGE_CAP);
         var h = n * ch, oA = P(iu, iv + id, n), oB = P(iu + iw, iv, n);
         parts.push({ kids: stripes([{ cust: on.cust, n: n }], 0.70), text: '', tap: noop,
-          style: 'position:absolute;left:0;top:0;width:' + fx(cx * iw) + 'px;height:' + fx(h) + 'px;transform-origin:0 0;'
-            + 'transform:matrix(1,' + fx(cy / cx) + ',0,1,' + fx(oA[0]) + ',' + fx(oA[1]) + ');display:flex;flex-direction:column;' });
+          style: 'position:absolute;left:' + rem(oA[0]) + ';top:' + rem(oA[1]) + ';'
+            + 'width:' + rem(cx * iw) + ';height:' + rem(h) + ';transform-origin:0 0;'
+            + 'transform:matrix(1,' + fx(cy / cx) + ',0,1,0,0);display:flex;flex-direction:column;' });
         parts.push({ kids: stripes([{ cust: on.cust, n: n }], 0.46), text: '', tap: noop,
-          style: 'position:absolute;left:0;top:0;width:' + fx(rx * id) + 'px;height:' + fx(h) + 'px;transform-origin:0 0;'
-            + 'transform:matrix(-1,' + fx(ry / rx) + ',0,1,' + fx(oB[0]) + ',' + fx(oB[1]) + ');display:flex;flex-direction:column;' });
+          style: 'position:absolute;left:' + rem(oB[0]) + ';top:' + rem(oB[1]) + ';'
+            + 'width:' + rem(rx * id) + ';height:' + rem(h) + ';transform-origin:0 0;'
+            + 'transform:matrix(-1,' + fx(ry / rx) + ',0,1,0,0);display:flex;flex-direction:column;' });
         quad(P(iu, iv, n), mul(COL, iw), mul(ROW, id),
-          'background:' + shade(col, 1) + ';box-shadow:inset 0 0 0 1px rgba(0,0,0,.38);');
+          'background:' + shade(col, 1) + ';box-shadow:inset 0 0 0 0.0625rem rgba(0,0,0,.38);');
         chip(P(u0 + w / 2, v0 + d / 2, n), CUST[on.cust].code + ' ' + on.n,
-          'font-family:Archivo,system-ui,sans-serif;font-weight:800;font-size:' + fx(13 * k + 1) + 'px;'
-          + 'letter-spacing:-.01em;color:#0B0910;text-shadow:0 1px 0 rgba(255,255,255,.26);');
+          'font-family:Archivo,system-ui,sans-serif;font-weight:800;font-size:' + rem(13 * k + 1) + ';'
+          + 'letter-spacing:-.01em;color:#0B0910;text-shadow:0 0.0625rem 0 rgba(255,255,255,.26);');
       } else if (on) {
         chip(P(u0 + w / 2, v0 + d / 2), CUST[on.cust].code + ' ·',
-          'font-family:Archivo,system-ui,sans-serif;font-weight:800;font-size:' + fx(13 * k + 1) + 'px;color:' + col + ';');
+          'font-family:Archivo,system-ui,sans-serif;font-weight:800;font-size:' + rem(13 * k + 1) + ';color:' + col + ';');
       } else {
         chip(P(u0 + w / 2, v0 + d / 2), 'free',
-          "font-family:'Space Grotesk',sans-serif;font-size:" + fx(11 * k + 1) + 'px;color:#3F3A52;');
+          "font-family:'Space Grotesk',sans-serif;font-size:" + rem(11 * k + 1) + ';color:#3F3A52;');
       }
       // The spot's own name always sits on the pavement in front of it, so a
       // pile standing on the pad never hides which pad it is.
       chip(outward ? P(u0 + w + 0.26, v0 + d / 2) : P(u0 + w / 2, v0 + d + 0.28), spot.name,
-        mono + 'font-size:' + fx(10 * k + 1) + 'px;font-weight:600;letter-spacing:.09em;'
+        mono + 'font-size:' + rem(10 * k + 1) + ';font-weight:600;letter-spacing:.09em;'
         + 'color:' + (isFocus ? '#CBB0FF' : (on ? '#8D87A0' : '#4A445C')) + ';');
     }
     // A line from the focused pad to the dock, so "the packing area this
@@ -393,8 +408,8 @@ class Component extends DCLogic {
       if (len > 8) {
         var col = held ? CUST[held.cust].color : accent;
         parts.push({ kids: [], text: '', tap: noop,
-          style: 'position:absolute;left:' + fx(pc[0]) + 'px;top:' + fx(pc[1]) + 'px;width:' + fx(len) + 'px;'
-            + 'height:2px;transform-origin:0 50%;pointer-events:none;'
+          style: 'position:absolute;left:' + rem(pc[0]) + ';top:' + rem(pc[1]) + ';width:' + rem(len) + ';'
+            + 'height:0.125rem;transform-origin:0 50%;pointer-events:none;'
             + 'transform:rotate(' + fx(Math.atan2(dy, dx) * 180 / Math.PI) + 'deg);'
             + 'background:linear-gradient(to right,' + col + '00,' + col + 'AA);' });
       }
@@ -415,13 +430,13 @@ class Component extends DCLogic {
       var w = isSide ? 0.42 : 1.2, d = isSide ? 1.0 : 0.4;
       quad(P(u0, v0), mul(COL, w), mul(ROW, d),
         'background:' + (on ? 'rgba(255,181,112,.16)' : 'rgba(255,181,112,.05)')
-        + ';box-shadow:inset 0 0 0 1px rgba(255,181,112,' + (on ? '.55' : '.24') + ');');
+        + ';box-shadow:inset 0 0 0 0.0625rem rgba(255,181,112,' + (on ? '.55' : '.24') + ');');
       chip(P(u0 + w / 2, v0 + d / 2, on ? 1.2 : 0),
         on ? CUST[on.cust].code + (on.n == null ? ' ?' : ' ' + on.n) : 'well',
-        mono + 'font-size:' + fx(10 * k + 1) + 'px;font-weight:600;letter-spacing:.06em;color:#FFB570;');
+        mono + 'font-size:' + rem(10 * k + 1) + ';font-weight:600;letter-spacing:.06em;color:#FFB570;');
     });
 
-    return { box: 'position:absolute;left:' + fx(ox) + 'px;top:' + fx(oy) + 'px;width:0;height:0;', parts: parts,
+    return { box: 'position:absolute;left:' + rem(ox) + ';top:' + rem(oy) + ';width:0;height:0;', parts: parts,
              // The fit, for anything that has to quote it rather than re-derive
              // it — the design document's projection table, and the tests.
              geo: { k: k, cx: cx, cy: cy, rx: rx, ry: ry, ch: ch, ox: ox, oy: oy,
@@ -441,18 +456,18 @@ class Component extends DCLogic {
     var self = this, focus = S.focus, held = S.held;
     var col = held ? CUST[held.cust].color : accent;
     function dockBox(tall) {
-      return 'position:absolute;left:' + DOCK.x + 'px;top:' + DOCK.y + 'px;width:' + DOCK.w + 'px;'
-        + 'height:' + (tall ? DOCK.h : DOCK.hShort) + 'px;padding:16px;border-radius:18px;'
-        + 'display:flex;flex-direction:column;gap:8px;overflow:hidden;background:rgba(11,9,16,.92);'
-        + 'border:2px solid ' + (focus ? col + '99' : '#241F30') + ';';
+      return 'position:absolute;left:' + rem(DOCK.x) + ';top:' + rem(DOCK.y) + ';width:' + rem(DOCK.w) + ';'
+        + 'height:' + rem(tall ? DOCK.h : DOCK.hShort) + ';padding:1rem;border-radius:1.125rem;'
+        + 'display:flex;flex-direction:column;gap:0.5rem;overflow:hidden;background:rgba(11,9,16,.92);'
+        + 'border:0.125rem solid ' + (focus ? col + '99' : '#241F30') + ';';
     }
-    var big = 'font:700 19px/1 Archivo,system-ui,sans-serif;letter-spacing:-.02em;';
-    var mid = 'font:700 16px/1 Archivo,system-ui,sans-serif;letter-spacing:-.02em;';
-    var sub = "font:500 11px/1 'IBM Plex Mono',monospace;letter-spacing:.06em;opacity:.74;";
+    var big = 'font:700 1.1875rem/1 Archivo,system-ui,sans-serif;letter-spacing:-.02em;';
+    var mid = 'font:700 1rem/1 Archivo,system-ui,sans-serif;letter-spacing:-.02em;';
+    var sub = "font:500 0.6875rem/1 'IBM Plex Mono',monospace;letter-spacing:.06em;opacity:.74;";
     var hist = this.state.hist.length;
     var undo = {
       undo: function () { self.undo(); },
-      undoStyle: this.btn(hist ? 'quiet' : 'off', 60, accent) + 'width:102px;',
+      undoStyle: this.btn(hist ? 'quiet' : 'off', 60, accent) + 'width:6.375rem;',
       undoLabel: hist ? 'Undo' : '—', undoBig: mid
     };
 
@@ -461,7 +476,7 @@ class Component extends DCLogic {
       return Object.assign({
         box: dockBox(false),
         eyebrow: waiting ? 'NOTHING ON A PACKING SPOT' : 'EVERY STOP CLOSED OUT',
-        eyebrowStyle: "font:600 11px/1 'IBM Plex Mono',monospace;letter-spacing:.10em;color:"
+        eyebrowStyle: "font:600 0.6875rem/1 'IBM Plex Mono',monospace;letter-spacing:.10em;color:"
           + (waiting ? '#8D87A0' : '#4FD6A8') + ';',
         note: '', noteStyle: 'font-size:0;',
         minus: noop, minusStyle: off,
@@ -474,7 +489,7 @@ class Component extends DCLogic {
         showWhy: true,
         why: waiting ? 'Pick ' + CUST[waiting].name + ' on the right and say which door you are packing them at.'
           : positionsIn(st) + ' positions loaded. Nothing left to put in.',
-        whyStyle: 'font:400 14px/1.4 "Space Grotesk",sans-serif;color:#8D87A0;'
+        whyStyle: 'font:400 0.875rem/1.4 "Space Grotesk",sans-serif;color:#8D87A0;'
       }, undo);
     }
 
@@ -567,30 +582,30 @@ class Component extends DCLogic {
     return Object.assign({
       box: dockBox(showWhy),
       eyebrow: spot.name + ' · ' + CUST[held.cust].name.toUpperCase(),
-      eyebrowStyle: "font:600 11px/1 'IBM Plex Mono',monospace;letter-spacing:.10em;color:"
+      eyebrowStyle: "font:600 0.6875rem/1 'IBM Plex Mono',monospace;letter-spacing:.10em;color:"
         + (S.picked ? '#FFB570' : col) + ';',
       note: (this.props.tier >= 3 && PALLETS[held.cust] ? 'pallet ' + PALLETS[held.cust] + ' · ' : '')
         + 'stop ' + stopOf(held.cust).i + ' of ' + STOPS.length
         + (this.props.tier >= 2 && COUNTS[held.cust] ? ' · ' + COUNTS[held.cust] + ' expected' : ''),
-      noteStyle: "font:400 12px/1 'Space Grotesk',sans-serif;color:#5F5876;",
+      noteStyle: "font:400 0.75rem/1 'Space Grotesk',sans-serif;color:#5F5876;",
 
       minus: function () { self.apply(function (s) { doBump(s, focus, -1); }); },
-      minusStyle: this.btn(held.n ? 'quiet' : 'off', 76, accent) + 'width:56px;font-size:22px;',
+      minusStyle: this.btn(held.n ? 'quiet' : 'off', 76, accent) + 'width:3.5rem;font-size:1.375rem;',
       plus: function () { self.apply(function (s) { doBump(s, focus, 1); }); },
-      plusStyle: this.btn('quiet', 76, accent) + 'width:128px;',
+      plusStyle: this.btn('quiet', 76, accent) + 'width:8rem;',
       plusLabel: held.n ? '+ 1  (' + held.n + ')' : '+ 1 crate',
       plusNote: held.n ? 'on the spot' : (suggest ? 'or push ' + suggest + ' blind' : 'uncounted'),
       plusBig: big, plusSub: sub,
 
       push: primary.act,
-      pushStyle: this.btn(primary.tone, 76, accent) + 'width:238px;',
+      pushStyle: this.btn(primary.tone, 76, accent) + 'width:14.875rem;',
       pushLabel: primary.label, pushNote: primary.note, pushBig: big, pushSub: sub,
 
       // The runner-up, whatever the settings made it. The slot stays whether or
       // not there is one, because a button that disappears moves every button
       // beside it under a hand that is already reaching for one of them.
       top: runner ? runner.act : noop,
-      topStyle: this.btn(runner ? runner.tone : 'off', 60, accent) + 'width:208px;',
+      topStyle: this.btn(runner ? runner.tone : 'off', 60, accent) + 'width:13rem;',
       topLabel: runner ? runner.label : '+' + take + ' on top',
       topNote: runner ? runner.note : (RULES.allowCombine ? 'no stack for it' : 'combining is off'),
       topBig: mid, topSub: sub,
@@ -599,7 +614,7 @@ class Component extends DCLogic {
         self.apply(function (s) { doClose(s, focus); });
         self.setState({ focus: null, target: null, host: null, flash: null });
       },
-      doneStyle: this.btn('quiet', 60, accent) + 'width:112px;', doneLabel: 'Done', doneBig: mid,
+      doneStyle: this.btn('quiet', 60, accent) + 'width:7rem;', doneLabel: 'Done', doneBig: mid,
 
       // When the ±3 rule blocks the position AND a stack could take the crates
       // instead, both facts are load-bearing: one says why the ordinary move is
@@ -611,7 +626,7 @@ class Component extends DCLogic {
           + CUST[tu.host.below].name + '’s stack at ' + posLabel(tu.host.id) + ' would take them — '
           + 'but two customers on one stack is how the wrong crate gets carried into a building.'
         : ''].filter(function (x) { return x; }).join('  '),
-      whyStyle: 'font:400 13px/1.35 "Space Grotesk",sans-serif;color:'
+      whyStyle: 'font:400 0.8125rem/1.35 "Space Grotesk",sans-serif;color:'
         + (primary.tone === 'stop' ? '#F7768E' : '#FFB570') + ';'
         + 'display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;'
     }, undo);
@@ -643,18 +658,18 @@ class Component extends DCLogic {
     };
 
     var mono = "font-family:'IBM Plex Mono',monospace;";
-    var rowTile = 'display:flex;align-items:center;gap:12px;padding:11px 12px;border-radius:11px;'
-      + 'background:#0E0C14;border:1px solid #1B1826;min-height:62px;';
-    var nameStyle = "font:600 14px/1.25 'Space Grotesk',sans-serif;color:#F2EEF8;";
-    var noteStyle = "font:400 11.5px/1.3 'Space Grotesk',sans-serif;color:#5F5876;";
+    var rowTile = 'display:flex;align-items:center;gap:0.75rem;padding:0.6875rem 0.75rem;border-radius:0.6875rem;'
+      + 'background:#0E0C14;border:0.0625rem solid #1B1826;min-height:3.875rem;';
+    var nameStyle = "font:600 0.875rem/1.25 'Space Grotesk',sans-serif;color:#F2EEF8;";
+    var noteStyle = "font:400 0.71875rem/1.3 'Space Grotesk',sans-serif;color:#5F5876;";
     var blank = { isStep: false, isToggle: false, isRank: false, isFixed: false,
       dec: noop, decStyle: '', inc: noop, incStyle: '', value: '', valueStyle: '',
       toggle: noop, toggleStyle: '', toggleLabel: '',
       up: noop, upStyle: '', down: noop, downStyle: '', mark: '', markStyle: '' };
     var pill = function (live) {
-      return 'width:46px;height:44px;flex:none;border-radius:10px;display:flex;align-items:center;'
-        + 'justify-content:center;font-size:20px;'
-        + (live ? 'background:rgba(242,238,248,.06);border:1px solid #2A2438;color:#CDC6DD;'
+      return 'width:2.875rem;height:2.75rem;flex:none;border-radius:0.625rem;display:flex;align-items:center;'
+        + 'justify-content:center;font-size:1.25rem;'
+        + (live ? 'background:rgba(242,238,248,.06);border:0.0625rem solid #2A2438;color:#CDC6DD;'
                 : 'background:rgba(242,238,248,.02);color:#3A3548;');
     };
 
@@ -665,7 +680,7 @@ class Component extends DCLogic {
         dec: value > lo ? function () { set(value - 1); } : noop, decStyle: pill(value > lo),
         inc: value < hi ? function () { set(value + 1); } : noop, incStyle: pill(value < hi),
         value: fmt ? fmt(value) : String(value),
-        valueStyle: 'min-width:62px;text-align:center;font:800 20px/1 Archivo,system-ui,sans-serif;'
+        valueStyle: 'min-width:3.875rem;text-align:center;font:800 1.25rem/1 Archivo,system-ui,sans-serif;'
           + 'letter-spacing:-.02em;color:#F2EEF8;'
       });
     }
@@ -673,10 +688,10 @@ class Component extends DCLogic {
       return Object.assign({}, blank, {
         tile: rowTile, name: name, nameStyle: nameStyle, note: note, noteStyle: noteStyle,
         isToggle: true, toggle: function () { set(!on); },
-        toggleStyle: 'width:96px;height:44px;flex:none;border-radius:10px;display:flex;align-items:center;'
-          + "justify-content:center;font:700 13px/1 'Space Grotesk',sans-serif;"
-          + (on ? 'background:rgba(79,214,168,.14);border:1px solid rgba(79,214,168,.5);color:#4FD6A8;'
-                : 'background:rgba(242,238,248,.03);border:1px solid #2A2438;color:#5F5876;'),
+        toggleStyle: 'width:6rem;height:2.75rem;flex:none;border-radius:0.625rem;display:flex;align-items:center;'
+          + "justify-content:center;font:700 0.8125rem/1 'Space Grotesk',sans-serif;"
+          + (on ? 'background:rgba(79,214,168,.14);border:0.0625rem solid rgba(79,214,168,.5);color:#4FD6A8;'
+                : 'background:rgba(242,238,248,.03);border:0.0625rem solid #2A2438;color:#5F5876;'),
         toggleLabel: on ? 'on' : 'off'
       });
     }
@@ -692,7 +707,7 @@ class Component extends DCLogic {
       return Object.assign({}, blank, {
         tile: rowTile + 'opacity:.72;', name: name, nameStyle: nameStyle, note: note, noteStyle: noteStyle,
         isFixed: true, mark: 'always on',
-        markStyle: mono + 'font-size:11px;letter-spacing:.08em;color:#4FD6A8;flex:none;'
+        markStyle: mono + 'font-size:0.6875rem;letter-spacing:.08em;color:#4FD6A8;flex:none;'
       });
     }
 
@@ -708,11 +723,11 @@ class Component extends DCLogic {
       setRule('priority', next);
     };
 
-    var colStyle = 'display:flex;flex-direction:column;gap:16px;';
-    var sectionStyle = 'display:flex;flex-direction:column;gap:6px;';
-    var titleStyle = mono + 'font-size:11px;font-weight:600;letter-spacing:.11em;color:#8D87A0;padding-left:2px;';
+    var colStyle = 'display:flex;flex-direction:column;gap:1rem;';
+    var sectionStyle = 'display:flex;flex-direction:column;gap:0.375rem;';
+    var titleStyle = mono + 'font-size:0.6875rem;font-weight:600;letter-spacing:.11em;color:#8D87A0;padding-left:0.125rem;';
     var cols = [
-      { style: 'position:absolute;left:24px;top:104px;width:426px;' + colStyle, sections: [
+      { style: 'position:absolute;left:1.5rem;top:6.5rem;width:26.625rem;' + colStyle, sections: [
         { title: 'THE VAN', titleStyle: titleStyle, style: sectionStyle, rows: [
           step('Rows', minRows > 1 ? 'deepest row in use is ' + minRows : 'front to back', ROWS,
             Math.max(5, minRows), 12, function (v) { setProp('rows', v); }),
@@ -735,7 +750,7 @@ class Component extends DCLogic {
             function (v) { return '≤ ' + v; })
         ] }
       ] },
-      { style: 'position:absolute;left:466px;top:104px;width:414px;' + colStyle, sections: [
+      { style: 'position:absolute;left:29.125rem;top:6.5rem;width:25.875rem;' + colStyle, sections: [
         { title: 'WHEN A PILE NEEDS SOMEWHERE TO GO', titleStyle: titleStyle, style: sectionStyle,
           rows: pri.map(function (k, i) {
             return rankRow(PRI[k][0], PRI[k][1], i, pri.length, movePri);
@@ -766,8 +781,8 @@ class Component extends DCLogic {
       ['STACK', 'up to ' + CAP]
     ].map(function (f) {
       return { label: f[0], value: f[1],
-        labelStyle: mono + 'font-size:10px;letter-spacing:.09em;color:#5F5876;',
-        valueStyle: 'font:800 19px/1.15 Archivo,system-ui,sans-serif;letter-spacing:-.02em;color:#F2EEF8;' };
+        labelStyle: mono + 'font-size:0.625rem;letter-spacing:.09em;color:#5F5876;',
+        valueStyle: 'font:800 1.1875rem/1.15 Archivo,system-ui,sans-serif;letter-spacing:-.02em;color:#F2EEF8;' };
     });
     var same = JSON.stringify(RULES) === JSON.stringify(RULE_DEFAULTS)
       && ROWS === 9 && CAP === 8 && SIDE_DOOR_ROWS === 4 && nSide === 3 && nBack === 2;
@@ -785,7 +800,7 @@ class Component extends DCLogic {
         resetRules();
         self.setState({ target: null, host: null });
       },
-      resetStyle: this.btn(same ? 'off' : 'quiet', 48, accent) + 'width:172px;font-size:14px;',
+      resetStyle: this.btn(same ? 'off' : 'quiet', 48, accent) + 'width:10.75rem;font-size:0.875rem;',
       resetLabel: same ? 'Defaults' : 'Restore defaults',
       // Whether these survive the tablet being put down is a fact about the
       // browser, not about the settings, so it is passed in rather than probed
@@ -795,10 +810,10 @@ class Component extends DCLogic {
         : this.props.storage === 'off'
           ? 'This browser will not store them: they go back to the defaults on reload.'
         : '',
-      savedStyle: "font:400 12px/1.4 'Space Grotesk',sans-serif;color:"
+      savedStyle: "font:400 0.75rem/1.4 'Space Grotesk',sans-serif;color:"
         + (this.props.storage === 'off' ? '#FFB570' : '#5F5876') + ';',
       back: function () { self.setState({ screen: 'board' }); },
-      backStyle: this.btn('go', 48, accent) + 'width:176px;font-size:15px;',
+      backStyle: this.btn('go', 48, accent) + 'width:11rem;font-size:0.9375rem;',
       backLabel: 'Back to the board'
     };
   }
@@ -827,7 +842,7 @@ class Component extends DCLogic {
     var free = positionsLeft(st, 'side') + positionsLeft(st, 'back');
     var sideLeft = positionsLeft(st, 'side');
     var doneStops = QUEUE.filter(function (k) { return st.closed[k]; }).length;
-    var big = 'font:800 22px/1.15 Archivo,system-ui,sans-serif;letter-spacing:-.02em;color:';
+    var big = 'font:800 1.375rem/1.15 Archivo,system-ui,sans-serif;letter-spacing:-.02em;color:';
     var stats = [
       { label: 'POSITIONS LEFT', value: positionsHeld(st) ? free + ' · ' + positionsHeld(st) + ' held' : String(free),
         style: big + (free ? '#F2EEF8' : '#F7768E') + ';' },
@@ -843,8 +858,8 @@ class Component extends DCLogic {
     ];
 
     // ── the route, in loading order ──────────────────────────────────────────
-    var doorBtn = 'width:62px;height:46px;border-radius:10px;display:flex;align-items:center;justify-content:center;'
-      + "font:700 13px/1 'Space Grotesk',sans-serif;flex:none;";
+    var doorBtn = 'width:3.875rem;height:2.875rem;border-radius:0.625rem;display:flex;align-items:center;justify-content:center;'
+      + "font:700 0.8125rem/1 'Space Grotesk',sans-serif;flex:none;";
     var queue = QUEUE.map(function (k) {
       var closed = !!st.closed[k], at = spotHolding(st, k), pos = positionsOf(st, k);
       var isFocus = at && at.id === S.focus;
@@ -869,12 +884,12 @@ class Component extends DCLogic {
 
       function door(d) {
         var bs = beginState(st, k, d);
-        var tone = bs.kind === 'ready' ? (d === 'side' ? 'rgba(255,181,112,.10);border:1px solid rgba(255,181,112,.45);color:#FFB570'
-                                                       : 'rgba(203,176,255,.10);border:1px solid rgba(180,142,247,.5);color:#CBB0FF')
-          : bs.kind === 'packing' ? 'rgba(242,238,248,.05);border:1px solid ' + accent + '80;color:#F2EEF8'
-          : bs.kind === 'move' ? 'rgba(203,176,255,.05);border:1px dashed rgba(180,142,247,.5);color:#CBB0FF'
-          : bs.kind === 'well' || bs.kind === 'order' ? 'rgba(255,181,112,.07);border:1px dashed rgba(255,181,112,.45);color:#C09263'
-          : 'rgba(242,238,248,.02);border:1px solid #201C2B;color:#3F3A52';
+        var tone = bs.kind === 'ready' ? (d === 'side' ? 'rgba(255,181,112,.10);border:0.0625rem solid rgba(255,181,112,.45);color:#FFB570'
+                                                       : 'rgba(203,176,255,.10);border:0.0625rem solid rgba(180,142,247,.5);color:#CBB0FF')
+          : bs.kind === 'packing' ? 'rgba(242,238,248,.05);border:0.0625rem solid ' + accent + '80;color:#F2EEF8'
+          : bs.kind === 'move' ? 'rgba(203,176,255,.05);border:0.0625rem dashed rgba(180,142,247,.5);color:#CBB0FF'
+          : bs.kind === 'well' || bs.kind === 'order' ? 'rgba(255,181,112,.07);border:0.0625rem dashed rgba(255,181,112,.45);color:#C09263'
+          : 'rgba(242,238,248,.02);border:0.0625rem solid #201C2B;color:#3F3A52';
         return {
           style: doorBtn + 'background:' + tone + ';',
           label: bs.kind === 'move' ? 'move' : (d === 'side' ? 'side' : 'rear'),
@@ -888,23 +903,23 @@ class Component extends DCLogic {
       var sideB = door('side'), rearB = door('back');
       return {
         tap: function () { if (at) self.setState({ focus: at.id, target: null, host: null }); },
-        tile: 'display:flex;align-items:center;gap:9px;padding:8px 9px;border-radius:11px;cursor:pointer;'
-          + 'flex:1 1 0;min-height:62px;max-height:96px;'
-          + 'background:' + (isFocus ? '#191524' : '#0E0C14') + ';border:1px solid '
+        tile: 'display:flex;align-items:center;gap:0.5625rem;padding:0.5rem 0.5625rem;border-radius:0.6875rem;cursor:pointer;'
+          + 'flex:1 1 0;min-height:3.875rem;max-height:6rem;'
+          + 'background:' + (isFocus ? '#191524' : '#0E0C14') + ';border:0.0625rem solid '
           + (isFocus ? accent + '80' : (closed ? 'rgba(79,214,168,.22)' : '#1B1826')) + ';',
-        barStyle: 'width:8px;align-self:stretch;border-radius:3px;flex:none;background:' + CUST[k].color + (closed ? '55' : ''),
+        barStyle: 'width:0.5rem;align-self:stretch;border-radius:0.1875rem;flex:none;background:' + CUST[k].color + (closed ? '55' : ''),
         name: CUST[k].name,
-        nameStyle: 'font:700 15px/1.15 Archivo,system-ui,sans-serif;letter-spacing:-.02em;overflow:hidden;'
+        nameStyle: 'font:700 0.9375rem/1.15 Archivo,system-ui,sans-serif;letter-spacing:-.02em;overflow:hidden;'
           + 'text-overflow:ellipsis;white-space:nowrap;color:' + (closed || at ? '#F2EEF8' : '#8D87A0') + ';',
         state: state,
-        stateStyle: "font:500 11px/1.2 'IBM Plex Mono',monospace;letter-spacing:.05em;color:" + col + ';'
+        stateStyle: "font:500 0.6875rem/1.2 'IBM Plex Mono',monospace;letter-spacing:.05em;color:" + col + ';'
           + 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;',
         hasDoors: !closed, hasReopen: closed,
         side: sideB.tap, sideStyle: sideB.style, sideLabel: sideB.label,
         rear: rearB.tap, rearStyle: rearB.style, rearLabel: rearB.label,
         reopen: function () { self.apply(function (s) { doReopen(s, k); }); },
-        reopenStyle: 'width:129px;height:46px;border-radius:10px;display:flex;align-items:center;justify-content:center;'
-          + "font:600 13px/1 'Space Grotesk',sans-serif;flex:none;background:rgba(242,238,248,.03);color:#4A445C;"
+        reopenStyle: 'width:8.0625rem;height:2.875rem;border-radius:0.625rem;display:flex;align-items:center;justify-content:center;'
+          + "font:600 0.8125rem/1 'Space Grotesk',sans-serif;flex:none;background:rgba(242,238,248,.03);color:#4A445C;"
       };
     });
 
@@ -941,24 +956,24 @@ class Component extends DCLogic {
     var warn = {
       show: lines.length > 0,
       text: lines.join('  '),
-      style: 'padding:9px 12px;border-radius:11px;flex:none;font:400 12.5px/1.35 "Space Grotesk",sans-serif;'
-        + 'background:rgba(247,118,142,.09);border:1px solid rgba(247,118,142,.35);color:#F7768E;'
+      style: 'padding:0.5625rem 0.75rem;border-radius:0.6875rem;flex:none;font:400 0.78125rem/1.35 "Space Grotesk",sans-serif;'
+        + 'background:rgba(247,118,142,.09);border:0.0625rem solid rgba(247,118,142,.35);color:#F7768E;'
     };
 
-    var toolBig = "font:700 15px/1 'Space Grotesk',sans-serif;";
-    var toolSub = "font:400 10px/1 'IBM Plex Mono',monospace;letter-spacing:.07em;opacity:.7;";
+    var toolBig = "font:700 0.9375rem/1 'Space Grotesk',sans-serif;";
+    var toolSub = "font:400 0.625rem/1 'IBM Plex Mono',monospace;letter-spacing:.07em;opacity:.7;";
     var tools = [
       { label: '⚙ Rules', sub: 'the van, the priority',
         tap: function () { self.setState({ screen: 'settings' }); },
-        style: this.btn('quiet', 58, accent) + 'width:116px;',
+        style: this.btn('quiet', 58, accent) + 'width:7.25rem;',
         bigStyle: toolBig, subStyle: toolSub },
       { label: '⚑ Odd crate', sub: st.flags ? st.flags + ' flagged' : 'off route',
         tap: function () { self.apply(function (s) { s.flags = (s.flags || 0) + 1; }); },
-        style: this.btn(st.flags ? 'warn' : 'quiet', 58, accent) + 'width:128px;',
+        style: this.btn(st.flags ? 'warn' : 'quiet', 58, accent) + 'width:8rem;',
         bigStyle: toolBig, subStyle: toolSub },
       { label: '❄ Freeze', sub: st.frozenAtDoor ? 'side well' : 'none today',
         tap: function () { self.apply(function (s) { s.frozenAtDoor = !s.frozenAtDoor; }); },
-        style: this.btn(st.frozenAtDoor ? 'quiet' : 'off', 58, accent) + 'width:118px;',
+        style: this.btn(st.frozenAtDoor ? 'quiet' : 'off', 58, accent) + 'width:7.375rem;',
         bigStyle: toolBig, subStyle: toolSub }
     ];
 

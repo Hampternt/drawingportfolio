@@ -266,6 +266,15 @@ const doc = `<!DOCTYPE html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  /* The boards on this page are the live screen's own markup, and that screen
+     measures itself in rem so it can be resized by one number. Anchor the root
+     here — 16px is the size it was drawn at — so the artboards keep their stated
+     1440 x 840 whatever a host stylesheet has done to the root font size. This
+     sits in the head rather than the helmet because preview.mjs replaces the
+     helmet wholesale, and the twin has to be the same drawing. */
+  html { font-size: 16px }
+</style>
 <script src="./support.js"></script>
 </head>
 <body>

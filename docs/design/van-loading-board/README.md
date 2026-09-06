@@ -46,7 +46,7 @@ document that disagreed with the prototype would be a test failure rather than
 something to notice later.
 
 Every figure, name, code and explanatory sentence on the page comes out of that
-same code, with 395 passing checks behind it. That is why S6 and S7 are worth
+same code, with 432 passing checks behind it. That is why S6 and S7 are worth
 trusting: those are not sample sentences, they are what the board says in those
 fifteen situations — and writing them out is how the fixtures found a real bug,
 a full van offering to carry a stack round to a door with no floor behind it.
