@@ -787,6 +787,16 @@ class Component extends DCLogic {
       },
       resetStyle: this.btn(same ? 'off' : 'quiet', 48, accent) + 'width:172px;font-size:14px;',
       resetLabel: same ? 'Defaults' : 'Restore defaults',
+      // Whether these survive the tablet being put down is a fact about the
+      // browser, not about the settings, so it is passed in rather than probed
+      // from here — model.js and board.js run under node in the tests.
+      saved: this.props.storage === 'on'
+          ? 'Saved on this tablet. The load itself is not — that starts fresh each morning.'
+        : this.props.storage === 'off'
+          ? 'This browser will not store them: they go back to the defaults on reload.'
+        : '',
+      savedStyle: "font:400 12px/1.4 'Space Grotesk',sans-serif;color:"
+        + (this.props.storage === 'off' ? '#FFB570' : '#5F5876') + ';',
       back: function () { self.setState({ screen: 'board' }); },
       backStyle: this.btn('go', 48, accent) + 'width:176px;font-size:15px;',
       backLabel: 'Back to the board'

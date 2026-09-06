@@ -60,7 +60,10 @@ await p.waitForTimeout(200);
 const ssr = await p.evaluate(`(${shape})()`);
 
 // …and the settings screen, through the same machinery
-const c2 = new Component({ accent: '#B48EF7' });
+// Same props the demo boots with, or this compares two different inputs and
+// calls the difference a rendering bug: `storage` is a fact about the browser
+// that the demo passes in and the design document has no business knowing.
+const c2 = new Component({ accent: '#B48EF7', storage: 'on' });
 c2.state.screen = 'settings';
 const setHtml = render(SET, c2.renderVals());
 const setPath = join(tmpdir(), 'ssr-check-settings.html');
@@ -77,7 +80,12 @@ await b.close();
 
 ok(liveSet.length > 100, 'the settings screen rendered something too  ' + liveSet.length + ' nodes');
 let sdiff = 0;
-for (let i = 0; i < Math.max(liveSet.length, ssrSet.length); i++) if (liveSet[i] !== ssrSet[i]) sdiff++;
+for (let i = 0; i < Math.max(liveSet.length, ssrSet.length); i++) {
+  if (liveSet[i] === ssrSet[i]) continue;
+  if (sdiff < 3) console.log('  settings #' + i + '\n   live: ' + String(liveSet[i]).slice(0, 170)
+    + '\n   ssr : ' + String(ssrSet[i]).slice(0, 170));
+  sdiff++;
+}
 ok(sdiff === 0, 'the settings screen matches as well  ' + sdiff + ' of ' + liveSet.length + ' differ');
 
 ok(live.length > 150, 'the live board rendered something to compare against  ' + live.length + ' nodes');

@@ -82,10 +82,40 @@ ${settings.markup}
 
 <script>
 ${read('runtime.js')}
+${read('store.js')}
 ${read('model.js')}
 ${read('board.js')}
 
-COMPONENT = new Component({ tier: 1, accent: '#B48EF7' });
+// ── boot ─────────────────────────────────────────────────────────────────────
+function startProps(extra) {
+  var p = { tier: 1, accent: '#B48EF7', storage: storageWorks() ? 'on' : 'off' };
+  Object.keys(extra || {}).forEach(function (k) { p[k] = extra[k]; });
+  return p;
+}
+COMPONENT = new Component(startProps());
+
+// Restore, then raise anything that would have been smaller than the load the
+// session starts with — the same invariant the steppers enforce, applied to the
+// reload rather than to a tap.
+var stored = readSettings(loadStored());
+if (stored) {
+  var fitted = fitSettings(stored, COMPONENT.state.st);
+  Object.keys(fitted.van).forEach(function (k) { COMPONENT.props[k] = fitted.van[k]; });
+  COMPONENT.props.rules = fitted.rules;
+}
+
+// Written after every paint rather than from each control: that is one place
+// instead of a dozen, and it cannot miss a path — including Restore defaults,
+// which writes nothing and so removes the key.
+var lastWritten = loadStored();
+ON_PAINT = function () {
+  var payload = writeSettings(COMPONENT.props);
+  var bare = !Object.keys(payload.van).length && !Object.keys(payload.rules).length;
+  var text = bare ? null : JSON.stringify(payload);
+  if (text === lastWritten) return;
+  saveStored(text);
+  lastWritten = text;
+};
 
 document.querySelectorAll('[data-tier]').forEach(function (b) {
   b.addEventListener('click', function () {
@@ -93,9 +123,11 @@ document.querySelectorAll('[data-tier]').forEach(function (b) {
     paint();
   });
 });
+// Start over is about the load, not the rules — the van does not change shape
+// because the morning did.
 document.getElementById('reset').addEventListener('click', function () {
-  var tier = COMPONENT.props.tier;
-  COMPONENT = new Component({ tier: tier, accent: '#B48EF7' });
+  var keep = writeSettings(COMPONENT.props);
+  COMPONENT = new Component(startProps(Object.assign({ tier: COMPONENT.props.tier, rules: keep.rules }, keep.van)));
   paint();
 });
 

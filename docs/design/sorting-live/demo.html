@@ -239,8 +239,9 @@
       </div>
     </sc-for>
   </div>
-  <div style="position: absolute; left: 896px; top: 748px; width: 520px; font: 400 12px/1.4 'Space Grotesk', sans-serif; color: #5F5876;">
-    The van drawn here is the one in the session, so a shape that would drop a loaded position is not offered — the steppers stop instead.
+  <div style="position: absolute; left: 896px; top: 736px; width: 520px; display: flex; flex-direction: column; gap: 6px;">
+    <span style="font: 400 12px/1.4 'Space Grotesk', sans-serif; color: #5F5876;">The van drawn here is the one in the session, so a shape that would drop a loaded position is not offered — the steppers stop instead.</span>
+    <span style="{{savedStyle}}">{{saved}}</span>
   </div>
   <div style="{{preview.box}}">
     <sc-for list="{{preview.parts}}" as="p" hint-placeholder-count="40">
@@ -308,7 +309,9 @@ function build(node, scope) {
 }
 
 // ── the shim the board's logic is written against ────────────────────────────
-var COMPONENT = null, PENDING = false;
+// ON_PAINT is how anything outside the render loop finds out that state changed
+// — the demo hangs its settings persistence on it. Left null, nothing happens.
+var COMPONENT = null, PENDING = false, ON_PAINT = null;
 class DCLogic {
   constructor(props) { this.props = props || {}; }
   setState(o) { Object.assign(this.state, o); schedule(); }
@@ -331,6 +334,38 @@ function paint() {
   document.querySelectorAll('[data-tier]').forEach(function (b) {
     b.classList.toggle('on', Number(b.dataset.tier) === (COMPONENT.props.tier || 1));
   });
+  if (ON_PAINT) ON_PAINT();
+}
+
+// ── where the settings live between mornings ─────────────────────────────────
+// Browser-only, and the only file here that is: model.js and board.js run under
+// node in the tests and must stay that way.
+//
+// localStorage is not always there. A private window, cookies blocked, or a
+// browser set to refuse site data can make even the property access throw — so
+// every path in here fails to "no stored settings" rather than to a blank
+// screen. The board is worth more than the preferences.
+var SETTINGS_KEY = 'sorting-live.settings';
+
+function storageWorks() {
+  try {
+    var probe = SETTINGS_KEY + '.probe';
+    window.localStorage.setItem(probe, '1');
+    window.localStorage.removeItem(probe);
+    return true;
+  } catch (e) { return false; }
+}
+function loadStored() {
+  try { return window.localStorage.getItem(SETTINGS_KEY); } catch (e) { return null; }
+}
+// null removes the key, so a board back on its defaults leaves nothing behind
+// and a fresh browser and a reset one are the same browser.
+function saveStored(text) {
+  try {
+    if (text === null) window.localStorage.removeItem(SETTINGS_KEY);
+    else window.localStorage.setItem(SETTINGS_KEY, text);
+    return true;
+  } catch (e) { return false; }
 }
 
 // ── Live mode ────────────────────────────────────────────────────────────────
@@ -527,6 +562,109 @@ configure({});
 function spotById(id) { return SPOTS.filter(function (s) { return s.id === id; })[0]; }
 
 var MONO = "'IBM Plex Mono', monospace";
+
+// ── settings that survive the tablet being put down ──────────────────────────
+// Only the deviations are stored, so a fresh browser and one that has been reset
+// look the same, and a default that changes later reaches everybody who never
+// touched it.
+var SETTINGS_VERSION = 1;
+var VAN_KEYS = { rows: [5, 12], capacity: [4, 10], sideDoorRows: [0, 12], sideSpots: [0, 4], backSpots: [0, 3] };
+var has = function (o, k) { return Object.prototype.hasOwnProperty.call(o, k); };
+
+function writeSettings(props) {
+  props = props || {};
+  var van = {}, rules = {}, src = props.rules || {};
+  Object.keys(VAN_KEYS).forEach(function (k) { if (props[k] != null) van[k] = props[k]; });
+  Object.keys(RULE_DEFAULTS).forEach(function (k) {
+    if (!has(src, k)) return;
+    rules[k] = Array.isArray(src[k]) ? src[k].slice() : src[k];
+  });
+  return { v: SETTINGS_VERSION, van: van, rules: rules };
+}
+
+function isInt(x, lo, hi) {
+  return typeof x === 'number' && isFinite(x) && Math.floor(x) === x && x >= lo && x <= hi;
+}
+function isOrder(v, of) {
+  if (!Array.isArray(v) || v.length !== of.length) return false;
+  var seen = {};
+  for (var i = 0; i < v.length; i++) {
+    if (of.indexOf(v[i]) < 0 || seen[v[i]]) return false;
+    seen[v[i]] = true;
+  }
+  return true;
+}
+// Anything at all can come back out of storage — a blob from an older build, a
+// hand-edited one, half a write. Every value is checked against what it means
+// rather than what type it is, and a value that fails is dropped on its own so
+// one bad key does not lose the rest. The result is built key by key onto a
+// fresh object, so nothing from the payload can reach the board except through
+// a name this function already knew.
+function readSettings(raw) {
+  var data = raw;
+  if (typeof raw === 'string') { try { data = JSON.parse(raw); } catch (e) { return null; } }
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return null;
+  // A payload from a version this build does not know cannot be interpreted —
+  // the same key may have meant something else. A default van beats a wrong one.
+  if (data.v !== SETTINGS_VERSION) return null;
+
+  var van = {}, rules = {}, dropped = [];
+  var vs = (data.van && typeof data.van === 'object' && !Array.isArray(data.van)) ? data.van : {};
+  Object.keys(VAN_KEYS).forEach(function (k) {
+    if (!has(vs, k)) return;
+    if (isInt(vs[k], VAN_KEYS[k][0], VAN_KEYS[k][1])) van[k] = vs[k];
+    else dropped.push('van.' + k);
+  });
+  // configure() clamps this anyway; doing it here means the stored shape and the
+  // shape on the screen are the same number.
+  if (van.sideDoorRows != null && van.rows != null && van.sideDoorRows > van.rows) van.sideDoorRows = van.rows;
+
+  var rs = (data.rules && typeof data.rules === 'object' && !Array.isArray(data.rules)) ? data.rules : {};
+  Object.keys(RULE_DEFAULTS).forEach(function (k) {
+    if (!has(rs, k)) return;
+    var v = rs[k], ok;
+    if (k === 'stability') ok = v === null || isInt(v, 1, 5);   // null is a real answer: no limit
+    else if (k === 'thin') ok = isInt(v, 1, 4);
+    else if (k === 'priority') ok = isOrder(v, RULE_DEFAULTS.priority);
+    else ok = v === true || v === false;
+    if (ok) rules[k] = Array.isArray(v) ? v.slice() : v;
+    else dropped.push('rules.' + k);
+  });
+  return { van: van, rules: rules, dropped: dropped };
+}
+
+// A restored van must not be smaller than what the session already holds. It is
+// the same invariant the steppers enforce, applied to the reload — without it,
+// setting the side spots to one and reloading drops whatever is standing on
+// SIDE 2, which is a stack of somebody's groceries.
+function fitSettings(s, st) {
+  var out = { van: {}, rules: s.rules, raised: [] };
+  Object.keys(s.van).forEach(function (k) { out.van[k] = s.van[k]; });
+  var deep = 1, tall = 1, spots = { side: 0, back: 0 };
+  Object.keys(st.van || {}).forEach(function (id) {
+    if (!st.van[id].length || String(id).indexOf('door-') === 0) return;
+    deep = Math.max(deep, parseInt(String(id).slice(1), 10) || 1);
+    var h = 0, blind = false;
+    st.van[id].forEach(function (l) { if (l.n == null) blind = true; else h += l.n; });
+    if (!blind) tall = Math.max(tall, h);
+  });
+  Object.keys(st.staged || {}).forEach(function (id) {
+    if (!st.staged[id]) return;
+    var bits = String(id).split('-'), n = parseInt(bits[1], 10) || 0;
+    if (spots[bits[0]] !== undefined) spots[bits[0]] = Math.max(spots[bits[0]], n);
+  });
+  function raise(k, need) {
+    if (out.van[k] != null && out.van[k] < need) { out.van[k] = need; out.raised.push(k); }
+  }
+  raise('rows', deep);
+  raise('capacity', tall);
+  raise('sideSpots', spots.side);
+  raise('backSpots', spots.back);
+  if (out.van.sideDoorRows != null && out.van.rows != null && out.van.sideDoorRows > out.van.rows) {
+    out.van.sideDoorRows = out.van.rows;
+  }
+  return out;
+}
 
 // ── reading the state ────────────────────────────────────────────────────────
 // van[id] is a stack, bottom first. n === null means it went in uncounted.
@@ -2096,6 +2234,16 @@ class Component extends DCLogic {
       },
       resetStyle: this.btn(same ? 'off' : 'quiet', 48, accent) + 'width:172px;font-size:14px;',
       resetLabel: same ? 'Defaults' : 'Restore defaults',
+      // Whether these survive the tablet being put down is a fact about the
+      // browser, not about the settings, so it is passed in rather than probed
+      // from here — model.js and board.js run under node in the tests.
+      saved: this.props.storage === 'on'
+          ? 'Saved on this tablet. The load itself is not — that starts fresh each morning.'
+        : this.props.storage === 'off'
+          ? 'This browser will not store them: they go back to the defaults on reload.'
+        : '',
+      savedStyle: "font:400 12px/1.4 'Space Grotesk',sans-serif;color:"
+        + (this.props.storage === 'off' ? '#FFB570' : '#5F5876') + ';',
       back: function () { self.setState({ screen: 'board' }); },
       backStyle: this.btn('go', 48, accent) + 'width:176px;font-size:15px;',
       backLabel: 'Back to the board'
@@ -2279,7 +2427,36 @@ class Component extends DCLogic {
 }
 
 
-COMPONENT = new Component({ tier: 1, accent: '#B48EF7' });
+// ── boot ─────────────────────────────────────────────────────────────────────
+function startProps(extra) {
+  var p = { tier: 1, accent: '#B48EF7', storage: storageWorks() ? 'on' : 'off' };
+  Object.keys(extra || {}).forEach(function (k) { p[k] = extra[k]; });
+  return p;
+}
+COMPONENT = new Component(startProps());
+
+// Restore, then raise anything that would have been smaller than the load the
+// session starts with — the same invariant the steppers enforce, applied to the
+// reload rather than to a tap.
+var stored = readSettings(loadStored());
+if (stored) {
+  var fitted = fitSettings(stored, COMPONENT.state.st);
+  Object.keys(fitted.van).forEach(function (k) { COMPONENT.props[k] = fitted.van[k]; });
+  COMPONENT.props.rules = fitted.rules;
+}
+
+// Written after every paint rather than from each control: that is one place
+// instead of a dozen, and it cannot miss a path — including Restore defaults,
+// which writes nothing and so removes the key.
+var lastWritten = loadStored();
+ON_PAINT = function () {
+  var payload = writeSettings(COMPONENT.props);
+  var bare = !Object.keys(payload.van).length && !Object.keys(payload.rules).length;
+  var text = bare ? null : JSON.stringify(payload);
+  if (text === lastWritten) return;
+  saveStored(text);
+  lastWritten = text;
+};
 
 document.querySelectorAll('[data-tier]').forEach(function (b) {
   b.addEventListener('click', function () {
@@ -2287,9 +2464,11 @@ document.querySelectorAll('[data-tier]').forEach(function (b) {
     paint();
   });
 });
+// Start over is about the load, not the rules — the van does not change shape
+// because the morning did.
 document.getElementById('reset').addEventListener('click', function () {
-  var tier = COMPONENT.props.tier;
-  COMPONENT = new Component({ tier: tier, accent: '#B48EF7' });
+  var keep = writeSettings(COMPONENT.props);
+  COMPONENT = new Component(startProps(Object.assign({ tier: COMPONENT.props.tier, rules: keep.rules }, keep.van)));
   paint();
 });
 

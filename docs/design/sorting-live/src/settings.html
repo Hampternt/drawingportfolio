@@ -79,8 +79,9 @@
       </div>
     </sc-for>
   </div>
-  <div style="position: absolute; left: 896px; top: 748px; width: 520px; font: 400 12px/1.4 'Space Grotesk', sans-serif; color: #5F5876;">
-    The van drawn here is the one in the session, so a shape that would drop a loaded position is not offered — the steppers stop instead.
+  <div style="position: absolute; left: 896px; top: 736px; width: 520px; display: flex; flex-direction: column; gap: 6px;">
+    <span style="font: 400 12px/1.4 'Space Grotesk', sans-serif; color: #5F5876;">The van drawn here is the one in the session, so a shape that would drop a loaded position is not offered — the steppers stop instead.</span>
+    <span style="{{savedStyle}}">{{saved}}</span>
   </div>
   <div style="{{preview.box}}">
     <sc-for list="{{preview.parts}}" as="p" hint-placeholder-count="40">

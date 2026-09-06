@@ -98,7 +98,11 @@ load and a control that jumps between five pads is a mis-tap generator.
   top-up says so instead of blaming the roof. Take the van down to seven rows
   and watch the picture redraw — it will not go below the deepest row you have
   loaded, and says which row is holding it.
-- Hit **Start over** to reset.
+- Change something and **reload the page**. It is still there — the settings
+  live in the tablet's own storage, the load starts fresh. **Restore defaults**
+  clears them again.
+- Hit **Start over** to reset the load. The rules stay: the van does not change
+  shape because the morning did.
 
 ## Rebuilding
 
@@ -115,10 +119,13 @@ that is the driver's to set. `src/board.js` projects it into the picture and the
 controls. `src/board.html` and `src/settings.html` are the two screens' markup,
 shared verbatim with the design canvas; `src/runtime.js` is the ~70-line
 template runtime that renders them, so the demo and the design cannot drift
-apart.
+apart. `src/store.js` is the only browser-only file — everything else runs under
+node, which is why the settings' serialiser and validator are in `model.js` and
+only the `localStorage` call is not.
 
-The two test files run on plain `node` with no dependencies — 395 checks over
-the rules, the rendering, the geometry and the settings. Every setting is
+The two test files run on plain `node` with no dependencies — 432 checks over
+the rules, the rendering, the geometry, the settings and what comes back out of
+storage. Every setting is
 checked by putting the model in a state it decides: a screen of toggles that
 changed nothing would be worse than no screen. The geometric ones matter more than
 they look: a sheared box reports its *untransformed* rectangle to the browser,

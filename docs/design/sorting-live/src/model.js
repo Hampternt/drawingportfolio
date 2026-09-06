@@ -193,6 +193,109 @@ function spotById(id) { return SPOTS.filter(function (s) { return s.id === id; }
 
 var MONO = "'IBM Plex Mono', monospace";
 
+// ── settings that survive the tablet being put down ──────────────────────────
+// Only the deviations are stored, so a fresh browser and one that has been reset
+// look the same, and a default that changes later reaches everybody who never
+// touched it.
+var SETTINGS_VERSION = 1;
+var VAN_KEYS = { rows: [5, 12], capacity: [4, 10], sideDoorRows: [0, 12], sideSpots: [0, 4], backSpots: [0, 3] };
+var has = function (o, k) { return Object.prototype.hasOwnProperty.call(o, k); };
+
+function writeSettings(props) {
+  props = props || {};
+  var van = {}, rules = {}, src = props.rules || {};
+  Object.keys(VAN_KEYS).forEach(function (k) { if (props[k] != null) van[k] = props[k]; });
+  Object.keys(RULE_DEFAULTS).forEach(function (k) {
+    if (!has(src, k)) return;
+    rules[k] = Array.isArray(src[k]) ? src[k].slice() : src[k];
+  });
+  return { v: SETTINGS_VERSION, van: van, rules: rules };
+}
+
+function isInt(x, lo, hi) {
+  return typeof x === 'number' && isFinite(x) && Math.floor(x) === x && x >= lo && x <= hi;
+}
+function isOrder(v, of) {
+  if (!Array.isArray(v) || v.length !== of.length) return false;
+  var seen = {};
+  for (var i = 0; i < v.length; i++) {
+    if (of.indexOf(v[i]) < 0 || seen[v[i]]) return false;
+    seen[v[i]] = true;
+  }
+  return true;
+}
+// Anything at all can come back out of storage — a blob from an older build, a
+// hand-edited one, half a write. Every value is checked against what it means
+// rather than what type it is, and a value that fails is dropped on its own so
+// one bad key does not lose the rest. The result is built key by key onto a
+// fresh object, so nothing from the payload can reach the board except through
+// a name this function already knew.
+function readSettings(raw) {
+  var data = raw;
+  if (typeof raw === 'string') { try { data = JSON.parse(raw); } catch (e) { return null; } }
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return null;
+  // A payload from a version this build does not know cannot be interpreted —
+  // the same key may have meant something else. A default van beats a wrong one.
+  if (data.v !== SETTINGS_VERSION) return null;
+
+  var van = {}, rules = {}, dropped = [];
+  var vs = (data.van && typeof data.van === 'object' && !Array.isArray(data.van)) ? data.van : {};
+  Object.keys(VAN_KEYS).forEach(function (k) {
+    if (!has(vs, k)) return;
+    if (isInt(vs[k], VAN_KEYS[k][0], VAN_KEYS[k][1])) van[k] = vs[k];
+    else dropped.push('van.' + k);
+  });
+  // configure() clamps this anyway; doing it here means the stored shape and the
+  // shape on the screen are the same number.
+  if (van.sideDoorRows != null && van.rows != null && van.sideDoorRows > van.rows) van.sideDoorRows = van.rows;
+
+  var rs = (data.rules && typeof data.rules === 'object' && !Array.isArray(data.rules)) ? data.rules : {};
+  Object.keys(RULE_DEFAULTS).forEach(function (k) {
+    if (!has(rs, k)) return;
+    var v = rs[k], ok;
+    if (k === 'stability') ok = v === null || isInt(v, 1, 5);   // null is a real answer: no limit
+    else if (k === 'thin') ok = isInt(v, 1, 4);
+    else if (k === 'priority') ok = isOrder(v, RULE_DEFAULTS.priority);
+    else ok = v === true || v === false;
+    if (ok) rules[k] = Array.isArray(v) ? v.slice() : v;
+    else dropped.push('rules.' + k);
+  });
+  return { van: van, rules: rules, dropped: dropped };
+}
+
+// A restored van must not be smaller than what the session already holds. It is
+// the same invariant the steppers enforce, applied to the reload — without it,
+// setting the side spots to one and reloading drops whatever is standing on
+// SIDE 2, which is a stack of somebody's groceries.
+function fitSettings(s, st) {
+  var out = { van: {}, rules: s.rules, raised: [] };
+  Object.keys(s.van).forEach(function (k) { out.van[k] = s.van[k]; });
+  var deep = 1, tall = 1, spots = { side: 0, back: 0 };
+  Object.keys(st.van || {}).forEach(function (id) {
+    if (!st.van[id].length || String(id).indexOf('door-') === 0) return;
+    deep = Math.max(deep, parseInt(String(id).slice(1), 10) || 1);
+    var h = 0, blind = false;
+    st.van[id].forEach(function (l) { if (l.n == null) blind = true; else h += l.n; });
+    if (!blind) tall = Math.max(tall, h);
+  });
+  Object.keys(st.staged || {}).forEach(function (id) {
+    if (!st.staged[id]) return;
+    var bits = String(id).split('-'), n = parseInt(bits[1], 10) || 0;
+    if (spots[bits[0]] !== undefined) spots[bits[0]] = Math.max(spots[bits[0]], n);
+  });
+  function raise(k, need) {
+    if (out.van[k] != null && out.van[k] < need) { out.van[k] = need; out.raised.push(k); }
+  }
+  raise('rows', deep);
+  raise('capacity', tall);
+  raise('sideSpots', spots.side);
+  raise('backSpots', spots.back);
+  if (out.van.sideDoorRows != null && out.van.rows != null && out.van.sideDoorRows > out.van.rows) {
+    out.van.sideDoorRows = out.van.rows;
+  }
+  return out;
+}
+
 // ── reading the state ────────────────────────────────────────────────────────
 // van[id] is a stack, bottom first. n === null means it went in uncounted.
 function heightOf(st, id) {

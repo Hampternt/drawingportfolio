@@ -54,7 +54,9 @@ function build(node, scope) {
 }
 
 // ── the shim the board's logic is written against ────────────────────────────
-var COMPONENT = null, PENDING = false;
+// ON_PAINT is how anything outside the render loop finds out that state changed
+// — the demo hangs its settings persistence on it. Left null, nothing happens.
+var COMPONENT = null, PENDING = false, ON_PAINT = null;
 class DCLogic {
   constructor(props) { this.props = props || {}; }
   setState(o) { Object.assign(this.state, o); schedule(); }
@@ -77,4 +79,5 @@ function paint() {
   document.querySelectorAll('[data-tier]').forEach(function (b) {
     b.classList.toggle('on', Number(b.dataset.tier) === (COMPONENT.props.tier || 1));
   });
+  if (ON_PAINT) ON_PAINT();
 }

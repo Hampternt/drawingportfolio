@@ -372,6 +372,32 @@ to find out about at the stop.
 nothing to lose by trying one: the preview redraws, and `Restore defaults` is
 one tap away and greys out when nothing has been changed.
 
+**And they survive the tablet being put down.** Only the *deviations* are
+stored, so a fresh browser and a reset one are the same browser, and a default
+changed in a later build reaches everybody who never touched that setting.
+`Restore defaults` removes the key rather than writing the defaults into it.
+
+Three things that matter more than the storage call:
+
+- **Anything at all can come back out.** A blob from an older build, a
+  hand-edited one, half a write. `readSettings` refuses a payload whose version
+  is not exactly this one — the same key may have meant something else — and
+  otherwise checks every value against what it *means* rather than what type it
+  is, dropping bad keys individually so one of them does not lose the rest. The
+  result is built key by key onto a fresh object, so nothing from the payload
+  reaches the board except through a name the reader already knew.
+- **A restored van is raised to fit the load.** The same invariant the steppers
+  enforce, applied to the reload: without it, setting the side spots to one and
+  reloading drops whatever is standing on SIDE 2.
+- **Storage is allowed to be missing.** A private window, blocked cookies, or a
+  browser set to refuse site data can make even the property access throw. Every
+  path degrades to "no stored settings" rather than to a blank board, and the
+  screen says which it got: *Saved on this tablet* or *This browser will not
+  store them*.
+
+The load itself is **not** stored. It starts fresh each morning, which is what a
+morning is.
+
 ---
 
 ## 7. The decision rules
@@ -637,10 +663,12 @@ Worth knowing so a redesign does not rediscover them.
   three at the side, two at the back — and that is the default. The driver once
   said two at the side. It is a dial on the start screen either way, and every
   layout in here is computed from the count rather than drawn for three.
-- **Where the settings live between sessions.** They are a screen now (§6.9),
-  but the prototype holds them in memory: the demo forgets them on reload. In
-  the app they belong on the account, not the session — a van does not change
-  shape between mornings.
+- **Where the settings live once this is an app.** The prototype keeps them in
+  the tablet's own storage, which is right for one driver and one tablet. On the
+  server they belong on the account rather than the session — a van does not
+  change shape between mornings, and a driver who picks up a different tablet
+  should not have to set it up again. `writeSettings`/`readSettings` already
+  produce and validate the payload that would be stored either way.
 - **Portrait.** The board is authored landscape and scales rather than reflows.
   A portrait artboard existed for the previous plan view and has not been
   redrawn for this one. Turning the van through ninety degrees in this
@@ -659,7 +687,8 @@ src/model.js       every rule in §3 and §7, as ~880 lines of plain JS
 src/board.js       the rules turned into the picture and the controls
 src/runtime.js     the ~70-line template runtime that renders it
 src/board.html     the board; src/settings.html the rules screen
-src/*.test.js      395 checks, run on plain node, no dependencies
+src/store.js       the only browser-only file: localStorage, wrapped
+src/*.test.js      432 checks, run on plain node, no dependencies
 build.mjs          src/ -> demo.html
 ```
 

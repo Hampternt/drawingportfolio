@@ -591,5 +591,99 @@ eq(zone('back')[zone('back').length - 1], 'r9-right', 'and now runs to row 9');
   resetRules();
 }
 
+// ── 14. settings that survive a reload ──────────────────────────────────────
+// Only the deviations are stored, so a fresh browser and a reset one are the
+// same browser, and a default changed later reaches everybody who never touched
+// the setting.
+{
+  configure({}); resetRules();
+  eq(writeSettings({ accent: 'x', tier: 2 }), { v: 1, van: {}, rules: {} },
+    'a board on its defaults stores nothing to restore');
+  eq(writeSettings({ rows: 7, capacity: 6, accent: 'x', rules: { thin: 2 } }),
+    { v: 1, van: { rows: 7, capacity: 6 }, rules: { thin: 2 } },
+    'and one that has been changed stores exactly what changed');
+  var round = readSettings(JSON.stringify(writeSettings({ rows: 7, rules: { priority: ['well', 'own', 'top'], stability: null } })));
+  eq(round.van, { rows: 7 }, 'a payload written by this build reads back as it went in');
+  eq(round.rules, { stability: null, priority: ['well', 'own', 'top'] },
+    'including the ones whose value is null, which means no limit rather than unset');
+  eq(round.dropped, [], 'with nothing dropped');
+}
+{
+  // Anything at all can come back out of storage. None of it may reach the board
+  // except through a name the reader already knew.
+  configure({}); resetRules();
+  [['not json', 'a half-written string'], ['[1,2]', 'an array'], ['null', 'a null'],
+   ['"a string"', 'a bare string'], ['{}', 'an object with no version'],
+   ['{"v":0}', 'a version before this one'], ['{"v":2}', 'a version after it'],
+   ['{"v":"1"}', 'a version of the wrong type']
+  ].forEach(function (c) { eq(readSettings(c[0]), null, 'refused: ' + c[1]); });
+
+  var hostile = readSettings({ v: 1,
+    van: { rows: '9', capacity: 99, sideDoorRows: -1, sideSpots: 2.5, backSpots: NaN },
+    rules: { stability: 9, thin: 0, priority: ['own', 'own', 'top'], allowCombine: 'yes',
+             singleCrateWell: 1, freezeAtWell: false, orderGuard: null } });
+  eq(hostile.van, {}, 'a string, an out-of-range number, a negative, a fraction and a NaN are all refused');
+  eq(hostile.rules, { freezeAtWell: false }, 'and so is a truthy non-boolean — only the one real value survives');
+  eq(hostile.dropped.length, 11, 'each on its own — five van keys and six rules — so one bad key does not lose the rest');
+
+  eq(readSettings({ v: 1, van: null, rules: null }), { van: {}, rules: {}, dropped: [] },
+    'a payload whose halves are the wrong type reads as no settings, not as a crash');
+  eq(readSettings({ v: 1, van: ['rows'], rules: ['thin'] }), { van: {}, rules: {}, dropped: [] },
+    'and neither does one whose halves are arrays');
+  eq(readSettings({ v: 1, van: {}, rules: {} }).dropped, [], 'an empty payload is valid and says so');
+
+  // The order the board reaches for a home in has to be a permutation: a short
+  // one, a long one or a repeat would leave a remedy with no rank at all.
+  [[['own'], 'too short'], [['own', 'well', 'top', 'own'], 'too long'],
+   [['own', 'own', 'top'], 'a repeat'], [['own', 'well', 'roof'], 'a name it does not have'],
+   ['own,well,top', 'a string'], [null, 'a null']
+  ].forEach(function (c) {
+    eq(readSettings({ v: 1, rules: { priority: c[0] } }).rules.priority, undefined, 'priority refused: ' + c[1]);
+  });
+  eq(readSettings({ v: 1, rules: { priority: ['top', 'well', 'own'] } }).rules.priority, ['top', 'well', 'own'],
+    'and any real permutation is taken');
+
+  // Nothing off the prototype chain is a setting.
+  var poisoned = JSON.parse('{"v":1,"van":{"__proto__":{"rows":1}},"rules":{"constructor":1}}');
+  eq(readSettings(poisoned), { van: {}, rules: {}, dropped: [] }, 'names off the prototype chain are not settings');
+  eq(({}).rows, undefined, 'and nothing was written onto Object.prototype');
+
+  eq(readSettings({ v: 1, van: { rows: 6, sideDoorRows: 9 } }).van, { rows: 6, sideDoorRows: 6 },
+    'a side door reaching past the back of the van is clamped, not dropped');
+}
+{
+  // A restored van must not be smaller than the load the session starts with.
+  // Without this, setting the side spots to one and reloading drops whatever is
+  // standing on SIDE 2 — a stack of somebody's groceries.
+  configure({}); resetRules();
+  var st = emptyState();
+  st.van['r6-left'] = [{ cust: 'OLA', n: 7 }];
+  doAssign(st, 'side-3', 'JAT');
+  doAssign(st, 'back-2', 'HIN');
+  var f = fitSettings({ van: { rows: 5, capacity: 4, sideSpots: 1, backSpots: 1 }, rules: {} }, st);
+  eq(f.van, { rows: 6, capacity: 7, sideSpots: 3, backSpots: 2 }, 'every one of them is raised to fit');
+  eq(f.raised.sort(), ['backSpots', 'capacity', 'rows', 'sideSpots'], 'and it says which');
+
+  var big = fitSettings({ van: { rows: 11, capacity: 9, sideSpots: 4, backSpots: 3 }, rules: {} }, st);
+  eq(big.raised, [], 'a van bigger than the load is left exactly as it was');
+  eq(fitSettings({ van: {}, rules: { thin: 2 } }, st).van, {}, 'and a setting nobody set is not invented');
+  eq(fitSettings({ van: {}, rules: { thin: 2 } }, st).rules, { thin: 2 }, 'while the rules pass through untouched');
+
+  // An uncounted stack has no height to fit a roof around, and must not be
+  // read as one crate — (l.n || 0) again.
+  var blind = emptyState();
+  blind.van['r1-left'] = [{ cust: 'OLA', n: null }];
+  eq(fitSettings({ van: { capacity: 4 }, rules: {} }, blind).van.capacity, 4,
+    'a stack that went in uncounted does not force the roof anywhere');
+
+  // Raising the rows must not leave the side door reaching past the back of it.
+  var deep = emptyState();
+  deep.van['r9-left'] = [{ cust: 'OLA', n: 2 }];
+  eq(fitSettings({ van: { rows: 5, sideDoorRows: 5 }, rules: {} }, deep).van, { rows: 9, sideDoorRows: 5 },
+    'and the door keeps its reach when the van grows under it');
+  eq(fitSettings({ van: { rows: 12, sideDoorRows: 12 }, rules: {} }, emptyState()).van.sideDoorRows, 12,
+    'a door that reaches the whole van is still legal');
+}
+
 console.log((fails ? 'FAILED ' : 'passed ') + (checks - fails) + '/' + checks + ' checks');
 process.exit(fails ? 1 : 0);
