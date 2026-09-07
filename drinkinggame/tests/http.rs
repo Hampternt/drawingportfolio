@@ -89,6 +89,8 @@ async fn test_assets_are_served() {
         ("/assets/htmx.min.js", "application/javascript"),
         ("/assets/lc_motion.js", "application/javascript"),
         ("/assets/lc_wheel.js", "application/javascript"),
+        ("/assets/lc_loop.js", "application/javascript"),
+        ("/assets/sh_room.js", "application/javascript"),
     ] {
         let res = app
             .clone()
@@ -8633,4 +8635,860 @@ async fn test_lc_test_grant_is_gated_and_grants_in_test_mode() {
     )
     .await;
     assert_eq!(res.status(), StatusCode::UNPROCESSABLE_ENTITY);
+}
+
+// ===========================================================================
+// Backroom (`/sh/*`) — the hidden-role game.
+//
+// The tests that matter here are the leak tests. Everything the room's SSE
+// stream carries is readable by anyone with the 4-letter code, the
+// cookie-less spectator screen included, so "no role ever reaches a
+// broadcast" is a property that has to be checked against real frames from a
+// real game rather than argued from the code.
+// ===========================================================================
+
+use drinkinggame::secret_hitler::{Phase as ShPhase, Policy, Power, Role, SecretHitlerState};
+use drinkinggame::sh_theme as sh;
+
+/// Seats `n` players in a fresh room and starts a Backroom game. Returns the
+/// room code and each player's cookie, in seating order.
+async fn sh_table(app: &Router, n: usize) -> (String, Vec<String>) {
+    let host = login(app, "p1", "1111").await;
+    let code = create_room(app, &host).await;
+    let mut cookies = vec![host];
+    for i in 2..=n {
+        let c = login(app, &format!("p{i}"), "1111").await;
+        room_page_html(app, &c, &code).await; // visiting auto-joins
+        cookies.push(c);
+    }
+    let res = post_form(app, &cookies[0], &format!("/room/{code}/sh/start"), "").await;
+    assert_eq!(
+        res.status(),
+        StatusCode::NO_CONTENT,
+        "start {n}-player table"
+    );
+    (code, cookies)
+}
+
+/// The live state, read straight out of the row — the tests need to know who
+/// is who in order to check that nobody else can find out.
+async fn sh_state(pool: &sqlx::SqlitePool, code: &str) -> SecretHitlerState {
+    let row: (String,) = sqlx::query_as(
+        "SELECT g.state_json FROM games g JOIN rooms r ON r.id = g.room_id
+         WHERE r.code = ?1 AND g.ended_at IS NULL",
+    )
+    .bind(code)
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    SecretHitlerState::from_json(&row.0)
+}
+
+async fn sh_private(app: &Router, cookie: &str, code: &str) -> String {
+    let res = app
+        .clone()
+        .oneshot(
+            Request::get(format!("/room/{code}/sh/private"))
+                .header(header::COOKIE, cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    body_string(res).await
+}
+
+// -- lifecycle --------------------------------------------------------------
+
+#[tokio::test]
+async fn test_sh_start_gates_the_table_size() {
+    let app = test_app().await;
+    let host = login(&app, "solo", "1111").await;
+    let code = create_room(&app, &host).await;
+
+    // Four is too few.
+    for i in 2..=4 {
+        let c = login(&app, &format!("q{i}"), "1111").await;
+        room_page_html(&app, &c, &code).await;
+    }
+    let res = post_form(&app, &host, &format!("/room/{code}/sh/start"), "").await;
+    assert_eq!(res.status(), StatusCode::CONFLICT);
+    assert!(body_string(res).await.contains("5 and 10"));
+
+    // Five is enough.
+    let c = login(&app, "q5", "1111").await;
+    room_page_html(&app, &c, &code).await;
+    let res = post_form(&app, &host, &format!("/room/{code}/sh/start"), "").await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+}
+
+#[tokio::test]
+async fn test_sh_start_rejects_eleven() {
+    let app = test_app().await;
+    let host = login(&app, "big1", "1111").await;
+    let code = create_room(&app, &host).await;
+    for i in 2..=11 {
+        let c = login(&app, &format!("big{i}"), "1111").await;
+        room_page_html(&app, &c, &code).await;
+    }
+    let res = post_form(&app, &host, &format!("/room/{code}/sh/start"), "").await;
+    assert_eq!(res.status(), StatusCode::CONFLICT);
+}
+
+#[tokio::test]
+async fn test_sh_starts_at_every_legal_table_size() {
+    for n in 5..=10usize {
+        let app = test_app().await;
+        let (code, cookies) = sh_table(&app, n).await;
+        let html = room_page_html(&app, &cookies[0], &code).await;
+        assert!(html.contains("data-sh-panel"), "{n} players");
+        assert!(
+            html.contains(r#"id="sh-private""#),
+            "{n}: the pane slot exists"
+        );
+    }
+}
+
+#[tokio::test]
+async fn test_sh_start_requires_membership() {
+    let app = test_app().await;
+    let (code, _) = sh_table(&app, 5).await;
+    let outsider = login(&app, "nosy", "1111").await;
+    let res = post_form(&app, &outsider, &format!("/room/{code}/sh/vote"), "yes=1").await;
+    assert_eq!(res.status(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn test_sh_actions_reject_another_games_room() {
+    let app = test_app().await;
+    let host = login(&app, "rof1", "1111").await;
+    let code = create_room(&app, &host).await;
+    for i in 2..=5 {
+        let c = login(&app, &format!("rof{i}"), "1111").await;
+        room_page_html(&app, &c, &code).await;
+    }
+    // 3 Man is running; a Backroom action must not touch it.
+    post_form(&app, &host, &format!("/room/{code}/tm/start"), "").await;
+    let res = post_form(&app, &host, &format!("/room/{code}/sh/vote"), "yes=1").await;
+    assert_eq!(res.status(), StatusCode::CONFLICT);
+
+    // ...and the reverse.
+    let res = post_form(&app, &host, &format!("/room/{code}/sh/start"), "").await;
+    assert_eq!(res.status(), StatusCode::CONFLICT);
+}
+
+#[tokio::test]
+async fn test_sh_other_games_reject_a_backroom_room() {
+    let app = test_app().await;
+    let (code, cookies) = sh_table(&app, 5).await;
+    let res = post_form(&app, &cookies[0], &format!("/room/{code}/tm/roll"), "").await;
+    assert_eq!(res.status(), StatusCode::CONFLICT);
+    let res = post_form(&app, &cookies[0], &format!("/room/{code}/tm/start"), "").await;
+    assert_eq!(res.status(), StatusCode::CONFLICT);
+}
+
+#[tokio::test]
+async fn test_sh_end_reveals_the_roles_and_restores_the_idle_panel() {
+    let (app, pool) = test_app_with_pool().await;
+    let (code, cookies) = sh_table(&app, 5).await;
+    let st = sh_state(&pool, &code).await;
+    let res = post_form(&app, &cookies[0], &format!("/room/{code}/sh/end"), "").await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+
+    let html = room_page_html(&app, &cookies[0], &code).await;
+    assert!(html.contains(">START<"), "the idle panel is back");
+    assert!(!html.contains("data-sh-panel"));
+    // The game row is gone, so the private route has nothing to serve.
+    let res = app
+        .clone()
+        .oneshot(
+            Request::get(format!("/room/{code}/sh/private"))
+                .header(header::COOKIE, &cookies[0])
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::NOT_FOUND);
+    assert_eq!(st.seats.len(), 5);
+}
+
+#[tokio::test]
+async fn test_sh_idle_panel_offers_all_four_games() {
+    let app = test_app().await;
+    let cookie = login(&app, "alice", "1234").await;
+    let code = create_room(&app, &cookie).await;
+    let html = room_page_html(&app, &cookie, &code).await;
+    assert!(html.contains("Ring of Fire"));
+    assert!(html.contains("3 Man"));
+    assert!(html.contains("Last Call"));
+    assert!(html.contains(sh::GAME_NAME));
+    assert!(html.contains(&format!("/room/{code}/sh/start")));
+    assert_eq!(html.matches(">START<").count(), 4);
+}
+
+// -- the private route ------------------------------------------------------
+
+#[tokio::test]
+async fn test_sh_private_route_takes_no_player_input() {
+    // The signature is the contract: appending a player identifier in any
+    // shape must not change one byte of the response.
+    let app = test_app().await;
+    let (code, cookies) = sh_table(&app, 7).await;
+    let base = sh_private(&app, &cookies[0], &code).await;
+
+    for query in [
+        "?player_id=2",
+        "?seat=3",
+        "?target=4",
+        "?player_id=2&seat=3",
+        "?as=p5",
+    ] {
+        let res = app
+            .clone()
+            .oneshot(
+                Request::get(format!("/room/{code}/sh/private{query}"))
+                    .header(header::COOKIE, &cookies[0])
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK, "{query}");
+        assert_eq!(body_string(res).await, base, "{query} changed the response");
+    }
+}
+
+#[tokio::test]
+async fn test_sh_private_needs_a_session() {
+    let app = test_app().await;
+    let (code, _) = sh_table(&app, 5).await;
+    let res = get(&app, &format!("/room/{code}/sh/private")).await;
+    assert_ne!(res.status(), StatusCode::OK, "no cookie, no pane");
+}
+
+#[tokio::test]
+async fn test_sh_private_is_private_pairwise() {
+    // Every seat sees its own role and no other seat's private pane.
+    let (app, pool) = test_app_with_pool().await;
+    let (code, cookies) = sh_table(&app, 7).await;
+    let st = sh_state(&pool, &code).await;
+
+    let panes: Vec<String> = {
+        let mut v = Vec::new();
+        for c in &cookies {
+            v.push(sh_private(&app, c, &code).await);
+        }
+        v
+    };
+
+    for (seat, pane) in panes.iter().enumerate() {
+        let mine = st.seats[seat].role;
+        assert!(
+            pane.contains(sh::role_name(mine)),
+            "seat {seat} is not shown its own role"
+        );
+        // A Regular's pane must not name the Boss at all.
+        if mine == Role::Liberal {
+            assert!(
+                !pane.contains(sh::ROLE_HITLER),
+                "a Regular's pane names the Boss"
+            );
+        }
+
+        // Names are public — the nomination picker lists everyone — so the
+        // property is about ROLES. `sh-knows` is the one block that pairs a
+        // name with a role, and it must name exactly what the deal showed.
+        let knows = &st.seats[seat].knows;
+        match pane.find("sh-knows") {
+            None => assert!(
+                knows.is_empty(),
+                "seat {seat} was shown allies but sees none"
+            ),
+            Some(start) => {
+                let block = &pane[start..];
+                let block = &block[..block.find("</div>").unwrap_or(block.len())];
+                for other in 0..7 {
+                    let named = block.contains(&format!("p{}", st.seats[other].player_id));
+                    assert_eq!(
+                        named,
+                        knows.contains(&other),
+                        "seat {seat}'s ally list is wrong about seat {other}"
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[tokio::test]
+async fn test_sh_the_boss_is_blind_above_six_but_not_at_five() {
+    for n in [5usize, 7] {
+        let (app, pool) = test_app_with_pool().await;
+        let (code, cookies) = sh_table(&app, n).await;
+        let st = sh_state(&pool, &code).await;
+        let boss = st
+            .seats
+            .iter()
+            .position(|s| s.role == Role::Hitler)
+            .unwrap();
+        let pane = sh_private(&app, &cookies[boss], &code).await;
+        assert!(
+            pane.contains(sh::ROLE_HITLER),
+            "{n}p: the Boss knows who they are"
+        );
+        assert_eq!(
+            pane.contains("sh-knows"),
+            n <= 6,
+            "{n}p: the Boss is shown allies only at 5-6"
+        );
+    }
+}
+
+#[tokio::test]
+async fn test_sh_a_late_joiner_gets_a_spectator_pane() {
+    let app = test_app().await;
+    let (code, _) = sh_table(&app, 5).await;
+    let late = login(&app, "latecomer", "1111").await;
+    room_page_html(&app, &late, &code).await; // joins the room, not the game
+    let pane = sh_private(&app, &late, &code).await;
+    assert!(pane.contains("sh-spectator"));
+    for role in [sh::ROLE_HITLER, sh::ROLE_LIBERAL, sh::ROLE_FASCIST] {
+        assert!(!pane.contains(role), "a spectator learns nothing");
+    }
+    // And they cannot act.
+    let res = post_form(&app, &late, &format!("/room/{code}/sh/vote"), "yes=1").await;
+    assert_eq!(res.status(), StatusCode::FORBIDDEN);
+}
+
+// -- playing ----------------------------------------------------------------
+
+#[tokio::test]
+async fn test_sh_a_full_election_runs_end_to_end() {
+    let (app, pool) = test_app_with_pool().await;
+    let (code, cookies) = sh_table(&app, 5).await;
+    let st = sh_state(&pool, &code).await;
+    let pres = st.president_seat;
+    let nominee = (0..5).find(|&i| st.eligible_chancellor(i)).unwrap();
+
+    // Only the Chair may nominate.
+    let other = (0..5).find(|&i| i != pres).unwrap();
+    let res = post_form(
+        &app,
+        &cookies[other],
+        &format!("/room/{code}/sh/nominate"),
+        &format!("target={nominee}"),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::FORBIDDEN);
+
+    let res = post_form(
+        &app,
+        &cookies[pres],
+        &format!("/room/{code}/sh/nominate"),
+        &format!("target={nominee}"),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+    assert_eq!(sh_state(&pool, &code).await.phase, ShPhase::Voting);
+
+    for c in &cookies {
+        let res = post_form(&app, c, &format!("/room/{code}/sh/vote"), "yes=1").await;
+        assert_eq!(res.status(), StatusCode::NO_CONTENT);
+    }
+    let st = sh_state(&pool, &code).await;
+    assert_eq!(st.phase, ShPhase::PresidentDraft);
+    assert_eq!(st.president_hand.len(), 3);
+
+    // The Chair's three are in the Chair's pane and nobody else's.
+    let pane = sh_private(&app, &cookies[pres], &code).await;
+    assert!(pane.contains("sh-hand"));
+    for (i, c) in cookies.iter().enumerate() {
+        if i == pres {
+            continue;
+        }
+        assert!(!sh_private(&app, c, &code).await.contains("sh-hand"));
+    }
+
+    let res = post_form(
+        &app,
+        &cookies[pres],
+        &format!("/room/{code}/sh/discard"),
+        "index=0",
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+    let res = post_form(
+        &app,
+        &cookies[nominee],
+        &format!("/room/{code}/sh/enact"),
+        "index=0",
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+
+    let st = sh_state(&pool, &code).await;
+    assert_eq!(st.liberal_track + st.fascist_track, 1, "a tile went up");
+    assert!(st.tiles_conserved());
+}
+
+#[tokio::test]
+async fn test_sh_a_ballot_is_final_over_a_retry() {
+    let (app, pool) = test_app_with_pool().await;
+    let (code, cookies) = sh_table(&app, 5).await;
+    let st = sh_state(&pool, &code).await;
+    let pres = st.president_seat;
+    let nominee = (0..5).find(|&i| st.eligible_chancellor(i)).unwrap();
+    post_form(
+        &app,
+        &cookies[pres],
+        &format!("/room/{code}/sh/nominate"),
+        &format!("target={nominee}"),
+    )
+    .await;
+
+    let voter = (0..5).find(|&i| i != pres).unwrap();
+    post_form(
+        &app,
+        &cookies[voter],
+        &format!("/room/{code}/sh/vote"),
+        "yes=1",
+    )
+    .await;
+    let before = sh_state(&pool, &code).await;
+    // A lossy-phone retry with the other answer is accepted and ignored.
+    let res = post_form(
+        &app,
+        &cookies[voter],
+        &format!("/room/{code}/sh/vote"),
+        "yes=0",
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+    let after = sh_state(&pool, &code).await;
+    assert_eq!(after.votes[voter], Some(true));
+    assert_eq!(after.seq, before.seq, "and bumps nothing");
+}
+
+#[tokio::test]
+async fn test_sh_the_dead_cannot_vote() {
+    let (app, pool) = test_app_with_pool().await;
+    let (code, cookies) = sh_table(&app, 7).await;
+
+    // Hand the sitting Chair an Execution and use it.
+    let mut st = sh_state(&pool, &code).await;
+    let pres = st.president_seat;
+    let victim = (0..7)
+        .find(|&i| i != pres && st.seats[i].role != Role::Hitler)
+        .unwrap();
+    st.phase = ShPhase::Power(Power::Execution);
+    set_sh_state(&pool, &code, &st).await;
+    let res = post_form(
+        &app,
+        &cookies[pres],
+        &format!("/room/{code}/sh/power"),
+        &format!("target={victim}"),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+    assert!(!sh_state(&pool, &code).await.seats[victim].alive);
+
+    // They keep their own pane, but every control is gone.
+    let pane = sh_private(&app, &cookies[victim], &code).await;
+    assert!(pane.contains("sh-out"));
+    assert!(!pane.contains("<form"));
+
+    let st = sh_state(&pool, &code).await;
+    let nominee = (0..7).find(|&i| st.eligible_chancellor(i)).unwrap();
+    post_form(
+        &app,
+        &cookies[st.president_seat],
+        &format!("/room/{code}/sh/nominate"),
+        &format!("target={nominee}"),
+    )
+    .await;
+    let res = post_form(
+        &app,
+        &cookies[victim],
+        &format!("/room/{code}/sh/vote"),
+        "yes=1",
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::FORBIDDEN);
+}
+
+/// Writes a doctored state back, so a test can reach a late-game position
+/// without playing thirty legal moves to get there.
+async fn set_sh_state(pool: &sqlx::SqlitePool, code: &str, st: &SecretHitlerState) {
+    sqlx::query(
+        "UPDATE games SET state_json = ?1
+         WHERE ended_at IS NULL
+           AND room_id = (SELECT id FROM rooms WHERE code = ?2)",
+    )
+    .bind(st.to_json())
+    .bind(code)
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
+#[tokio::test]
+async fn test_sh_an_investigation_result_reaches_only_the_investigator() {
+    let (app, pool) = test_app_with_pool().await;
+    let (code, cookies) = sh_table(&app, 9).await;
+    let mut st = sh_state(&pool, &code).await;
+    let pres = st.president_seat;
+    let target = (0..9).find(|&i| i != pres).unwrap();
+    st.phase = ShPhase::Power(Power::Investigate);
+    set_sh_state(&pool, &code, &st).await;
+
+    post_form(
+        &app,
+        &cookies[pres],
+        &format!("/room/{code}/sh/power"),
+        &format!("target={target}"),
+    )
+    .await;
+
+    let party = sh::party_name(st.seats[target].role.party());
+    let mine = sh_private(&app, &cookies[pres], &code).await;
+    assert!(mine.contains(sh::POWER_INVESTIGATE));
+    assert!(mine.contains(party), "the investigator sees the result");
+
+    for (i, c) in cookies.iter().enumerate() {
+        if i == pres {
+            continue;
+        }
+        assert!(
+            !sh_private(&app, c, &code)
+                .await
+                .contains("sh-private-results"),
+            "seat {i} can read someone else's dig"
+        );
+    }
+
+    // That it happened IS public; what it found is not.
+    let html = room_page_html(&app, &cookies[0], &code).await;
+    assert!(html.contains(sh::LOG_INVESTIGATED));
+    assert!(!html.contains(sh::PARTY_LIBERAL));
+    assert!(!html.contains(sh::PARTY_FASCIST));
+}
+
+// -- the leak tests ---------------------------------------------------------
+
+/// Every string that would give a role away.
+fn sh_needles() -> Vec<&'static str> {
+    vec![
+        sh::ROLE_HITLER,
+        sh::ROLE_LIBERAL,
+        sh::PARTY_LIBERAL,
+        sh::PARTY_FASCIST,
+    ]
+}
+
+#[tokio::test]
+async fn test_sh_broadcast_never_leaks_a_role() {
+    // Drives a real game over a live SSE stream and checks every frame.
+    let (app, pool) = test_app_with_pool().await;
+    let (code, cookies) = sh_table(&app, 5).await;
+
+    // POSITIVE CONTROL first: prove the needles ARE findable where they
+    // belong, so a silent rename cannot make this test vacuous.
+    let st = sh_state(&pool, &code).await;
+    let boss = st
+        .seats
+        .iter()
+        .position(|s| s.role == Role::Hitler)
+        .unwrap();
+    let pane = sh_private(&app, &cookies[boss], &code).await;
+    assert!(
+        pane.contains(sh::ROLE_HITLER),
+        "positive control failed: the Boss's own pane does not name the role"
+    );
+
+    let sse_res = get(&app, &format!("/room/{code}/sse")).await;
+    let mut sse_body = sse_res.into_body().into_data_stream();
+    let mut seen = read_sse_until(&mut sse_body, "event: room").await;
+
+    // Play a full election, collecting every frame it publishes.
+    let pres = st.president_seat;
+    let nominee = (0..5).find(|&i| st.eligible_chancellor(i)).unwrap();
+    post_form(
+        &app,
+        &cookies[pres],
+        &format!("/room/{code}/sh/nominate"),
+        &format!("target={nominee}"),
+    )
+    .await;
+    seen.push_str(&read_sse_until(&mut sse_body, "event: leaderboard").await);
+    for c in &cookies {
+        post_form(&app, c, &format!("/room/{code}/sh/vote"), "yes=1").await;
+        seen.push_str(&read_sse_until(&mut sse_body, "event: leaderboard").await);
+    }
+    post_form(
+        &app,
+        &cookies[pres],
+        &format!("/room/{code}/sh/discard"),
+        "index=0",
+    )
+    .await;
+    seen.push_str(&read_sse_until(&mut sse_body, "event: leaderboard").await);
+    post_form(
+        &app,
+        &cookies[nominee],
+        &format!("/room/{code}/sh/enact"),
+        "index=0",
+    )
+    .await;
+    seen.push_str(&read_sse_until(&mut sse_body, "event: leaderboard").await);
+
+    assert!(
+        seen.contains("data-sh-panel"),
+        "the frames really are Backroom's"
+    );
+    for needle in sh_needles() {
+        assert!(
+            !seen.contains(needle),
+            "a broadcast frame named {needle:?}:\n{seen}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn test_sh_the_spectator_screen_never_leaks_a_role() {
+    // The screen page takes no cookie at all.
+    let (app, pool) = test_app_with_pool().await;
+    let (code, cookies) = sh_table(&app, 7).await;
+    let st = sh_state(&pool, &code).await;
+    let boss = st
+        .seats
+        .iter()
+        .position(|s| s.role == Role::Hitler)
+        .unwrap();
+    assert!(
+        sh_private(&app, &cookies[boss], &code)
+            .await
+            .contains(sh::ROLE_HITLER),
+        "positive control"
+    );
+
+    let res = get(&app, &format!("/room/{code}/screen")).await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let html = body_string(res).await;
+    for needle in sh_needles() {
+        assert!(!html.contains(needle), "the big screen named {needle:?}");
+    }
+}
+
+#[tokio::test]
+async fn test_sh_the_room_page_never_leaks_another_seats_role() {
+    let (app, pool) = test_app_with_pool().await;
+    let (code, cookies) = sh_table(&app, 7).await;
+    let st = sh_state(&pool, &code).await;
+    // A Regular's whole page — panel, roster, room tab, empty private slot.
+    let lib = st
+        .seats
+        .iter()
+        .position(|s| s.role == Role::Liberal)
+        .unwrap();
+    let html = room_page_html(&app, &cookies[lib], &code).await;
+    for needle in sh_needles() {
+        assert!(
+            !html.contains(needle),
+            "a Regular's room page named {needle:?}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn test_sh_a_ballot_is_secret_until_the_vote_closes() {
+    let (app, pool) = test_app_with_pool().await;
+    let (code, cookies) = sh_table(&app, 5).await;
+    let st = sh_state(&pool, &code).await;
+    let pres = st.president_seat;
+    let nominee = (0..5).find(|&i| st.eligible_chancellor(i)).unwrap();
+    post_form(
+        &app,
+        &cookies[pres],
+        &format!("/room/{code}/sh/nominate"),
+        &format!("target={nominee}"),
+    )
+    .await;
+    // Four of five have voted: the vote is still open.
+    for c in cookies.iter().take(4) {
+        post_form(&app, c, &format!("/room/{code}/sh/vote"), "yes=1").await;
+    }
+    assert_eq!(sh_state(&pool, &code).await.phase, ShPhase::Voting);
+
+    let html = room_page_html(&app, &cookies[4], &code).await;
+    // The roster renders on both the GAME and ROOM tabs, so the marker
+    // appears once per seat per tab. What matters is that a ballot shows as
+    // DOWN and never as a value.
+    assert!(html.contains("sh-ballot-in"), "ballots are visibly down");
+    assert_eq!(
+        html.matches("sh-ballot-in").count() % 4,
+        0,
+        "four down, once per surface"
+    );
+    assert!(!html.contains(sh::VOTE_YES), "and none is readable");
+    assert!(!html.contains(sh::VOTE_NO));
+
+    // The fifth closes it and every ballot is revealed at once.
+    post_form(&app, &cookies[4], &format!("/room/{code}/sh/vote"), "yes=1").await;
+    let html = room_page_html(&app, &cookies[4], &code).await;
+    assert!(html.contains("sh-vote-record"));
+}
+
+#[tokio::test]
+async fn test_sh_a_tile_identity_never_reaches_a_broadcast() {
+    let (app, pool) = test_app_with_pool().await;
+    let (code, cookies) = sh_table(&app, 5).await;
+    let mut st = sh_state(&pool, &code).await;
+    let pres = st.president_seat;
+    // Force a known hand so the assertion has something specific to look for.
+    st.phase = ShPhase::PresidentDraft;
+    st.president_hand = vec![Policy::Fascist, Policy::Fascist, Policy::Fascist];
+    st.draw_pile = vec![Policy::Liberal; 8];
+    st.discard_pile = vec![Policy::Liberal; 6];
+    set_sh_state(&pool, &code, &st).await;
+
+    // The needle is the tile CLASS, not the tile's name: the name is also
+    // the public track's label, and an enacted tile is face up and public.
+    // `sh-tile` is emitted only by the private hand and the private peek.
+    let pane = sh_private(&app, &cookies[pres], &code).await;
+    assert_eq!(
+        pane.matches("sh-tile-fascist").count(),
+        3,
+        "positive control: the Chair holds three"
+    );
+
+    // Nobody else's page carries a tile at all.
+    for (i, c) in cookies.iter().enumerate() {
+        if i == pres {
+            continue;
+        }
+        let html = room_page_html(&app, c, &code).await;
+        assert!(
+            !html.contains("sh-tile-"),
+            "seat {i} can read the Chair's tiles"
+        );
+        assert!(
+            !sh_private(&app, c, &code).await.contains("sh-tile-"),
+            "seat {i}'s own pane carries a tile it does not hold"
+        );
+    }
+}
+
+#[tokio::test]
+async fn test_sh_the_sse_snapshot_is_still_four_frames() {
+    // Written by event name, never by counting body chunks: a 10-seat board
+    // is the largest panel in the crate and splits across several.
+    let app = test_app().await;
+    let (code, _) = sh_table(&app, 10).await;
+    let sse_res = get(&app, &format!("/room/{code}/sse")).await;
+    let mut sse_body = sse_res.into_body().into_data_stream();
+    let seen = read_sse_until(&mut sse_body, "event: room").await;
+    for ev in [
+        "event: leaderboard",
+        "event: game",
+        "event: screen",
+        "event: room",
+    ] {
+        assert!(seen.contains(ev), "snapshot is missing {ev}:\n{seen}");
+    }
+    assert!(
+        !seen.contains("event: lcpublic"),
+        "Backroom publishes no Last Call frames"
+    );
+    assert!(!seen.contains("event: lctick"), "and no tick frame");
+    assert!(seen.contains("data-sh-panel"));
+}
+
+#[tokio::test]
+async fn test_sh_writes_no_drinks_in_v1() {
+    // The leaderboard is broadcast over the same unauthenticated stream, so
+    // a pour is a role oracle. v1 pours nothing at all.
+    let (app, pool) = test_app_with_pool().await;
+    let (code, cookies) = sh_table(&app, 5).await;
+    let st = sh_state(&pool, &code).await;
+    let pres = st.president_seat;
+    let nominee = (0..5).find(|&i| st.eligible_chancellor(i)).unwrap();
+    post_form(
+        &app,
+        &cookies[pres],
+        &format!("/room/{code}/sh/nominate"),
+        &format!("target={nominee}"),
+    )
+    .await;
+    // A rejected government: the most pour-worthy beat in the game.
+    for c in &cookies {
+        post_form(&app, c, &format!("/room/{code}/sh/vote"), "yes=0").await;
+    }
+    let n: (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM events e JOIN rooms r ON r.id = e.room_id WHERE r.code = ?1",
+    )
+    .bind(&code)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(n.0, 0, "v1 is drink-free");
+    assert!(!sh::drinks_enabled());
+}
+
+// -- the shell --------------------------------------------------------------
+
+#[tokio::test]
+async fn test_sh_room_tab_relabels_to_table() {
+    let app = test_app().await;
+    let (code, cookies) = sh_table(&app, 5).await;
+    let html = room_page_html(&app, &cookies[0], &code).await;
+    assert!(html.contains(r#"data-mode="secret_hitler""#));
+    assert!(
+        html.contains(r#"ROOM_TAB_LABEL = { three_man: "TABLE", secret_hitler: "TABLE" }"#),
+        "the relabel is a lookup, not a chain of comparisons"
+    );
+    assert!(html.contains("at the table"), "the topbar counts seats");
+}
+
+#[tokio::test]
+async fn test_sh_room_js_is_served_and_wired() {
+    let app = test_app().await;
+    let res = get(&app, "/assets/sh_room.js").await;
+    assert_eq!(res.status(), StatusCode::OK);
+    assert_eq!(
+        res.headers()[header::CONTENT_TYPE],
+        "application/javascript"
+    );
+    let js = body_string(res).await;
+    assert!(js.contains("shAfterGameSwap"));
+    assert!(js.contains("/sh/private"));
+
+    let cookie = login(&app, "wired", "1111").await;
+    let code = create_room(&app, &cookie).await;
+    let html = room_page_html(&app, &cookie, &code).await;
+    assert!(html.contains("/assets/sh_room.js"));
+    assert!(html.contains("window.shAfterGameSwap()"));
+    assert!(html.contains(r#"data-base-path="""#));
+    assert!(html.contains(&format!(r#"data-code="{code}""#)));
+}
+
+#[tokio::test]
+async fn test_sh_private_slot_is_a_sibling_of_the_game_panel() {
+    // swapPanel() replaces #game-panel's innerHTML wholesale, so a pane
+    // nested inside it would be destroyed on every single frame.
+    let app = test_app().await;
+    let (code, cookies) = sh_table(&app, 5).await;
+    let html = room_page_html(&app, &cookies[0], &code).await;
+    let slot = html.find(r#"id="sh-private""#).expect("the slot exists");
+    let panel = html.find(r#"id="game-panel""#).expect("the panel exists");
+    assert!(
+        slot < panel,
+        "the pane comes first, and is not inside the panel"
+    );
+    let between = &html[slot..panel];
+    assert!(
+        between.contains("</section>"),
+        "the slot's own section closes before #game-panel opens"
+    );
 }
