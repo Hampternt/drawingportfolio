@@ -732,14 +732,22 @@ Worth knowing so a redesign does not rediscover them.
 A working, tappable version of everything above is in this folder:
 
 ```
-demo.html          open it directly — no build, no server, no dependencies
-src/model.js       every rule in §3 and §7, as ~880 lines of plain JS
-src/board.js       the rules turned into the picture and the controls
-src/runtime.js     the ~70-line template runtime that renders it
-src/board.html     the board; src/settings.html the rules screen
-src/store.js       the only browser-only file: localStorage, wrapped
-src/*.test.js      432 checks, run on plain node, no dependencies
-build.mjs          src/ -> demo.html
+demo.html                  open it directly — no build, no server, nothing to install
+build.mjs                  the app's files -> demo.html
+
+The board itself is not in this folder. It is the app's, and this demo is built
+from it rather than from a copy:
+
+static/sorting-model.js    every rule in §3 and §7, as ~1000 lines of plain JS
+static/sorting-board.js    the rules turned into the picture and the controls
+static/sorting-runtime.js  the ~70-line template runtime that renders it
+templates/sorting/markup/  board.html, and settings.html the rules screen
+
+What stays here is what is the prototype's alone:
+
+src/store.js               localStorage, where the app uses the server
+src/*.test.js              432 checks on plain node — and because they run the
+                           served files, `./scripts/verify.sh` runs them too
 ```
 
 There is also a design document at `../van-loading-board/`, on the Hampter

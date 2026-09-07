@@ -1,4 +1,4 @@
-// Renders ../sorting-live/src/board.html to static HTML in node, against the
+// Renders the app's templates/sorting/markup/board.html to static HTML in node, against the
 // value tree ../sorting-live/src/board.js produces.
 //
 // The point is that this design document draws the REAL board rather than a

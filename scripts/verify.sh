@@ -14,6 +14,11 @@
 #   4. node --check static/*.js drinkinggame/assets/*.js — JS syntax (a nested
 #                                   palette entry broke palette.js once,
 #                                   c72d614; nothing else catches it)
+#   5. the board suites                — 432 checks over the loading rules and
+#                                   the picture they draw, in plain node. They
+#                                   live beside the demo they were written for
+#                                   but the code they run is the served
+#                                   static/sorting-*.js, so they gate the route.
 #
 # clippy runs without `-D warnings` on purpose: the tree carries pre-existing
 # warnings (21 distinct as of 2026-08-12 — CLAUDE.md keeps the measured count).
@@ -61,9 +66,26 @@ else
   printf 'SKIPPED — node not on PATH\n'
 fi
 
+printf '\n=== node (the board suites)\n'
+if command -v node >/dev/null 2>&1; then
+  board_bad=0
+  for t in docs/design/sorting-live/src/model.test.js docs/design/sorting-live/src/board.test.js; do
+    [[ -e "$t" ]] || continue
+    if out=$(node "$t" 2>&1) && [[ "$out" != *FAIL* ]]; then
+      printf 'ok   %s — %s\n' "$t" "${out##*$'\n'}"
+    else
+      printf 'FAIL %s\n%s\n' "$t" "$out"
+      board_bad=1
+    fi
+  done
+  (( board_bad == 0 )) || failed+=("board suites")
+else
+  printf 'SKIPPED — node not on PATH\n'
+fi
+
 printf '\n'
 if (( ${#failed[@]} == 0 )); then
-  printf 'VERIFY OK — fmt, clippy, tests, JS syntax all clean.\n'
+  printf 'VERIFY OK — fmt, clippy, tests, JS syntax, board suites all clean.\n'
   exit 0
 fi
 

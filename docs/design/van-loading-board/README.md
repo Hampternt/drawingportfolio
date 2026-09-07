@@ -20,7 +20,7 @@ and open `.preview.html` in any browser.
 
 ## The boards are not drawings of the screen
 
-They are the screen. `ssr.mjs` renders `../sorting-live/src/board.html` and
+They are the screen. `ssr.mjs` renders the app's own `templates/sorting/markup/board.html` and
 `settings.html` — the markup the prototype itself runs — against the value tree
 `board.js` produces, from states built by tapping the rule set in `model.js`.
 

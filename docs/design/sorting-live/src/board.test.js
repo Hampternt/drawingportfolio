@@ -1,7 +1,10 @@
 const fs = require('fs');
 const { join } = require('path');
 class DCLogic { constructor(p) { this.props = p || {}; } setState(o) { Object.assign(this.state, o); } }
-const src = fs.readFileSync(join(__dirname, 'model.js'), 'utf8') + fs.readFileSync(join(__dirname, 'board.js'), 'utf8');
+const app = join(__dirname, '..', '..', '..', '..');
+const js = f => fs.readFileSync(join(app, 'static', f), 'utf8');
+const markupOf = f => fs.readFileSync(join(app, 'templates', 'sorting', 'markup', f), 'utf8');
+const src = js('sorting-model.js') + js('sorting-board.js');
 const Component = eval(src + '\n;Component');
 eval(src);   // the model verbs, for asserting against what the board did
 
@@ -15,7 +18,7 @@ let v = c.renderVals();
 // ── every hole in the markup has a producer ─────────────────────────────────
 // Two screens now, each against its own value tree. The board is checked here
 // and the settings below, with the same machinery.
-const markup = fs.readFileSync(join(__dirname, 'board.html'), 'utf8');
+const markup = markupOf('board.html');
 let scopes = {};
 for (const m of markup.matchAll(/<sc-for\s+list="\{\{([^}]+)\}\}"\s+as="([^"]+)"/g)) scopes[m[2]] = m[1];
 function dig(obj, path) { return path.split('.').reduce((o, k) => (o == null ? undefined : o[k]), obj); }
@@ -57,7 +60,7 @@ checkHoles(markup, v, 'board');
 {
   const t = new Component({ accent: '#B48EF7' });
   t.state.screen = 'settings';
-  checkHoles(fs.readFileSync(join(__dirname, 'settings.html'), 'utf8'), t.renderVals(), 'settings');
+  checkHoles(markupOf('settings.html'), t.renderVals(), 'settings');
 }
 v = c.renderVals();
 

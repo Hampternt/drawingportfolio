@@ -1,14 +1,24 @@
-// Rebuilds demo.html from src/. Node only, no dependencies.
+// Rebuilds demo.html. Node only, no dependencies.
 //   node docs/design/sorting-live/build.mjs
+//
+// The board's own source is not in this folder any more — it is the app's, in
+// `static/sorting-*.js` and `templates/sorting/markup/`, and this demo builds
+// from it rather than from a copy. That is the whole point: the prototype, the
+// design document and the running route cannot drift, because there is nothing
+// to drift from. `src/` keeps only what is the prototype's alone — the tests,
+// and the localStorage the demo uses where the app uses the server.
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
+const app = join(here, '..', '..', '..');
 const read = f => readFileSync(join(here, 'src', f), 'utf8');
+const js = f => readFileSync(join(app, 'static', f), 'utf8');
+const markup = f => readFileSync(join(app, 'templates', 'sorting', 'markup', f), 'utf8');
 
 const screen = f => {
-  const body = read(f).split('<x-dc>')[1].split('</x-dc>')[0];
+  const body = markup(f).split('<x-dc>')[1].split('</x-dc>')[0];
   return { helmet: /<helmet>([\s\S]*?)<\/helmet>/.exec(body)[1].trim(), markup: body.split('</helmet>')[1].trim() };
 };
 const board = screen('board.html');
@@ -95,10 +105,10 @@ ${settings.markup}
 </template>
 
 <script>
-${read('runtime.js')}
+${js('sorting-runtime.js')}
 ${read('store.js')}
-${read('model.js')}
-${read('board.js')}
+${js('sorting-model.js')}
+${js('sorting-board.js')}
 
 // ── boot ─────────────────────────────────────────────────────────────────────
 function startProps(extra) {

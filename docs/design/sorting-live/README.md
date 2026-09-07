@@ -125,7 +125,8 @@ node docs/design/sorting-live/src/board.test.js
 combining, the doors, the doorways, the live packing verbs (`beginState`,
 `doBegin`, `doMoveSpot`, `stackHosts`, `topUpState`) and `RULES`, the half of it
 that is the driver's to set. `src/board.js` projects it into the picture and the
-controls. `src/board.html` and `src/settings.html` are the two screens' markup,
+controls. `templates/sorting/markup/board.html` and `settings.html` are the two
+screens' markup,
 shared verbatim with the design canvas; `src/runtime.js` is the ~70-line
 template runtime that renders them, so the demo and the design cannot drift
 apart. `src/store.js` is the only browser-only file — everything else runs under

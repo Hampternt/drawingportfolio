@@ -15,14 +15,15 @@ import { tmpdir } from 'node:os';
 import { boardTemplate, render } from './ssr.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const LIVE = join(here, '..', 'sorting-live', 'src');
-const read = f => readFileSync(join(LIVE, f), 'utf8');
+const app = join(here, '..', '..', '..');
+const read = f => readFileSync(join(app, 'static', f), 'utf8');
+const markup = f => readFileSync(join(app, 'templates', 'sorting', 'markup', f), 'utf8');
 
 class DCLogic { constructor(p) { this.props = p || {}; } setState(o) { Object.assign(this.state, o); } }
 globalThis.DCLogic = DCLogic;
-const Component = eval(read('model.js') + read('board.js') + '\n;Component');
-const TPL = boardTemplate(read('board.html'));
-const SET = boardTemplate(read('settings.html'));
+const Component = eval(read('sorting-model.js') + read('sorting-board.js') + '\n;Component');
+const TPL = boardTemplate(markup('board.html'));
+const SET = boardTemplate(markup('settings.html'));
 
 let fails = 0;
 const ok = (c, m) => { if (!c) { fails++; console.log('  FAIL  ' + m); } };

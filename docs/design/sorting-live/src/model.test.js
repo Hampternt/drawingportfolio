@@ -1,6 +1,8 @@
 const fs = require('fs');
 const { join } = require('path');
-eval(fs.readFileSync(join(__dirname, 'model.js'), 'utf8'));
+// The model is the app's now — `static/sorting-model.js` — and this suite runs
+// against the served file rather than a copy of it.
+eval(fs.readFileSync(join(__dirname, '..', '..', '..', '..', 'static', 'sorting-model.js'), 'utf8'));
 // the harness predates the do* naming; keep the old verbs pointing at the core
 function assign(st, spot, cust) { doAssign(st, spot, cust); }
 function bump(st, spot, d) { doBump(st, spot, d); }

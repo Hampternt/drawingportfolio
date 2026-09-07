@@ -2,32 +2,34 @@
 // board, on the Hampter design system.
 //
 // The boards on this page are not drawings of the screen. They ARE the screen:
-// ../sorting-live/src/board.html rendered by ssr.mjs against the value tree
-// ../sorting-live/src/board.js produces, from states built by tapping the real
-// model in ../sorting-live/src/model.js. A test in that folder checks the
-// static render against the browser's own DOM node for node, so a design
-// document that disagreed with the prototype would be a build failure rather
-// than something to notice later.
+// the app's own templates/sorting/markup/board.html rendered by ssr.mjs against
+// the value tree static/sorting-board.js produces, from states built by tapping
+// the real rules in static/sorting-model.js. Those are the files the route
+// serves — not a copy of them — and a test checks the static render against the
+// browser's own DOM node for node, so a design document that disagreed with the
+// running screen would be a build failure rather than something to notice
+// later.
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { boardTemplate, render } from './ssr.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const LIVE = join(here, '..', 'sorting-live', 'src');
-const read = f => readFileSync(join(LIVE, f), 'utf8');
+const app = join(here, '..', '..', '..');
+const read = f => readFileSync(join(app, 'static', f), 'utf8');
+const markup = f => readFileSync(join(app, 'templates', 'sorting', 'markup', f), 'utf8');
 
 class DCLogic { constructor(p) { this.props = p || {}; } setState(o) { Object.assign(this.state, o); } }
 const M = {};
-(new Function('exports', 'DCLogic', read('model.js') + read('board.js') + `
+(new Function('exports', 'DCLogic', read('sorting-model.js') + read('sorting-board.js') + `
   Object.assign(exports, { Component, VIEW, SCENE, DOCK, CUST, STOPS, QUEUE, ORDER, SPOTS, DOORS,
     ROWS, CAP, SIDE_DOOR_ROWS, THIN, configure, emptyState, pushState, beginState, topUpState,
     stackHosts, depthFaults, windowAt, suggestAt, posLabel, heightOf, stopOf, doAssign, doBump,
     doPush, doClose, doBegin, COUNTS, PALLETS });
 `))(M, DCLogic);
 M.configure({});
-const TPL = boardTemplate(read('board.html'));
-const SET = boardTemplate(read('settings.html'));
+const TPL = boardTemplate(markup('board.html'));
+const SET = boardTemplate(markup('settings.html'));
 
 // ── a board state, built by tapping the real model ──────────────────────────
 function board(mutate, props = {}) {
@@ -291,7 +293,7 @@ body{margin:0;background:var(--surface-void)}
 <div style="display:flex;flex-direction:column;gap:10px;max-width:82ch">
   <h1 style="margin:0;font:var(--type-h1);color:${T.strong}">Van loading board<span style="color:${T.accent}">.</span></h1>
   <p style="margin:0;color:${T.muted};text-wrap:pretty">The screen a driver holds at the pallet while loading a delivery van, drawn from the van&rsquo;s own rear-right corner. Nine rows by two columns, loaded in reverse delivery order, with a side door that reaches only the first four rows.</p>
-  <p style="margin:0;color:${T.faint};text-wrap:pretty">The boards on this page are not drawings of the screen — they are the screen. ${code('ssr.mjs')} renders ${code('sorting-live/src/board.html')} against the value tree ${code('board.js')} produces, from states built by tapping the rule set in ${code('model.js')}, and a test checks that static render against the browser&rsquo;s own DOM node for node. Rebuild with ${code('node build.mjs')}.</p>
+  <p style="margin:0;color:${T.faint};text-wrap:pretty">The boards on this page are not drawings of the screen — they are the screen. ${code('ssr.mjs')} renders ${code('templates/sorting/markup/board.html')} against the value tree ${code('static/sorting-board.js')} produces, from states built by tapping the rule set in ${code('static/sorting-model.js')}, and a test checks that static render against the browser&rsquo;s own DOM node for node. Rebuild with ${code('node build.mjs')}.</p>
 </div>
 
 ${section('S1', 'S1', 'The board, mid-load', `Route list only: nothing is known until it is tapped in. Olavstoppen and Jåtten are closed out three rows deep, Hinna is built on one packing spot and Sverdrup on the next. <strong style="color:${T.body}">Stack height is drawn as height</strong> — there is no gauge, because the picture is one. The ±3 stability rule is what makes it legible: it keeps neighbouring stacks within three crates of each other, so the van reads as a staircase rather than a wall.`, draw(MID))}
