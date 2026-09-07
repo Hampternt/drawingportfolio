@@ -531,15 +531,22 @@ pub fn room_panel(view: &RoomView) -> String {
             )
         })
         .collect();
-    let topbar_count_label = if view.mode == "three_man" {
+    // Games that seat people around a table say so; everything else just
+    // counts heads. A lookup rather than a chain of `==` comparisons, so a
+    // fifth game is one entry and not two more branches to miss.
+    let seated = matches!(view.mode, "three_man" | crate::secret_hitler::KIND);
+    let topbar_count_label = if seated {
         format!("{n} at the table")
     } else {
         format!("{n} here")
     };
-    let tm_chip = if view.mode == "three_man" {
-        r#"<span class="tm-chip">3 MAN</span>"#
-    } else {
-        ""
+    let tm_chip = match view.mode {
+        "three_man" => r#"<span class="tm-chip">3 MAN</span>"#.to_string(),
+        crate::secret_hitler::KIND => format!(
+            r#"<span class="tm-chip">{}</span>"#,
+            html_escape(&crate::sh_theme::GAME_NAME.to_uppercase())
+        ),
+        _ => String::new(),
     };
     let topbar = format!(
         r#"<template data-topbar><div class="topbar-chips">{topbar_chips}</div>{tm_chip}<span class="topbar-count">{topbar_count_label}</span></template>"#
