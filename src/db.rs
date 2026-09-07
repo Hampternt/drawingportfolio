@@ -1,8 +1,8 @@
 use crate::models::{
     AuthChallengeState, Collection, CollectionWithCount, CreateCollectionError,
-    DrawingTaskWithImage, FoodItem, MealEntryWithFood, PasskeyCredential, Post, PostCounts,
-    PostFilter, Session, SortingSession, SortingSessionSummary, TagWithCount, Targets, TaskImage,
-    UserId, Viewer, Visibility,
+    DrawingTaskWithImage, FoodItem, MealEntryWithFood, NewSortingAction, PasskeyCredential, Post,
+    PostCounts, PostFilter, Session, SortingAction, SortingSession, SortingSessionSummary,
+    TagWithCount, Targets, TaskImage, UserId, Viewer, Visibility,
 };
 use sqlx::{
     sqlite::{SqliteConnectOptions, SqlitePoolOptions},
@@ -199,6 +199,13 @@ pub async fn run_migrations(pool: &DbPool) {
         .execute(pool)
         .await
         .expect("failed to run sorting sessions migration");
+
+    // Migration 024: the live board's action log and the per-user loading
+    // rules. Two more CREATE ... IF NOT EXISTS tables, same reasoning as 023.
+    sqlx::query(include_str!("../migrations/024_sorting_live_board.sql"))
+        .execute(pool)
+        .await
+        .expect("failed to run sorting live board migration");
 }
 
 /// Whether `table` currently has a column named `column`.
@@ -2356,15 +2363,22 @@ pub async fn insert_sorting_session(
     .id)
 }
 
-/// This user's sessions, newest route date first, each with its completed-step
-/// count. The payload column is deliberately not selected — the list draws a
+/// This user's sessions, newest route date first, each with how much of its van
+/// is loaded. The payload column is deliberately not selected — the list draws a
 /// progress bar, not a board.
+///
+/// The crate count comes from the last action rather than from replaying the
+/// log: the client that wrote it had already counted for the screen, and a list
+/// of twenty routes is not the place to replay twenty logs. Worst case the
+/// number is one action stale, which costs a progress bar and nothing else.
 pub async fn list_sorting_sessions(pool: &DbPool, user: UserId) -> Vec<SortingSessionSummary> {
     let uid = user.get();
     sqlx::query!(
         r#"SELECT s.id as "id!", s.route_name as "route_name!", s.session_date as "session_date!",
-                  s.total_steps as "total_steps!", s.total_crates as "total_crates!",
-                  (SELECT COUNT(*) FROM sorting_step_state st WHERE st.session_id = s.id) as "completed_steps!: i64"
+                  s.total_crates as "total_crates!",
+                  COALESCE((SELECT a.crates FROM sorting_actions a WHERE a.session_id = s.id
+                            ORDER BY a.seq DESC LIMIT 1), 0) as "crates_in!: i64",
+                  COALESCE((SELECT COUNT(*) FROM sorting_actions a WHERE a.session_id = s.id), 0) as "actions!: i64"
            FROM sorting_sessions s
            WHERE s.user_id = ?
            ORDER BY s.session_date DESC, s.id DESC"#,
@@ -2378,9 +2392,9 @@ pub async fn list_sorting_sessions(pool: &DbPool, user: UserId) -> Vec<SortingSe
         id: r.id,
         route_name: r.route_name,
         session_date: r.session_date,
-        total_steps: r.total_steps,
         total_crates: r.total_crates,
-        completed_steps: r.completed_steps,
+        crates_in: r.crates_in,
+        actions: r.actions,
     })
     .collect()
 }
@@ -2403,66 +2417,10 @@ pub async fn get_sorting_session(pool: &DbPool, id: i64, user: UserId) -> Option
     .flatten()
 }
 
-/// The step numbers ticked off on this session, ascending. Empty for a session
-/// that is not this user's — the same answer as one nobody has started, which
-/// is the right shape here: the caller renders a board either way, and a
-/// distinguishable "not yours" would leak that the id exists.
-pub async fn get_completed_steps(pool: &DbPool, session_id: i64, user: UserId) -> Vec<i64> {
-    let uid = user.get();
-    sqlx::query!(
-        r#"SELECT st.step as "step!: i64" FROM sorting_step_state st
-           JOIN sorting_sessions s ON s.id = st.session_id
-           WHERE st.session_id = ? AND s.user_id = ?
-           ORDER BY st.step ASC"#,
-        session_id,
-        uid
-    )
-    .fetch_all(pool)
-    .await
-    .unwrap_or_default()
-    .into_iter()
-    .map(|r| r.step)
-    .collect()
-}
-
-/// Ticks or unticks one step. Returns whether the session was this user's —
-/// *not* whether a row changed, because re-ticking an already-ticked step is a
-/// success, not a failure. A double-tap and a retried request must both be
-/// no-ops that report OK, or the tablet shows an error for work that is done.
-pub async fn set_sorting_step(
-    pool: &DbPool,
-    session_id: i64,
-    step: i64,
-    completed: bool,
-    user: UserId,
-) -> bool {
-    if !sorting_session_belongs_to(pool, session_id, user).await {
-        return false;
-    }
-    // Keyed on session_id alone from here: ownership is settled above, and the
-    // step rows carry no user of their own to filter by.
-    if completed {
-        sqlx::query!(
-            "INSERT OR IGNORE INTO sorting_step_state (session_id, step) VALUES (?, ?)",
-            session_id,
-            step
-        )
-        .execute(pool)
-        .await
-        .is_ok()
-    } else {
-        sqlx::query!(
-            "DELETE FROM sorting_step_state WHERE session_id = ? AND step = ?",
-            session_id,
-            step
-        )
-        .execute(pool)
-        .await
-        .is_ok()
-    }
-}
-
-/// Clears every tick on a session — the "start this route again" button.
+/// Clears the ticks left by the board this route used to have. Nothing writes
+/// that table any more — the live board's progress is `sorting_actions` — but a
+/// session started before the port still has rows in it, and "start over" should
+/// not leave the previous board's morning behind the new one's.
 pub async fn reset_sorting_steps(pool: &DbPool, session_id: i64, user: UserId) -> bool {
     if !sorting_session_belongs_to(pool, session_id, user).await {
         return false;
@@ -2502,6 +2460,9 @@ pub async fn delete_sorting_session(pool: &DbPool, id: i64, user: UserId) -> boo
     // otherwise a guessed id wipes another user's progress without ever
     // touching a row this user owns.
     if deleted {
+        let _ = sqlx::query!("DELETE FROM sorting_actions WHERE session_id = ?", id)
+            .execute(&mut *tx)
+            .await;
         let _ = sqlx::query!("DELETE FROM sorting_step_state WHERE session_id = ?", id)
             .execute(&mut *tx)
             .await;
@@ -2513,9 +2474,149 @@ pub async fn delete_sorting_session(pool: &DbPool, id: i64, user: UserId) -> boo
     deleted
 }
 
-/// Whether this session exists and is this user's. The ownership check the
-/// step-state writes share, kept in one place so there is one definition of
-/// "yours" rather than three that can drift.
+// ── The live board's action log ────────────────────────────────────────────
+//
+// The board is replayed from these rows, so the only property that really
+// matters is that appending is idempotent: the tablet queues actions it could
+// not send and replays them when the radio returns, and a replay of one that
+// already arrived must change nothing. (session_id, seq) is the primary key and
+// every insert is OR IGNORE, so it does.
+
+/// Appends one action, or does nothing if that sequence number is already
+/// stored. Returns whether the session is this user's — *not* whether a row was
+/// written, because a repeat is a success. A tablet that showed an error for a
+/// tick that had already landed would teach the driver to tap it again.
+pub async fn append_sorting_action(
+    pool: &DbPool,
+    session_id: i64,
+    action: NewSortingAction<'_>,
+    user: UserId,
+) -> bool {
+    if !sorting_session_belongs_to(pool, session_id, user).await {
+        return false;
+    }
+    sqlx::query!(
+        "INSERT OR IGNORE INTO sorting_actions (session_id, seq, kind, payload, crates, positions)
+         VALUES (?, ?, ?, ?, ?, ?)",
+        session_id,
+        action.seq,
+        action.kind,
+        action.payload,
+        action.crates,
+        action.positions
+    )
+    .execute(pool)
+    .await
+    .is_ok()
+}
+
+/// Every action on this session, in the order they were taken. Empty for a
+/// session that is not this user's — the same answer as one nobody has started,
+/// which is what `get_completed_steps` does and for the same reason: a
+/// distinguishable "not yours" would confirm the id exists.
+pub async fn get_sorting_actions(
+    pool: &DbPool,
+    session_id: i64,
+    user: UserId,
+) -> Vec<SortingAction> {
+    let uid = user.get();
+    sqlx::query_as!(
+        SortingAction,
+        r#"SELECT a.seq as "seq!: i64", a.kind as "kind!", a.payload as "payload!"
+           FROM sorting_actions a
+           JOIN sorting_sessions s ON s.id = a.session_id
+           WHERE a.session_id = ? AND s.user_id = ?
+           ORDER BY a.seq ASC"#,
+        session_id,
+        uid
+    )
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default()
+}
+
+/// Undo: drops every action from `seq` upward. Undoing twice from the same
+/// point is a no-op rather than an error, which keeps a retried request honest.
+pub async fn truncate_sorting_actions(
+    pool: &DbPool,
+    session_id: i64,
+    seq: i64,
+    user: UserId,
+) -> bool {
+    if !sorting_session_belongs_to(pool, session_id, user).await {
+        return false;
+    }
+    sqlx::query!(
+        "DELETE FROM sorting_actions WHERE session_id = ? AND seq >= ?",
+        session_id,
+        seq
+    )
+    .execute(pool)
+    .await
+    .is_ok()
+}
+
+/// Clears the whole log — the "start this route again" button. The plan itself
+/// is kept; it is the morning's work that is being thrown away, not the
+/// document it was planned from.
+pub async fn reset_sorting_actions(pool: &DbPool, session_id: i64, user: UserId) -> bool {
+    if !sorting_session_belongs_to(pool, session_id, user).await {
+        return false;
+    }
+    sqlx::query!(
+        "DELETE FROM sorting_actions WHERE session_id = ?",
+        session_id
+    )
+    .execute(pool)
+    .await
+    .is_ok()
+}
+
+// ── The driver's loading rules ─────────────────────────────────────────────
+
+/// This user's saved rules, as the JSON the board wrote. `None` means they have
+/// never changed one, which is not the same as an empty object and must not be
+/// flattened into it: only deviations are stored, so no row at all is how a
+/// later change to a default reaches somebody who never touched it.
+pub async fn get_sorting_rules(pool: &DbPool, user: UserId) -> Option<String> {
+    let uid = user.get();
+    sqlx::query_scalar!(
+        r#"SELECT payload as "payload!" FROM sorting_rules WHERE user_id = ?"#,
+        uid
+    )
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten()
+}
+
+/// Saves the rules, or deletes the row when there is nothing to save. Restoring
+/// defaults must remove the row rather than store today's defaults, or the
+/// driver is pinned to this build's numbers for as long as the account lasts.
+pub async fn save_sorting_rules(pool: &DbPool, user: UserId, payload: Option<&str>) -> bool {
+    let uid = user.get();
+    match payload {
+        Some(text) => sqlx::query!(
+            "INSERT INTO sorting_rules (user_id, payload, updated_at)
+             VALUES (?, ?, datetime('now'))
+             ON CONFLICT(user_id) DO UPDATE SET payload = excluded.payload,
+                                                updated_at = excluded.updated_at",
+            uid,
+            text
+        )
+        .execute(pool)
+        .await
+        .is_ok(),
+        None => sqlx::query!("DELETE FROM sorting_rules WHERE user_id = ?", uid)
+            .execute(pool)
+            .await
+            .is_ok(),
+    }
+}
+
+/// Whether this session exists and is this user's. The ownership check every
+/// write to the log shares, kept in one place so there is one definition of
+/// "yours" rather than four that can drift.
 async fn sorting_session_belongs_to(pool: &DbPool, session_id: i64, user: UserId) -> bool {
     let uid = user.get();
     sqlx::query_scalar!(
@@ -4970,97 +5071,168 @@ mod tests {
         );
         assert!(get_sorting_session(&pool, victim, OWNER).await.is_some());
 
-        // Tick: refused, and genuinely not written.
+        // Load a crate onto their van: refused, and genuinely not written.
         assert!(
-            !set_sorting_step(&pool, victim, 1, true, alex).await,
-            "another user's step must not be tickable by id"
+            !append_sorting_action(&pool, victim, action(1, 3), alex).await,
+            "another user's board must not be changeable by id"
         );
         assert!(
-            get_completed_steps(&pool, victim, OWNER).await.is_empty(),
-            "the refused tick still reached the table"
+            get_sorting_actions(&pool, victim, OWNER).await.is_empty(),
+            "the refused action still reached the log"
         );
 
-        // Untick someone else's progress: refused, and their work survives.
-        assert!(set_sorting_step(&pool, victim, 1, true, OWNER).await);
-        assert!(!set_sorting_step(&pool, victim, 1, false, alex).await);
-        assert_eq!(get_completed_steps(&pool, victim, OWNER).await, vec![1]);
+        // Undo their morning: refused, and their work survives.
+        assert!(append_sorting_action(&pool, victim, action(1, 3), OWNER).await);
+        assert!(!truncate_sorting_actions(&pool, victim, 1, alex).await);
+        assert_eq!(get_sorting_actions(&pool, victim, OWNER).await.len(), 1);
 
         // Reset and delete: both refused, and the session is still there.
-        assert!(!reset_sorting_steps(&pool, victim, alex).await);
-        assert_eq!(get_completed_steps(&pool, victim, OWNER).await, vec![1]);
+        assert!(!reset_sorting_actions(&pool, victim, alex).await);
+        assert_eq!(get_sorting_actions(&pool, victim, OWNER).await.len(), 1);
         assert!(!delete_sorting_session(&pool, victim, alex).await);
         assert!(get_sorting_session(&pool, victim, OWNER).await.is_some());
 
         // The owner can still do all of it — the gate is ownership, not a
         // blanket refusal.
-        assert!(reset_sorting_steps(&pool, victim, OWNER).await);
+        assert!(reset_sorting_actions(&pool, victim, OWNER).await);
         assert!(delete_sorting_session(&pool, victim, OWNER).await);
         assert!(get_sorting_session(&pool, victim, OWNER).await.is_none());
     }
 
     /// A gloved double-tap, and a request the tablet retried because it never
     /// saw the reply, must both be no-ops that report success. Anything else
-    /// shows an error for work that is already done.
+    /// shows an error for work that is already done — and, worse here, a second
+    /// append would be a second push of the same crates.
     #[tokio::test]
-    async fn test_ticking_a_step_twice_is_a_success_not_a_duplicate() {
+    async fn test_the_same_sequence_number_lands_once() {
         let pool = test_pool().await;
         let id = seed_sorting(&pool, "Route", 5, OWNER).await;
 
-        assert!(set_sorting_step(&pool, id, 2, true, OWNER).await);
-        assert!(set_sorting_step(&pool, id, 2, true, OWNER).await);
-        assert_eq!(get_completed_steps(&pool, id, OWNER).await, vec![2]);
+        assert!(append_sorting_action(&pool, id, action(1, 3), OWNER).await);
+        assert!(append_sorting_action(&pool, id, action(1, 3), OWNER).await);
+        let log = get_sorting_actions(&pool, id, OWNER).await;
+        assert_eq!(log.len(), 1, "the replay was stored a second time");
 
-        // And unticking something that was never ticked is equally quiet.
-        assert!(set_sorting_step(&pool, id, 9, false, OWNER).await);
-        assert_eq!(get_completed_steps(&pool, id, OWNER).await, vec![2]);
+        // And the first one wins: a replay does not overwrite what is there,
+        // so a stale retry cannot roll the board back.
+        assert!(append_sorting_action(&pool, id, action(1, 99), OWNER).await);
+        assert_eq!(get_sorting_actions(&pool, id, OWNER).await.len(), 1);
+        assert_eq!(list_sorting_sessions(&pool, OWNER).await[0].crates_in, 3);
     }
 
     #[tokio::test]
-    async fn test_completed_steps_come_back_in_step_order() {
-        // The board replays them to rebuild its state; out of order, a
-        // tick-then-untick pair could land the wrong way round.
+    async fn test_the_log_comes_back_in_the_order_it_was_written() {
+        // The board replays the last row and rebuilds its undo history from
+        // the rest; out of order, undo walks back through somebody's morning
+        // in the wrong direction.
         let pool = test_pool().await;
         let id = seed_sorting(&pool, "Route", 5, OWNER).await;
-        for step in [4, 1, 3] {
-            assert!(set_sorting_step(&pool, id, step, true, OWNER).await);
+        for seq in [4, 1, 3] {
+            assert!(append_sorting_action(&pool, id, action(seq, seq), OWNER).await);
         }
-        assert_eq!(get_completed_steps(&pool, id, OWNER).await, vec![1, 3, 4]);
+        let log = get_sorting_actions(&pool, id, OWNER).await;
+        assert_eq!(log.iter().map(|a| a.seq).collect::<Vec<_>>(), vec![1, 3, 4]);
     }
 
-    /// Step rows carry no user of their own, so a delete that leaves them
-    /// behind is not merely untidy: step numbers restart at 1 for every
-    /// session, and SQLite reuses row ids, so the next session created could
-    /// inherit a previous one's ticks.
+    /// Undo drops the action and everything after it. Dropping only the named
+    /// one would leave the board replaying a state the driver has walked back
+    /// past, which is worse than not undoing at all.
     #[tokio::test]
-    async fn test_deleting_a_session_takes_its_step_rows_with_it() {
+    async fn test_truncating_takes_everything_from_that_point_on() {
+        let pool = test_pool().await;
+        let id = seed_sorting(&pool, "Route", 5, OWNER).await;
+        for seq in 1..=4 {
+            assert!(append_sorting_action(&pool, id, action(seq, seq), OWNER).await);
+        }
+
+        assert!(truncate_sorting_actions(&pool, id, 3, OWNER).await);
+        let log = get_sorting_actions(&pool, id, OWNER).await;
+        assert_eq!(log.iter().map(|a| a.seq).collect::<Vec<_>>(), vec![1, 2]);
+
+        // Undoing the same point twice is quiet: the offline queue can replay
+        // one, and an error there would be an error for work already done.
+        assert!(truncate_sorting_actions(&pool, id, 3, OWNER).await);
+        assert_eq!(get_sorting_actions(&pool, id, OWNER).await.len(), 2);
+    }
+
+    /// Action rows carry no user of their own, so a delete that leaves them
+    /// behind is not merely untidy: sequence numbers restart at 1 for every
+    /// session, so a later session could inherit a previous one's van.
+    #[tokio::test]
+    async fn test_deleting_a_session_takes_its_log_with_it() {
         let pool = test_pool().await;
         let id = seed_sorting(&pool, "Route", 3, OWNER).await;
-        assert!(set_sorting_step(&pool, id, 1, true, OWNER).await);
-        assert!(set_sorting_step(&pool, id, 2, true, OWNER).await);
+        assert!(append_sorting_action(&pool, id, action(1, 2), OWNER).await);
+        assert!(append_sorting_action(&pool, id, action(2, 5), OWNER).await);
 
         assert!(delete_sorting_session(&pool, id, OWNER).await);
 
         let orphans: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM sorting_step_state WHERE session_id = ?")
+            sqlx::query_scalar("SELECT COUNT(*) FROM sorting_actions WHERE session_id = ?")
                 .bind(id)
                 .fetch_one(&pool)
                 .await
                 .unwrap();
-        assert_eq!(orphans, 0, "step rows outlived their session");
+        assert_eq!(orphans, 0, "the log outlived its session");
     }
 
-    /// A refused delete must not take the ticks either — clearing the children
+    /// A refused delete must not take the log either — clearing the children
     /// before proving ownership would let a guessed id wipe another user's
     /// morning without ever touching a row it was allowed to.
     #[tokio::test]
-    async fn test_a_refused_delete_leaves_the_step_rows_alone() {
+    async fn test_a_refused_delete_leaves_the_log_alone() {
         let pool = test_pool().await;
         let alex = other_user(&pool, "alex").await;
         let id = seed_sorting(&pool, "Route", 3, OWNER).await;
-        assert!(set_sorting_step(&pool, id, 1, true, OWNER).await);
+        assert!(append_sorting_action(&pool, id, action(1, 2), OWNER).await);
 
         assert!(!delete_sorting_session(&pool, id, alex).await);
-        assert_eq!(get_completed_steps(&pool, id, OWNER).await, vec![1]);
+        assert_eq!(get_sorting_actions(&pool, id, OWNER).await.len(), 1);
+    }
+
+    /// The rules are the account's, not the session's: a driver who picks up a
+    /// different tablet, or opens tomorrow's route, keeps their van.
+    #[tokio::test]
+    async fn test_rules_are_per_account_and_restore_removes_the_row() {
+        let pool = test_pool().await;
+        let alex = other_user(&pool, "alex").await;
+
+        assert_eq!(get_sorting_rules(&pool, OWNER).await, None);
+        assert!(save_sorting_rules(&pool, OWNER, Some(r#"{"v":1,"van":{"rows":7}}"#)).await);
+        assert_eq!(
+            get_sorting_rules(&pool, OWNER).await.as_deref(),
+            Some(r#"{"v":1,"van":{"rows":7}}"#)
+        );
+        assert_eq!(
+            get_sorting_rules(&pool, alex).await,
+            None,
+            "rules leaked between accounts"
+        );
+
+        // Saving again replaces rather than accumulating.
+        assert!(save_sorting_rules(&pool, OWNER, Some(r#"{"v":1,"van":{"rows":9}}"#)).await);
+        assert_eq!(
+            get_sorting_rules(&pool, OWNER).await.as_deref(),
+            Some(r#"{"v":1,"van":{"rows":9}}"#)
+        );
+
+        // Restore defaults deletes the row: storing today's defaults instead
+        // would pin this driver to this build's numbers forever.
+        assert!(save_sorting_rules(&pool, OWNER, None).await);
+        assert_eq!(get_sorting_rules(&pool, OWNER).await, None);
+    }
+
+    /// One action for the log: `seq`, and the crate total it leaves behind.
+    /// The payload is a board state only in shape — nothing at this layer reads
+    /// into it, which is the point of storing it as one column.
+    fn action(seq: i64, crates: i64) -> NewSortingAction<'static> {
+        NewSortingAction {
+            seq,
+            kind: "push",
+            payload: r#"{"van":{},"staged":{},"closed":{}}"#,
+            crates,
+            positions: seq,
+        }
     }
 
     #[tokio::test]
@@ -5070,20 +5242,24 @@ mod tests {
         let mine = seed_sorting(&pool, "Stavanger", 4, OWNER).await;
         seed_sorting(&pool, "Theirs", 9, alex).await;
 
-        assert!(set_sorting_step(&pool, mine, 1, true, OWNER).await);
-        assert!(set_sorting_step(&pool, mine, 2, true, OWNER).await);
+        assert!(append_sorting_action(&pool, mine, action(1, 3), OWNER).await);
+        assert!(append_sorting_action(&pool, mine, action(2, 7), OWNER).await);
 
         let listed = list_sorting_sessions(&pool, OWNER).await;
         assert_eq!(listed.len(), 1, "another user's route was listed");
         assert_eq!(listed[0].route_name, "Stavanger");
-        assert_eq!(listed[0].total_steps, 4);
-        assert_eq!(listed[0].completed_steps, 2);
         assert_eq!(listed[0].total_crates, 12);
+        assert_eq!(listed[0].actions, 2);
+        assert_eq!(
+            listed[0].crates_in, 7,
+            "the bar reads the last action, not the first or the sum"
+        );
 
         // And the count is scoped to the session, not to the table.
         let theirs = list_sorting_sessions(&pool, alex).await;
         assert_eq!(theirs.len(), 1);
-        assert_eq!(theirs[0].completed_steps, 0);
+        assert_eq!(theirs[0].crates_in, 0);
+        assert_eq!(theirs[0].actions, 0);
     }
 
     #[tokio::test]

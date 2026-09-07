@@ -3055,39 +3055,23 @@ body.fitness-dark .account-form input {
 .sorting-board { display: grid; gap: var(--space-6); align-content: start; }
 
 .sort-bhead {
-  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: var(--space-5);
+  display: flex; align-items: center; justify-content: flex-end; gap: var(--space-5);
+  flex-wrap: wrap;
   padding-bottom: var(--space-5); border-bottom: var(--border-width) solid var(--border-subtle);
 }
-.sort-bhead__back {
-  width: var(--control-height-lg); height: var(--control-height-lg);
-  display: inline-flex; align-items: center; justify-content: center;
-  border: var(--border-width) solid var(--border-default); border-radius: var(--radius-md);
-  color: var(--text-muted); text-decoration: none; font-size: var(--text-21);
+/* The route's name is in the drawing, at the size it is read at. This one is
+   for the document outline and for a screen reader announcing the page, so it
+   is taken out of the flow rather than hidden — `display: none` would take it
+   out of the accessibility tree along with the layout. */
+.sort-bhead__route {
+  position: absolute; width: 0.0625rem; height: 0.0625rem; margin: -0.0625rem;
+  padding: 0; border: 0; overflow: hidden; white-space: nowrap;
+  clip-path: inset(50%);
 }
-.sort-bhead__back:hover { color: var(--text-strong); border-color: var(--border-accent); text-decoration: none; }
-/* A grid item's automatic minimum is its min-content, so without this the
-   longest word in a route name sets a floor under the whole bar and the bar
-   pushes the board sideways off the screen. The track is already
-   `minmax(0, 1fr)` — this is the other half of the same fix. */
-.sort-bhead__id { min-width: 0; }
-.sort-bhead__route { font: var(--type-h2); color: var(--text-strong); margin: 0; }
-.sort-bhead__when { font: var(--type-label); color: var(--text-muted); text-transform: uppercase; letter-spacing: var(--tracking-caps); }
 .sort-bhead__prog { display: grid; gap: var(--space-3); min-width: 12.5rem; justify-items: end; }
 .sort-bhead__count { font: var(--type-mono); color: var(--text-body); }
 .sort-bhead__meter { width: 100%; height: 0.375rem; border-radius: var(--radius-pill); background: var(--surface-inset); overflow: hidden; }
 .sort-bhead__fill { display: block; height: 100%; width: 0; background: var(--status-success); border-radius: var(--radius-pill); transition: width var(--dur-base) var(--ease-out); }
-
-/* Narrow, four controls do not fit on one line — the meter alone claims
-   12.5rem — so the meter takes the second row and spans it. That is the one to
-   move: it is the only thing here that reads just as well full width, and it
-   leaves the route name a real column instead of the sliver it gets when
-   everything shares one line. A name squeezed to nothing does not merely look
-   bad, it stops answering the only question the bar exists to answer.
-
-   The wide bar is switched on inside the landscape media query rather than
-   switched off outside it, so there is no width where neither rule applies. */
-.sort-bhead__prog { grid-column: 1 / -1; }
-.sort-bhead__full { grid-column: 3; grid-row: 1; }
 
 .sort-sync {
   grid-column: 1 / -1; justify-self: start;
@@ -3096,15 +3080,6 @@ body.fitness-dark .account-form input {
   border-radius: var(--radius-pill); padding: var(--space-2) var(--space-5);
 }
 
-.sort-tabs { display: flex; gap: var(--space-3); }
-.sort-tab {
-  flex: 1; min-height: 3.25rem; cursor: pointer;
-  background: var(--surface-card); color: var(--text-muted);
-  border: var(--border-width) solid var(--border-default); border-radius: var(--radius-md);
-  font: var(--type-ui); font-size: var(--text-16);
-  display: inline-flex; align-items: center; justify-content: center; gap: var(--space-3);
-}
-.sort-tab.is-active { background: var(--surface-selected); color: var(--text-strong); border-color: var(--border-accent); }
 .sort-tab__badge {
   min-width: 1.375rem; height: 1.375rem; padding: 0 var(--space-3); border-radius: var(--radius-pill);
   background: var(--status-warning-dim); color: var(--ink-050);
@@ -3112,8 +3087,11 @@ body.fitness-dark .account-form input {
 }
 .sort-tab__badge.is-critical { background: var(--status-danger); color: var(--ink-1000); }
 
-.sort-pane { display: none; }
-.sort-pane.is-active { display: grid; gap: var(--space-6); align-content: start; }
+/* The checks, the manifest, the route and the pallets, below the board. They
+   are read once before anything is lifted and then not again, which is why they
+   are a page to scroll to rather than a tab competing with the van for the
+   width of a tablet. */
+.sort-panes { display: grid; gap: var(--space-9); align-content: start; }
 
 /* ── Full screen ───────────────────────────────────────────────────
    A tablet on a pallet has maybe 800 points of height and the browser and the
@@ -3135,150 +3113,31 @@ body.fitness-dark .account-form input {
 body:has(.sorting-board.is-full) > header { display: none; }
 body:has(.sorting-board.is-full) .sorting-page { padding: var(--space-5) var(--space-5) var(--space-6); }
 
-/* ── The focus card: the one move to make right now ────────────────── */
+/* ── The board ─────────────────────────────────────────────────────────
+   Almost nothing, and that is the point: every line of the picture — the van,
+   the stacks, the packing spots, the dock, the queue rail — is emitted by
+   static/sorting-board.js as inline style on plain divs, the same output the
+   demo and the design document render. A stylesheet rule reaching into it here
+   would be a second opinion about the drawing, and the two would disagree
+   within a week.
 
-.sort-focus__card {
-  border: var(--border-width-thick) solid var(--border-accent); border-radius: var(--radius-xl);
-  background: var(--surface-card); padding: var(--space-7);
-  display: grid; gap: var(--space-5); box-shadow: var(--glow-accent);
-}
-.sort-focus__card.is-pinned { border-color: var(--status-warning); box-shadow: none; }
-.sort-focus__top { display: flex; align-items: center; justify-content: space-between; gap: var(--space-5); }
-.sort-focus__step { font: var(--type-label); color: var(--text-muted); text-transform: uppercase; letter-spacing: var(--tracking-caps); }
-.sort-focus__unpin {
-  background: transparent; border: var(--border-width) solid var(--border-default);
-  border-radius: var(--radius-pill); color: var(--text-muted);
-  padding: var(--space-2) var(--space-5); cursor: pointer; font: var(--type-body-sm); min-height: 2.125rem;
-}
-.sort-focus__who { display: flex; align-items: center; gap: var(--space-5); }
-.sort-focus__dot { width: 1.25rem; height: 1.25rem; border-radius: var(--radius-sm); flex: none; }
-.sort-focus__name { font: var(--type-h1); font-size: var(--text-32); color: var(--text-strong); line-height: var(--leading-snug); }
-.sort-focus__move { display: flex; align-items: center; gap: var(--space-6); flex-wrap: wrap; }
-.sort-focus__qty { font: var(--type-display); font-size: var(--text-52); color: var(--accent); line-height: 1; }
-.sort-focus__route { display: flex; align-items: center; gap: var(--space-4); flex-wrap: wrap; font: var(--type-ui); font-size: var(--text-18); }
-.sort-focus__from { color: var(--text-muted); }
-.sort-focus__arrow { color: var(--text-faint); }
-.sort-focus__to { color: var(--text-strong); background: var(--surface-chip); border-radius: var(--radius-md); padding: var(--space-3) var(--space-5); }
-.sort-focus__to.is-standby { color: var(--amber-400); background: color-mix(in srgb, var(--status-warning) 16%, transparent); }
-.sort-focus__done-btn {
-  min-height: 4.75rem; width: 100%; cursor: pointer;
-  background: var(--accent); color: var(--text-on-accent);
-  border: none; border-radius: var(--radius-lg);
-  font: var(--type-h2); font-size: var(--text-26);
-}
-.sort-focus__done-btn:active { background: var(--accent-press); }
-.sort-focus__next { display: flex; gap: var(--space-4); align-items: baseline; font: var(--type-body-sm); color: var(--text-muted); }
-.sort-focus__nextlabel { font: var(--type-label); text-transform: uppercase; letter-spacing: var(--tracking-caps); color: var(--text-faint); }
-.sort-focus__done {
-  border: var(--border-width) solid var(--status-success); border-radius: var(--radius-xl);
-  background: color-mix(in srgb, var(--status-success) 10%, transparent);
-  padding: var(--space-9); text-align: center; display: grid; gap: var(--space-4); justify-items: center;
-}
-.sort-focus__donemark { font-size: var(--text-40); color: var(--status-success); line-height: 1; }
-.sort-focus__done p { color: var(--text-muted); font: var(--type-body-sm); }
+   What is left is the box it is drawn into: a fixed 90rem x 52.5rem picture,
+   resized to the room available.
 
-/* ── The move list ─────────────────────────────────────────────────── */
-
-.sort-steps__head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-5); }
-.sort-steps__head h2 { font: var(--type-h2); font-size: var(--text-18); color: var(--text-strong); }
-.sort-steps { list-style: none; display: grid; gap: var(--space-3); }
-.sort-step {
-  display: grid; grid-template-columns: 1fr 4rem; align-items: stretch;
-  border: var(--border-width) solid var(--border-default); border-radius: var(--radius-md);
-  background: var(--surface-card); overflow: hidden;
+   `zoom`, not `transform: scale()` and not the root font size. A transform
+   makes the board a composited bitmap of a fixed layout, which is what the
+   drawing stopped being when it moved to rem. The root font size is what the
+   standalone demo uses, and it cannot be used here: this page has a site header
+   above the board that must not shrink with the van, and hx-boost swaps body
+   children without restoring `<html>`'s style, so a root font size set here
+   would follow the driver onto the next page. `zoom` is layout — the board
+   scales, nothing else does, and where it is unsupported the picture renders at
+   its design size, which is a scrollbar rather than a broken screen. */
+.sort-live { display: flex; justify-content: center; overflow: hidden; }
+.sort-live__board {
+  width: 90rem; height: 52.5rem; flex: none;
+  zoom: var(--sort-zoom, 1);
 }
-.sort-step.is-current { border-color: var(--border-accent); background: var(--surface-selected); }
-.sort-step.is-done { opacity: 0.55; }
-.sort-step__body {
-  display: flex; align-items: center; gap: var(--space-5); text-align: left;
-  background: transparent; border: none; color: inherit; cursor: pointer;
-  padding: var(--space-5); min-height: 4rem;
-}
-.sort-step__num { font: var(--type-mono); color: var(--text-faint); min-width: 1.75rem; }
-.sort-step__mid { display: grid; gap: var(--space-2); min-width: 0; }
-.sort-step__line1 { display: flex; align-items: center; gap: var(--space-4); }
-.sort-step__dot { width: 0.75rem; height: 0.75rem; border-radius: var(--radius-xs); flex: none; }
-.sort-step__name { font: var(--type-ui); font-size: var(--text-16); color: var(--text-strong); }
-.sort-step__qty { font: var(--type-mono); color: var(--accent); }
-.sort-step__line2 { font: var(--type-body-sm); color: var(--text-muted); white-space: pre; }
-.sort-step__tick {
-  border: none; border-left: var(--border-width) solid var(--border-default);
-  background: var(--surface-inset); color: var(--status-success);
-  cursor: pointer; font-size: var(--text-21);
-}
-.sort-step__tick { position: relative; }
-.sort-step:not(.is-done) .sort-step__tick::after {
-  content: ''; position: absolute; top: 50%; left: 50%;
-  width: 1.375rem; height: 1.375rem; margin: -0.6875rem 0 0 -0.6875rem;
-  border: var(--border-width-thick) solid var(--border-strong); border-radius: var(--radius-pill);
-}
-.sort-step.is-done .sort-step__tick { background: color-mix(in srgb, var(--status-success) 18%, transparent); }
-.sort-steps__empty { color: var(--text-muted); font: var(--type-body-sm); padding: var(--space-6); text-align: center; }
-
-/* ── The van ───────────────────────────────────────────────────────── */
-
-.sort-van { display: grid; gap: var(--space-6); align-content: start; }
-.sort-vansvg { width: 100%; max-width: 20rem; justify-self: center; height: auto; }
-.sort-vansvg__cell { fill: var(--surface-inset); stroke: var(--border-default); stroke-width: 1; }
-.sort-vansvg__crate { stroke: var(--ink-1000); stroke-width: 0.5; }
-.sort-vansvg__crate.is-placed { stroke: var(--ink-950); stroke-width: 1; }
-.sort-vansvg__target { fill: none; stroke: var(--accent); stroke-width: 2; }
-/* Every length from here to the end of the diagram is in the SVG's own user
-   units, which is what `px` means inside a viewBox — it is not a screen pixel
-   and does not become one. Writing these in rem would peg the labels to the
-   root font size while the drawing around them kept scaling with its viewBox,
-   so the text would grow out of the cells it names. */
-.sort-vansvg__rownum { fill: var(--text-faint); font: var(--type-mono); font-size: 12px; }
-.sort-vansvg__count { fill: var(--text-faint); font: var(--type-mono); font-size: 10px; }
-.sort-vansvg__cap { fill: var(--text-faint); font: var(--type-label); font-size: 9px; letter-spacing: var(--tracking-caps); }
-.sort-vansvg__door { fill: var(--accent-warm); }
-/* Where one customer's run ends and the next begins inside a shared position.
-   A position often holds two orders — the later delivery stacked on top so it
-   comes off first — and colour alone leaves you counting bands. */
-/* Light rather than dark, so it reads against both states of a band: a loaded
-   crate is painted in the customer's colour at full strength, an unloaded one
-   is the same colour at 18% over a near-black cell. A dark rule disappears
-   into the second. */
-.sort-vansvg__split { stroke: var(--ink-050); stroke-width: 2; opacity: 0.7; }
-.sort-vansvg__tag {
-  font: var(--type-label); font-size: 9px;
-  font-weight: var(--weight-bold); letter-spacing: var(--tracking-wide);
-  fill: var(--ink-1000);
-}
-/* Same reason. On an unloaded band the near-black tag is invisible, so the
-   pending state takes a light fill instead of a dimmed dark one. */
-.sort-vansvg__tag.is-pending { fill: var(--text-muted); }
-
-.sort-standby { display: grid; gap: var(--space-4); }
-.sort-standby__title,
-.sort-legend__title { font: var(--type-label); text-transform: uppercase; letter-spacing: var(--tracking-caps); color: var(--text-muted); }
-.sort-standby__grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(8.75rem, 1fr)); gap: var(--space-3); }
-.sort-slot {
-  border: var(--border-width) dashed var(--border-strong); border-radius: var(--radius-md);
-  padding: var(--space-4); display: grid; gap: var(--space-2); min-height: 3.875rem; align-content: start;
-}
-.sort-slot.is-occupied { border-style: solid; border-color: var(--status-warning); background: color-mix(in srgb, var(--status-warning) 8%, transparent); }
-.sort-slot__name { font: var(--type-mono); font-size: var(--text-11); color: var(--text-faint); }
-.sort-slot__empty { font: var(--type-body-sm); color: var(--text-faint); }
-.sort-slot__chip {
-  font: var(--type-body-sm); color: var(--text-body);
-  border-left: 0.1875rem solid var(--border-strong); padding-left: var(--space-4);
-}
-/* The reachable one, when a slot holds more than one order. */
-.sort-slot__chip.is-top { color: var(--text-strong); font-weight: var(--weight-semibold); }
-.sort-slot__chip.is-top::after {
-  content: 'top'; margin-left: var(--space-3);
-  font: var(--type-label); text-transform: uppercase; letter-spacing: var(--tracking-caps);
-  color: var(--accent-warm);
-}
-
-.sort-legend { display: grid; gap: var(--space-3); }
-.sort-legend__row { display: flex; align-items: center; gap: var(--space-4); font: var(--type-body-sm); }
-.sort-legend__row.is-complete { color: var(--text-faint); }
-.sort-legend__swatch { width: 0.75rem; height: 0.75rem; border-radius: var(--radius-xs); flex: none; }
-.sort-legend__name { color: var(--text-body); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sort-legend__row.is-complete .sort-legend__name { text-decoration: line-through; }
-.sort-legend__count { margin-left: auto; font: var(--type-mono); color: var(--text-muted); }
 
 /* ── The checks pane ───────────────────────────────────────────────── */
 
@@ -3386,46 +3245,15 @@ body.sorting-dark .sort-bhead {
   padding: 0 0 var(--space-5);
 }
 
-body.sorting-dark .sort-focus__done-btn {
-  color: var(--text-on-accent);
-  font: var(--weight-bold) var(--text-26)/1.2 var(--font-display);
-}
-body.sorting-dark .sort-tab { color: var(--text-muted); font: var(--type-ui); font-size: var(--text-16); }
-body.sorting-dark .sort-tab.is-active { color: var(--text-strong); }
-body.sorting-dark .sort-focus__unpin { color: var(--text-muted); font: var(--type-body-sm); }
-body.sorting-dark .sort-step__tick { color: var(--status-success); font-size: var(--text-21); }
-body.sorting-dark .sort-step__body { color: var(--text-body); }
 body.sorting-dark .sort-new__box { color: var(--text-body); font: var(--type-mono); }
-body.sorting-dark .sort-bhead__back { color: var(--text-muted); }
-body.sorting-dark .sort-bhead__back:hover { color: var(--text-strong); }
 body.sorting-dark .sort-list__link { color: var(--text-body); }
 
-/* ── Tablet landscape: the van stops being a tab ───────────────────── */
+/* ── Tablet landscape ──────────────────────────────────────────────── */
 
 @media (min-width: 62.5rem) {
-  .sorting-board {
-    grid-template-columns: minmax(0, 1fr) 22.5rem;
-    grid-template-areas:
-      "head head"
-      "tabs tabs"
-      "main van";
-    align-items: start;
-  }
-  .sort-bhead { grid-area: head; grid-template-columns: auto minmax(0, 1fr) auto auto; }
-  .sort-bhead__prog { grid-column: auto; }
-  .sort-bhead__full { grid-column: auto; grid-row: auto; }
-  .sort-tabs { grid-area: tabs; }
-
-  /* display:contents dissolves the wrapper so each pane becomes a grid item of
-     the board itself — which is what lets the van sit in its own column while
-     the other two share one. */
-  .sort-panes { display: contents; }
-  .sort-pane { grid-area: main; }
-  .sort-pane[data-pane="van"] { grid-area: van; display: grid; gap: var(--space-6); align-content: start; }
-  .sort-tab--van { display: none; }
-
-  .sort-vansvg { max-width: 100%; }
-  .sort-tabs { max-width: 26.25rem; }
+  /* The board is drawn for a tablet in landscape and the reading below it is
+     not, so the two get different measures. */
+  .sort-panes { max-width: 60rem; }
 }
 
 @media (prefers-reduced-motion: reduce) {

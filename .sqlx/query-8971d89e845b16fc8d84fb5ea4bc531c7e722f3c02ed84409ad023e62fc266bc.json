@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT OR IGNORE INTO sorting_actions (session_id, seq, kind, payload, crates, positions)\n         VALUES (?, ?, ?, ?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 6
+    },
+    "nullable": []
+  },
+  "hash": "8971d89e845b16fc8d84fb5ea4bc531c7e722f3c02ed84409ad023e62fc266bc"
+}

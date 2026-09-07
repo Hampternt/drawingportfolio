@@ -464,7 +464,31 @@ pub struct SortingSessionSummary {
     pub id: i64,
     pub route_name: String,
     pub session_date: String,
-    pub total_steps: i64,
     pub total_crates: i64,
-    pub completed_steps: i64,
+    /// Crates aboard after the last action — the live board's progress. Read
+    /// off that one row rather than replayed, so it can be one action stale.
+    pub crates_in: i64,
+    /// How many actions the log holds. `0` is "not started"; the crate count
+    /// alone cannot say that, because a route can be an action in and still
+    /// have nothing in the van.
+    pub actions: i64,
+}
+
+/// One entry in a session's action log, as the board replays it.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct SortingAction {
+    pub seq: i64,
+    pub kind: String,
+    pub payload: String,
+}
+
+/// An action on its way in. Borrowed rather than owned because it is built from
+/// a request body and used once.
+#[derive(Debug, Clone, Copy)]
+pub struct NewSortingAction<'a> {
+    pub seq: i64,
+    pub kind: &'a str,
+    pub payload: &'a str,
+    pub crates: i64,
+    pub positions: i64,
 }

@@ -56,7 +56,10 @@ function build(node, scope) {
 // ── the shim the board's logic is written against ────────────────────────────
 // ON_PAINT is how anything outside the render loop finds out that state changed
 // — the demo hangs its settings persistence on it. Left null, nothing happens.
-var COMPONENT = null, PENDING = false, ON_PAINT = null;
+// BOARD_HOST is the element the tree is painted into. The demo has one board
+// on an otherwise empty page and calls it `board`; the app's page is a whole
+// site around it and names it something that could only be this.
+var COMPONENT = null, PENDING = false, ON_PAINT = null, BOARD_HOST = 'board';
 class DCLogic {
   constructor(props) { this.props = props || {}; }
   setState(o) { Object.assign(this.state, o); schedule(); }
@@ -67,7 +70,7 @@ function schedule() {
   requestAnimationFrame(function () { PENDING = false; paint(); });
 }
 function paint() {
-  var host = document.getElementById('board');
+  var host = document.getElementById(BOARD_HOST);
   var vals = COMPONENT.renderVals();
   // The board and the settings are two screens against one component, so the
   // values say which markup they are for rather than the caller guessing.

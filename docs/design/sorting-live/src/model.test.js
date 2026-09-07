@@ -741,6 +741,33 @@ eq(zone('back')[zone('back').length - 1], 'r9-right', 'and now runs to row 9');
     'and a code');
 }
 
+// ── what the driver changed, not what the plan said ─────────────────────────
+// The app boots the board with the van the session's plan described. Written
+// out without a baseline, that shape becomes the *account's* van — and the next
+// route, with a different van, inherits it. Only a deviation from the shape it
+// started at is the driver's.
+{
+  const plan = { rows: 7, capacity: 6, sideDoorRows: 3, sideSpots: 2, backSpots: 1 };
+  const props = Object.assign({}, plan, { rules: { stability: 2 } });
+
+  eq(writeSettings(props, plan).van, {},
+    'a van the driver never touched is not saved against their account');
+  eq(writeSettings(props, plan).rules, { stability: 2 },
+    'but a rule they did change is');
+
+  props.rows = 9;
+  eq(writeSettings(props, plan).van, { rows: 9 },
+    'and the one key they changed is saved, alone');
+
+  eq(writeSettings(props).van, { rows: 9, capacity: 6, sideDoorRows: 3, sideSpots: 2, backSpots: 1 },
+    'with no baseline every key is a deviation — which is what the demo wants');
+
+  // A restored payload still has to read back the same way.
+  const back = readSettings(JSON.stringify(writeSettings(props, plan)));
+  eq(back.van, { rows: 9 }, 'the deviation survives a round trip');
+  eq(back.rules, { stability: 2 }, 'and so does the rule');
+}
+
 // Back to the demo route, because everything above ran against a different one
 // and the file is one process.
 configureRoute();

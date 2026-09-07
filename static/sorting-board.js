@@ -981,10 +981,20 @@ class Component extends DCLogic {
     // the animation, and every other action would replay it again after that.
     this.state.flash = null;
 
+    // The route's own name and date, or the demo's when nothing set them. A
+    // header that says a different day from the one you are loading is worse
+    // than a header with no date at all, so this is a prop rather than a
+    // constant — the app passes what the plan said.
     return {
-      head: { title: 'Stavanger Route',
-              sub: 'WED 19 AUG · ' + STOPS.length + ' STOPS · '
-                + (tier === 1 ? 'ROUTE ONLY' : (tier === 2 ? 'COUNTS KNOWN' : 'FULLY SCANNED')) },
+      head: { title: this.props.routeName || 'Stavanger Route',
+              sub: (this.props.routeDate || 'WED 19 AUG') + ' · ' + STOPS.length + ' STOPS · '
+                + (tier === 1 ? 'ROUTE ONLY' : (tier === 2 ? 'COUNTS KNOWN' : 'FULLY SCANNED')),
+              // The arrow is drawn either way; it becomes a control only where
+              // there is somewhere to go back to. The demo is the whole page
+              // and has nowhere, so it stays a picture and does not pretend
+              // otherwise — the runtime only sets the pointer cursor and binds
+              // a click when this resolves to a function.
+              back: typeof this.props.onBack === 'function' ? this.props.onBack : null },
       stats: stats,
       screen: 'board',
       scene: { box: S.box, parts: S.parts, geo: S.geo },

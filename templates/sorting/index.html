@@ -70,12 +70,11 @@
           <span class="sort-list__date">{{ s.date_label }}</span>
         </div>
         <div class="sort-list__meter" role="img"
-             aria-label="{{ s.completed_steps }} of {{ s.total_steps }} moves done">
+             aria-label="{{ s.crates_in }} of {{ s.total_crates }} crates loaded">
           <span class="sort-list__fill" style="width: {{ s.percent }}%"></span>
         </div>
         <div class="sort-list__bottom">
-          <span class="sort-list__count">{{ s.completed_steps }} / {{ s.total_steps }} moves</span>
-          <span class="sort-list__crates">{{ s.total_crates }} crates</span>
+          <span class="sort-list__count">{{ s.crates_in }} / {{ s.total_crates }} crates in</span>
           <span class="sort-list__status">{{ s.status }}</span>
         </div>
       </a>

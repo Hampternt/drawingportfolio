@@ -55,8 +55,39 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/sorting", get(index_page).post(create_session))
         .route("/sorting/{id}", get(board_page))
         .route("/api/sorting/sessions/{id}", delete(delete_session))
-        .route("/api/sorting/sessions/{id}/steps/{step}", post(set_step))
-        .route("/api/sorting/sessions/{id}/reset", post(reset_steps))
+        .route("/api/sorting/sessions/{id}/actions", post(append_action))
+        .route(
+            "/api/sorting/sessions/{id}/actions/{seq}",
+            delete(undo_action),
+        )
+        .route("/api/sorting/sessions/{id}/reset", post(reset_board))
+        .route("/api/sorting/rules", post(save_rules))
+}
+
+// ── The board's markup ────────────────────────────────────────────────────
+//
+// The two screens are the design canvas's own artboards, wrapper and all, and
+// they are compiled in rather than read at runtime: they are code, they ship
+// with the binary, and a missing file should be a build failure rather than a
+// blank board on a tablet in a basement.
+//
+// They are handed to the page as strings, not `{% include %}`d, because the
+// markup is full of `{{scene.box}}` holes that belong to the board's own
+// runtime — Askama would try to resolve them and fail to compile.
+const BOARD_MARKUP: &str = include_str!("../../templates/sorting/markup/board.html");
+const SETTINGS_MARKUP: &str = include_str!("../../templates/sorting/markup/settings.html");
+
+/// One screen's markup, lifted out of its design-canvas wrapper: the part
+/// between `<x-dc>` and `</x-dc>`, after the `<helmet>` that carries the fonts
+/// and the one keyframe. Slices all the way down, so this borrows from the
+/// compiled-in string and allocates nothing.
+fn screen_markup(src: &'static str) -> &'static str {
+    let body = src.split("<x-dc>").nth(1).unwrap_or(src);
+    let body = body.split("</x-dc>").next().unwrap_or(body);
+    match body.split_once("</helmet>") {
+        Some((_, markup)) => markup.trim(),
+        None => body.trim(),
+    }
 }
 
 // ── The document ──────────────────────────────────────────────────────────
@@ -250,9 +281,10 @@ pub struct PickStep {
     pub from: Endpoint,
     #[serde(default)]
     pub to: Endpoint,
-    /// Whether the generator considered this already done. Seeds the ticks on
-    /// first upload and is never read again — progress lives in
-    /// `sorting_step_state` from that point on.
+    /// Whether the generator considered this already done. Accepted so a plan
+    /// carrying it still parses, and deliberately not acted on: the board's
+    /// progress is a van, and deriving one from a list of finished steps would
+    /// mean a second copy of the loading rules on this side of the wire.
     #[serde(default)]
     pub completed: bool,
 }
@@ -1245,8 +1277,7 @@ struct SessionCard {
     route_name: String,
     date_label: String,
     session_date: String,
-    total_steps: i64,
-    completed_steps: i64,
+    crates_in: i64,
     total_crates: i64,
     percent: i64,
     status: String,
@@ -1260,14 +1291,172 @@ struct BoardTemplate {
     route_name: String,
     date_label: String,
     time_window: String,
-    payload_json: String,
-    progress_json: String,
+    /// The stops the board draws a rail from, in delivery order.
+    route_json: String,
+    /// The van's shape, out of the plan — the driver's saved rules override it.
+    van_json: String,
+    /// Everything the driver has done to this van, in order.
+    actions_json: String,
+    /// This account's saved deviations from the default rules, or `null`.
+    rules_json: String,
+    /// How far the board can see: 1 route only, 2 plus counts, 3 plus pallets.
+    tier: u8,
     checks_html: String,
     critical_count: usize,
     attention_count: usize,
     manifest_html: String,
     stops_html: String,
     stacks_html: String,
+    board_markup: &'static str,
+    settings_markup: &'static str,
+}
+
+/// One stop as the board configures itself from. `count` and `pallet` are the
+/// second and third levels of foresight and are usually absent — a route-only
+/// morning has neither, and the board is built to work that way.
+#[derive(Debug, Serialize)]
+struct RouteStop {
+    key: String,
+    name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    color: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    count: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pallet: Option<String>,
+}
+
+/// The van's shape as the board's `configure()` takes it.
+#[derive(Debug, Serialize)]
+struct VanShape {
+    rows: i64,
+    capacity: i64,
+    #[serde(rename = "sideDoorRows")]
+    side_door_rows: i64,
+    #[serde(rename = "sideSpots")]
+    side_spots: i64,
+    #[serde(rename = "backSpots")]
+    back_spots: i64,
+    stability: i64,
+}
+
+/// The route the board loads, out of the plan.
+///
+/// Delivery order comes from `stops`, because that is the order the route app
+/// gives and the whole load runs backwards from it. A customer with crates on
+/// the manifest but no stop is still put on the rail — at the end, so it loads
+/// first and sits deepest — because a customer the board will not show is a
+/// customer whose crates have nowhere to go, and the checks pane already says
+/// out loud that the plan is missing a stop for them.
+fn route_stops(plan: &SortingPlan) -> Vec<RouteStop> {
+    let mut colors: BTreeMap<&str, &str> = BTreeMap::new();
+    for row in &plan.loading_plan.rows {
+        for e in &row.entries {
+            if !e.customer.is_empty() && !e.color.is_empty() {
+                colors
+                    .entry(e.customer.as_str())
+                    .or_insert(e.color.as_str());
+            }
+        }
+    }
+
+    let mut counts: BTreeMap<&str, i64> = BTreeMap::new();
+    for m in &plan.manifest {
+        if m.customer.is_empty() || !m.on_route {
+            continue;
+        }
+        *counts.entry(m.customer.as_str()).or_insert(0) += m.count.max(0);
+    }
+
+    let mut pallets: BTreeMap<&str, &str> = BTreeMap::new();
+    for stack in &plan.pallet_stacks {
+        for item in &stack.top_to_bottom {
+            if !item.customer.is_empty() && !stack.stack_id.is_empty() {
+                pallets
+                    .entry(item.customer.as_str())
+                    .or_insert(stack.stack_id.as_str());
+            }
+        }
+    }
+
+    let mut ordered: Vec<&Stop> = plan
+        .stops
+        .iter()
+        .filter(|s| !s.customer.is_empty())
+        .collect();
+    ordered.sort_by_key(|s| {
+        // `deliveryIndex` is the field that means "when this is dropped off";
+        // `stopNumber` is what a route app happens to print. Prefer the first
+        // and fall back to the second, so a plan carrying only one still loads
+        // in an order rather than in whatever order the JSON was written.
+        let a = if s.delivery_index > 0 {
+            s.delivery_index
+        } else {
+            s.stop_number
+        };
+        (a, s.customer.clone())
+    });
+
+    let mut out: Vec<RouteStop> = Vec::new();
+    let mut seen: BTreeSet<&str> = BTreeSet::new();
+    for stop in ordered {
+        if !seen.insert(stop.customer.as_str()) {
+            continue;
+        }
+        out.push(RouteStop {
+            key: stop.customer.clone(),
+            name: stop.customer.clone(),
+            color: colors.get(stop.customer.as_str()).map(|c| c.to_string()),
+            count: counts
+                .get(stop.customer.as_str())
+                .copied()
+                .filter(|n| *n > 0),
+            pallet: pallets.get(stop.customer.as_str()).map(|p| p.to_string()),
+        });
+    }
+    for m in &plan.manifest {
+        if m.customer.is_empty() || !m.on_route || !seen.insert(m.customer.as_str()) {
+            continue;
+        }
+        out.push(RouteStop {
+            key: m.customer.clone(),
+            name: m.customer.clone(),
+            color: colors.get(m.customer.as_str()).map(|c| c.to_string()),
+            count: counts.get(m.customer.as_str()).copied().filter(|n| *n > 0),
+            pallet: pallets.get(m.customer.as_str()).map(|p| p.to_string()),
+        });
+    }
+    out
+}
+
+/// How much the board can see, which is a fact about the plan rather than a
+/// setting: counts for every stop turn the forecast on, and pallets on top of
+/// that let it also say what to pull next.
+fn foresight_tier(route: &[RouteStop]) -> u8 {
+    if route.is_empty() || route.iter().any(|s| s.count.is_none()) {
+        return 1;
+    }
+    if route.iter().all(|s| s.pallet.is_some()) {
+        3
+    } else {
+        2
+    }
+}
+
+fn van_shape(plan: &SortingPlan) -> VanShape {
+    let v = &plan.van_config;
+    // The door's reach is a list of rows in the document and a count in the
+    // board — they agree whenever the list is 1..N, which is the only shape
+    // anyone writes, and the largest row is the honest reading of any other.
+    let side_door_rows = v.side_door.rows.iter().copied().max().unwrap_or(0).max(0);
+    VanShape {
+        rows: v.total_rows.clamp(1, 40),
+        capacity: v.max_height.clamp(1, 20),
+        side_door_rows: side_door_rows.min(v.total_rows.max(0)),
+        side_spots: v.standby.side_slots.clamp(0, 8),
+        back_spots: v.standby.back_slots.clamp(0, 8),
+        stability: v.stability_limit.clamp(0, 20),
+    }
 }
 
 // ── Route handlers ────────────────────────────────────────────────────────
@@ -1291,19 +1480,24 @@ async fn render_index(
         .await
         .into_iter()
         .map(|s| {
-            let percent = if s.total_steps > 0 {
-                (s.completed_steps * 100 / s.total_steps).clamp(0, 100)
+            // Progress is crates aboard now, not steps ticked: the board has
+            // no fixed list of moves to count through. A route with no manifest
+            // has no total to be a fraction of, so it reports what is in the
+            // van and no bar — a bar at 0% would read as "nothing done" on a
+            // half-loaded van.
+            let percent = if s.total_crates > 0 {
+                (s.crates_in * 100 / s.total_crates).clamp(0, 100)
             } else {
                 0
             };
-            let status = if s.total_steps == 0 {
-                "No sequence".to_string()
-            } else if s.completed_steps == 0 {
+            let status = if s.actions == 0 {
                 "Not started".to_string()
-            } else if s.completed_steps >= s.total_steps {
-                "Done".to_string()
+            } else if s.total_crates > 0 && s.crates_in >= s.total_crates {
+                "Loaded".to_string()
+            } else if s.total_crates > 0 {
+                format!("{} to go", s.total_crates - s.crates_in)
             } else {
-                format!("{} left", s.total_steps - s.completed_steps)
+                "In progress".to_string()
             };
             SessionCard {
                 id: s.id,
@@ -1314,8 +1508,7 @@ async fn render_index(
                     s.route_name
                 },
                 session_date: s.session_date,
-                total_steps: s.total_steps,
-                completed_steps: s.completed_steps,
+                crates_in: s.crates_in,
                 total_crates: s.total_crates,
                 percent,
                 status,
@@ -1392,12 +1585,13 @@ async fn create_session(
         }
     };
 
-    // Carry over anything the generator already marked done, so a plan that
-    // was part-worked before it was uploaded does not start from zero.
-    for s in parsed.plan.pick_sequence.iter().filter(|s| s.completed) {
-        crate::db::set_sorting_step(&state.pool, id, s.step, true, session.user()).await;
-    }
-
+    // A plan's `completed` markers used to seed the tick table. They are not
+    // read any more, and nothing is seeded in their place on purpose: the
+    // board's state is a van, and turning "step 3 is done" into a van means
+    // running the loading rules — which live in the board, in one copy, which
+    // is the whole reason this port exists. A part-worked plan starts from an
+    // empty van and the driver pushes what is already aboard back in, which
+    // takes seconds and cannot be quietly wrong.
     Redirect::to(&format!("/sorting/{id}")).into_response()
 }
 
@@ -1428,8 +1622,10 @@ async fn board_page(
         .filter(|c| c.level != CheckLevel::Note)
         .count();
 
-    let completed = crate::db::get_completed_steps(&state.pool, id, session.user()).await;
-    let progress_json = serde_json::to_string(&completed).unwrap_or_else(|_| "[]".to_string());
+    let route = route_stops(&plan);
+    let tier = foresight_tier(&route);
+    let actions = crate::db::get_sorting_actions(&state.pool, id, session.user()).await;
+    let rules = crate::db::get_sorting_rules(&state.pool, session.user()).await;
 
     let time_window = match (
         plan.session.start_time.as_str(),
@@ -1451,14 +1647,22 @@ async fn board_page(
         },
         date_label: date_label(&row.session_date),
         time_window,
-        payload_json: json_for_script(&row.payload),
-        progress_json: json_for_script(&progress_json),
+        route_json: json_for_script(&serde_json::to_string(&route).unwrap_or_default()),
+        van_json: json_for_script(&serde_json::to_string(&van_shape(&plan)).unwrap_or_default()),
+        actions_json: json_for_script(&serde_json::to_string(&actions).unwrap_or_default()),
+        // `null` rather than `{}`: never having changed a rule is not the same
+        // as having set every rule to today's default, and the board has to be
+        // able to tell them apart or a later change to a default never lands.
+        rules_json: json_for_script(rules.as_deref().unwrap_or("null")),
+        tier,
         checks_html: checks_html(&checks),
         critical_count,
         attention_count,
         manifest_html: manifest_html(&plan),
         stops_html: stops_html(&plan),
         stacks_html: stacks_html(&plan),
+        board_markup: screen_markup(BOARD_MARKUP),
+        settings_markup: screen_markup(SETTINGS_MARKUP),
     };
 
     Html(
@@ -1468,47 +1672,132 @@ async fn board_page(
     .into_response()
 }
 
+/// One thing the driver did, on its way to the log.
+///
+/// `state` is the whole board after the action rather than a description of it.
+/// That is a deliberate trade: the board's rules live in one place — the same
+/// JavaScript the demo and the design document run — and re-implementing them
+/// in Rust to replay a semantic log would be a second copy of the rule set,
+/// which is the thing this port exists to avoid. What the server keeps is the
+/// property that matters: appends are ordered, and (session, seq) makes a
+/// retry a no-op.
 #[derive(Deserialize)]
-struct StepBody {
-    completed: bool,
+struct ActionBody {
+    seq: i64,
+    #[serde(default)]
+    kind: String,
+    state: serde_json::Value,
+    #[serde(default)]
+    crates: i64,
+    #[serde(default)]
+    positions: i64,
 }
 
 #[derive(Serialize)]
-struct StepReply {
+struct ActionReply {
     ok: bool,
-    completed: usize,
+    seq: i64,
 }
 
-/// Ticks or unticks one step.
-///
-/// Answers with the authoritative completed count so the tablet can correct
-/// itself after a spell offline, without re-fetching the board.
-async fn set_step(
+/// A board state larger than this is not a board state. Eighteen positions and
+/// five spots is a few kilobytes; the cap is here so a wedged client cannot
+/// grow one session's log without bound.
+const MAX_ACTION_BYTES: usize = 64 * 1024;
+
+async fn append_action(
     session: AuthSession,
     State(state): State<Arc<AppState>>,
-    Path((id, step)): Path<(i64, i64)>,
-    Json(body): Json<StepBody>,
+    Path(id): Path<i64>,
+    Json(body): Json<ActionBody>,
 ) -> impl IntoResponse {
-    if !crate::db::set_sorting_step(&state.pool, id, step, body.completed, session.user()).await {
+    if body.seq < 1 {
+        return (StatusCode::BAD_REQUEST, "seq starts at 1").into_response();
+    }
+    let payload = body.state.to_string();
+    if payload.len() > MAX_ACTION_BYTES {
+        return (StatusCode::PAYLOAD_TOO_LARGE, "board state too large").into_response();
+    }
+    // The kind is a label for reading the log, never a branch — so it is
+    // clamped rather than validated, and an unknown one costs a fuzzy audit
+    // trail rather than a rejected tick from a tablet that is already loaded.
+    let kind: String = body
+        .kind
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .take(24)
+        .collect();
+
+    let action = crate::models::NewSortingAction {
+        seq: body.seq,
+        kind: if kind.is_empty() { "change" } else { &kind },
+        payload: &payload,
+        crates: body.crates.max(0),
+        positions: body.positions.max(0),
+    };
+    if !crate::db::append_sorting_action(&state.pool, id, action, session.user()).await {
         return (StatusCode::NOT_FOUND, "not found").into_response();
     }
-    let completed = crate::db::get_completed_steps(&state.pool, id, session.user()).await;
-    Json(StepReply {
+    Json(ActionReply {
         ok: true,
-        completed: completed.len(),
+        seq: body.seq,
     })
     .into_response()
 }
 
-async fn reset_steps(
+/// Undo. Drops this action and everything after it, which is what "put the
+/// board back the way it was one tap ago" means when the log is the board.
+async fn undo_action(
+    session: AuthSession,
+    State(state): State<Arc<AppState>>,
+    Path((id, seq)): Path<(i64, i64)>,
+) -> impl IntoResponse {
+    if !crate::db::truncate_sorting_actions(&state.pool, id, seq, session.user()).await {
+        return (StatusCode::NOT_FOUND, "not found").into_response();
+    }
+    Json(ActionReply { ok: true, seq }).into_response()
+}
+
+/// Start this route again: the morning's work goes, the plan stays.
+async fn reset_board(
     session: AuthSession,
     State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
 ) -> impl IntoResponse {
-    if !crate::db::reset_sorting_steps(&state.pool, id, session.user()).await {
+    if !crate::db::reset_sorting_actions(&state.pool, id, session.user()).await {
         return (StatusCode::NOT_FOUND, "not found").into_response();
     }
+    // The old step table is cleared too. Nothing writes it any more, but a
+    // session started before this build still has rows in it, and "start over"
+    // should not leave the previous board's progress behind it.
+    let _ = crate::db::reset_sorting_steps(&state.pool, id, session.user()).await;
     Redirect::to(&format!("/sorting/{id}")).into_response()
+}
+
+/// The van's shape and the rules the board loads by, saved against the account.
+///
+/// An empty body means "restore defaults", and that deletes the row rather than
+/// storing today's defaults — otherwise a driver who pressed Restore is pinned
+/// to this build's numbers forever.
+#[derive(Deserialize)]
+struct RulesBody {
+    #[serde(default)]
+    settings: Option<serde_json::Value>,
+}
+
+async fn save_rules(
+    session: AuthSession,
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<RulesBody>,
+) -> impl IntoResponse {
+    let text = body.settings.map(|v| v.to_string()).filter(|t| {
+        // `{}` on the wire and no row at all mean the same thing, so store the
+        // cheaper one.
+        t.len() <= MAX_ACTION_BYTES && t != "null" && t != "{}"
+    });
+    if !crate::db::save_sorting_rules(&state.pool, session.user(), text.as_deref()).await {
+        return (StatusCode::INTERNAL_SERVER_ERROR, "could not save").into_response();
+    }
+    StatusCode::NO_CONTENT.into_response()
 }
 
 async fn delete_session(
@@ -2413,12 +2702,26 @@ mod tests {
             req("DELETE", "/api/sorting/sessions/1", None, "", false),
             req(
                 "POST",
-                "/api/sorting/sessions/1/steps/1",
+                "/api/sorting/sessions/1/actions",
                 None,
-                r#"{"completed":true}"#,
+                r#"{"seq":1,"kind":"push","state":{}}"#,
                 true,
             ),
+            req(
+                "DELETE",
+                "/api/sorting/sessions/1/actions/1",
+                None,
+                "",
+                false,
+            ),
             req("POST", "/api/sorting/sessions/1/reset", None, "", false),
+            req(
+                "POST",
+                "/api/sorting/rules",
+                None,
+                r#"{"settings":null}"#,
+                true,
+            ),
         ];
         for r in reqs {
             let method = r.method().clone();
@@ -2500,8 +2803,8 @@ mod tests {
         }
 
         // And the owner's plan is untouched by any of it.
-        let steps = crate::db::get_completed_steps(&pool, 1, driver).await;
-        assert!(steps.is_empty(), "a stranger's tick reached the table");
+        let log = crate::db::get_sorting_actions(&pool, 1, driver).await;
+        assert!(log.is_empty(), "a stranger's action reached the log");
         assert!(crate::db::get_sorting_session(&pool, 1, driver)
             .await
             .is_some());
@@ -2544,39 +2847,223 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_ticking_a_step_reports_the_authoritative_count() {
-        // The tablet uses this to correct itself after a spell offline.
+    async fn test_the_same_action_sent_twice_lands_once() {
+        // The tablet queues what it could not send and replays it when the
+        // radio comes back. A replay that arrived the first time must be a
+        // no-op reporting success — anything else teaches the driver to tap a
+        // crate in twice.
         let (app, pool) = app_with_pool().await;
-        let (cookie, _driver) = member_cookie(&pool, "driver").await;
+        let (cookie, driver) = member_cookie(&pool, "driver").await;
         let body = format!("payload={}", urlencode(SAMPLE));
         app.clone()
             .oneshot(req("POST", "/sorting", Some(&cookie), &body, false))
             .await
             .unwrap();
 
-        let resp = app
-            .clone()
+        let push =
+            r#"{"seq":1,"kind":"push","state":{"van":{"r1-left":[]}},"crates":3,"positions":1}"#;
+        for _ in 0..2 {
+            let resp = app
+                .clone()
+                .oneshot(req(
+                    "POST",
+                    "/api/sorting/sessions/1/actions",
+                    Some(&cookie),
+                    push,
+                    true,
+                ))
+                .await
+                .unwrap();
+            assert_eq!(
+                resp.status(),
+                HttpStatus::OK,
+                "a replayed action is a success"
+            );
+        }
+
+        let log = crate::db::get_sorting_actions(&pool, 1, driver).await;
+        assert_eq!(log.len(), 1, "the replay was stored a second time");
+        assert_eq!(log[0].kind, "push");
+
+        // And a second, different action appends rather than replacing.
+        let next = r#"{"seq":2,"kind":"close","state":{"van":{}},"crates":3,"positions":1}"#;
+        app.clone()
             .oneshot(req(
                 "POST",
-                "/api/sorting/sessions/1/steps/1",
+                "/api/sorting/sessions/1/actions",
                 Some(&cookie),
-                r#"{"completed":true}"#,
+                next,
                 true,
             ))
             .await
             .unwrap();
-        assert_eq!(resp.status(), HttpStatus::OK);
-        let bytes = axum::body::to_bytes(resp.into_body(), 1 << 16)
-            .await
-            .unwrap();
-        let reply: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
-        assert_eq!(reply["ok"], true);
-        assert_eq!(reply["completed"], 1);
+        let log = crate::db::get_sorting_actions(&pool, 1, driver).await;
+        assert_eq!(log.iter().map(|a| a.seq).collect::<Vec<_>>(), vec![1, 2]);
     }
 
     #[tokio::test]
-    async fn test_an_upload_carries_over_steps_the_generator_marked_done() {
-        // A plan part-worked before it was uploaded must not start from zero.
+    async fn test_undo_drops_the_action_and_everything_after_it() {
+        let (app, pool) = app_with_pool().await;
+        let (cookie, driver) = member_cookie(&pool, "driver").await;
+        let body = format!("payload={}", urlencode(SAMPLE));
+        app.clone()
+            .oneshot(req("POST", "/sorting", Some(&cookie), &body, false))
+            .await
+            .unwrap();
+
+        for seq in 1..=3 {
+            let a = format!(
+                r#"{{"seq":{seq},"kind":"push","state":{{"van":{{}}}},"crates":{seq},"positions":{seq}}}"#
+            );
+            app.clone()
+                .oneshot(req(
+                    "POST",
+                    "/api/sorting/sessions/1/actions",
+                    Some(&cookie),
+                    &a,
+                    true,
+                ))
+                .await
+                .unwrap();
+        }
+
+        let resp = app
+            .clone()
+            .oneshot(req(
+                "DELETE",
+                "/api/sorting/sessions/1/actions/2",
+                Some(&cookie),
+                "",
+                false,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), HttpStatus::OK);
+
+        let log = crate::db::get_sorting_actions(&pool, 1, driver).await;
+        assert_eq!(
+            log.iter().map(|a| a.seq).collect::<Vec<_>>(),
+            vec![1],
+            "undo has to take what came after it too, or the board replays a \
+             move the driver already walked back"
+        );
+
+        // Undoing the same point twice is a no-op, not an error: the queue can
+        // replay one.
+        let again = app
+            .clone()
+            .oneshot(req(
+                "DELETE",
+                "/api/sorting/sessions/1/actions/2",
+                Some(&cookie),
+                "",
+                false,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(again.status(), HttpStatus::OK);
+    }
+
+    #[tokio::test]
+    async fn test_another_members_board_is_not_reachable_or_changeable() {
+        let (app, pool) = app_with_pool().await;
+        let (mine, me) = member_cookie(&pool, "driver").await;
+        let (theirs, _them) = member_cookie(&pool, "other").await;
+        let body = format!("payload={}", urlencode(SAMPLE));
+        app.clone()
+            .oneshot(req("POST", "/sorting", Some(&mine), &body, false))
+            .await
+            .unwrap();
+        app.clone()
+            .oneshot(req(
+                "POST",
+                "/api/sorting/sessions/1/actions",
+                Some(&mine),
+                r#"{"seq":1,"kind":"push","state":{"van":{}},"crates":4,"positions":1}"#,
+                true,
+            ))
+            .await
+            .unwrap();
+
+        for r in [
+            req(
+                "POST",
+                "/api/sorting/sessions/1/actions",
+                Some(&theirs),
+                r#"{"seq":2,"kind":"push","state":{"van":{}},"crates":99,"positions":9}"#,
+                true,
+            ),
+            req(
+                "DELETE",
+                "/api/sorting/sessions/1/actions/1",
+                Some(&theirs),
+                "",
+                false,
+            ),
+        ] {
+            let uri = r.uri().clone();
+            let resp = app.clone().oneshot(r).await.unwrap();
+            assert_eq!(
+                resp.status(),
+                HttpStatus::NOT_FOUND,
+                "{uri} answered another member with something other than 404"
+            );
+        }
+
+        // Refused is not enough: the board has to be untouched.
+        let log = crate::db::get_sorting_actions(&pool, 1, me).await;
+        assert_eq!(log.len(), 1, "another member changed the log");
+        assert_eq!(log[0].seq, 1);
+    }
+
+    #[tokio::test]
+    async fn test_rules_are_saved_against_the_account_and_restore_deletes_them() {
+        let (app, pool) = app_with_pool().await;
+        let (cookie, driver) = member_cookie(&pool, "driver").await;
+
+        let resp = app
+            .clone()
+            .oneshot(req(
+                "POST",
+                "/api/sorting/rules",
+                Some(&cookie),
+                r#"{"settings":{"v":1,"van":{"rows":7},"rules":{"stability":2}}}"#,
+                true,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), HttpStatus::NO_CONTENT);
+        let saved = crate::db::get_sorting_rules(&pool, driver).await;
+        assert!(
+            saved.is_some_and(|t| t.contains("\"rows\":7")),
+            "the van shape was not stored"
+        );
+
+        // Restore defaults sends nothing, and nothing is what gets stored — not
+        // today's defaults, or a later change to one never reaches this driver.
+        app.clone()
+            .oneshot(req(
+                "POST",
+                "/api/sorting/rules",
+                Some(&cookie),
+                r#"{"settings":null}"#,
+                true,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(
+            crate::db::get_sorting_rules(&pool, driver).await,
+            None,
+            "restoring defaults left a row behind"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_an_upload_starts_with_an_empty_van() {
+        // A plan may arrive with steps its generator marked done. Nothing is
+        // seeded from them: turning "step 3 is done" into a van would mean
+        // running the loading rules here, in a second copy. An empty log is
+        // the honest start, and the driver pushes what is aboard back in.
         let (app, pool) = app_with_pool().await;
         let (cookie, driver) = member_cookie(&pool, "driver").await;
         let plan = r#"{"pickSequence":[
@@ -2587,8 +3074,13 @@ mod tests {
             .await
             .unwrap();
 
-        let steps = crate::db::get_completed_steps(&pool, 1, driver).await;
-        assert_eq!(steps, vec![1]);
+        assert!(crate::db::get_sorting_actions(&pool, 1, driver)
+            .await
+            .is_empty());
+        assert_eq!(
+            crate::db::list_sorting_sessions(&pool, driver).await[0].crates_in,
+            0
+        );
     }
 
     /// Minimal percent-encoding for the form bodies above — enough for JSON,

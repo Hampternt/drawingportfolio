@@ -92,7 +92,7 @@
   <!-- ── header ─────────────────────────────────────────────────────────────
        Over the empty corner the diagonal leaves at the top left. -->
   <div style="position: absolute; left: 1.5rem; top: 0.875rem; display: flex; align-items: center; gap: 0.875rem;">
-    <div style="width: 2.625rem; height: 2.625rem; border: 0.0625rem solid #262232; border-radius: 0.625rem; display: flex; align-items: center; justify-content: center; color: #8D87A0; font-size: 1.1875rem; flex: none;">&#8592;</div>
+    <div onClick="{{head.back}}" style="width: 2.625rem; height: 2.625rem; border: 0.0625rem solid #262232; border-radius: 0.625rem; display: flex; align-items: center; justify-content: center; color: #8D87A0; font-size: 1.1875rem; flex: none;">&#8592;</div>
     <div style="display: flex; flex-direction: column; gap: 0.0625rem;">
       <div style="font: 800 1.1875rem/1.2 Archivo, system-ui, sans-serif; letter-spacing: -0.025em; color: #F2EEF8;">{{head.title}}</div>
       <div style="font: 500 0.6875rem/1.4 'IBM Plex Mono', monospace; letter-spacing: 0.09em; color: #8D87A0;">{{head.sub}}</div>
@@ -325,7 +325,10 @@ function build(node, scope) {
 // ── the shim the board's logic is written against ────────────────────────────
 // ON_PAINT is how anything outside the render loop finds out that state changed
 // — the demo hangs its settings persistence on it. Left null, nothing happens.
-var COMPONENT = null, PENDING = false, ON_PAINT = null;
+// BOARD_HOST is the element the tree is painted into. The demo has one board
+// on an otherwise empty page and calls it `board`; the app's page is a whole
+// site around it and names it something that could only be this.
+var COMPONENT = null, PENDING = false, ON_PAINT = null, BOARD_HOST = 'board';
 class DCLogic {
   constructor(props) { this.props = props || {}; }
   setState(o) { Object.assign(this.state, o); schedule(); }
@@ -336,7 +339,7 @@ function schedule() {
   requestAnimationFrame(function () { PENDING = false; paint(); });
 }
 function paint() {
-  var host = document.getElementById('board');
+  var host = document.getElementById(BOARD_HOST);
   var vals = COMPONENT.renderVals();
   // The board and the settings are two screens against one component, so the
   // values say which markup they are for rather than the caller guessing.
@@ -635,10 +638,20 @@ var SETTINGS_VERSION = 1;
 var VAN_KEYS = { rows: [5, 12], capacity: [4, 10], sideDoorRows: [0, 12], sideSpots: [0, 4], backSpots: [0, 3] };
 var has = function (o, k) { return Object.prototype.hasOwnProperty.call(o, k); };
 
-function writeSettings(props) {
+// `base` is the shape the props started from — the van this session's plan
+// described. Without it every key in props is written out as a deviation, and
+// the app would save the plan's van as the driver's own: tomorrow's route, with
+// a different van, would silently inherit today's. What belongs to the driver
+// is what they *changed*, so a key equal to the base is not stored at all and
+// each plan keeps its own shape until somebody says otherwise.
+function writeSettings(props, base) {
   props = props || {};
   var van = {}, rules = {}, src = props.rules || {};
-  Object.keys(VAN_KEYS).forEach(function (k) { if (props[k] != null) van[k] = props[k]; });
+  Object.keys(VAN_KEYS).forEach(function (k) {
+    if (props[k] == null) return;
+    if (base && base[k] != null && props[k] === base[k]) return;
+    van[k] = props[k];
+  });
   Object.keys(RULE_DEFAULTS).forEach(function (k) {
     if (!has(src, k)) return;
     rules[k] = Array.isArray(src[k]) ? src[k].slice() : src[k];
@@ -2492,10 +2505,20 @@ class Component extends DCLogic {
     // the animation, and every other action would replay it again after that.
     this.state.flash = null;
 
+    // The route's own name and date, or the demo's when nothing set them. A
+    // header that says a different day from the one you are loading is worse
+    // than a header with no date at all, so this is a prop rather than a
+    // constant — the app passes what the plan said.
     return {
-      head: { title: 'Stavanger Route',
-              sub: 'WED 19 AUG · ' + STOPS.length + ' STOPS · '
-                + (tier === 1 ? 'ROUTE ONLY' : (tier === 2 ? 'COUNTS KNOWN' : 'FULLY SCANNED')) },
+      head: { title: this.props.routeName || 'Stavanger Route',
+              sub: (this.props.routeDate || 'WED 19 AUG') + ' · ' + STOPS.length + ' STOPS · '
+                + (tier === 1 ? 'ROUTE ONLY' : (tier === 2 ? 'COUNTS KNOWN' : 'FULLY SCANNED')),
+              // The arrow is drawn either way; it becomes a control only where
+              // there is somewhere to go back to. The demo is the whole page
+              // and has nowhere, so it stays a picture and does not pretend
+              // otherwise — the runtime only sets the pointer cursor and binds
+              // a click when this resolves to a function.
+              back: typeof this.props.onBack === 'function' ? this.props.onBack : null },
       stats: stats,
       screen: 'board',
       scene: { box: S.box, parts: S.parts, geo: S.geo },

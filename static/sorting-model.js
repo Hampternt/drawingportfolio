@@ -251,10 +251,20 @@ var SETTINGS_VERSION = 1;
 var VAN_KEYS = { rows: [5, 12], capacity: [4, 10], sideDoorRows: [0, 12], sideSpots: [0, 4], backSpots: [0, 3] };
 var has = function (o, k) { return Object.prototype.hasOwnProperty.call(o, k); };
 
-function writeSettings(props) {
+// `base` is the shape the props started from — the van this session's plan
+// described. Without it every key in props is written out as a deviation, and
+// the app would save the plan's van as the driver's own: tomorrow's route, with
+// a different van, would silently inherit today's. What belongs to the driver
+// is what they *changed*, so a key equal to the base is not stored at all and
+// each plan keeps its own shape until somebody says otherwise.
+function writeSettings(props, base) {
   props = props || {};
   var van = {}, rules = {}, src = props.rules || {};
-  Object.keys(VAN_KEYS).forEach(function (k) { if (props[k] != null) van[k] = props[k]; });
+  Object.keys(VAN_KEYS).forEach(function (k) {
+    if (props[k] == null) return;
+    if (base && base[k] != null && props[k] === base[k]) return;
+    van[k] = props[k];
+  });
   Object.keys(RULE_DEFAULTS).forEach(function (k) {
     if (!has(src, k)) return;
     rules[k] = Array.isArray(src[k]) ? src[k].slice() : src[k];

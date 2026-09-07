@@ -271,43 +271,64 @@ fn test_sorting_section_sizes_in_rem_not_pixels() {
     );
 }
 
-/// The board's landscape layout is a CSS media query; which pane is even
-/// selectable at that width is a `matchMedia` in `sorting.js`. They describe
-/// one moment — the van stops being a tab and takes its own column — and
-/// nothing but agreement between two files makes it one moment. Drift shows the
-/// van twice, or hides its tab on a screen still laying the van out as a tab.
+/// The board is drawn by JavaScript into elements the Askama template names,
+/// and boots from JSON blocks the template also names. Three files have to
+/// agree on those ids — the template, `sorting-app.js`, and the runtime that
+/// paints into them — and nothing but agreement makes them the same element.
 ///
-/// The unit matters as much as the number: a media query resolves rem against
-/// the browser's default text size, so a driver who has turned that up moves
-/// the breakpoint, and `62.5rem` and `1000px` stop being the same width for
-/// exactly the person the rem is there for.
+/// The failure is quiet in the worst way: a renamed id does not throw, it just
+/// leaves the board blank, and the checks below it still render so the page
+/// looks like it worked.
 #[test]
-fn test_sorting_breakpoint_agrees_between_css_and_js() {
+fn test_board_template_and_boot_agree_on_their_ids() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let css = fs::read_to_string(root.join("static/style.css")).expect("style.css is readable");
-    let js = fs::read_to_string(root.join("static/sorting.js")).expect("sorting.js is readable");
+    let html = fs::read_to_string(root.join("templates/sorting/board.html"))
+        .expect("board template is readable");
+    let js =
+        fs::read_to_string(root.join("static/sorting-app.js")).expect("sorting-app.js is readable");
+    let runtime =
+        fs::read_to_string(root.join("static/sorting-runtime.js")).expect("runtime is readable");
 
-    let after = |hay: &str, needle: &str, what: &str| -> String {
-        let at = hay
-            .find(needle)
-            .unwrap_or_else(|| panic!("{what}: `{needle}` not found — did the format change?"));
-        let tail = &hay[at + needle.len()..];
-        let end = tail.find(')').expect("the width is closed by a paren");
-        tail[..end].trim().to_string()
-    };
+    for id in [
+        "sorting-route",
+        "sorting-van",
+        "sorting-actions",
+        "sorting-rules",
+        "sort-live-board",
+        "sort-progress-text",
+        "sort-progress-fill",
+        "sort-sync",
+        "sort-full",
+    ] {
+        assert!(
+            html.contains(&format!("id=\"{id}\"")),
+            "templates/sorting/board.html has no element with id=\"{id}\", but \
+             static/sorting-app.js looks one up — the board boots blank",
+        );
+        assert!(
+            js.contains(&format!("'{id}'")),
+            "static/sorting-app.js never mentions `{id}`, which the template \
+             declares — either the board lost a control or the id drifted",
+        );
+    }
 
-    let in_css = after(
-        &strip_css_comments(sorting_section(&css)),
-        "@media (min-width:",
-        "static/style.css",
+    // The runtime picks its markup by screen name: `board` and `settings` are
+    // the two `renderVals()` can return, and each needs a <template> to find.
+    for screen in ["board", "settings"] {
+        assert!(
+            html.contains(&format!("id=\"{screen}-template\"")),
+            "no <template id=\"{screen}-template\"> — paint() would find nothing \
+             to render the {screen} screen from",
+        );
+    }
+    assert!(
+        runtime.contains("(vals.screen || 'board') + '-template'"),
+        "the runtime stopped resolving its markup by screen name — the two \
+         <template> ids above are then naming nothing",
     );
-    let in_js = after(&js, "matchMedia('(min-width:", "static/sorting.js");
-
-    assert_eq!(
-        in_css, in_js,
-        "the sorting breakpoint disagrees: style.css switches the van into its \
-         own column at {in_css}, sorting.js stops offering the van tab at \
-         {in_js}. Between the two widths the board lays the van out twice or \
-         not at all."
+    assert!(
+        js.contains("BOARD_HOST = 'sort-live-board'"),
+        "sorting-app.js no longer points the runtime at the board host, so \
+         paint() would look for the demo's `board` element and find none",
     );
 }

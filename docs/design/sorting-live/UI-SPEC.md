@@ -719,13 +719,18 @@ Worth knowing so a redesign does not rediscover them.
   A portrait artboard existed for the previous plan view and has not been
   redrawn for this one. Turning the van through ninety degrees in this
   projection is a different picture, not the same one rotated.
-- **The shipped route is still the old board.** Everything in this document —
-  the projection, the push-in flow, the rules screen — lives in the prototype in
-  this folder. `/sorting` in the Rust app still renders the first design: a pick
-  checklist beside a flat two-column floor plan. It works, it is tested, and it
-  is not this. Porting is the next real piece of work, and the honest reason to
-  do it in that order is that the rules were still wrong six ways when the
-  route shipped.
+- **A part-worked plan starts from an empty van.** A generated plan can arrive
+  with steps its generator marked done. Nothing is seeded from them, because
+  turning "step 3 is done" into a van means running the loading rules — and
+  they live in the board, in one copy. The driver pushes what is already aboard
+  back in, which takes seconds and cannot be quietly wrong. If plans routinely
+  arrive part-worked this is worth revisiting, and the fix is to have the
+  *board* replay them, not the server.
+- **The log grows by a row per tap.** Each row carries the whole board, which
+  is a few kilobytes, so a sixty-crate morning is a few hundred. Nothing prunes
+  it. That is fine for one driver and one van and would not be for a fleet;
+  the shape that scales is to keep every row but store a diff, which changes
+  nothing about the guarantees.
 
 ## 11. Reference implementation
 
@@ -735,18 +740,19 @@ A working, tappable version of everything above is in this folder:
 demo.html                  open it directly — no build, no server, nothing to install
 build.mjs                  the app's files -> demo.html
 
-The board itself is not in this folder. It is the app's, and this demo is built
-from it rather than from a copy:
+The board itself is not in this folder. It is the app's — this demo, the design
+document and the running route at /sorting are all built from the same files:
 
-static/sorting-model.js    every rule in §3 and §7, as ~1000 lines of plain JS
+static/sorting-model.js    every rule in §3 and §7, as ~1100 lines of plain JS
 static/sorting-board.js    the rules turned into the picture and the controls
 static/sorting-runtime.js  the ~70-line template runtime that renders it
+static/sorting-app.js      the route's own half: the plan, the log, the queue
 templates/sorting/markup/  board.html, and settings.html the rules screen
 
 What stays here is what is the prototype's alone:
 
 src/store.js               localStorage, where the app uses the server
-src/*.test.js              432 checks on plain node — and because they run the
+src/*.test.js              458 checks on plain node — and because they run the
                            served files, `./scripts/verify.sh` runs them too
 ```
 
