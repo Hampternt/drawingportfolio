@@ -1096,6 +1096,48 @@ pub fn router() -> Router<GameState> {
             "/room/{code}/lastcall/haunt",
             post(crate::lc_routes::lc_haunt_handler),
         )
+        // Backroom. `/sh/private` is the session-only per-viewer fragment;
+        // every other route here is an action.
+        .route(
+            "/room/{code}/sh/start",
+            post(crate::sh_routes::sh_start_handler),
+        )
+        .route(
+            "/room/{code}/sh/end",
+            post(crate::sh_routes::sh_end_handler),
+        )
+        .route(
+            "/room/{code}/sh/nominate",
+            post(crate::sh_routes::sh_nominate_handler),
+        )
+        .route(
+            "/room/{code}/sh/vote",
+            post(crate::sh_routes::sh_vote_handler),
+        )
+        .route(
+            "/room/{code}/sh/discard",
+            post(crate::sh_routes::sh_discard_handler),
+        )
+        .route(
+            "/room/{code}/sh/enact",
+            post(crate::sh_routes::sh_enact_handler),
+        )
+        .route(
+            "/room/{code}/sh/veto",
+            post(crate::sh_routes::sh_veto_handler),
+        )
+        .route(
+            "/room/{code}/sh/veto/answer",
+            post(crate::sh_routes::sh_veto_answer_handler),
+        )
+        .route(
+            "/room/{code}/sh/power",
+            post(crate::sh_routes::sh_power_handler),
+        )
+        .route(
+            "/room/{code}/sh/private",
+            get(crate::sh_routes::sh_private_handler),
+        )
         .route("/room/{code}/sse", get(sse_stream))
         .route("/room/{code}/screen", get(screen_page))
         .route("/assets/manifest.json", get(manifest_json))

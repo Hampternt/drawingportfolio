@@ -215,7 +215,9 @@ pub fn game_idle_panel(base_path: &str, code: &str, presets: &[RulePreset]) -> S
 <button type="submit" class="btn-primary">START</button>
 </form>
 </div>
-</div>"#
+{backroom}
+</div>"#,
+        backroom = crate::sh_render::sh_start_card(base_path, code),
     )
 }
 
@@ -1965,8 +1967,10 @@ mod tests {
         assert!(html.contains("/drinks/room/QK4M/tm/start"));
         assert!(html.contains("Last Call"));
         assert!(html.contains("/drinks/room/QK4M/lastcall/start"));
-        // Three START buttons now: Ring of Fire's, 3 Man's, Last Call's.
-        assert_eq!(html.matches(">START<").count(), 3);
+        assert!(html.contains(crate::sh_theme::GAME_NAME));
+        assert!(html.contains("/drinks/room/QK4M/sh/start"));
+        // Four START buttons: Ring of Fire's, 3 Man's, Last Call's, Backroom's.
+        assert_eq!(html.matches(">START<").count(), 4);
     }
 
     // -------------------------------------------------------------
