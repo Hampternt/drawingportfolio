@@ -45,9 +45,15 @@ jobs:
           "
 
       - name: Test
+        # --workspace is NOT optional. The root Cargo.toml is both the
+        # workspace manifest AND a package, so bare `cargo test` runs the root
+        # package only and silently skips the entire drinkinggame suite —
+        # roughly three quarters of the tests, including every hidden-role
+        # leak test in Backroom. It skips them quietly, so the deploy stays
+        # green while testing almost nothing of /drinks.
         env:
           DATABASE_URL: sqlite:./ci.db
-        run: cargo test
+        run: cargo test --workspace
 
       - name: Build
         env:
