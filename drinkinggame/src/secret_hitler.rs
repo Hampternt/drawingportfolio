@@ -3444,7 +3444,8 @@ mod tests {
                         .filter(|&i| s.seats[i].alive && s.votes[i].is_none())
                         .collect();
                     let v = voters[0];
-                    s.cast_vote(v, splitmix64(&mut rng) % 2 == 0).unwrap();
+                    s.cast_vote(v, splitmix64(&mut rng).is_multiple_of(2))
+                        .unwrap();
                 }
                 Phase::PresidentDraft => {
                     assert_eq!(s.president_hand.len(), 3, "always exactly three drawn");
@@ -3454,14 +3455,15 @@ mod tests {
                 Phase::ChancellorDraft => {
                     assert_eq!(s.chancellor_hand.len(), 2);
                     let c = s.nominee_seat.expect("a session has a Chancellor");
-                    if s.veto_unlocked && !s.veto_refused && splitmix64(&mut rng) % 4 == 0 {
+                    if s.veto_unlocked && !s.veto_refused && splitmix64(&mut rng).is_multiple_of(4)
+                    {
                         s.propose_veto(c).unwrap();
                     } else {
                         s.chancellor_enact(c, pick(&mut rng, 2)).unwrap();
                     }
                 }
                 Phase::VetoPending => {
-                    let agree = splitmix64(&mut rng) % 2 == 0;
+                    let agree = splitmix64(&mut rng).is_multiple_of(2);
                     s.answer_veto(s.president_seat, agree).unwrap();
                 }
                 Phase::Power(p) => {

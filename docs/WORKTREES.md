@@ -24,6 +24,15 @@ from this file on 2026-08-12; `git log docs/WORKTREES.md` recovers them.
 
 ## Streams
 
+- **`claude/secret-hitler-game-jg8xqs`** (started 2026-09-07, from `master`,
+  in the main checkout — no separate worktree): **Backroom**, a fourth game
+  for the `/drinks` room shell — a hidden-role game, mechanically Secret
+  Hitler, re-themed, 5–10 players. Manifest:
+  `docs/manifests/2026-09-07-backroom.md`. PR:
+  Hampternt/drawingportfolio#15. Drink-free in v1; the drinking variant
+  ("Secret Sippler") is a later mode and is constrained by the leaderboard
+  role-oracle finding recorded in the manifest and in `sh_theme.rs`.
+
 - **`feat/last-call-refinement`** (started 2026-08-13, from `dev`): refining
   the recently released Last Call game — many small changes expected, worked
   one issue at a time, each an item committed on this branch; merges into

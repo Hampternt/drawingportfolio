@@ -277,10 +277,8 @@ pub async fn sh_end_handler(
 /// Resolves the caller to a seat. A room member with no seat — someone who
 /// opened the room link after the deal — is a spectator, not a player, and
 /// has no move to make.
-fn seat_of(ctx: &ShCtx, player: &Player) -> Result<usize, axum::response::Response> {
-    ctx.st
-        .seat_of(player.id)
-        .ok_or_else(|| map_sh(ShError::NotYourMove))
+fn seat_of(ctx: &ShCtx, player: &Player) -> Result<usize, ShError> {
+    ctx.st.seat_of(player.id).ok_or(ShError::NotYourMove)
 }
 
 macro_rules! sh_action {
@@ -297,7 +295,7 @@ macro_rules! sh_action {
         };
         let $seat = match seat_of(&$ctx, &$player) {
             Ok(s) => s,
-            Err(r) => return r,
+            Err(e) => return map_sh(e),
         };
         if let Err(e) = $body {
             return map_sh(e);

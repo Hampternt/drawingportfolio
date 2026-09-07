@@ -399,7 +399,7 @@ pub fn sh_public_panel(view: &ShPublicView, names: &HashMap<i64, String>) -> Str
 
     format!(
         r#"<div class="game-active sh-board" data-sh-panel data-sh-seq="{seq}" data-anim-key="{seq}">
-<div class="sh-head"><span class="sh-kicker">{game} &middot; {board}</span><p class="sh-phase" data-anim>{phase}</p></div>
+<div class="sh-head"><span class="sh-kicker">{game} &middot; {board}</span><p class="sh-phase" data-anim="pop">{phase}</p></div>
 {tracks_l}{tracks_f}{heat}{warning}{veto}
 {roster}
 {last}
