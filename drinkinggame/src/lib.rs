@@ -22,6 +22,8 @@ pub mod render;
 pub mod rooms;
 pub mod routes;
 pub mod rules;
+pub mod secret_hitler;
+pub mod sh_theme;
 pub mod three_man;
 pub mod tm_routes;
 
