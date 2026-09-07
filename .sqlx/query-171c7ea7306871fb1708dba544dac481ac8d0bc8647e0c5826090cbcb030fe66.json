@@ -1,0 +1,50 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT s.id as \"id!\", s.route_name as \"route_name!\", s.session_date as \"session_date!\",\n                  s.total_crates as \"total_crates!\",\n                  COALESCE((SELECT a.crates FROM sorting_actions a WHERE a.session_id = s.id\n                            ORDER BY a.seq DESC LIMIT 1), 0) as \"crates_in!: i64\",\n                  COALESCE((SELECT COUNT(*) FROM sorting_actions a WHERE a.session_id = s.id), 0) as \"actions!: i64\"\n           FROM sorting_sessions s\n           WHERE s.user_id = ?\n           ORDER BY s.session_date DESC, s.id DESC",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "route_name!",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "session_date!",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "total_crates!",
+        "ordinal": 3,
+        "type_info": "Integer"
+      },
+      {
+        "name": "crates_in!: i64",
+        "ordinal": 4,
+        "type_info": "Null"
+      },
+      {
+        "name": "actions!: i64",
+        "ordinal": 5,
+        "type_info": "Null"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      true,
+      false,
+      false,
+      false,
+      null,
+      null
+    ]
+  },
+  "hash": "171c7ea7306871fb1708dba544dac481ac8d0bc8647e0c5826090cbcb030fe66"
+}

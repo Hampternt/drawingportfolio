@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% block title %}{{ route_name }} · Sorting{% endblock %}
+
+{% block body_class %}sorting-dark{% endblock %}
+
+{% block content %}
+<!-- `.sorting-page` is the marker base.html's syncBodyTheme() re-derives the
+     body class from after a boosted navigation — it must stay outermost.
+     `.sorting-board` carries this screen's own layout and is what the
+     full-screen rule reaches up from. -->
+<section class="sorting-page sorting-board"
+         data-session-id="{{ session_id }}" data-foresight="{{ tier }}"
+         data-route-name="{{ route_name }}" data-route-date="{{ date_label }}">
+
+  <!-- Everything the board boots from, as application/json rather than inline
+       script literals: the browser never parses these as code, and Rust escaped
+       every angle bracket to its < form on the way out, so nothing inside a
+       customer name can close the element early. -->
+  <script type="application/json" id="sorting-route">{{ route_json|safe }}</script>
+  <script type="application/json" id="sorting-van">{{ van_json|safe }}</script>
+  <script type="application/json" id="sorting-actions">{{ actions_json|safe }}</script>
+  <script type="application/json" id="sorting-rules">{{ rules_json|safe }}</script>
+
+  <!-- The board draws its own header — route, date, stats, and a back arrow
+       that works — so this bar carries only what the picture does not: the
+       progress that stays visible when the board is scrolled off, the state of
+       the send queue, and the way into full screen. The heading is here for the
+       document outline and for a screen reader, not for the eye. -->
+  <header class="sort-bhead">
+    <h1 class="sort-bhead__route">{{ route_name }} · {{ date_label }}{% if !time_window.is_empty() %} · {{ time_window }}{% endif %}</h1>
+    <div class="sort-bhead__prog">
+      <span class="sort-bhead__count" id="sort-progress-text">—</span>
+      <div class="sort-bhead__meter"><span class="sort-bhead__fill" id="sort-progress-fill"></span></div>
+    </div>
+    <button type="button" class="hm-btn hm-btn--sm hm-btn--ghost sort-bhead__full" id="sort-full"
+            aria-pressed="false">Full screen</button>
+    <span class="sort-sync" id="sort-sync" hidden></span>
+  </header>
+
+  <!-- The board is a fixed 90rem × 52.5rem drawing and is resized by `zoom`
+       rather than by the root font size the demo uses: this page has a site
+       header above it that must not shrink with the van, and hx-boost swaps
+       body children without ever restoring `<html>`'s style, so a root font
+       size set here would follow the driver to the next page. -->
+  <div class="sort-live" id="sort-live">
+    <div class="sort-live__board" id="sort-live-board"></div>
+  </div>
+
+  <noscript>
+    <p class="sort-hint">The board draws itself in the browser — a tick has to
+    land without a round trip. With JavaScript off, the checks below still read.</p>
+  </noscript>
+
+  <template id="board-template">{{ board_markup|safe }}</template>
+  <template id="settings-template">{{ settings_markup|safe }}</template>
+
+  <!-- ── What to look at before lifting anything ────────────────────── -->
+  <div class="sort-panes" id="sort-checks">
+    <section class="sort-section">
+      <h2 class="sort-section__title">
+        Before you start
+        {% if attention_count > 0 %}
+        <span class="sort-tab__badge{% if critical_count > 0 %} is-critical{% endif %}">{{ attention_count }}</span>
+        {% endif %}
+      </h2>
+      <div class="sort-checks">{{ checks_html|safe }}</div>
+    </section>
+
+    <section class="sort-section">
+      <h2 class="sort-section__title">Crate manifest</h2>
+      {{ manifest_html|safe }}
+    </section>
+
+    <section class="sort-section">
+      <h2 class="sort-section__title">Route, in delivery order</h2>
+      {{ stops_html|safe }}
+    </section>
+
+    <section class="sort-section">
+      <h2 class="sort-section__title">Pallets, as photographed</h2>
+      {{ stacks_html|safe }}
+    </section>
+
+    <section class="sort-section">
+      <h2 class="sort-section__title">Start over</h2>
+      <p class="sort-hint">Empties the van and clears every move on this route. The plan itself is kept.</p>
+      <form method="post" action="/api/sorting/sessions/{{ session_id }}/reset"
+            onsubmit="return confirm('Empty the van and clear this route?')">
+        <button type="submit" class="hm-btn hm-btn--ghost">Start over</button>
+      </form>
+    </section>
+  </div>
+
+</section>
+<script src="/static/sorting-runtime.js?v={{ crate::assets::asset_version() }}" defer></script>
+<script src="/static/sorting-model.js?v={{ crate::assets::asset_version() }}" defer></script>
+<script src="/static/sorting-board.js?v={{ crate::assets::asset_version() }}" defer></script>
+<script src="/static/sorting-app.js?v={{ crate::assets::asset_version() }}" defer></script>
+{% endblock %}

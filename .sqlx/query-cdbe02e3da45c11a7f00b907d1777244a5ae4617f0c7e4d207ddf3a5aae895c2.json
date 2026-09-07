@@ -1,0 +1,56 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT id as \"id!\", route_name as \"route_name!\", session_date as \"session_date!\",\n                  total_steps as \"total_steps!\", total_crates as \"total_crates!\",\n                  payload as \"payload!\", created_at as \"created_at!\"\n           FROM sorting_sessions WHERE id = ? AND user_id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "route_name!",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "session_date!",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "total_steps!",
+        "ordinal": 3,
+        "type_info": "Integer"
+      },
+      {
+        "name": "total_crates!",
+        "ordinal": 4,
+        "type_info": "Integer"
+      },
+      {
+        "name": "payload!",
+        "ordinal": 5,
+        "type_info": "Text"
+      },
+      {
+        "name": "created_at!",
+        "ordinal": 6,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "cdbe02e3da45c11a7f00b907d1777244a5ae4617f0c7e4d207ddf3a5aae895c2"
+}

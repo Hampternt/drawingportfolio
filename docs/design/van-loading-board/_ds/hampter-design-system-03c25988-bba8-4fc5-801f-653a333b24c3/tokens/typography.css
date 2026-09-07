@@ -1,0 +1,48 @@
+:root{
+  /* Archivo (display) and Space Grotesk (UI/body) are the repo's own self-hosted faces. */
+  --font-display:"Archivo","Archivo Fallback",system-ui,sans-serif;
+  --font-sans:"Space Grotesk","Space Grotesk Fallback",system-ui,sans-serif;
+  --font-mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+
+  --text-11:11px;
+  --text-12:12px;
+  --text-13:13px;
+  --text-14:14px;
+  --text-15:15px;
+  --text-16:16px;
+  --text-18:18px;
+  --text-21:21px;
+  --text-26:26px;
+  --text-32:32px;
+  --text-40:40px;
+  --text-52:52px;
+  --text-68:68px;
+
+  --leading-tight:1.04;
+  --leading-snug:1.22;
+  --leading-normal:1.5;
+  --leading-loose:1.7;
+
+  --tracking-tight:-0.025em;
+  --tracking-snug:-0.01em;
+  --tracking-normal:0;
+  --tracking-wide:0.04em;
+  --tracking-caps:0.10em;
+
+  --weight-regular:400;
+  --weight-medium:500;
+  --weight-semibold:600;
+  --weight-bold:700;
+  --weight-black:900;
+
+  /* composed roles — display is Archivo 800/900, UI and body are Space Grotesk */
+  --type-display:var(--weight-black) var(--text-68)/var(--leading-tight) var(--font-display);
+  --type-h1:800 var(--text-40)/var(--leading-snug) var(--font-display);
+  --type-h2:700 var(--text-26)/var(--leading-snug) var(--font-display);
+  --type-h3:600 var(--text-18)/var(--leading-snug) var(--font-display);
+  --type-body:var(--weight-regular) var(--text-15)/var(--leading-normal) var(--font-sans);
+  --type-body-sm:var(--weight-regular) var(--text-13)/var(--leading-normal) var(--font-sans);
+  --type-ui:var(--weight-medium) var(--text-14)/1.2 var(--font-sans);
+  --type-mono:var(--weight-regular) var(--text-13)/1.45 var(--font-mono);
+  --type-label:var(--weight-medium) var(--text-11)/1.2 var(--font-mono);
+}

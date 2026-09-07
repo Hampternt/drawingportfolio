@@ -33,6 +33,25 @@ from this file on 2026-08-12; `git log docs/WORKTREES.md` recovers them.
   ("Secret Sippler") is a later mode and is constrained by the leaderboard
   role-oracle finding recorded in the manifest and in `sh_theme.rs`.
 
+- **`claude/crate-counting-android-app-ewwc19`** (started 2026-08-25, from
+  `master`, in the main checkout — no separate worktree): the **Sorting &
+  Loading Assistant**, a new `/sorting` section. A generated crate-sort/van-load
+  plan is pasted in as JSON; what comes out is a board drawn from the van's own
+  rear-right corner that the driver works the load on, plus a panel of sanity
+  checks that re-derive the plan's arithmetic rather than trusting it. Built for
+  an Android tablet on the warehouse floor: every move is optimistic, appends to
+  a log, and queues in `localStorage` when there is no signal.
+
+  The loading rules are one copy with three consumers —
+  `static/sorting-{runtime,model,board}.js` and `templates/sorting/markup/` are
+  the app's, and the demo in `docs/design/sorting-live/` and the design document
+  in `docs/design/van-loading-board/` are built from them. Their 458 checks run
+  the served files and `./scripts/verify.sh` runs the checks. Migrations 023 and
+  024, `src/routes/sorting.rs`, `static/sorting-*.js`, `templates/sorting/`.
+  Source spec: the user's `sortingwebsitespec.md` (companion to
+  `delivery-loading-reference.md` and `van-loading-plan-generator.html`, neither
+  of which is in this repo). PR: Hampternt/drawingportfolio#14 — ready for
+  review, not yet merged or deployed.
 - **`feat/last-call-refinement`** (started 2026-08-13, from `dev`): refining
   the recently released Last Call game — many small changes expected, worked
   one issue at a time, each an item committed on this branch; merges into

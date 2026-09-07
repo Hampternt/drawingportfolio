@@ -11,6 +11,7 @@
   <link rel="prefetch" href="/artportfolio">
   <link rel="prefetch" href="/fitness">
   <link rel="prefetch" href="/tasks">
+  <link rel="prefetch" href="/sorting">
   <!-- Self-hosted HTMX — eliminates DNS lookup + TLS handshake to unpkg.com -->
   <script src="/static/htmx.min.js?v={{ crate::assets::asset_version() }}" defer></script>
   <script>const IS_ADMIN = {% if is_admin %}true{% else %}false{% endif %};</script>
@@ -22,14 +23,17 @@
     // from a marker element in the incoming content instead of trusting it.
     //
     // The markers are the section wrappers: .fitness-page for the nutrition
-    // tracker, .art-feed for the drawing portfolio. Each section's template
-    // must keep its marker as the outermost element inside its content block.
+    // tracker, .art-feed for the drawing portfolio, .sorting-page for the
+    // sorting board. Each section's template must keep its marker as the
+    // outermost element inside its content block.
     (function () {
       function syncBodyTheme() {
         document.body.classList.toggle('fitness-dark',
           !!document.querySelector('main .fitness-page'));
         document.body.classList.toggle('art-page',
           !!document.querySelector('main .art-feed'));
+        document.body.classList.toggle('sorting-dark',
+          !!document.querySelector('main .sorting-page'));
       }
       // The target guard matters: without it every fragment swap — Load more,
       // an HTMX partial — re-runs this against a half-updated DOM.
@@ -48,6 +52,7 @@
       <a href="/artportfolio">Drawing Portfolio</a>
       <a href="/tasks">Drawing Tasks</a>
       <a href="/fitness">Fitness</a>
+      <a href="/sorting">Sorting</a>
     </nav>
     <button class="palette-hint" onclick="document.dispatchEvent(new KeyboardEvent('keydown',{key:'k',ctrlKey:true,bubbles:true}))" aria-label="Open command palette">
       <kbd>Ctrl</kbd><kbd>K</kbd>
