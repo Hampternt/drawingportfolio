@@ -52,23 +52,78 @@ function makeCodes(names) {
   return out;
 }
 
-var CUST = {
-  OLA: { name: 'Olavstoppen',    short: 'Olavstoppen', color: '#6FBF97' },
-  JAT: { name: 'Jåtten Skole',   short: 'Jåtten', color: '#FFB570' },
-  HIN: { name: 'Hinna',          short: 'Hinna', color: '#F7768E' },
-  SVE: { name: 'Sverdrup Steel', short: 'Sverdrup', color: '#7AA2F7' },
-  FRO: { name: 'Frøystad',       short: 'Frøystad', color: '#B48EF7' },
-  MAR: { name: 'Marlink',        short: 'Marlink', color: '#4FD6A8' }
-};
-
-// Delivery order, exactly as the route app lists it. Stop 1 is delivered first.
-var STOPS = [
-  { i: 1, key: 'MAR' }, { i: 2, key: 'FRO' }, { i: 3, key: 'SVE' },
-  { i: 4, key: 'HIN' }, { i: 5, key: 'JAT' }, { i: 6, key: 'OLA' }
+// ── the route ────────────────────────────────────────────────────────────────
+// In delivery order: stop 1 is delivered first. Loading runs the other way — the
+// last delivery goes in first and ends up deepest, against the cab — which is
+// what QUEUE is.
+//
+// This is the demo's route. `configureRoute()` installs a real one, and every
+// rule below reads whatever is installed rather than these six names.
+var DEMO_ROUTE = [
+  { key: 'MAR', name: 'Marlink',          short: 'Marlink',     color: '#4FD6A8', count: 3,  pallet: 'B' },
+  { key: 'FRO', name: 'Frøystad',         short: 'Frøystad',    color: '#B48EF7', count: 4,  pallet: 'A' },
+  { key: 'SVE', name: 'Sverdrup Steel',   short: 'Sverdrup',    color: '#7AA2F7', count: 7,  pallet: 'A' },
+  { key: 'HIN', name: 'Hinna',            short: 'Hinna',       color: '#F7768E', count: 2,  pallet: 'C' },
+  { key: 'JAT', name: 'Jåtten Skole',     short: 'Jåtten',      color: '#FFB570', count: 5,  pallet: 'C' },
+  { key: 'OLA', name: 'Olavstoppen',      short: 'Olavstoppen', color: '#6FBF97', count: 10, pallet: 'B' }
 ];
-// Loading runs the other way: the last delivery goes in first and ends up
-// deepest, against the cab.
-var QUEUE = STOPS.slice().reverse().map(function (s) { return s.key; });
+
+// When a plan carries no colour of its own. Cycled rather than hashed: a hash
+// gives two stops on the same morning the same colour often enough to matter,
+// and this board is read by colour before it is read by name. Past the end of
+// the list it repeats, which is honest — a route longer than this is a route
+// where two stops share a colour, not one where a stop has none.
+var ROUTE_COLORS = ['#6FBF97', '#FFB570', '#F7768E', '#7AA2F7', '#B48EF7', '#4FD6A8',
+                    '#E0AF68', '#9ECE6A', '#F7A8C4', '#73DACA', '#BB9AF7', '#FF9E64'];
+
+var CUST = {}, STOPS = [], QUEUE = [];
+
+// The stops as the route app lists them: delivery order, first delivery first.
+// `count` and `pallet` are optional and usually absent — they are the second and
+// third levels of foresight, and a route-only morning has neither.
+//
+// The key is the caller's, and it is what every stack in the van is recorded
+// against, so it has to mean the same thing tomorrow as it did this morning: an
+// index would move the moment a stop was added. The app passes the customer's
+// name; the demo passes its own three-letter keys, which is why they are not
+// derived here.
+function configureRoute(stops) {
+  var route = (stops && stops.length ? stops : DEMO_ROUTE);
+  CUST = {};
+  STOPS = [];
+  COUNTS = {};
+  PALLETS = {};
+  route.forEach(function (s, i) {
+    var key = String(s.key == null ? s.name : s.key);
+    CUST[key] = {
+      name: s.name == null ? key : String(s.name),
+      short: s.short == null ? shortName(s.name == null ? key : s.name) : String(s.short),
+      color: s.color || ROUTE_COLORS[i % ROUTE_COLORS.length]
+    };
+    STOPS.push({ i: i + 1, key: key });
+    if (s.count != null && s.count > 0) COUNTS[key] = s.count;
+    if (s.pallet) PALLETS[key] = String(s.pallet);
+  });
+  QUEUE = STOPS.slice().reverse().map(function (s) { return s.key; });
+
+  // The code is what you read at arm's length before carrying crates into a
+  // building, so it is derived from the names that are actually on the route —
+  // never per name in isolation, or a street of Rema 1000s all render REM.
+  var names = {};
+  Object.keys(CUST).forEach(function (k) { names[k] = CUST[k].name; });
+  var codes = makeCodes(names);
+  Object.keys(CUST).forEach(function (k) { CUST[k].code = codes[k]; });
+}
+
+// Enough of the name to tell two stops apart in a sentence, without the legal
+// suffix that every second Norwegian company shares.
+function shortName(name) {
+  var w = String(name).trim().split(/\s+/)
+    .filter(function (t) { return !/^(AS|ASA|SA|A\/S|AB|BA|DA|ANS|NUF)$/i.test(t); });
+  var out = w.slice(0, 2).join(' ');
+  return out.length > 18 ? w[0] : (out || String(name));
+}
+
 function stopOf(k) { return STOPS.filter(function (s) { return s.key === k; })[0]; }
 
 // ── the van ──────────────────────────────────────────────────────────────────
@@ -83,11 +138,11 @@ function stopOf(k) { return STOPS.filter(function (s) { return s.key === k; })[0
 // Two columns is the one number that is not a setting: the ±3 stability rule is
 // defined per column, front to back, and left is never compared to right. That
 // shape is the rule, not a measurement.
-// Demo fixtures for the three levels of foresight. COUNTS is what a weighed or
-// scanned order sheet gives you; PALLETS is what reading the pallet photos adds
-// on top of it. Neither exists in a route-only session.
-var COUNTS = { OLA: 10, JAT: 5, HIN: 2, SVE: 7, FRO: 4, MAR: 3 };
-var PALLETS = { OLA: 'B', JAT: 'C', HIN: 'C', SVE: 'A', FRO: 'A', MAR: 'B' };
+// The second and third levels of foresight, filled in by configureRoute() from
+// whatever the plan knew. COUNTS is what a weighed or scanned order sheet gives
+// you; PALLETS is what reading the pallet photos adds on top of it. A route-only
+// morning has neither, and both stay empty.
+var COUNTS = {}, PALLETS = {};
 
 var ROWS, CAP, SIDE_DOOR_ROWS, STAB = 3, ORDER = [], SPOTS = [], DOORS = [], ALL_POS = [];
 
@@ -183,12 +238,7 @@ function posLabel(id) {
 }
 
 configure({});
-(function () {
-  var names = {};
-  Object.keys(CUST).forEach(function (k) { names[k] = CUST[k].name; });
-  var codes = makeCodes(names);
-  Object.keys(CUST).forEach(function (k) { CUST[k].code = codes[k]; });
-}());
+configureRoute();
 function spotById(id) { return SPOTS.filter(function (s) { return s.id === id; })[0]; }
 
 var MONO = "'IBM Plex Mono', monospace";

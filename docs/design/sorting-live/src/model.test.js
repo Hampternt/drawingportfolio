@@ -687,5 +687,65 @@ eq(zone('back')[zone('back').length - 1], 'r9-right', 'and now runs to row 9');
     'a door that reaches the whole van is still legal');
 }
 
+// ── the route is an input, not a constant ───────────────────────────────────
+// The board shipped with six hard-coded Stavanger stops. The route is the app's
+// now, so every one of them has to come from configureRoute() — and calling it
+// has to *replace* the route rather than add to it, or last morning's customers
+// stay on the rail with nothing to load into them.
+{
+  const before = QUEUE.slice();
+  configureRoute([
+    { name: 'Rema 1000 Hillevåg', count: 6, pallet: 'A' },
+    { name: 'Rema 1000 Madla' },
+    { name: 'Marlink AS', color: '#123456', count: 3 },
+  ]);
+
+  eq(STOPS.map(s => s.i), [1, 2, 3], 'stops are numbered in delivery order');
+  eq(STOPS.map(s => s.key), ['Rema 1000 Hillevåg', 'Rema 1000 Madla', 'Marlink AS'],
+    'and keyed by name when the caller gives no key of its own');
+  eq(QUEUE, ['Marlink AS', 'Rema 1000 Madla', 'Rema 1000 Hillevåg'],
+    'the loading queue is the route backwards — last delivery in first');
+  eq(Object.keys(CUST).length, 3, 'the previous route is gone, not merged into this one');
+  ok(before.indexOf('OLA') > -1 && QUEUE.indexOf('OLA') < 0,
+    'including the demo route it replaced');
+
+  eq(stopOf('Marlink AS').i, 3, 'stopOf answers for a name-keyed stop');
+  eq(COUNTS, { 'Rema 1000 Hillevåg': 6, 'Marlink AS': 3 },
+    'counts appear only for the stops that had one');
+  eq(PALLETS, { 'Rema 1000 Hillevåg': 'A' }, 'and pallets likewise');
+
+  eq(CUST['Marlink AS'].color, '#123456', "a plan's own colour is kept");
+  ok(/^#[0-9A-F]{6}$/i.test(CUST['Rema 1000 Madla'].color), 'and one is supplied when it is not');
+  ok(CUST['Rema 1000 Hillevåg'].color !== CUST['Rema 1000 Madla'].color,
+    'two stops on one route never get the same supplied colour');
+
+  const codes = Object.keys(CUST).map(k => CUST[k].code);
+  eq(codes.length, new Set(codes).size, 'codes on one route are distinct  ' + codes.join(','));
+  ok(codes.every(c => c.length >= 2 && c.length <= 4), 'and short enough to fit a cell  ' + codes.join(','));
+
+  eq(CUST['Marlink AS'].short, 'Marlink', 'the short name drops the company suffix');
+  eq(CUST['Rema 1000 Madla'].short, 'Rema 1000', 'and keeps two words where they fit');
+}
+
+// A route with more stops than there are colours still gives every one a
+// colour. Repeating is the honest failure — a stop with no colour is a hole in
+// the picture, two stops sharing one is a nuisance.
+{
+  const many = [];
+  for (let i = 1; i <= 20; i++) many.push({ name: 'Stop ' + i });
+  configureRoute(many);
+  eq(QUEUE.length, 20, 'a twenty-stop route loads');
+  ok(Object.keys(CUST).every(k => /^#[0-9A-F]{6}$/i.test(CUST[k].color)),
+    'and every stop on it has a colour');
+  eq(Object.keys(CUST).map(k => CUST[k].code).filter(c => !c).length, 0,
+    'and a code');
+}
+
+// Back to the demo route, because everything above ran against a different one
+// and the file is one process.
+configureRoute();
+eq(QUEUE.length, 6, 'calling it with nothing puts the demo route back');
+eq(COUNTS.OLA, 10, 'with its counts');
+
 console.log((fails ? 'FAILED ' : 'passed ') + (checks - fails) + '/' + checks + ' checks');
 process.exit(fails ? 1 : 0);
