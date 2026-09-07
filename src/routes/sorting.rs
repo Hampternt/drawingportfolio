@@ -1704,14 +1704,22 @@ struct ActionReply {
 /// grow one session's log without bound.
 const MAX_ACTION_BYTES: usize = 64 * 1024;
 
+/// The log is append-only and nothing prunes it, so the sequence number is
+/// where it is bounded. A sixty-crate morning is roughly eighty actions; this
+/// is a hundred and fifty times that, which no driver reaches and a client
+/// stuck in a loop reaches in seconds. Bounding the number rather than counting
+/// the rows keeps the check free — and the client's counter is monotonic, so a
+/// session that has genuinely run this long is already wrong.
+const MAX_ACTION_SEQ: i64 = 20_000;
+
 async fn append_action(
     session: AuthSession,
     State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
     Json(body): Json<ActionBody>,
 ) -> impl IntoResponse {
-    if body.seq < 1 {
-        return (StatusCode::BAD_REQUEST, "seq starts at 1").into_response();
+    if body.seq < 1 || body.seq > MAX_ACTION_SEQ {
+        return (StatusCode::BAD_REQUEST, "seq out of range").into_response();
     }
     let payload = body.state.to_string();
     if payload.len() > MAX_ACTION_BYTES {
@@ -2899,6 +2907,46 @@ mod tests {
             .unwrap();
         let log = crate::db::get_sorting_actions(&pool, 1, driver).await;
         assert_eq!(log.iter().map(|a| a.seq).collect::<Vec<_>>(), vec![1, 2]);
+    }
+
+    #[tokio::test]
+    async fn test_a_runaway_client_cannot_grow_the_log_without_bound() {
+        // Nothing prunes the log, so the sequence number is where it is
+        // bounded. A driver never reaches this; a client stuck in a loop
+        // reaches it in seconds, and the answer has to be a refusal rather
+        // than a disk.
+        let (app, pool) = app_with_pool().await;
+        let (cookie, driver) = member_cookie(&pool, "driver").await;
+        let body = format!("payload={}", urlencode(SAMPLE));
+        app.clone()
+            .oneshot(req("POST", "/sorting", Some(&cookie), &body, false))
+            .await
+            .unwrap();
+
+        for (seq, want) in [
+            (0, HttpStatus::BAD_REQUEST),
+            (-1, HttpStatus::BAD_REQUEST),
+            (20_001, HttpStatus::BAD_REQUEST),
+            (20_000, HttpStatus::OK),
+        ] {
+            let a = format!(r#"{{"seq":{seq},"kind":"push","state":{{"van":{{}}}}}}"#);
+            let resp = app
+                .clone()
+                .oneshot(req(
+                    "POST",
+                    "/api/sorting/sessions/1/actions",
+                    Some(&cookie),
+                    &a,
+                    true,
+                ))
+                .await
+                .unwrap();
+            assert_eq!(resp.status(), want, "seq {seq} was answered wrongly");
+        }
+        assert_eq!(
+            crate::db::get_sorting_actions(&pool, 1, driver).await.len(),
+            1
+        );
     }
 
     #[tokio::test]
