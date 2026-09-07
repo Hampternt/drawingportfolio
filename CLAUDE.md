@@ -2,6 +2,14 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+**Never call `send_later`** (`mcp__Claude_Code_Remote__send_later`). Standing
+instruction from the owner, 2026-09-07 — no expiry, no exceptions, and not
+just here: it applies on every project. Do not substitute `create_trigger`,
+`CronCreate` or `ScheduleWakeup` to get the same effect; the point is no
+self-scheduled wake-ups at all. Watching a PR does not need one —
+`subscribe_pr_activity` is a server-side webhook, so review comments and CI
+events still wake the session on their own.
+
 ## Commands
 
 ```bash
