@@ -719,9 +719,13 @@ Worth knowing so a redesign does not rediscover them.
   A portrait artboard existed for the previous plan view and has not been
   redrawn for this one. Turning the van through ninety degrees in this
   projection is a different picture, not the same one rotated.
-- **Motion.** A pushed-in stack currently appears at its position. Sliding it
-  from the pad along the path it physically takes would confirm the tap without
-  a word, and is the one animation this board would earn.
+- **The shipped route is still the old board.** Everything in this document —
+  the projection, the push-in flow, the rules screen — lives in the prototype in
+  this folder. `/sorting` in the Rust app still renders the first design: a pick
+  checklist beside a flat two-column floor plan. It works, it is tested, and it
+  is not this. Porting is the next real piece of work, and the honest reason to
+  do it in that order is that the rules were still wrong six ways when the
+  route shipped.
 
 ## 11. Reference implementation
 
