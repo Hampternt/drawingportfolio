@@ -2,13 +2,19 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-**Never call `send_later`** (`mcp__Claude_Code_Remote__send_later`). Standing
-instruction from the owner, 2026-09-07 — no expiry, no exceptions, and not
-just here: it applies on every project. Do not substitute `create_trigger`,
-`CronCreate` or `ScheduleWakeup` to get the same effect; the point is no
-self-scheduled wake-ups at all. Watching a PR does not need one —
-`subscribe_pr_activity` is a server-side webhook, so review comments and CI
-events still wake the session on their own.
+**Never schedule your own future invocation.** Standing instruction from the
+owner, 2026-09-07 — no expiry, no exceptions, and not just here: it applies on
+every project and every machine, cloud sessions included. That covers
+`send_later` (`mcp__Claude_Code_Remote__send_later`), the tool that earned the
+rule, **and every substitute**: `create_trigger`, `RemoteTrigger`, `CronCreate`,
+`ScheduleWakeup`, `Monitor`, `mcp__scheduled-tasks__create_scheduled_task`, the
+`/loop`, `/schedule` and `/morning` skills, and the shell route — a backgrounded
+`sleep N && …` re-invoke, `at`, `crontab`, a systemd timer — or any equivalent.
+The point is no self-scheduled wake-ups at all, not one banned tool name. If the
+*user* asks for a recurring or delayed run, say the rule stands and get an
+explicit confirmation first; never infer the exception. Watching a PR does not
+need one — `subscribe_pr_activity` is a server-side webhook, so review comments
+and CI events still wake the session on their own.
 
 ## Commands
 
