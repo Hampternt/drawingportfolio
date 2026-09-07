@@ -209,7 +209,7 @@ const POWERS: [[Option<Power>; 6]; 3] = [
 /// Hitler is always the +1, so `liberals + fascists + 1 == seats`.
 const ROLE_SPLIT: [(usize, usize); 6] = [(3, 1), (4, 1), (4, 2), (5, 2), (5, 3), (6, 3)];
 
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Outcome {
     /// 5 Liberal policies (§8 W1).
     LiberalPolicies,
@@ -430,6 +430,10 @@ pub struct SecretHitlerState {
     /// and lives in `investigation_results`.
     pub investigated: Vec<usize>,
     pub veto_unlocked: bool,
+    /// The President refused a veto this session, so the Chancellor must
+    /// enact and may not propose again (§6.4 V6/V7). Cleared when the next
+    /// legislative session opens.
+    pub veto_refused: bool,
     pub log: Vec<LogEntry>,
     /// Pours produced by the current transition. Cleared once at the top of
     /// each public entry point and appended by the helpers it cascades
@@ -634,6 +638,7 @@ impl SecretHitlerState {
             vote_history: Vec::new(),
             investigated: Vec::new(),
             veto_unlocked: false,
+            veto_refused: false,
             log: Vec::new(),
             pending_drinks: Vec::new(),
             votes: vec![None; n],
@@ -900,10 +905,12 @@ impl SecretHitlerState {
         self.president_seat = self.next_living_after(self.president_seat);
     }
 
-    /// Opens a fresh election: clears the ballot box and the nominee.
+    /// Opens a fresh election: clears the ballot box, the nominee, and any
+    /// veto refusal left over from the session that just ended.
     fn begin_nomination(&mut self) {
         self.nominee_seat = None;
         self.votes = vec![None; self.seats.len()];
+        self.veto_refused = false;
         self.phase = Phase::Nomination;
     }
 
@@ -1061,6 +1068,7 @@ impl SecretHitlerState {
         let n = self.draw_pile.len().min(3);
         self.president_hand = self.draw_pile.drain(..n).collect();
         self.chancellor_hand.clear();
+        self.veto_refused = false;
         self.phase = Phase::PresidentDraft;
     }
 
@@ -1143,6 +1151,294 @@ impl SecretHitlerState {
             return None;
         }
         self.power_at(self.fascist_track)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// The legislative session, the veto and the executive powers
+// ---------------------------------------------------------------------------
+
+impl SecretHitlerState {
+    /// §6.2 L8. The President discards one of their three, face down, and
+    /// passes the other two on.
+    ///
+    /// The discard is never revealed — not to the table, not at game end
+    /// (§3 D2/D3). There is deliberately no way to prove what it was: claims
+    /// about it are unverifiable by design (§10 A10).
+    pub fn president_discard(&mut self, actor_seat: usize, index: usize) -> Result<(), ShError> {
+        if self.phase != Phase::PresidentDraft {
+            return Err(ShError::WrongPhase);
+        }
+        if actor_seat != self.president_seat {
+            return Err(ShError::NotYourMove);
+        }
+        if index >= self.president_hand.len() {
+            return Err(ShError::BadIndex);
+        }
+
+        self.pending_drinks.clear();
+        let discarded = self.president_hand.remove(index);
+        self.discard_pile.push(discarded);
+        self.chancellor_hand = std::mem::take(&mut self.president_hand);
+        self.phase = Phase::ChancellorDraft;
+        self.seq += 1;
+        Ok(())
+    }
+
+    /// §6.2 L9. The Chancellor discards one of their two and enacts the
+    /// other face up.
+    pub fn chancellor_enact(&mut self, actor_seat: usize, index: usize) -> Result<(), ShError> {
+        if self.phase != Phase::ChancellorDraft {
+            return Err(ShError::WrongPhase);
+        }
+        if self.nominee_seat != Some(actor_seat) {
+            return Err(ShError::NotYourMove);
+        }
+        if index >= self.chancellor_hand.len() {
+            return Err(ShError::BadIndex);
+        }
+
+        self.pending_drinks.clear();
+        let enacted = self.chancellor_hand.remove(index);
+        let discarded = std::mem::take(&mut self.chancellor_hand);
+        self.discard_pile.extend(discarded);
+
+        let power = self.enact_tile(enacted, false);
+        self.after_enactment(power);
+        self.seq += 1;
+        Ok(())
+    }
+
+    /// §6.4 V3. Only the Chancellor may propose a veto, and only while
+    /// holding the two tiles.
+    pub fn propose_veto(&mut self, actor_seat: usize) -> Result<(), ShError> {
+        if self.phase == Phase::VetoPending && self.nominee_seat == Some(actor_seat) {
+            return Ok(()); // replay
+        }
+        if self.phase != Phase::ChancellorDraft {
+            return Err(ShError::WrongPhase);
+        }
+        if self.nominee_seat != Some(actor_seat) {
+            return Err(ShError::NotYourMove);
+        }
+        if !self.veto_unlocked {
+            return Err(ShError::NotEligible);
+        }
+        // §6.4 V7: the President's refusal is final; there is no
+        // re-proposal.
+        if self.veto_refused {
+            return Err(ShError::NotEligible);
+        }
+
+        self.pending_drinks.clear();
+        self.phase = Phase::VetoPending;
+        self.seq += 1;
+        Ok(())
+    }
+
+    /// §6.4 V4. Only the President answers, and the answer is public (V9).
+    ///
+    /// This is the tabletop rule — Chancellor proposes, President consents —
+    /// not the simultaneous secret vote that secrethitler.io uses (V11).
+    ///
+    /// On agreement both tiles are discarded, **nothing is enacted**, and the
+    /// tracker advances (V5), because a vetoing government is an inactive
+    /// one. So a veto at tracker 2 fires chaos (V8).
+    pub fn answer_veto(&mut self, actor_seat: usize, agree: bool) -> Result<(), ShError> {
+        if self.phase != Phase::VetoPending {
+            return Err(ShError::WrongPhase);
+        }
+        if actor_seat != self.president_seat {
+            return Err(ShError::NotYourMove);
+        }
+        let chancellor = self.nominee_seat.unwrap_or(actor_seat);
+
+        self.pending_drinks.clear();
+        self.seq += 1;
+
+        if !agree {
+            self.push_log(LogEntry::VetoRefused {
+                president: self.president_seat,
+                chancellor,
+            });
+            self.veto_refused = true;
+            self.phase = Phase::ChancellorDraft;
+            return Ok(());
+        }
+
+        self.push_log(LogEntry::Vetoed {
+            president: self.president_seat,
+            chancellor,
+        });
+        self.pour_all(crate::sh_theme::DrinkEvent::Vetoed);
+        let binned = std::mem::take(&mut self.chancellor_hand);
+        self.discard_pile.extend(binned);
+        self.nominee_seat = None;
+        // §6.4 V5/V8. No tile went face up, so the tracker is NOT reset.
+        self.election_tracker += 1;
+        if self.election_tracker >= CHAOS_AT {
+            self.chaos();
+        } else {
+            self.advance_presidency();
+            self.begin_nomination();
+        }
+        Ok(())
+    }
+
+    /// §7.2. The mandatory executive power belonging to the President whose
+    /// government just enacted the Fascist policy (P1/P2).
+    ///
+    /// `target` is `Some` for Investigate, Special Election and Execution,
+    /// and `None` for Policy Peek, which names nobody and is discharged by
+    /// this call acting as the President's acknowledgement.
+    pub fn use_power(&mut self, actor_seat: usize, target: Option<usize>) -> Result<(), ShError> {
+        let Phase::Power(power) = self.phase else {
+            return Err(ShError::WrongPhase);
+        };
+        if actor_seat != self.president_seat {
+            return Err(ShError::NotYourMove);
+        }
+
+        let target = if power.needs_target() {
+            let t = target.ok_or(ShError::BadTarget)?;
+            if t >= self.seats.len() || !self.seats[t].alive {
+                return Err(ShError::BadTarget);
+            }
+            // §10 A2: "any other player" — never yourself. The rulebook says
+            // it outright for Investigate and Special Election and is silent
+            // for Execution; every implementation forbids all three.
+            if t == actor_seat {
+                return Err(ShError::BadTarget);
+            }
+            Some(t)
+        } else {
+            None
+        };
+
+        // §7.2: once per player per game, tracked globally and surviving
+        // deaths and chaos. Checked here, with every other guard, so a
+        // rejected action mutates nothing.
+        if power == Power::Investigate && target.is_some_and(|t| self.investigated.contains(&t)) {
+            return Err(ShError::AlreadyInvestigated);
+        }
+
+        self.pending_drinks.clear();
+        self.seq += 1;
+
+        match (power, target) {
+            (Power::Investigate, Some(t)) => {
+                self.investigated.push(t);
+                // The PARTY, never the role — the Boss's card reads Syndicate.
+                self.investigation_results.push(InvestigationRecord {
+                    investigator: actor_seat,
+                    target: t,
+                    party: self.seats[t].role.party(),
+                });
+                self.push_log(LogEntry::Investigated {
+                    president: actor_seat,
+                    target: t,
+                });
+                self.pour(t, crate::sh_theme::DrinkEvent::Investigated);
+                self.finish_power();
+            }
+            (Power::SpecialElection, Some(t)) => {
+                // Term limits never gate the presidency, so a term-limited
+                // player is a legal pick (§7.2).
+                self.pending_special_president = Some(t);
+                self.special_return_seat = Some(actor_seat);
+                self.push_log(LogEntry::SpecialElection {
+                    president: actor_seat,
+                    target: t,
+                });
+                self.finish_power();
+            }
+            (Power::Execution, Some(t)) => {
+                self.seats[t].alive = false;
+                self.push_log(LogEntry::Executed {
+                    president: actor_seat,
+                    target: t,
+                });
+                self.pour(t, crate::sh_theme::DrinkEvent::Executed);
+                // §8 W2, and it pre-empts everything after it.
+                if self.seats[t].role == Role::Hitler {
+                    self.phase = Phase::Over(Outcome::HitlerExecuted);
+                    return Ok(());
+                }
+                // A dead seat's role stays hidden until the game ends
+                // (§9.26) — nothing here reveals it.
+                self.finish_power();
+            }
+            (Power::Peek, None) => {
+                // §3 D6: reshuffle first if the pile is short, and do not
+                // reorder what you look at.
+                self.ensure_draw(3);
+                let top: Vec<Policy> = self.draw_pile.iter().take(3).copied().collect();
+                self.peek_results.push(PeekRecord {
+                    president: actor_seat,
+                    round: self.round,
+                    top,
+                });
+                self.push_log(LogEntry::Peeked {
+                    president: actor_seat,
+                });
+                self.finish_power();
+            }
+            // `needs_target` makes the remaining pairs unreachable.
+            _ => unreachable!("needs_target() pairs every power with its target shape"),
+        }
+        Ok(())
+    }
+
+    /// A power has resolved: hand the placard on and open the next election.
+    fn finish_power(&mut self) {
+        self.advance_presidency();
+        self.begin_nomination();
+    }
+
+    /// Routes the outcome of an enactment: game over, a mandatory power, or
+    /// straight on to the next election.
+    fn after_enactment(&mut self, power: Option<Power>) {
+        if self.is_over() {
+            return;
+        }
+        self.nominee_seat = None;
+        match power {
+            // A power with no legal target cannot arise in the base game —
+            // Execution and Special Election always have one, and Investigate
+            // is capped at two uses on boards of nine or more. Skipping
+            // rather than deadlocking is a one-line insurance policy.
+            Some(p) if p.needs_target() && !self.power_has_a_target(p) => {
+                self.advance_presidency();
+                self.begin_nomination();
+            }
+            Some(p) => self.phase = Phase::Power(p),
+            None => {
+                self.advance_presidency();
+                self.begin_nomination();
+            }
+        }
+    }
+
+    /// Is there any legal target for `power`? Takes the power explicitly
+    /// because it is called *before* `phase` becomes `Phase::Power`.
+    fn power_has_a_target(&self, power: Power) -> bool {
+        self.seats.iter().enumerate().any(|(i, s)| {
+            s.alive
+                && i != self.president_seat
+                && (power != Power::Investigate || !self.investigated.contains(&i))
+        })
+    }
+
+    /// The tiles the given seat is currently holding, if any. **Secret** —
+    /// only the private, session-authenticated fragment may render this.
+    pub fn hand_of(&self, seat: usize) -> &[Policy] {
+        match self.phase {
+            Phase::PresidentDraft if seat == self.president_seat => &self.president_hand,
+            Phase::ChancellorDraft | Phase::VetoPending if self.nominee_seat == Some(seat) => {
+                &self.chancellor_hand
+            }
+            _ => &[],
+        }
     }
 }
 
@@ -2503,5 +2799,718 @@ mod tests {
         assert_eq!(s.president_hand.len(), 3);
         assert!(s.discard_pile.is_empty(), "the discard pile went back in");
         assert!(s.tiles_conserved());
+    }
+
+    // =======================================================================
+    // Pack 3 — legislative session, veto, powers, win conditions
+    // =======================================================================
+
+    /// Drives a government to the Chancellor's choice with a known hand.
+    /// Stacks the deck but keeps all 17 tiles accounted for, so
+    /// `tiles_conserved()` stays a meaningful assertion.
+    fn to_chancellor(s: &mut SecretHitlerState, nominee: usize, hand: [Policy; 3]) {
+        s.draw_pile = hand.to_vec();
+        s.draw_pile.extend(vec![Policy::Liberal; 3]);
+        s.discard_pile = vec![Policy::Fascist; TOTAL_TILES - 6];
+        s.liberal_track = 0;
+        s.fascist_track = 0;
+        assert!(s.tiles_conserved(), "the fixture itself must balance");
+        elect(s, nominee);
+        assert_eq!(s.phase, Phase::PresidentDraft);
+        s.president_discard(s.president_seat, 0).unwrap();
+    }
+
+    // -- drafting ------------------------------------------------------------
+
+    #[test]
+    fn test_the_president_discards_one_and_passes_two() {
+        let mut s = table7();
+        s.draw_pile = vec![Policy::Fascist, Policy::Liberal, Policy::Fascist];
+        s.discard_pile = vec![Policy::Liberal; 14];
+        elect(&mut s, 1);
+        assert_eq!(s.president_hand.len(), 3);
+
+        s.president_discard(0, 1).unwrap();
+        assert_eq!(s.chancellor_hand, vec![Policy::Fascist, Policy::Fascist]);
+        assert!(s.president_hand.is_empty());
+        assert_eq!(s.discard_pile.last(), Some(&Policy::Liberal));
+        assert_eq!(s.phase, Phase::ChancellorDraft);
+        assert!(s.tiles_conserved());
+    }
+
+    #[test]
+    fn test_only_the_president_drafts_and_only_the_chancellor_enacts() {
+        let mut s = table7();
+        elect(&mut s, 1);
+        assert_eq!(s.president_discard(1, 0).unwrap_err(), ShError::NotYourMove);
+        assert_eq!(s.president_discard(0, 9).unwrap_err(), ShError::BadIndex);
+        s.president_discard(0, 0).unwrap();
+        assert_eq!(s.chancellor_enact(0, 0).unwrap_err(), ShError::NotYourMove);
+        assert_eq!(s.chancellor_enact(1, 5).unwrap_err(), ShError::BadIndex);
+        s.chancellor_enact(1, 0).unwrap();
+    }
+
+    #[test]
+    fn test_the_chancellor_enacts_one_and_bins_the_other() {
+        let mut s = table7();
+        to_chancellor(
+            &mut s,
+            1,
+            [Policy::Liberal, Policy::Fascist, Policy::Liberal],
+        );
+        assert_eq!(s.chancellor_hand, vec![Policy::Fascist, Policy::Liberal]);
+        s.chancellor_enact(1, 0).unwrap();
+        assert_eq!(s.fascist_track, 1);
+        assert_eq!(s.liberal_track, 0);
+        assert!(s.chancellor_hand.is_empty());
+        assert!(s.tiles_conserved());
+    }
+
+    #[test]
+    fn test_a_discard_is_never_revealed() {
+        // §3 D2/D3: the discard pile has no public representation at all —
+        // only its count reaches the projection.
+        let mut s = table7();
+        to_chancellor(
+            &mut s,
+            1,
+            [Policy::Fascist, Policy::Fascist, Policy::Liberal],
+        );
+        // `to_chancellor` has already run the President's discard, so the
+        // fixture's 11 has become 12; the Chancellor's makes 13.
+        assert_eq!(s.public_view().discard_count, TOTAL_TILES - 6 + 1);
+        s.chancellor_enact(1, 0).unwrap();
+        let v = s.public_view();
+        assert_eq!(
+            v.discard_count,
+            TOTAL_TILES - 6 + 2,
+            "both discards reach the projection only as a COUNT"
+        );
+        // The projection has no field carrying the pile's contents, and the
+        // log says nothing about what was binned.
+        assert!(
+            !v.log
+                .iter()
+                .any(|e| matches!(e, LogEntry::Enacted { chaos: true, .. })),
+            "nothing about the discards is logged"
+        );
+    }
+
+    #[test]
+    fn test_a_completed_session_advances_the_presidency() {
+        let mut s = table7();
+        let pres = s.president_seat;
+        to_chancellor(
+            &mut s,
+            1,
+            [Policy::Liberal, Policy::Liberal, Policy::Liberal],
+        );
+        s.chancellor_enact(1, 0).unwrap();
+        assert_eq!(s.phase, Phase::Nomination);
+        assert_eq!(s.president_seat, s.next_living_after(pres));
+        assert_eq!(s.nominee_seat, None);
+    }
+
+    #[test]
+    fn test_an_enactment_resets_the_tracker() {
+        let mut s = table7();
+        s.election_tracker = 2;
+        to_chancellor(
+            &mut s,
+            1,
+            [Policy::Liberal, Policy::Liberal, Policy::Liberal],
+        );
+        assert_eq!(s.election_tracker, 2, "still set while drafting");
+        s.chancellor_enact(1, 0).unwrap();
+        assert_eq!(s.election_tracker, 0);
+    }
+
+    // -- veto ----------------------------------------------------------------
+
+    #[test]
+    fn test_veto_is_locked_below_five_fascist_policies() {
+        let mut s = table7();
+        to_chancellor(&mut s, 1, [Policy::Liberal; 3]);
+        assert_eq!(s.propose_veto(1).unwrap_err(), ShError::NotEligible);
+    }
+
+    #[test]
+    fn test_only_the_chancellor_proposes_and_only_the_president_answers() {
+        // §6.4 V3/V4/V10 — and NOT the symmetric secret vote .io uses (V11).
+        let mut s = table7();
+        s.veto_unlocked = true;
+        to_chancellor(&mut s, 1, [Policy::Liberal; 3]);
+        assert_eq!(s.propose_veto(0).unwrap_err(), ShError::NotYourMove);
+        s.propose_veto(1).unwrap();
+        assert_eq!(s.phase, Phase::VetoPending);
+        assert_eq!(s.answer_veto(1, true).unwrap_err(), ShError::NotYourMove);
+        s.answer_veto(0, true).unwrap();
+    }
+
+    #[test]
+    fn test_an_agreed_veto_enacts_nothing_and_advances_the_tracker() {
+        // §6.4 V5.
+        let mut s = table7();
+        s.veto_unlocked = true;
+        to_chancellor(&mut s, 1, [Policy::Fascist; 3]);
+        s.propose_veto(1).unwrap();
+        s.answer_veto(0, true).unwrap();
+        assert_eq!(s.fascist_track, 0, "nothing went face up");
+        assert_eq!(s.liberal_track, 0);
+        assert_eq!(s.election_tracker, 1, "an inactive government");
+        assert!(s.chancellor_hand.is_empty());
+        assert_eq!(s.phase, Phase::Nomination);
+        assert!(
+            s.tiles_conserved(),
+            "all three tiles went to the discard pile"
+        );
+    }
+
+    #[test]
+    fn test_a_veto_at_tracker_two_fires_chaos() {
+        // §6.4 V8 / §9.1 — the interaction the "tracker resets only on a
+        // face-up tile" rule exists to make correct.
+        let mut s = table7();
+        s.veto_unlocked = true;
+        s.election_tracker = 2;
+        to_chancellor(&mut s, 1, [Policy::Fascist; 3]);
+        assert_eq!(s.election_tracker, 2, "election success reset nothing");
+        s.propose_veto(1).unwrap();
+        s.answer_veto(0, true).unwrap();
+        assert_eq!(s.election_tracker, 0, "chaos fired and reset it");
+        assert_eq!(
+            s.liberal_track + s.fascist_track,
+            1,
+            "the populace enacted the top tile"
+        );
+    }
+
+    #[test]
+    fn test_a_refused_veto_forces_the_chancellor_to_enact() {
+        // §6.4 V6/V7: the refusal is final, and there is no re-proposal.
+        let mut s = table7();
+        s.veto_unlocked = true;
+        to_chancellor(&mut s, 1, [Policy::Fascist; 3]);
+        s.propose_veto(1).unwrap();
+        s.answer_veto(0, false).unwrap();
+        assert_eq!(s.phase, Phase::ChancellorDraft);
+        assert_eq!(
+            s.propose_veto(1).unwrap_err(),
+            ShError::NotEligible,
+            "no second bite"
+        );
+        s.chancellor_enact(1, 0).unwrap();
+        assert_eq!(s.fascist_track, 1);
+    }
+
+    #[test]
+    fn test_a_refusal_is_scoped_to_its_session() {
+        let mut s = table7();
+        s.veto_unlocked = true;
+        to_chancellor(&mut s, 1, [Policy::Liberal; 3]);
+        s.propose_veto(1).unwrap();
+        s.answer_veto(0, false).unwrap();
+        s.chancellor_enact(1, 0).unwrap();
+        assert!(!s.veto_refused, "the next session starts clean");
+    }
+
+    #[test]
+    fn test_a_vetoing_government_still_holds_its_term_limits() {
+        // §10 A3: the rule says "last ELECTED", and it was elected.
+        let mut s = table7();
+        s.veto_unlocked = true;
+        let pres = s.president_seat;
+        to_chancellor(&mut s, 1, [Policy::Fascist; 3]);
+        s.propose_veto(1).unwrap();
+        s.answer_veto(0, true).unwrap();
+        assert_eq!(s.last_elected_president, Some(pres));
+        assert_eq!(s.last_elected_chancellor, Some(1));
+        assert!(!s.eligible_chancellor(1));
+    }
+
+    // -- powers --------------------------------------------------------------
+
+    /// Enacts Fascist policies through real governments until the track
+    /// reaches `n`, leaving any granted power unresolved.
+    fn drive_fascist_to(s: &mut SecretHitlerState, n: u8) {
+        while s.fascist_track < n && !s.is_over() {
+            if let Phase::Power(p) = s.phase {
+                let t = if p.needs_target() {
+                    (0..s.seats.len()).find(|&i| {
+                        s.seats[i].alive
+                            && i != s.president_seat
+                            && (p != Power::Investigate || !s.investigated.contains(&i))
+                    })
+                } else {
+                    None
+                };
+                s.use_power(s.president_seat, t).unwrap();
+                continue;
+            }
+            s.draw_pile = vec![Policy::Fascist; 8];
+            s.discard_pile.clear();
+            let nominee = (0..s.seats.len())
+                .find(|&i| s.eligible_chancellor(i))
+                .expect("an eligible nominee always exists");
+            elect(s, nominee);
+            if s.is_over() {
+                return;
+            }
+            s.president_discard(s.president_seat, 0).unwrap();
+            s.chancellor_enact(nominee, 0).unwrap();
+        }
+    }
+
+    #[test]
+    fn test_investigate_returns_a_party_not_a_role() {
+        // §7.2 / §9.25: the Boss's card reads Syndicate.
+        let mut s = table7(); // Mid board: slot 2 is Investigate
+        s.fascist_track = 1;
+        s.draw_pile = vec![Policy::Fascist; 8];
+        elect(&mut s, 1);
+        s.president_discard(0, 0).unwrap();
+        s.chancellor_enact(1, 0).unwrap();
+        assert_eq!(s.phase, Phase::Power(Power::Investigate));
+
+        s.use_power(0, Some(6)).unwrap(); // seat 6 is Hitler
+        let rec = s.investigation_results.last().unwrap();
+        assert_eq!(rec.party, Party::Fascist);
+        assert_eq!(rec.investigator, 0);
+        assert_eq!(rec.target, 6);
+        // The result is private; only WHO was investigated is public.
+        assert!(s.public_view().seats[6].investigated);
+        assert!(s
+            .log
+            .iter()
+            .any(|e| matches!(e, LogEntry::Investigated { target: 6, .. })));
+    }
+
+    #[test]
+    fn test_nobody_is_investigated_twice() {
+        // §7.2 / §9.24.
+        let mut s = table7();
+        s.phase = Phase::Power(Power::Investigate);
+        s.president_seat = 0;
+        s.use_power(0, Some(3)).unwrap();
+        s.phase = Phase::Power(Power::Investigate);
+        s.president_seat = 0;
+        let before = s.clone();
+        assert_eq!(
+            s.use_power(0, Some(3)).unwrap_err(),
+            ShError::AlreadyInvestigated
+        );
+        assert_eq!(s, before, "a rejected power mutates nothing");
+    }
+
+    #[test]
+    fn test_a_power_may_not_target_its_holder() {
+        // §10 A2.
+        let mut s = table7();
+        for power in [Power::Investigate, Power::SpecialElection, Power::Execution] {
+            s.phase = Phase::Power(power);
+            s.president_seat = 0;
+            assert_eq!(s.use_power(0, Some(0)).unwrap_err(), ShError::BadTarget);
+        }
+    }
+
+    #[test]
+    fn test_a_power_may_not_target_the_dead_or_a_missing_seat() {
+        let mut s = table7();
+        s.seats[4].alive = false;
+        s.phase = Phase::Power(Power::Execution);
+        s.president_seat = 0;
+        assert_eq!(s.use_power(0, Some(4)).unwrap_err(), ShError::BadTarget);
+        assert_eq!(s.use_power(0, Some(99)).unwrap_err(), ShError::BadTarget);
+        assert_eq!(s.use_power(0, None).unwrap_err(), ShError::BadTarget);
+    }
+
+    #[test]
+    fn test_only_the_holder_uses_the_power() {
+        let mut s = table7();
+        s.phase = Phase::Power(Power::Execution);
+        s.president_seat = 0;
+        assert_eq!(s.use_power(1, Some(2)).unwrap_err(), ShError::NotYourMove);
+    }
+
+    #[test]
+    fn test_special_election_installs_the_pick_and_anchors_on_the_caller() {
+        let mut s = table7();
+        s.president_seat = 2;
+        s.phase = Phase::Power(Power::SpecialElection);
+        s.use_power(2, Some(5)).unwrap();
+        assert_eq!(s.president_seat, 5, "the pick took the chair immediately");
+        assert_eq!(s.special_return_seat, Some(2));
+        assert_eq!(s.phase, Phase::Nomination);
+    }
+
+    #[test]
+    fn test_special_election_may_pick_a_term_limited_player() {
+        // §7.2 / §9.7: term limits gate the Chancellor slot only.
+        let mut s = table7();
+        s.president_seat = 0;
+        s.last_elected_chancellor = Some(4);
+        assert!(!s.eligible_chancellor(4));
+        s.phase = Phase::Power(Power::SpecialElection);
+        s.use_power(0, Some(4)).unwrap();
+        assert_eq!(s.president_seat, 4);
+    }
+
+    #[test]
+    fn test_peek_shows_three_without_reordering_or_drawing() {
+        // §7.2 / §9.14.
+        let mut s = table5(); // Small board: slot 3 is Peek
+        s.president_seat = 0;
+        s.draw_pile = vec![
+            Policy::Fascist,
+            Policy::Liberal,
+            Policy::Liberal,
+            Policy::Fascist,
+        ];
+        s.discard_pile = vec![Policy::Fascist; 13];
+        let before = s.draw_pile.clone();
+        s.phase = Phase::Power(Power::Peek);
+        s.use_power(0, None).unwrap();
+
+        let rec = s.peek_results.last().unwrap();
+        assert_eq!(
+            rec.top,
+            vec![Policy::Fascist, Policy::Liberal, Policy::Liberal]
+        );
+        assert_eq!(s.draw_pile, before, "the pile is untouched and unreordered");
+        assert!(s.tiles_conserved());
+        // The fact of looking is public; what was seen is not.
+        assert!(s.log.iter().any(|e| matches!(e, LogEntry::Peeked { .. })));
+    }
+
+    #[test]
+    fn test_peek_reshuffles_a_short_pile_first() {
+        let mut s = table5();
+        s.president_seat = 0;
+        s.draw_pile = vec![Policy::Liberal];
+        s.discard_pile = vec![Policy::Fascist; 16];
+        s.phase = Phase::Power(Power::Peek);
+        s.use_power(0, None).unwrap();
+        assert_eq!(s.peek_results.last().unwrap().top.len(), 3);
+        assert!(s.tiles_conserved());
+    }
+
+    #[test]
+    fn test_peek_takes_no_target() {
+        let mut s = table5();
+        s.president_seat = 0;
+        s.phase = Phase::Power(Power::Peek);
+        // A target is simply ignored — Peek names nobody.
+        s.use_power(0, Some(2)).unwrap();
+        assert!(s.investigated.is_empty());
+        assert_eq!(s.peek_results.len(), 1);
+    }
+
+    #[test]
+    fn test_execution_removes_a_player_without_revealing_them() {
+        // §7.2 / §9.26 — the very common wrong implementation.
+        let mut s = table7();
+        s.president_seat = 0;
+        s.phase = Phase::Power(Power::Execution);
+        s.use_power(0, Some(4)).unwrap(); // seat 4 is a plain Fascist
+        assert!(!s.seats[4].alive);
+        assert_eq!(s.alive_count(), 6);
+        let v = s.public_view();
+        assert!(!v.seats[4].alive, "that they are out is public");
+        assert!(v.final_roles.is_none(), "what they were is not");
+        assert_eq!(s.phase, Phase::Nomination);
+    }
+
+    #[test]
+    fn test_executing_hitler_wins_for_the_liberals() {
+        // §8 W2 / §9.17 — at any policy count, five Fascist policies
+        // included.
+        for fascist in [0u8, 3, 5] {
+            let mut s = table7();
+            s.fascist_track = fascist;
+            s.president_seat = 0;
+            s.phase = Phase::Power(Power::Execution);
+            s.use_power(0, Some(6)).unwrap(); // seat 6 is Hitler
+            assert_eq!(
+                s.phase,
+                Phase::Over(Outcome::HitlerExecuted),
+                "at {fascist} Rackets"
+            );
+            assert_eq!(s.outcome().unwrap().winner(), Party::Liberal);
+            assert!(
+                s.public_view().final_roles.is_some(),
+                "now they are revealed"
+            );
+        }
+    }
+
+    #[test]
+    fn test_a_fascist_president_may_execute_hitler() {
+        // §7.2: allowed by the official rules; the ban is a .io toggle.
+        let mut s = table7();
+        s.president_seat = 4; // a plain Fascist
+        s.phase = Phase::Power(Power::Execution);
+        s.use_power(4, Some(6)).unwrap();
+        assert_eq!(s.phase, Phase::Over(Outcome::HitlerExecuted));
+    }
+
+    #[test]
+    fn test_the_execution_denominator_shrinks() {
+        // §9.8: majority recomputes on the living.
+        let mut s = table7();
+        assert_eq!(s.majority_needed(), 4);
+        s.president_seat = 0;
+        s.phase = Phase::Power(Power::Execution);
+        s.use_power(0, Some(5)).unwrap();
+        assert_eq!(s.majority_needed(), 4, "6 alive still needs 4");
+        s.president_seat = 0;
+        s.phase = Phase::Power(Power::Execution);
+        s.use_power(0, Some(4)).unwrap();
+        assert_eq!(s.majority_needed(), 3, "5 alive needs 3");
+    }
+
+    #[test]
+    fn test_powers_land_on_the_right_slots_for_each_board() {
+        // §7.1 end to end, through real governments.
+        for (n, expect) in [
+            (
+                5usize,
+                vec![None, None, Some(Power::Peek), Some(Power::Execution)],
+            ),
+            (
+                7,
+                vec![
+                    None,
+                    Some(Power::Investigate),
+                    Some(Power::SpecialElection),
+                    Some(Power::Execution),
+                ],
+            ),
+            (
+                9,
+                vec![
+                    Some(Power::Investigate),
+                    Some(Power::Investigate),
+                    Some(Power::SpecialElection),
+                    Some(Power::Execution),
+                ],
+            ),
+        ] {
+            let mut roles = vec![Role::Liberal; n];
+            roles[n - 1] = Role::Hitler;
+            roles[n - 2] = Role::Fascist;
+            for (slot, want) in expect.iter().enumerate() {
+                let mut s = rigged(&roles);
+                s.fascist_track = slot as u8;
+                s.draw_pile = vec![Policy::Fascist; 8];
+                s.discard_pile.clear();
+                let nominee = (1..n).find(|&i| s.eligible_chancellor(i)).unwrap();
+                elect(&mut s, nominee);
+                s.president_discard(s.president_seat, 0).unwrap();
+                s.chancellor_enact(nominee, 0).unwrap();
+                match want {
+                    Some(p) => assert_eq!(
+                        s.phase,
+                        Phase::Power(*p),
+                        "{n}p board, Racket #{}",
+                        slot + 1
+                    ),
+                    None => assert_eq!(
+                        s.phase,
+                        Phase::Nomination,
+                        "{n}p board, Racket #{} grants nothing",
+                        slot + 1
+                    ),
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_the_power_belongs_to_the_enacting_president() {
+        // §7.2 P1: the sitting President, resolved before the placard moves.
+        let mut s = table7();
+        s.fascist_track = 1;
+        s.draw_pile = vec![Policy::Fascist; 8];
+        let pres = s.president_seat;
+        elect(&mut s, 1);
+        s.president_discard(pres, 0).unwrap();
+        s.chancellor_enact(1, 0).unwrap();
+        assert_eq!(s.phase, Phase::Power(Power::Investigate));
+        assert_eq!(s.president_seat, pres, "the placard has not moved yet");
+        s.use_power(pres, Some(3)).unwrap();
+        assert_eq!(s.president_seat, s.next_living_after(pres), "now it has");
+    }
+
+    #[test]
+    fn test_a_power_is_mandatory() {
+        // §7.2 P2: there is no transition out of Phase::Power except using
+        // it. Nomination and voting are both refused.
+        let mut s = table7();
+        s.phase = Phase::Power(Power::Execution);
+        assert_eq!(s.nominate(0, 1).unwrap_err(), ShError::WrongPhase);
+        assert_eq!(s.cast_vote(0, true).unwrap_err(), ShError::WrongPhase);
+        assert_eq!(s.president_discard(0, 0).unwrap_err(), ShError::WrongPhase);
+        assert_eq!(s.chancellor_enact(0, 0).unwrap_err(), ShError::WrongPhase);
+        assert_eq!(s.propose_veto(0).unwrap_err(), ShError::WrongPhase);
+        assert_eq!(s.answer_veto(0, true).unwrap_err(), ShError::WrongPhase);
+    }
+
+    #[test]
+    fn test_veto_unlocks_through_real_play_at_five() {
+        let mut s = table7();
+        drive_fascist_to(&mut s, 5);
+        assert_eq!(s.fascist_track, 5);
+        assert!(s.veto_unlocked);
+        assert!(!s.is_over(), "five Rackets is not a win");
+    }
+
+    #[test]
+    fn test_the_sixth_fascist_policy_ends_it_through_real_play() {
+        let mut s = table7();
+        drive_fascist_to(&mut s, 6);
+        assert_eq!(s.phase, Phase::Over(Outcome::FascistPolicies));
+    }
+
+    // -- hands ---------------------------------------------------------------
+
+    #[test]
+    fn test_hand_of_is_scoped_to_the_holder_and_the_phase() {
+        let mut s = table7();
+        to_chancellor(
+            &mut s,
+            1,
+            [Policy::Fascist, Policy::Liberal, Policy::Liberal],
+        );
+        assert_eq!(s.hand_of(1).len(), 2, "the Chancellor holds two");
+        assert!(s.hand_of(0).is_empty(), "the President has passed them on");
+        assert!(s.hand_of(3).is_empty(), "and nobody else ever holds any");
+
+        s.phase = Phase::VetoPending;
+        assert_eq!(s.hand_of(1).len(), 2, "still held while a veto is pending");
+
+        s.phase = Phase::Nomination;
+        assert!(s.hand_of(1).is_empty(), "and not between sessions");
+    }
+
+    // -- the soak ------------------------------------------------------------
+
+    /// Plays a whole game with a deterministic policy, asserting the
+    /// invariants after every single transition. Returns the outcome.
+    fn play_one(seed: u64, n: usize) -> Outcome {
+        let mut s = SecretHitlerState::new(members(n), seed).expect("legal seat count");
+        let mut rng = seed ^ 0xA5A5_A5A5;
+        fn pick(rng: &mut u64, m: usize) -> usize {
+            if m == 0 {
+                return 0;
+            }
+            (splitmix64(rng) % m as u64) as usize
+        }
+
+        for step in 0..4000 {
+            assert!(
+                s.tiles_conserved(),
+                "seed {seed}, {n}p, step {step}: {} tiles",
+                s.draw_pile.len()
+                    + s.discard_pile.len()
+                    + s.president_hand.len()
+                    + s.chancellor_hand.len()
+                    + s.liberal_track as usize
+                    + s.fascist_track as usize
+            );
+            assert!(s.liberal_track <= LIBERAL_TRACK);
+            assert!(s.fascist_track <= FASCIST_TRACK);
+            assert!(
+                s.election_tracker < CHAOS_AT,
+                "chaos always resolves in-band"
+            );
+            assert!(s.alive_count() >= 3, "the game ends before the table does");
+            assert!(s.public_view().final_roles.is_none() || s.is_over());
+
+            match s.phase {
+                Phase::Over(o) => return o,
+                Phase::Nomination => {
+                    let eligible: Vec<usize> =
+                        (0..n).filter(|&i| s.eligible_chancellor(i)).collect();
+                    assert!(
+                        !eligible.is_empty(),
+                        "seed {seed}, {n}p: no eligible nominee with {} alive",
+                        s.alive_count()
+                    );
+                    let t = eligible[pick(&mut rng, eligible.len())];
+                    s.nominate(s.president_seat, t).unwrap();
+                }
+                Phase::Voting => {
+                    let voters: Vec<usize> = (0..n)
+                        .filter(|&i| s.seats[i].alive && s.votes[i].is_none())
+                        .collect();
+                    let v = voters[0];
+                    s.cast_vote(v, splitmix64(&mut rng) % 2 == 0).unwrap();
+                }
+                Phase::PresidentDraft => {
+                    assert_eq!(s.president_hand.len(), 3, "always exactly three drawn");
+                    let i = pick(&mut rng, 3);
+                    s.president_discard(s.president_seat, i).unwrap();
+                }
+                Phase::ChancellorDraft => {
+                    assert_eq!(s.chancellor_hand.len(), 2);
+                    let c = s.nominee_seat.expect("a session has a Chancellor");
+                    if s.veto_unlocked && !s.veto_refused && splitmix64(&mut rng) % 4 == 0 {
+                        s.propose_veto(c).unwrap();
+                    } else {
+                        s.chancellor_enact(c, pick(&mut rng, 2)).unwrap();
+                    }
+                }
+                Phase::VetoPending => {
+                    let agree = splitmix64(&mut rng) % 2 == 0;
+                    s.answer_veto(s.president_seat, agree).unwrap();
+                }
+                Phase::Power(p) => {
+                    let t = if p.needs_target() {
+                        let legal: Vec<usize> = (0..n)
+                            .filter(|&i| {
+                                s.seats[i].alive
+                                    && i != s.president_seat
+                                    && (p != Power::Investigate || !s.investigated.contains(&i))
+                            })
+                            .collect();
+                        assert!(!legal.is_empty(), "a mandatory power always has a target");
+                        Some(legal[pick(&mut rng, legal.len())])
+                    } else {
+                        None
+                    };
+                    s.use_power(s.president_seat, t).unwrap();
+                }
+            }
+        }
+        panic!("seed {seed}, {n}p: no win condition fired in 4000 transitions");
+    }
+
+    #[test]
+    fn test_soak_every_game_terminates_with_every_invariant_held() {
+        let mut outcomes = std::collections::HashMap::new();
+        for n in MIN_SEATS..=MAX_SEATS {
+            for seed in 0..60u64 {
+                let o = play_one(seed * 7919 + n as u64, n);
+                *outcomes.entry(o).or_insert(0usize) += 1;
+            }
+        }
+        // 360 games, all terminating. Every outcome should be reachable — if
+        // one never fires, a win condition is unreachable in real play.
+        for o in [
+            Outcome::LiberalPolicies,
+            Outcome::HitlerExecuted,
+            Outcome::FascistPolicies,
+            Outcome::HitlerChancellor,
+        ] {
+            assert!(
+                outcomes.get(&o).copied().unwrap_or(0) > 0,
+                "{o:?} never fired across 360 games — is it reachable? {outcomes:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_soak_is_deterministic() {
+        assert_eq!(play_one(12345, 7), play_one(12345, 7));
     }
 }
