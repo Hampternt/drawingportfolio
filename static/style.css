@@ -2256,6 +2256,12 @@ body.fitness-dark .meal-cal { color: var(--noc-muted); font-size: 12px; }
 :is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-btn--secondary:active { background: var(--ink-800); }
 :is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-btn--ghost { background: transparent; color: var(--text-muted); }
 :is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-btn--ghost:hover { background: var(--surface-hover); color: var(--text-strong); }
+/* Danger is an outline, not a filled red block: it sits in a row of row
+   actions where a solid fill would read as the primary thing to do. The hover
+   tint has no token — it is an 10% wash of --status-danger and the bundle
+   writes it long. */
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-btn--danger { background: transparent; color: var(--status-danger); border-color: var(--status-danger-dim); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-btn--danger:hover { background: rgba(247,118,142,.10); color: var(--rose-400); }
 
 /* IconButton */
 :is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-iconbtn {
@@ -2274,6 +2280,10 @@ body.fitness-dark .meal-cal { color: var(--noc-muted); font-size: 12px; }
 :is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-iconbtn:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 :is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-iconbtn--sm { width: var(--control-height-sm); height: var(--control-height-sm); }
 :is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-iconbtn--md { width: var(--control-height-md); height: var(--control-height-md); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-iconbtn--outline { border-color: var(--border-default); background: var(--ink-800); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-iconbtn--outline:hover { border-color: var(--border-strong); background: var(--ink-750); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-iconbtn--accent { color: var(--accent); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-iconbtn--accent:hover { background: var(--accent-tint); color: var(--accent-hover); }
 
 /* Kbd */
 :is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-kbd {
@@ -2299,6 +2309,91 @@ body.fitness-dark .meal-cal { color: var(--noc-muted); font-size: 12px; }
   gap: var(--space-2);
   color: var(--text-faint);
   font: var(--type-label);
+}
+
+/* Badge. Six tones, each a 12% wash of its status colour over a dim border of
+   the same hue. The washes are written long because no token names them and
+   inventing six would be six names for one gradient step. */
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 20px;
+  padding: 0 var(--space-3);
+  border: var(--border-width) solid;
+  border-radius: var(--radius-xs);
+  font: var(--type-label);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-caps);
+  white-space: nowrap;
+}
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-badge--neutral { background: var(--ink-800); border-color: var(--border-default); color: var(--text-muted); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-badge--accent { background: var(--violet-a14); border-color: var(--violet-a45); color: var(--violet-300); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-badge--success { background: rgba(79,214,168,.12); border-color: var(--mint-600); color: var(--mint-400); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-badge--warning { background: rgba(255,181,112,.12); border-color: var(--amber-600); color: var(--amber-400); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-badge--danger { background: rgba(247,118,142,.12); border-color: var(--rose-600); color: var(--rose-400); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-badge--info { background: rgba(122,162,247,.12); border-color: var(--azure-600); color: var(--azure-400); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-badge__dot { width: 5px; height: 5px; border-radius: var(--radius-pill); background: currentColor; }
+
+/* Tag. A pill, mono, 24px — the post row's tag list and the filter rail's
+   chips. Only --interactive takes a cursor, so a decorative tag cannot be
+   mistaken for a control. */
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  height: 24px;
+  padding: 0 var(--space-4);
+  border: var(--border-width) solid var(--border-subtle);
+  border-radius: var(--radius-pill);
+  background: var(--white-a04);
+  color: var(--text-muted);
+  font: var(--type-mono);
+  font-size: var(--text-12);
+  transition: var(--transition-control);
+}
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-tag--interactive { cursor: pointer; }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-tag--interactive:hover { border-color: var(--border-strong); color: var(--text-strong); background: var(--white-a07); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-tag.is-selected { background: var(--accent-tint); border-color: var(--violet-a45); color: var(--violet-300); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-tag__remove { display: inline-flex; margin-right: -2px; opacity: .6; cursor: pointer; }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-tag__remove:hover { opacity: 1; color: var(--status-danger); }
+
+/* Card. The generic surface the admin panes, the CV sections and the
+   how-it-works boxes are all built from. `position: relative` is load-bearing:
+   every overlay the four screens place on a card is absolute inside it. */
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface-card);
+  border: var(--border-width) solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  transition: var(--transition-surface), box-shadow var(--dur-base) var(--ease-snap);
+}
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-card--inset { background: var(--surface-inset); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-card--flush { background: transparent; }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-card--interactive { cursor: pointer; }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-card--interactive:hover { border-color: var(--border-strong); transform: translateY(-2px); box-shadow: var(--shadow-2); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-card--interactive:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-card--accent { border-color: var(--violet-a45); box-shadow: var(--glow-accent); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-card__header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-5) var(--space-6);
+  border-bottom: var(--border-width) solid var(--border-subtle);
+}
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-card__title { font: var(--type-h3); color: var(--text-strong); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-card__body { padding: var(--space-6); display: flex; flex-direction: column; gap: var(--space-4); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-card__footer {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-5) var(--space-6);
+  border-top: var(--border-width) solid var(--border-subtle);
+  color: var(--text-faint);
+  font: var(--type-mono);
+  font-size: var(--text-12);
 }
 
 /* Field primitives — the search field in the next slice is built from these. */
@@ -2336,6 +2431,68 @@ body.fitness-dark .meal-cal { color: var(--noc-muted); font-size: 12px; }
   font-size: var(--text-14);
 }
 :is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-input::placeholder { color: var(--text-faint); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-input--mono { font-family: var(--font-mono); font-size: var(--text-13); }
+/* Textarea is a bare element, not an .hm-input-wrap child: it has no icon
+   slot and it resizes, so wrapping it would give the wrap a height to fight. */
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-textarea {
+  width: 100%;
+  min-height: 96px;
+  padding: var(--space-5);
+  resize: vertical;
+  background: var(--surface-inset);
+  border: var(--border-width) solid var(--border-default);
+  border-radius: var(--radius-sm);
+  color: var(--text-strong);
+  font: var(--type-body);
+  font-size: var(--text-14);
+  outline: none;
+  transition: var(--transition-control);
+}
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-textarea:focus { border-color: var(--border-focus); box-shadow: 0 0 0 3px var(--violet-a14); }
+
+/* Choice — checkbox and radio. The real input is visually hidden rather than
+   removed, so it keeps its focus, its label association and its keyboard
+   behaviour; .hm-choice__box is the thing that paints and it is the input's
+   next sibling, which is what the :checked and :focus-visible rules select on. */
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-choice {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: var(--space-4);
+  cursor: pointer;
+  color: var(--text-body);
+  font: var(--type-body);
+  font-size: var(--text-14);
+}
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-choice.is-disabled { opacity: .45; pointer-events: none; }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-choice input { position: absolute; opacity: 0; width: 0; height: 0; }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-choice__box {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+  border: var(--border-width) solid var(--border-strong);
+  border-radius: var(--radius-xs);
+  background: var(--surface-inset);
+  color: var(--text-on-accent);
+  transition: var(--transition-control);
+}
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-choice__box--radio { border-radius: var(--radius-pill); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-choice input:checked + .hm-choice__box { background: var(--accent); border-color: var(--violet-300); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-choice input:focus-visible + .hm-choice__box { box-shadow: var(--focus-ring); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-choice__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-pill);
+  background: var(--text-on-accent);
+  transform: scale(0);
+  transition: transform var(--dur-fast) var(--ease-snap);
+}
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-choice input:checked + .hm-choice__box .hm-choice__dot { transform: scale(1); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-choice__text { display: flex; flex-direction: column; gap: 2px; }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-choice__desc { font-size: var(--text-13); color: var(--text-faint); }
 
 /* PostCard. Shared, not artportfolio-only: the admin redesign specifies its
    post row as `.hm-post` and keeps the feed's
@@ -2385,6 +2542,28 @@ body.fitness-dark .meal-cal { color: var(--noc-muted); font-size: 12px; }
   font: var(--type-label);
   color: var(--text-faint);
 }
+
+/* HubCard — the section tile on the index. A Card that is always a link, so
+   it carries its own hover rather than borrowing --interactive: the lift is the
+   same 2px but the border goes accent instead of strong. */
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-hub {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-7);
+  background: var(--surface-card);
+  border: var(--border-width) solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  color: var(--text-body);
+  cursor: pointer;
+  transition: var(--transition-surface), box-shadow var(--dur-base) var(--ease-snap);
+}
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-hub:hover { border-color: var(--border-accent); transform: translateY(-2px); box-shadow: var(--shadow-2); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-hub:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-hub__top { display: flex; align-items: center; gap: var(--space-4); color: var(--accent); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-hub__title { font: var(--type-h3); color: var(--text-strong); white-space: nowrap; }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-hub__desc { font: var(--type-body-sm); color: var(--text-muted); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-hub__foot { display: flex; align-items: center; gap: var(--space-3); margin-top: var(--space-2); font: var(--type-label); color: var(--text-faint); }
 
 /* Utility surfaces */
 :is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-grid-bg {
