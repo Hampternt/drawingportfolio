@@ -555,6 +555,91 @@ Not blocking, but each needs an answer before the pack that consumes it.
 
 ## Ledger
 
+### Pack 2 — done 2026-09-09
+
+Seven items, one commit each (`0f79bcd` marker, `22ef59a` hero, `3e034ba`
+palette bar, `3128061` heading row, `20004ae` tiles, `bf19bd1` footer,
+`7a86590` light-CSS deletion, plus `0145f6a` correcting an inverted comment).
+Two files touched: `templates/hub/hub.html` and `static/style.css`.
+`src/routes/hub.rs` is unchanged, as planned.
+
+**Pack gate green,** re-run by the main session: `VERIFY OK — fmt, clippy,
+tests, JS syntax, board suites all clean.` **1105** workspace tests and **458**
+board checks, both unchanged — this pack adds no tests. Clippy holds at **18**.
+
+<details>
+<summary><b>Walkthrough evidence</b> — computed values, not impressions</summary>
+
+*Cold load.* `/` computes `body.site-dark` with the `main .site-page` marker
+present, page background `rgb(11, 9, 16)` = `#0B0910`, headline `Portfolio.` in
+`Archivo / 900` with the full stop at `rgb(180, 142, 247)` = `#B48EF7`, and the
+hero headline at its `clamp()` floor of 44px on a narrow viewport.
+
+*Five tiles, not six.* Drawing Portfolio, Drawing Tasks, Drinks, Fitness
+Tracker, Sorting. No CV tile. **The /drinks tile still carries
+`hx-boost="false"`** — the one attribute the mock does not model and the pack's
+biggest regression risk.
+
+*No dead links.* Every `href` on the page fetched: `/`, `/artportfolio`,
+`/tasks` and `/drinks` return 200; `/fitness` and `/sorting` return a redirect
+to login, which is the correct answer for an anonymous visitor. **No `/admin`
+link is rendered at all when logged out**, which is deviation 2 working.
+
+*The theme survives every transition.* Real clicks, not reloads:
+cold `/` → `site-dark`; boosted to `/artportfolio` → `art-page`; boosted back
+via the wordmark → `site-dark` with all five tiles; then `history.back()` →
+`art-page`. That last one exercises `htmx:historyRestore`, a separate listener
+from `htmx:afterSwap`.
+
+*Both palette entry points.* The hero bar computes 48px tall with
+`max-width: 520px` and reads "Search commands… Ctrl K". It opens the palette;
+Escape closes it; the header button reopens it. Nine commands, one handler.
+
+*Hover.* `.hm-hub:hover` resolves the accent border, `translateY(-2px)` and
+`--shadow-2`, with `body.site-dark .hm-hub:hover { text-decoration: none }`
+cancelling the scoped `a:hover` underline that would otherwise strike through
+every tile's title, description and meta.
+
+</details>
+
+<details>
+<summary><b>Deviations and debt</b></summary>
+
+- **Item 2.1 shipped both halves of the derivation, not just the marker.**
+  `base.html`'s sync IIFE binds only `htmx:afterSwap` and `htmx:historyRestore`
+  — it never runs at load — so the marker alone would have left `/` light on
+  every cold load. The template also fills `{% block body_class %}`, which is
+  what all nine other themed templates do. **Checked against the hazard:**
+  base.html's own comment forbids a hardcoded class *instead of* the marker,
+  because `classList.toggle` only removes what it toggles. Here `site-dark` IS
+  toggled, and `admin.html` still has no literal class on its `<body>`, so the
+  hazard is intact.
+- **The footer's `/admin` link is gated on `is_admin`.** `RequireAdmin` answers a
+  signed-in non-admin with 404, and item 2.6's done-condition is that no link
+  404s. `OptionalAdmin`'s bool cannot tell an anonymous visitor from a member,
+  and `hub.rs` was not to change.
+- **One rule beyond the item text:** the tile hover underline fix described
+  above. Without it every tile underlines on hover.
+- **Three rules finish `HubCard`** (18px leading icon, 15px trailing
+  `arrow-up-right`, `.hm-hub__go`) — the bundle carried these in JSX rather than
+  in `components.css`, so Pack 1 had nothing to port.
+- **Two off-scale values taken from the handoff:** the tagline at 19px (the
+  scale steps 18 → 21) and `--white-a12` for the palette bar's `.10` border.
+- **The about line is omitted**, per the ruling. ⚠ **Still owed: one line of
+  copy from the user, or a decision to drop it permanently.**
+- **Open fidelity question, not called:** at 1440px the hero's text column
+  starts at 130px while "Sections" and the footer start at 162px, a 32px step
+  that is faithful to the mock because it caps the hero and the Sections
+  section differently. Flush would be
+  `max-width: calc(var(--page-max) + 2 * var(--space-9))` on `.hub-sections`
+  and `.hub-foot`.
+- **Mobile nav is clipped, pre-existing.** At a narrow viewport the four nav
+  links overflow and are cut off rather than scrolling — the nav-hiding media
+  query is `body.fitness-dark`-scoped only. The light `/` did the same before
+  this pack. Ruled to Pack 6's mobile-nav decision.
+
+</details>
+
 ### Pack 1 — done 2026-09-09
 
 All eleven items landed, one commit each (`279dbb0` scope sweep, `58c10e6`
