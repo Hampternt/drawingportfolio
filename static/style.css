@@ -3499,6 +3499,30 @@ body.site-dark .hub-palette:hover { border-color: var(--accent); }
 body.site-dark .hub-palette__label { flex: 1; }
 body.site-dark .hub-palette__caption { margin-top: var(--space-5); }
 
+/* The Sections band. Unlike the hero, whose section is full-bleed with an
+   inner 1180px column, the mock draws this one as the column itself — so the
+   32px padding sits inside the max-width rather than outside it, and the two
+   bands' text edges line up at any width above the column.
+
+   The heading rule is .hm-rule, a 1px hairline the design system already
+   owns; all it needs here is the flex grow that makes it fill whatever the
+   heading leaves. No letter-spacing is stated: the scoped h2 reset already
+   applies --tracking-tight, and the token scale is authoritative over the
+   mock's -0.02em. */
+body.site-dark .hub-sections {
+  max-width: var(--page-max);
+  margin: 0 auto;
+  padding: 56px var(--space-9) 0;
+}
+body.site-dark .hub-sections__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-6);
+  margin-bottom: var(--space-8);
+}
+body.site-dark .hub-sections__head h2 { font: var(--type-h2); }
+body.site-dark .hub-sections__head .hm-rule { flex: 1; }
+
 /* ── Sorting: crate sort and van load ────────────────────────────────────────
    Two screens. `/sorting` lists the sessions; `/sorting/{id}` is the board that
    gets worked from, on a tablet, in a cold room, one-handed.
