@@ -3554,6 +3554,43 @@ body.site-dark .hm-hub__go {
 }
 body.site-dark .hm-hub__go .hm-icon { width: 15px; height: 15px; }
 
+/* The footer. Mono micro-type like the eyebrow but NOT uppercase, so it
+   states the font rather than borrowing .hm-eyebrow. The wordmark reuses the
+   header's .site-title__dot: it is the same wordmark and the same violet full
+   stop, and that rule is already global and unscoped.
+
+   The "how this site works" link the mock draws is omitted. Its route does not
+   exist until Pack 7, and the header follows the same rule — no pack leaves a
+   dead link in a live page.
+
+   /admin is behind is_admin, which is a departure from the mock and is forced
+   by the route rather than chosen: RequireAdmin answers a signed-in non-admin
+   with 404, and this item's done-condition is that no link on / 404s. The
+   template's only identity signal is OptionalAdmin's bool, so it cannot tell
+   an anonymous visitor (who would get the login redirect, and could safely be
+   shown the link) from a signed-in member (who would not). The header's
+   settings button already draws the same line. */
+body.site-dark .hub-foot {
+  max-width: var(--page-max);
+  margin: 0 auto;
+  padding: var(--space-12) var(--space-9) var(--space-11);
+}
+body.site-dark .hub-foot__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-8);
+  padding-top: var(--space-8);
+  border-top: var(--border-width) solid var(--border-subtle);
+  color: var(--text-faint);
+  font: var(--type-label);
+  letter-spacing: var(--tracking-caps);
+}
+body.site-dark .hub-foot__mark { color: var(--text-muted); }
+body.site-dark .hub-foot__admin { margin-left: auto; }
+body.site-dark .hub-foot__row a { color: var(--text-faint); }
+body.site-dark .hub-foot__row a:hover { color: var(--text-muted); }
+
 /* ── Sorting: crate sort and van load ────────────────────────────────────────
    Two screens. `/sorting` lists the sessions; `/sorting/{id}` is the board that
    gets worked from, on a tablet, in a cold room, one-handed.

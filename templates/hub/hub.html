@@ -73,5 +73,14 @@
     </a>
   </div>
 </section>
+<footer class="hub-foot">
+  <div class="hub-foot__row">
+    <span class="hub-foot__mark">hampter<span class="site-title__dot">.</span></span>
+    <span>server-rendered · no build step</span>
+    {% if is_admin %}
+    <span class="hub-foot__admin"><a href="/admin">/admin</a></span>
+    {% endif %}
+  </div>
+</footer>
 </div>
 {% endblock %}
