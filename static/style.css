@@ -3523,6 +3523,37 @@ body.site-dark .hub-sections__head {
 body.site-dark .hub-sections__head h2 { font: var(--type-h2); }
 body.site-dark .hub-sections__head .hm-rule { flex: 1; }
 
+/* The tile grid. minmax(min(100%, 340px), 1fr) is the auto-fit idiom that
+   still collapses below 340px: without the min() the track floor stays 340px
+   and a 320px phone scrolls sideways.
+
+   Three rules here finish HubCard rather than restyle it. Pack 1 ported the
+   component's stylesheet; its markup lived in JSX, which set the leading
+   icon at 18px, the trailing arrow at 15px and that arrow's colour inline —
+   .hm-icon defaults to 16px, so those land with the screen that draws them.
+   The `>` in the first selector is what keeps the arrow out of it.
+
+   The hover rule is the one that is not cosmetic. .hm-hub is an <a>, and the
+   scoped reset's `a:hover { text-decoration: underline }` weighs (0,2,1)
+   against the tile's own (0,2,0) — so every tile underlines its title,
+   description and meta on hover. text-decoration propagates to in-flow
+   descendants and cannot be switched off by any of them, so the cure has to
+   sit on the anchor's own hover state. Colour needs no such rule: all four
+   children declare their own. */
+body.site-dark .hub-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr));
+  gap: var(--space-6);
+}
+body.site-dark .hm-hub:hover { text-decoration: none; }
+body.site-dark .hm-hub__top > .hm-icon { width: 18px; height: 18px; }
+body.site-dark .hm-hub__go {
+  display: flex;
+  margin-left: auto;
+  color: var(--text-faint);
+}
+body.site-dark .hm-hub__go .hm-icon { width: 15px; height: 15px; }
+
 /* ── Sorting: crate sort and van load ────────────────────────────────────────
    Two screens. `/sorting` lists the sessions; `/sorting/{id}` is the board that
    gets worked from, on a tablet, in a cold room, one-handed.

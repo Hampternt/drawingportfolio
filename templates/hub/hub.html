@@ -25,28 +25,53 @@
     <h2>Sections</h2>
     <div class="hm-rule"></div>
   </div>
-<section class="hub-projects">
-  <a href="/artportfolio" class="hub-card">
-    <h2>Drawing Portfolio</h2>
-    <p>A feed of drawings and sketches.</p>
-  </a>
-  <a href="/tasks" class="hub-card">
-    <h2>Drawing Tasks</h2>
-    <p>Practice prompts on reference images — sorted by subject, difficulty, and task type.</p>
-  </a>
-  <a href="/drinks" class="hub-card" hx-boost="false">
-    <h2>Drinks</h2>
-    <p>Party night drink tracker — join with a room code.</p>
-  </a>
-  <a href="/fitness" class="hub-card">
-    <h2>Fitness Tracker</h2>
-    <p>Track daily meals, calories, and macros.</p>
-  </a>
-  <a href="/sorting" class="hub-card">
-    <h2>Sorting</h2>
-    <p>Crate sort and van load — a pick checklist, a live loading diagram, and the counts checked against each other.</p>
-  </a>
-</section>
+  <div class="hub-grid">
+    <a href="/artportfolio" class="hm-hub">
+      <span class="hm-hub__top">
+        <span class="hm-icon hm-icon--image" aria-hidden="true"></span>
+        <span class="hm-hub__title">Drawing Portfolio</span>
+        <span class="hm-hub__go"><span class="hm-icon hm-icon--arrow-up-right" aria-hidden="true"></span></span>
+      </span>
+      <span class="hm-hub__desc">A feed of drawings and sketches.</span>
+      <span class="hm-hub__foot">public feed · admin uploads</span>
+    </a>
+    <a href="/tasks" class="hm-hub">
+      <span class="hm-hub__top">
+        <span class="hm-icon hm-icon--list-checks" aria-hidden="true"></span>
+        <span class="hm-hub__title">Drawing Tasks</span>
+        <span class="hm-hub__go"><span class="hm-icon hm-icon--arrow-up-right" aria-hidden="true"></span></span>
+      </span>
+      <span class="hm-hub__desc">Practice prompts on reference images — sorted by subject, difficulty, and task type.</span>
+      <span class="hm-hub__foot">public · filter by subject, difficulty, type</span>
+    </a>
+    <a href="/drinks" class="hm-hub" hx-boost="false">
+      <span class="hm-hub__top">
+        <span class="hm-icon hm-icon--beer" aria-hidden="true"></span>
+        <span class="hm-hub__title">Drinks</span>
+        <span class="hm-hub__go"><span class="hm-icon hm-icon--arrow-up-right" aria-hidden="true"></span></span>
+      </span>
+      <span class="hm-hub__desc">Party night drink tracker — join with a room code.</span>
+      <span class="hm-hub__foot">4-letter room code · big screen</span>
+    </a>
+    <a href="/fitness" class="hm-hub">
+      <span class="hm-hub__top">
+        <span class="hm-icon hm-icon--activity" aria-hidden="true"></span>
+        <span class="hm-hub__title">Fitness Tracker</span>
+        <span class="hm-hub__go"><span class="hm-icon hm-icon--arrow-up-right" aria-hidden="true"></span></span>
+      </span>
+      <span class="hm-hub__desc">Track daily meals, calories, and macros.</span>
+      <span class="hm-hub__foot">sign-in required · per-user log</span>
+    </a>
+    <a href="/sorting" class="hm-hub">
+      <span class="hm-hub__top">
+        <span class="hm-icon hm-icon--truck" aria-hidden="true"></span>
+        <span class="hm-hub__title">Sorting</span>
+        <span class="hm-hub__go"><span class="hm-icon hm-icon--arrow-up-right" aria-hidden="true"></span></span>
+      </span>
+      <span class="hm-hub__desc">Crate sort and van load — a pick checklist, a live loading diagram, and the counts checked against each other.</span>
+      <span class="hm-hub__foot">sign-in required · tablet</span>
+    </a>
+  </div>
 </section>
 </div>
 {% endblock %}
