@@ -2165,7 +2165,7 @@ body.fitness-dark .meal-cal { color: var(--noc-muted); font-size: 12px; }
 :is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-icon--eye-off { -webkit-mask-image: url("/static/icons/eye-off.svg"); mask-image: url("/static/icons/eye-off.svg"); }
 :is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-icon--file-text { -webkit-mask-image: url("/static/icons/file-text.svg"); mask-image: url("/static/icons/file-text.svg"); }
 :is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-icon--github { -webkit-mask-image: url("/static/icons/github.svg"); mask-image: url("/static/icons/github.svg"); }
-:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-icon--home { -webkit-mask-image: url("/static/icons/home.svg"); mask-image: url("/static/icons/home.svg"); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-icon--house { -webkit-mask-image: url("/static/icons/house.svg"); mask-image: url("/static/icons/house.svg"); }
 :is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-icon--image { -webkit-mask-image: url("/static/icons/image.svg"); mask-image: url("/static/icons/image.svg"); }
 :is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-icon--image-plus { -webkit-mask-image: url("/static/icons/image-plus.svg"); mask-image: url("/static/icons/image-plus.svg"); }
 :is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-icon--link { -webkit-mask-image: url("/static/icons/link.svg"); mask-image: url("/static/icons/link.svg"); }
