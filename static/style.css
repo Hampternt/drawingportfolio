@@ -3416,6 +3416,48 @@ header nav[data-active="sorting"] a[href="/sorting"] {
   color: var(--text-strong);
 }
 
+/* Command palette, dark. palette.js appends #palette-overlay to <body>, so a
+   scoped ancestor reaches it; the light rules near the top of this file sit at
+   ID specificity with no dark override anywhere, which is why Ctrl+K has been
+   opening a white box on a black page on every dark page since the first one
+   shipped.
+
+   NOT ONE OF THESE RULES MAY NAME `display`. #palette-overlay[hidden] is
+   (1,1,0) and the scoped selector below is (1,1,1) — restating display:flex
+   here, which is the obvious thing to do when recolouring a copy of the block
+   above, would beat the hidden attribute and leave the palette open on every
+   load of three shipped pages. Colour, border, radius and shadow only.
+
+   .palette-selected has to be recoloured in the same pass as :hover: it is the
+   row the arrow keys move, and left at its light grey under light text the
+   keyboard selection is invisible.
+
+   This is the minimal dark pass, ruled deliberately. The bundle's .hm-cmdk —
+   groups, per-command icons, footer key hints, a live count — is a richer
+   panel that also changes markup, and it belongs with the Hub's palette bar
+   rather than in a commit whose job is that the thing is legible. */
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) #palette-overlay {
+  background: var(--scrim);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+}
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) #palette-box {
+  background: var(--surface-overlay);
+  border: var(--border-width) solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-3), var(--glow-accent);
+}
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) #palette-input {
+  background: none;
+  border-bottom: var(--border-width) solid var(--border-subtle);
+  color: var(--text-strong);
+  font-family: var(--font-sans);
+}
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) #palette-input::placeholder { color: var(--text-faint); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .palette-item { color: var(--text-body); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .palette-item:hover,
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .palette-selected { background: var(--surface-selected); color: var(--violet-200); }
+
 /* ── Sorting: crate sort and van load ────────────────────────────────────────
    Two screens. `/sorting` lists the sessions; `/sorting/{id}` is the board that
    gets worked from, on a tablet, in a cold room, one-handed.
