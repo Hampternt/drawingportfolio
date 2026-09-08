@@ -2962,6 +2962,40 @@ body.fitness-dark .account-form input {
 }
 .account-links { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
 
+/* ── Site chrome: hub, admin, CV, how it works ───────────────────────────────
+   Everything the site's own four screens need that is not a design-system
+   primitive. The primitives stay up in the Hampter Design System block with
+   their families; this section is the screens.
+
+   WHY IT SITS HERE, ABOVE THE SORTING BANNER. tests/static_assets.rs slices
+   the stylesheet from the sorting section's banner string to the end of the
+   file and fails on a literal px in any rule body outside the van diagram.
+   The sorting board earns that rule — it is worked from a tablet by someone
+   who may have turned the text size up. These four screens are a handoff
+   specified end to end in px, at a fidelity bar of "recreate pixel-for-pixel",
+   so converting it would be inventing a second set of numbers. Placement is
+   the fix: above the marker the guard cannot reach, and the sorting section
+   stays the last thing in the file so "to the end" keeps meaning all of it.
+   Add nothing to this section below that banner.
+
+   SPECIFICITY. The design-system resets land at (0,1,1) under
+   :is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) —
+   :is() takes its most specific argument's weight — and they name button,
+   textarea, input and a. A bare component class is (0,1,0) and loses to them
+   on every property they name, source order be damned; font: inherit is the
+   one that bites, because it expands to font-size. One extra ancestor,
+   body.site-dark before the class, takes a rule to (0,2,0) and ends the
+   argument. Same trap, same fix, as the sorting section's escapes at the foot
+   of this file.
+
+   FONTS AND ICONS RENAME, THEY DO NOT CHANGE. src/assets.rs hashes only the
+   top level of static/ for the ?v= query, so a file added or edited under
+   static/fonts/ or static/icons/ moves no version, and nginx serves /static/
+   with a one-year immutable Cache-Control. A returning browser therefore never
+   re-fetches one of these by the same name, for up to a year. Changing a glyph
+   or a face means shipping it under a NEW filename and repointing the rule.
+   ────────────────────────────────────────────────────────────────────────── */
+
 /* ── Sorting: crate sort and van load ────────────────────────────────────────
    Two screens. `/sorting` lists the sessions; `/sorting/{id}` is the board that
    gets worked from, on a tablet, in a cold room, one-handed.
