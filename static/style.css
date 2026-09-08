@@ -2272,8 +2272,15 @@ body.fitness-dark .meal-cal { color: var(--noc-muted); font-size: 12px; }
 }
 :is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-input::placeholder { color: var(--text-faint); }
 
-/* PostCard */
-body.art-page .hm-post {
+/* PostCard. Shared, not artportfolio-only: the admin redesign specifies its
+   post row as `.hm-post` and keeps the feed's
+   `hx-target="closest .hm-post" hx-swap="outerHTML"` contract, so forking an
+   admin-only row class would mean reproducing that contract rather than
+   sharing it. Promoting the seven rules below costs nothing today — :is()
+   takes its most specific argument's weight and no page outside
+   /artportfolio carries a .hm-post — and the feed's own layout rules further
+   down stay art-only, which is where anything positional belongs. */
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-post {
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -2282,12 +2289,12 @@ body.art-page .hm-post {
   border-radius: var(--radius-md);
   transition: var(--transition-surface), box-shadow var(--dur-base) var(--ease-snap);
 }
-body.art-page .hm-post:hover {
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-post:hover {
   border-color: var(--border-strong);
   transform: translateY(-2px);
   box-shadow: var(--shadow-2);
 }
-body.art-page .hm-post__media {
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-post__media {
   position: relative;
   background: var(--ink-900);
   background-image: var(--texture-grid);
@@ -2298,15 +2305,15 @@ body.art-page .hm-post__media {
 /* No object-fit here, deliberately. components.css sets it to cover, which
    crops; the design brief mandates drawings render uncropped at natural ratio
    and says they are never force-cropped to a tile. */
-body.art-page .hm-post__media img { width: 100%; height: auto; display: block; }
-body.art-page .hm-post__body {
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-post__media img { width: 100%; height: auto; display: block; }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-post__body {
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
   padding: var(--space-5) var(--space-6) var(--space-6);
 }
-body.art-page .hm-post__caption { font: var(--type-body); color: var(--text-body); }
-body.art-page .hm-post__meta {
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-post__caption { font: var(--type-body); color: var(--text-body); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-post__meta {
   display: flex;
   align-items: center;
   gap: var(--space-4);
