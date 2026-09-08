@@ -127,6 +127,25 @@ comments, scoped selectors, tokens never hex. Dependency edges: nothing
 upstream; every other pack depends on this one. Not parallelizable with
 anything.
 
+**Rulings taken before writing any of it (2026-09-09, execution go given):**
+
+- **Item 1.2 goes the "promote" way.** `.hm-post` and its six siblings move from
+  `body.art-page` onto the shared `:is()` list. The handoff specifies the admin
+  row as `.hm-post` and keeps its `hx-target="closest .hm-post"` contract, so
+  forking would mean reproducing that contract rather than sharing it. Adding a
+  name to an `:is()` list is cascade-neutral (`:is()` takes its most specific
+  argument's weight) and no page carries `site-dark` yet, so this changes nothing
+  visible today. Pack 3 may revisit if the shared row proves wrong.
+- **Item 1.10 is a minimal dark override, not the full `.hm-cmdk` restyle.** It
+  reaches Pack 1's observable — Ctrl+K opens a dark panel — at the smallest blast
+  radius across the three shipped dark pages. The richer palette (groups,
+  per-command icons, footer key hints, live count) is a Pack 2 candidate, where
+  the Hub's palette bar makes it worth the churn.
+- **Item 1.5's SVG files are gated on the user.** Lucide is on no local disk and
+  the design bundle carries only CDN URLs, so the 25 files are a network
+  download and need an explicit go. The item's CSS mask rules are written
+  regardless; the files drop in behind them.
+
 - [ ] **1.1 The fourth theme scope.** Add `body.site-dark` to all **77**
       occurrences of `:is(body.art-page, body.fitness-dark, body.sorting-dark)`
       in `static/style.css` (count verified), and add the matching
