@@ -3462,6 +3462,43 @@ body.site-dark .hub-hero__tagline {
   font-size: 19px;
 }
 
+/* The palette bar. It opens the palette by dispatching the same synthetic
+   Ctrl+K that base.html's header button dispatches, so there is one opener —
+   palette.js's keydown listener — and no second entry point to keep in step.
+   No script, and therefore nothing to bind on htmx:afterSwap either.
+
+   The scope prefix is doing work here, not decoration. The design-system
+   reset sets `button { font: inherit; color: inherit }` at (0,1,1); a bare
+   .hub-palette is (0,1,0) and would lose the font declaration outright.
+   body.site-dark takes it to (0,2,0) and settles it.
+
+   The .10 border alpha the mock draws is not on the scale, which steps .07 to
+   .12; --white-a12 is the near neighbour and the one that keeps the bar
+   reading stronger than a card hairline, which is the point of the value.
+   :focus-visible is deliberately absent — the shared reset already rings every
+   focusable element on this scope. */
+body.site-dark .hub-palette {
+  display: flex;
+  align-items: center;
+  gap: var(--space-5);
+  width: 100%;
+  max-width: 520px;
+  height: 48px;
+  margin-top: 36px;
+  padding: 0 var(--space-5) 0 var(--space-6);
+  background: var(--surface-card);
+  border: var(--border-width) solid var(--white-a12);
+  border-radius: var(--radius-md);
+  color: var(--text-muted);
+  cursor: pointer;
+  font: var(--type-body);
+  text-align: left;
+  transition: var(--transition-control);
+}
+body.site-dark .hub-palette:hover { border-color: var(--accent); }
+body.site-dark .hub-palette__label { flex: 1; }
+body.site-dark .hub-palette__caption { margin-top: var(--space-5); }
+
 /* ── Sorting: crate sort and van load ────────────────────────────────────────
    Two screens. `/sorting` lists the sessions; `/sorting/{id}` is the board that
    gets worked from, on a tablet, in a cold room, one-handed.
