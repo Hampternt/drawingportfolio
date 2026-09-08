@@ -3428,6 +3428,40 @@ header nav[data-active="sorting"] a[href="/sorting"] {
 :is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .palette-item:hover,
 :is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .palette-selected { background: var(--surface-selected); color: var(--violet-200); }
 
+/* The hub's hero. The blueprint grid, the eyebrow and the violet full stop
+   are the site's signature and they are all three already primitives:
+   .hm-grid-bg is the 32px texture, .hm-eyebrow the 11px uppercase mono
+   micro-label. What is left here is the measure and the rhythm.
+
+   The horizontal padding is 32px, the header's is 24px, and they disagree on
+   purpose. The manifest pins the shared header's padding and gap as they are
+   — changing them moves every dark page at once — while the hub's own
+   sections are new rules that take the handoff's number. Below 1244px the two
+   left edges therefore sit 8px apart.
+
+   19px is not on the type scale. The scale steps 18 → 21 and the handoff asks
+   for 19 at a fidelity bar of "recreate pixel-for-pixel", so in this section,
+   which exists so px can be written, the handoff's number wins. Line height
+   is left to inherit the body's 1.5, as the mock does. */
+body.site-dark .hub-hero {
+  padding: 96px var(--space-9) 72px;
+  border-bottom: var(--border-width) solid var(--border-subtle);
+}
+body.site-dark .hub-hero__inner { max-width: var(--page-max); margin: 0 auto; }
+body.site-dark .hub-hero__title {
+  margin-top: var(--space-6);
+  color: var(--text-strong);
+  font: var(--weight-black) clamp(44px, 6.4vw, 72px)/var(--leading-tight) var(--font-display);
+  letter-spacing: var(--tracking-tight);
+}
+body.site-dark .hub-hero__dot { color: var(--accent); }
+body.site-dark .hub-hero__tagline {
+  max-width: 56ch;
+  margin-top: var(--space-7);
+  color: var(--text-body);
+  font-size: 19px;
+}
+
 /* ── Sorting: crate sort and van load ────────────────────────────────────────
    Two screens. `/sorting` lists the sessions; `/sorting/{id}` is the board that
    gets worked from, on a tablet, in a cold room, one-handed.
