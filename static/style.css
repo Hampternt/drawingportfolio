@@ -3240,6 +3240,98 @@ body.fitness-dark .account-form input {
    or a face means shipping it under a NEW filename and repointing the rule.
    ────────────────────────────────────────────────────────────────────────── */
 
+/* Prose. The scoped resets zero every margin on p and h1-h4, say nothing at
+   all about h5, h6, ul, ol, dl or table, and hand lists straight back to the
+   user agent — so a page authored as plain paragraphs and bullets renders as
+   one undifferentiated block sitting over UA discs at a UA indent. The CV and
+   the how-it-works page are exactly that kind of page, so they get a container
+   that puts the rhythm back rather than each of them re-deriving it.
+
+   The scope prefix is not decoration. `.hm-prose p` alone is (0,1,1) and the
+   reset it has to beat is (0,1,2); one more class ancestor takes it to (0,2,2)
+   and settles it. Same arithmetic for a, h1-h4 and the rest.
+
+   Bullets are a flex row with a 4px violet dot, never list-style — the handoff
+   forbids the marker outright, and a real marker cannot be recoloured or
+   aligned to a 68ch measure without ::marker support that is not everywhere
+   yet. The dot's 9px top offset centres it on the first line of 15px/1.5 text;
+   it is a length in this section, where px is what the handoff speaks. */
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-prose {
+  max-width: var(--prose-max);
+  color: var(--text-body);
+  font: var(--type-body);
+}
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-prose > * + * { margin-top: var(--space-6); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-prose > h2,
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-prose > h3,
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-prose > h4,
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-prose > h5,
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-prose > h6 { margin-top: var(--space-9); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-prose h2 { font: var(--type-h2); letter-spacing: var(--tracking-tight); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-prose h3 { font: var(--type-h3); letter-spacing: var(--tracking-tight); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-prose h4 { font: var(--weight-semibold) var(--text-16)/var(--leading-snug) var(--font-display); letter-spacing: var(--tracking-snug); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-prose h5,
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-prose h6 {
+  margin: 0;
+  color: var(--text-strong);
+  font: var(--type-label);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+}
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-prose a { text-decoration: underline; text-underline-offset: 3px; }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-prose strong { color: var(--text-strong); font-weight: var(--weight-medium); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-prose ul,
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-prose ol {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: hm-prose-item;
+}
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-prose li { display: flex; gap: var(--space-5); align-items: flex-start; }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-prose ul > li::before {
+  content: "";
+  flex: none;
+  width: 4px;
+  height: 4px;
+  margin-top: 9px;
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+}
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-prose ol > li {
+  counter-increment: hm-prose-item;
+}
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-prose ol > li::before {
+  content: counter(hm-prose-item);
+  flex: none;
+  min-width: 1.5em;
+  font: var(--type-mono);
+  color: var(--text-faint);
+}
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-prose li > ul,
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-prose li > ol { margin-top: var(--space-4); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-prose table {
+  width: 100%;
+  border-collapse: collapse;
+  font: var(--type-body-sm);
+}
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-prose th,
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-prose td {
+  padding: var(--space-4) var(--space-5);
+  border-bottom: var(--border-width) solid var(--border-subtle);
+  text-align: left;
+  vertical-align: top;
+}
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-prose th {
+  color: var(--text-faint);
+  font: var(--type-label);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
 /* ── Sorting: crate sort and van load ────────────────────────────────────────
    Two screens. `/sorting` lists the sessions; `/sorting/{id}` is the board that
    gets worked from, on a tablet, in a cold room, one-handed.
