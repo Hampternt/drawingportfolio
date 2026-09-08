@@ -490,6 +490,97 @@ Not blocking, but each needs an answer before the pack that consumes it.
 
 ## Ledger
 
+### Pack 1 — done 2026-09-09
+
+All eleven items landed, one commit each (`279dbb0` scope sweep, `58c10e6`
+`.hm-post`, `47419c0` section anchor, `7a3869e` fonts, `f4b42c8` icon masks,
+`dae1f92` primitives, `4f0f9bd` + `38a5bd9` prose, `9f27e91` chrome, `601c713`
+nav state, `44bd20b` palette, `2d971f7` legacy CSS).
+
+**Pack gate green,** re-run by the main session rather than taken on report:
+`./scripts/verify.sh` → `VERIFY OK — fmt, clippy, tests, JS syntax, board suites
+all clean.` Workspace **1105 tests** (338 + 8 + 524 + 235), exactly the
+documented baseline — this pack added no tests. Board checks **458** (265 + 193),
+matching CLAUDE.md. Clippy holds at **18** distinct warnings from a clean build.
+
+**The sweep was verified 1:1, not taken on trust.** Before `279dbb0` the file
+carried 77 occurrences of the three-argument `:is()` list and no other shape;
+immediately after, 77 of the four-argument list and zero three-argument. The
+final tree's 202 occurrences trace to the four items that legitimately add
+scoped rules: `.hm-post` +7, primitives +78, prose +26, palette +14.
+
+<details>
+<summary><b>Walkthrough evidence</b> — computed styles, not eyeballs</summary>
+
+Driven at 1440×900 against `cargo run` on `:3000`. `/fitness`, `/sorting` and
+`/admin` need a session and were **not** walked — see debt below.
+
+*The chrome.* `/artportfolio` header computes `height: 56px`,
+`background: rgba(14, 12, 20, 0.82)`, nav `gap: 20px`, `white-space: nowrap` —
+the spec's values. Wordmark renders `hampter` + `<span class="site-title__dot">`.
+Active link `rgb(242, 238, 248)` against `rgb(141, 135, 160)` for the other
+three: `--text-strong` over `--text-muted`, as item 1.9 asks.
+
+*The nav is still four links.* No CV or How-it-works entry anywhere, so no
+header carries a dead link.
+
+*`/tasks` keeps its light chrome.* Four links, `display: flex`, `gap: 20px` — a
+spaced row, not the run-on string it was. Active `rgb(34, 34, 34)` against
+`rgb(85, 85, 85)`, the light palette's own values.
+
+*The boosted path, which is the one a hard reload hides.* Real clicks, not
+reloads: load `/artportfolio` → `body.art-page`; boosted to `/tasks` → class
+cleared; boosted back → `art-page` restored with the dark header intact. The
+`classList.toggle` in both IIFEs survives hx-boost in both directions.
+
+*The palette.* Opens on the 34px header button with 9 commands, first row
+highlighted. Overlay `rgba(7, 6, 11, 0.72)`, box `rgb(23, 20, 31)`, input text
+`rgb(242, 238, 248)`. Closed on load (`[hidden]`, `display: none`) — item 1.10's
+specificity trap did not fire.
+
+*Network.* Zero 404s, zero console errors, and **no `unpkg.com` or other CDN
+request** on any page. Every `?v=` link resolves; fonts and icons are served
+unversioned as documented.
+
+</details>
+
+<details>
+<summary><b>Deviations and debt</b></summary>
+
+- **Item 1.5 shipped rules without files, deliberately.** The 25 Lucide SVGs are
+  a network download and are gated on the user. `static/icons/` still holds its
+  original seven. Until the files land, an icon whose mask 404s renders as a
+  solid block of `currentColor` rather than disappearing — that affects the
+  admin-only settings button on the three dark pages and nothing a logged-out
+  visitor sees.
+- **Item 1.3 shipped banner-only.** Its done-condition wanted a literal `px` in
+  the new section to prove `tests/static_assets.rs` cannot reach it; that was
+  verified empirically with a throwaway rule (8/8 green) and then removed. The
+  first real `px` lands in items 1.7 and 1.8.
+- **Item 1.8 added an unscoped `header .site-admin` fallback** beyond the item
+  text: `.hm-iconbtn` is scoped, so without it the admin settings button is a
+  zero-size invisible link on `/tasks` and today's light hub.
+- **Item 1.1 also corrected `CLAUDE.md:101`**, which quoted the three-argument
+  `:is()` list literally and would have been false the moment the sweep landed.
+- **The mono-600 trade-off is closed, not deferred.** No run at IBM Plex Mono 600
+  exists in any of the four mocks (400 ×12, 500 ×1), so the two faces already
+  shipping are enough and no fifth font file is needed.
+- **`/fitness`, `/sorting` and `/admin` were not walked** — all three require a
+  session and this session holds no credentials. Their chrome is the same shared
+  rule verified on `/artportfolio`, but the fitness and sorting *active* nav
+  fills and the sorting board's full-screen header hide are unverified. Owed
+  before the container closes.
+
+</details>
+
+**Cross-pack contract Pack 2 inherits.** `site-dark` is re-derived from a
+`main .site-page` marker that no template carries yet — the Hub must add it or it
+renders light. And the shared dark header computes `padding: 0 var(--gutter)` =
+**24px** while the handoff specifies **32px**; that rule and that token are both
+pre-existing and unchanged by this pack, so widening the gutter is a Pack 2
+decision that moves every dark page at once.
+
+
 - 2026-09-08 — handoff extracted from the delivered zip into
   `docs/design/hub-admin-cv-docs/`, stream registered in `docs/WORKTREES.md`,
   branch `feat/hub-admin-cv-docs` cut from `master` @ afbad7f and pushed
