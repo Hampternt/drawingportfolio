@@ -3471,10 +3471,18 @@ body.site-dark .hub-palette:hover { border-color: var(--accent); }
 body.site-dark .hub-palette__label { flex: 1; }
 body.site-dark .hub-palette__caption { margin-top: var(--space-5); }
 
-/* The Sections band. Unlike the hero, whose section is full-bleed with an
-   inner 1180px column, the mock draws this one as the column itself — so the
-   32px padding sits inside the max-width rather than outside it, and the two
-   bands' text edges line up at any width above the column.
+/* The Sections band. The hero is a full-bleed section with an inner 1180px
+   column; this one IS the column — max-width 1180 with its 32px padding
+   inside that, border-box. The mock draws them that way and they are ported
+   as drawn.
+
+   The consequence is a step, not an alignment, and it is worth stating
+   because the obvious reading is the wrong one. Below a 1244px viewport both
+   text columns start at 32px and agree. Above it the hero's starts at
+   (W-1180)/2 and this one 32px further in, on a column 64px narrower: at
+   1440px, 130px against 162px. Reconciling them is a fidelity call for the
+   user, not a porting decision — the lever is max-width:
+   calc(var(--page-max) + 2 * var(--space-9)) here and on .hub-foot.
 
    The heading rule is .hm-rule, a 1px hairline the design system already
    owns; all it needs here is the flex grow that makes it fill whatever the
