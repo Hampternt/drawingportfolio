@@ -272,6 +272,71 @@ Pack 1 only. Placed second because the Hub is the cheapest full exercise of ever
 Pack 1 decision — no data, no mutations, no permission boundary — so a missed
 `:is()` occurrence surfaces on a page that costs nothing to fix.
 
+**Rulings taken before writing any of it (2026-09-09):**
+
+- **The hero's about line is omitted, not ported.** The design's
+  "I draw most days, track what I eat…" is flagged by the README's own open
+  items as placeholder copy the user owns. It is first-person copy about a real
+  person on a public page, so it is not mine to invent or to ship as a
+  stand-in. The hero renders eyebrow, headline and the real tagline (which is
+  verbatim from today's `hub.html`) and stops there. **Owed: one line of copy
+  from the user, or a decision to drop it permanently.**
+- **The eyebrow keeps "five sections".** It is accurate today — artportfolio,
+  tasks, fitness, sorting, drinks. It becomes wrong when `/cv` and the docs page
+  land, and Pack 7 already owns reconciling that count with its own `sections`
+  stat.
+- **The header's two disputed numbers stay as they are.** The mock specifies
+  `padding: 0 32px` with `gap: 24px`; the live scoped rule has them the other way
+  round, `padding: 0 var(--gutter)` = 24px with `gap: var(--space-9)` = 32px.
+  Both are pre-existing and shared by every dark page, and style.css's own
+  comment records that four links already overflow a 390px viewport. Swapping
+  them is a container-level change that belongs with the mobile-nav ruling in
+  Pack 6, not a hub pack's call.
+
+- [ ] **2.1 The page marker.** Add the `main .site-page` marker the Pack 1
+      sync script looks for, so `/` derives `body.site-dark`. Nothing else in
+      this item.
+      *Done: `/` carries `body.site-dark` on load, after a boosted navigation
+      away and back, and after `htmx:historyRestore`.*
+- [ ] **2.2 The hero.** 96/72px padding on the 32px blueprint grid, the mono
+      eyebrow, the `Portfolio.` headline in Archivo 900 with a violet full stop,
+      and the tagline verbatim from today's `hub.html`. No about line — see the
+      ruling above.
+      *Done: computed background-size is `32px 32px`, the headline resolves
+      Archivo 900, and the full stop computes `#B48EF7`.*
+- [ ] **2.3 The palette bar.** The 48px, 520px-max button under the hero with
+      its search icon, "Search commands…" label, `Ctrl` `K` keycaps and the mono
+      caption beneath. It opens the same palette the header button does — one
+      handler, not two.
+      *Done: clicking it opens the dark palette from Pack 1 item 1.10.*
+- [ ] **2.4 The Sections heading row.** `h2` at Archivo 700/26px followed by a
+      1px rule filling the remaining width.
+      *Done: the rule reaches the container's right edge at 1440px and at
+      390px.*
+- [ ] **2.5 The five tiles.** `.hm-hub` cards in the auto-fit grid —
+      Drawing Portfolio, Drawing Tasks, Fitness, Sorting, Drinks — descriptions
+      and metas verbatim from the design (which took them from today's
+      `hub.html`). **Five, not six: the CV tile arrives with its route in Pack
+      6.** ⚠ `templates/hub/hub.html:19` carries `hx-boost="false"` on the
+      /drinks card and the mock does not model it — it must survive.
+      *Done: five tiles, each lifting 2px with an accent border on hover, and
+      /drinks still does a full page load rather than a boosted swap.*
+- [ ] **2.6 The footer.** The mono footer row. The "how this site works" link
+      targets a route that does not exist yet, so it is **omitted** here and
+      arrives in Pack 7 with its route — same no-dead-links rule the nav follows.
+      *Done: no link on `/` 404s.*
+- [ ] **2.7 Delete the light hub CSS** at `static/style.css:34-60`
+      (`.hub-intro`, `.hub-projects`, `.hub-card` and friends) now that nothing
+      renders it.
+      *Done: `./scripts/verify.sh` green and no template references the deleted
+      classes.*
+
+**Item gate:** `./scripts/check.sh` plus `cargo test --test static_assets` after
+every CSS edit.
+**Pack gate:** `./scripts/verify.sh` + a browser walkthrough of `/` at 1440px
+and 390px, the palette from both entry points, and one boosted round trip to
+prove the marker survives.
+
 **Risks.** `templates/hub/hub.html:19` carries `hx-boost="false"` on the
 `/drinks` card and the mock does not model it; dropping it boosts a
 `nest_service` mount whose templates do not extend `base.html`. The hero eyebrow
