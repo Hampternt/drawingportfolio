@@ -3387,6 +3387,35 @@ header .site-admin {
 :is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) header .palette-hint:hover { background: var(--surface-hover); }
 :is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) header .palette-hint:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 
+/* Active nav. base.html writes the section's own name into
+   `nav data-active`, filled from a {block} the extending template overrides;
+   a template that overrides nothing writes the empty string, which matches no
+   selector below and marks nothing. That is the whole mechanism — no per-page
+   class, no server-side loop over the links, and nothing to keep in sync but
+   the four names.
+
+   Stated twice for the two chromes again, and the colours are not the same
+   value: --text-strong is a near-white meant for the dark bar and would be
+   invisible on the light one, which /tasks still wears. The light rule
+   therefore reuses that chrome's own ink, the same #222 its hover already
+   uses.
+
+   Weights: the light pair is (0,2,3) against a (0,0,2) base rule, the dark
+   pair (0,3,3) against (0,1,4) — an attribute counts as a class, so both win
+   on class count without a single !important. */
+header nav[data-active="artportfolio"] a[href="/artportfolio"],
+header nav[data-active="tasks"] a[href="/tasks"],
+header nav[data-active="fitness"] a[href="/fitness"],
+header nav[data-active="sorting"] a[href="/sorting"] {
+  color: #222;
+}
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) header nav[data-active="artportfolio"] a[href="/artportfolio"],
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) header nav[data-active="tasks"] a[href="/tasks"],
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) header nav[data-active="fitness"] a[href="/fitness"],
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) header nav[data-active="sorting"] a[href="/sorting"] {
+  color: var(--text-strong);
+}
+
 /* ── Sorting: crate sort and van load ────────────────────────────────────────
    Two screens. `/sorting` lists the sessions; `/sorting/{id}` is the board that
    gets worked from, on a tablet, in a cold room, one-handed.

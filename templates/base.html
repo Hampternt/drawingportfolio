@@ -55,7 +55,7 @@
 <body hx-boost="true" class="{% block body_class %}{% endblock %}">
   <header>
     <a href="/" class="site-title">hampter<span class="site-title__dot">.</span></a>
-    <nav>
+    <nav data-active="{% block nav_active %}{% endblock %}">
       <a href="/artportfolio">Drawing Portfolio</a>
       <a href="/tasks">Drawing Tasks</a>
       <a href="/fitness">Fitness</a>
