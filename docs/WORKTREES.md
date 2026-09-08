@@ -24,6 +24,13 @@ from this file on 2026-08-12; `git log docs/WORKTREES.md` recovers them.
 
 ## Streams
 
+- **`feat/hub-admin-cv-docs`** (started 2026-09-08, from `master`, in the
+  main checkout — no separate worktree): the Claude Design handoff in
+  `docs/design/hub-admin-cv-docs/` — dark Hub and Admin on the Hampter Design
+  System, plus two new sections, a CV page (`/cv`) and an employer-facing
+  "How it works" page (`/docs`). Fitness, artportfolio and drinks are
+  deliberately untouched. Manifest: not yet drafted.
+
 - **`claude/secret-hitler-game-jg8xqs`** (started 2026-09-07, from `master`,
   in the main checkout — no separate worktree): **Backroom**, a fourth game
   for the `/drinks` room shell — a hidden-role game, mechanically Secret
