@@ -2169,6 +2169,49 @@ body.fitness-dark .meal-cal { color: var(--noc-muted); font-size: 12px; }
 :is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-icon--scan-line { -webkit-mask-image: url("/static/icons/scan-line.svg"); mask-image: url("/static/icons/scan-line.svg"); }
 :is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-icon--copy { -webkit-mask-image: url("/static/icons/copy.svg"); mask-image: url("/static/icons/copy.svg"); }
 
+/* The set the hub, admin, CV and how-it-works screens draw from, Lucide
+   v0.462.0, alphabetical. The seven above arrived with the feed and the board
+   and keep their own order.
+
+   THE SVG FILES ARE NOT IN THE TREE YET. Lucide is on no local disk here and
+   the handoff bundle carries CDN URLs rather than the glyphs, so fetching them
+   is a network download the owner has not yet authorised. The rules ship ahead
+   of the files so the stylesheet is complete and one drop into static/icons/
+   finishes the job.
+
+   Until then, be ready for what a missing mask looks like: a mask-image that
+   404s does not hide the element, it leaves it unmasked, so the icon paints as
+   a solid 16px block of currentColor. That is the expected appearance of the
+   admin-only settings button in the header, and of any other icon a screen
+   reaches for before the files land. It is not a bug in the rule below it.
+
+   Names, all 25: activity, arrow-up-right, beer, book-open, chevron-right, clipboard-list, download, eye, eye-off, file-text, github, home, image, image-plus, link, list-checks, log-out, pencil, settings, tag, trash-2, truck, upload, user-plus, users. */
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-icon--activity { -webkit-mask-image: url("/static/icons/activity.svg"); mask-image: url("/static/icons/activity.svg"); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-icon--arrow-up-right { -webkit-mask-image: url("/static/icons/arrow-up-right.svg"); mask-image: url("/static/icons/arrow-up-right.svg"); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-icon--beer { -webkit-mask-image: url("/static/icons/beer.svg"); mask-image: url("/static/icons/beer.svg"); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-icon--book-open { -webkit-mask-image: url("/static/icons/book-open.svg"); mask-image: url("/static/icons/book-open.svg"); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-icon--chevron-right { -webkit-mask-image: url("/static/icons/chevron-right.svg"); mask-image: url("/static/icons/chevron-right.svg"); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-icon--clipboard-list { -webkit-mask-image: url("/static/icons/clipboard-list.svg"); mask-image: url("/static/icons/clipboard-list.svg"); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-icon--download { -webkit-mask-image: url("/static/icons/download.svg"); mask-image: url("/static/icons/download.svg"); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-icon--eye { -webkit-mask-image: url("/static/icons/eye.svg"); mask-image: url("/static/icons/eye.svg"); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-icon--eye-off { -webkit-mask-image: url("/static/icons/eye-off.svg"); mask-image: url("/static/icons/eye-off.svg"); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-icon--file-text { -webkit-mask-image: url("/static/icons/file-text.svg"); mask-image: url("/static/icons/file-text.svg"); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-icon--github { -webkit-mask-image: url("/static/icons/github.svg"); mask-image: url("/static/icons/github.svg"); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-icon--home { -webkit-mask-image: url("/static/icons/home.svg"); mask-image: url("/static/icons/home.svg"); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-icon--image { -webkit-mask-image: url("/static/icons/image.svg"); mask-image: url("/static/icons/image.svg"); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-icon--image-plus { -webkit-mask-image: url("/static/icons/image-plus.svg"); mask-image: url("/static/icons/image-plus.svg"); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-icon--link { -webkit-mask-image: url("/static/icons/link.svg"); mask-image: url("/static/icons/link.svg"); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-icon--list-checks { -webkit-mask-image: url("/static/icons/list-checks.svg"); mask-image: url("/static/icons/list-checks.svg"); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-icon--log-out { -webkit-mask-image: url("/static/icons/log-out.svg"); mask-image: url("/static/icons/log-out.svg"); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-icon--pencil { -webkit-mask-image: url("/static/icons/pencil.svg"); mask-image: url("/static/icons/pencil.svg"); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-icon--settings { -webkit-mask-image: url("/static/icons/settings.svg"); mask-image: url("/static/icons/settings.svg"); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-icon--tag { -webkit-mask-image: url("/static/icons/tag.svg"); mask-image: url("/static/icons/tag.svg"); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-icon--trash-2 { -webkit-mask-image: url("/static/icons/trash-2.svg"); mask-image: url("/static/icons/trash-2.svg"); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-icon--truck { -webkit-mask-image: url("/static/icons/truck.svg"); mask-image: url("/static/icons/truck.svg"); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-icon--upload { -webkit-mask-image: url("/static/icons/upload.svg"); mask-image: url("/static/icons/upload.svg"); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-icon--user-plus { -webkit-mask-image: url("/static/icons/user-plus.svg"); mask-image: url("/static/icons/user-plus.svg"); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-icon--users { -webkit-mask-image: url("/static/icons/users.svg"); mask-image: url("/static/icons/users.svg"); }
+
 /* Button */
 :is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-btn {
   display: inline-flex;
