@@ -209,7 +209,7 @@ anything.
       and `docs` arrive with their routes.
       *Done: Ctrl+K on `/artportfolio`, `/fitness` and `/sorting` opens a dark
       panel.*
-- [ ] **1.11 Delete the dead legacy card CSS** at `static/style.css:74–103` and
+- [ ] **1.11 Delete the dead legacy card CSS** at `static/style.css:74–104` and
       correct CLAUDE.md's "Post cards" paragraph, which is wrong on both halves
       of its claim: `admin_post_card_html()` emits `class="admin-post"`
       (admin.rs:653), and a repo-wide grep finds no emitter of `post-card` at
@@ -458,7 +458,14 @@ Not blocking, but each needs an answer before the pack that consumes it.
   raises the same mismatch for the docs page.
 - **The hub's about line** is flagged placeholder copy the user owns, and the
   hero eyebrow's "five sections" conflicts with the tile count.
-- **IBM Plex Mono.** The bundle ships no mono woff2. Self-host it, or substitute.
+- **IBM Plex Mono, weight 600 only.** The handoff flags the mono face as an
+  unresolved substitution and its own `tokens/fonts.css` comment claims "no mono
+  face is self-hosted in the repo yet" — **that claim is false, verified in this
+  tree**: `static/fonts/` already ships `ibm-plex-mono-400.woff2` and
+  `-500.woff2`, declared at `static/style.css:1968-1969`. The design's
+  `@import` asks for 400, 500 and 600, so the only real question is whether
+  anything in the four screens uses mono 600 and, if so, whether to ship that one
+  face or snap it to 500. Consumed in Pack 1 item 1.4.
 
 ---
 
@@ -468,6 +475,17 @@ Not blocking, but each needs an answer before the pack that consumes it.
   `docs/design/hub-admin-cv-docs/`, stream registered in `docs/WORKTREES.md`,
   branch `feat/hub-admin-cv-docs` cut from `master` @ afbad7f and pushed
   (`e703a03`).
+- 2026-09-08 — every count and line range in this manifest re-checked against
+  the tree by the session that wrote it, not carried over from the survey:
+  `:is()` occurrences **77**; the dead legacy block is `static/style.css:74-104`
+  (the survey said 74-103, one short of the closing brace — corrected);
+  line 2951 is the sorting banner; `admin.rs:653` emits `class="admin-post"` and
+  the only surviving mention of `post-card` is an assertion at `feed.rs:1472`,
+  so CLAUDE.md's "Post cards" paragraph is wrong as item 1.11 states;
+  `static/icons/` holds 7 files and `static/fonts/` 7; `src/middleware.rs`
+  defines 5 extractors; the 458-vs-432 board-check split is real
+  (`CLAUDE.md:33` vs `scripts/verify.sh:17`); `uploads/cv-jesper-lovland.html`
+  does not exist.
 - 2026-09-08 — container opened. Pack sequence planned one level deep from a
   14-agent survey of the handoff, the design system and the current tree: ten
   parallel readers, three independent pack decompositions scored against

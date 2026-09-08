@@ -103,11 +103,12 @@ A party platform for phone-based drinking games in shared rooms.
   skills, with the same content offered as a download.
   Container: `docs/manifests/2026-09-08-hub-admin-cv-docs.md`
 
-## How it works — route not yet ruled
+## How it works — `/docs`
 
 - 🚧 **New section in flight** — an employer-facing explainer of how the site
   is built and run: the request path, the sections, how uploads and visibility
-  work, and the decisions behind them.
+  work, and the decisions behind them. The route name is still the user's to
+  rule; `/docs` is the recommendation this heading assumes.
   Container: `docs/manifests/2026-09-08-hub-admin-cv-docs.md`
 
 ## Infrastructure
