@@ -12,6 +12,11 @@ is part of the definition of merged. Manifests live in `docs/manifests/`.
 
 The landing page: entry point linking to every public area of the site.
 
+- 🚧 **Redesign in flight** — the front door moves onto the Hampter Design
+  System: a blueprint-grid hero, a click-to-open command palette bar, and a
+  tile grid covering every section.
+  Container: `docs/manifests/2026-09-08-hub-admin-cv-docs.md`
+
 ## Art portfolio — `/artportfolio`
 
 The public showcase of drawings.
@@ -23,6 +28,10 @@ The public showcase of drawings.
 - Visibility per post: public (listed), unlisted (permalink only), hidden.
 - Admin dashboard (`/admin`, passkey-gated): upload with automatic image
   variants, edit captions/tags, manage collections and visibility.
+- 🚧 **Admin redesign in flight** — `/admin` becomes a dark sidebar shell with
+  live counts, a searchable and filterable post list, and the owner-only
+  accounts pane folded in from `/admin/users`.
+  Container: `docs/manifests/2026-09-08-hub-admin-cv-docs.md`
 
 ## Drawing tasks — `/tasks`
 
@@ -88,6 +97,19 @@ A party platform for phone-based drinking games in shared rooms.
   (duels judged by table vote, solo dares, social penalties).
   Container: `docs/manifests/2026-08-14-lc-challenge-cards.md`
 
+## CV — `/cv`
+
+- 🚧 **New section in flight** — a public CV page: work history, projects and
+  skills, with the same content offered as a download.
+  Container: `docs/manifests/2026-09-08-hub-admin-cv-docs.md`
+
+## How it works — route not yet ruled
+
+- 🚧 **New section in flight** — an employer-facing explainer of how the site
+  is built and run: the request path, the sections, how uploads and visibility
+  work, and the decisions behind them.
+  Container: `docs/manifests/2026-09-08-hub-admin-cv-docs.md`
+
 ## Infrastructure
 
 Single Rust/Axum binary, server-side rendered, SQLite storage, S3-compatible
@@ -98,4 +120,5 @@ behind nginx. Quality gates: `scripts/check.sh` (item) and
 
 ---
 
-*Nothing in transit right now.*
+*In transit: the Hub/Admin/CV/How-it-works container —*
+*`docs/manifests/2026-09-08-hub-admin-cv-docs.md`.*

@@ -29,7 +29,11 @@ from this file on 2026-08-12; `git log docs/WORKTREES.md` recovers them.
   `docs/design/hub-admin-cv-docs/` — dark Hub and Admin on the Hampter Design
   System, plus two new sections, a CV page (`/cv`) and an employer-facing
   "How it works" page (`/docs`). Fitness, artportfolio and drinks are
-  deliberately untouched. Manifest: not yet drafted.
+  deliberately untouched. Container manifest:
+  `docs/manifests/2026-09-08-hub-admin-cv-docs.md` — seven packs, planned
+  one level deep; three rulings block Packs 3, 6 and 7 and no execution go
+  has been given. Merges → `master`, not `dev` (see the manifest's status
+  block for the ancestry check).
 
 - **`claude/secret-hitler-game-jg8xqs`** (started 2026-09-07, from `master`,
   in the main checkout — no separate worktree): **Backroom**, a fourth game
