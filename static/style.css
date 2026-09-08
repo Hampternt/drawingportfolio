@@ -3230,11 +3230,13 @@ body.fitness-dark .account-form input {
   font: var(--type-body);
 }
 :is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-prose > * + * { margin-top: var(--space-6); }
-:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-prose > h2,
-:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-prose > h3,
-:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-prose > h4,
-:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-prose > h5,
-:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-prose > h6 { margin-top: var(--space-9); }
+/* `* + h2` and not `> h2`: a prose block that OPENS with a heading has no
+   preceding sibling and must not be pushed down by 32px of nothing. */
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-prose > * + h2,
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-prose > * + h3,
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-prose > * + h4,
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-prose > * + h5,
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-prose > * + h6 { margin-top: var(--space-9); }
 :is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-prose h2 { font: var(--type-h2); letter-spacing: var(--tracking-tight); }
 :is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-prose h3 { font: var(--type-h3); letter-spacing: var(--tracking-tight); }
 :is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-prose h4 { font: var(--weight-semibold) var(--text-16)/var(--leading-snug) var(--font-display); letter-spacing: var(--tracking-snug); }
