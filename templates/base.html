@@ -54,16 +54,23 @@
 </head>
 <body hx-boost="true" class="{% block body_class %}{% endblock %}">
   <header>
-    <a href="/" class="site-title">Portfolio</a>
+    <a href="/" class="site-title">hampter<span class="site-title__dot">.</span></a>
     <nav>
       <a href="/artportfolio">Drawing Portfolio</a>
       <a href="/tasks">Drawing Tasks</a>
       <a href="/fitness">Fitness</a>
       <a href="/sorting">Sorting</a>
     </nav>
-    <button class="palette-hint" onclick="document.dispatchEvent(new KeyboardEvent('keydown',{key:'k',ctrlKey:true,bubbles:true}))" aria-label="Open command palette">
-      <kbd>Ctrl</kbd><kbd>K</kbd>
-    </button>
+    <div class="site-actions">
+      <button class="palette-hint" onclick="document.dispatchEvent(new KeyboardEvent('keydown',{key:'k',ctrlKey:true,bubbles:true}))" aria-label="Open command palette">
+        <kbd>Ctrl</kbd><kbd>K</kbd>
+      </button>
+      {% if is_admin %}
+      <a href="/admin" class="hm-iconbtn hm-iconbtn--md hm-iconbtn--outline site-admin" title="Admin" aria-label="Admin">
+        <span class="hm-icon hm-icon--settings" aria-hidden="true"></span>
+      </a>
+      {% endif %}
+    </div>
   </header>
   <main>
     {% block content %}{% endblock %}

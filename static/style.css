@@ -3332,6 +3332,61 @@ body.fitness-dark .account-form input {
   white-space: nowrap;
 }
 
+/* The header, as base.html now writes it. Three things changed in the markup:
+   the wordmark reads `hampter.` with a violet full stop, the right-hand
+   controls moved into a .site-actions group, and an admin gets a settings
+   button next to the palette keycaps.
+
+   The nav layout has to be stated TWICE because two chromes render this same
+   markup. The dark one is the design system's, further up this file; the light
+   one is the original stylesheet at the top, which /tasks and today's hub still
+   wear and which gives `nav` no display at all — so its four links come out as
+   one run-on string separated by a single space of whitespace. The unscoped
+   rules below fix that chrome without touching the dark one, which already
+   lays the row out and simply never said anything about wrapping.
+
+   .site-actions carries the margin-left:auto that used to be the palette
+   button's alone. The button keeps its own copy: inside a content-width flex
+   group there is no free space for an auto margin to absorb, so it resolves to
+   zero here, while /admin — whose header this pack deliberately does not touch,
+   because Pack 3 replaces it wholesale — still gets its button pushed right.
+
+   The settings button is .hm-iconbtn, which is scoped. On the light chrome
+   nothing paints it, so it also carries .site-admin below for a plain 34px
+   box; and its glyph is one of the icon files item 1.5 is waiting on, so until
+   those land it shows as a solid block on a dark page and an empty outline on
+   a light one. */
+header nav {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+header nav a { white-space: nowrap; }
+header .site-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-left: auto;
+}
+.site-title__dot { color: var(--accent); }
+header .site-admin {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: var(--radius-sm);
+}
+
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) header .palette-hint {
+  height: var(--control-height-md);
+  padding: 0 var(--space-5);
+  border-radius: var(--radius-sm);
+  transition: var(--transition-control);
+}
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) header .palette-hint:hover { background: var(--surface-hover); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) header .palette-hint:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+
 /* ── Sorting: crate sort and van load ────────────────────────────────────────
    Two screens. `/sorting` lists the sessions; `/sorting/{id}` is the board that
    gets worked from, on a tablet, in a cold room, one-handed.
