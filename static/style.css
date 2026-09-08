@@ -1868,6 +1868,7 @@ body.fitness-dark .meal-cal { color: var(--noc-muted); font-size: 12px; }
   --type-display:var(--weight-black) var(--text-68)/var(--leading-tight) var(--font-display);
   --type-h1:800 var(--text-40)/var(--leading-snug) var(--font-display);
   --type-h2:700 var(--text-26)/var(--leading-snug) var(--font-display);
+  --type-h3:600 var(--text-18)/var(--leading-snug) var(--font-display);
   --type-body:var(--weight-regular) var(--text-15)/var(--leading-normal) var(--font-sans);
   --type-body-sm:var(--weight-regular) var(--text-13)/var(--leading-normal) var(--font-sans);
   --type-ui:var(--weight-medium) var(--text-14)/1.2 var(--font-sans);
@@ -1960,13 +1961,34 @@ body.fitness-dark .meal-cal { color: var(--noc-muted); font-size: 12px; }
 }
 
 /* Faces. Self-hosted from /static/fonts — no third-party handshake, matching
-   how base.html self-hosts HTMX. Archivo 600 is deliberately absent: nothing
-   lifted here uses --type-h3, the only role that asks for it. */
+   how base.html self-hosts HTMX.
+
+   Archivo 600 used to be deliberately absent, because nothing lifted here used
+   --type-h3, the only role that asks for it. The hub-and-admin handoff sets
+   every card title, dialog title and pane heading in it, so the token is
+   declared above and the face ships with it. Archivo 500 and Space Grotesk
+   600/700 come along for the same reason: the handoff's headings and its
+   emphasised UI text name weights the browser would otherwise synthesise by
+   slanting and smearing a lighter face, which is exactly the thing self-hosting
+   is for.
+
+   IBM Plex Mono stays at 400 and 500. The bundle's own @import asks for 600 as
+   well, but nothing in the four screens sets a mono run at that weight — the
+   mono roles are the 11px uppercase micro-labels at 500 and metadata at 400 —
+   so the third face would be a download nobody reads.
+
+   These are byte-identical copies of drinkinggame/assets/fonts, verified by
+   md5. Never re-encode one: a file under /static/fonts/ moves no ?v= and nginx
+   serves it immutable for a year, so a changed glyph needs a new filename. */
+@font-face { font-family:"Archivo"; font-style:normal; font-weight:500; font-display:swap; src:url("/static/fonts/archivo-500.woff2") format("woff2"); }
+@font-face { font-family:"Archivo"; font-style:normal; font-weight:600; font-display:swap; src:url("/static/fonts/archivo-600.woff2") format("woff2"); }
 @font-face { font-family:"Archivo"; font-style:normal; font-weight:700; font-display:swap; src:url("/static/fonts/archivo-700.woff2") format("woff2"); }
 @font-face { font-family:"Archivo"; font-style:normal; font-weight:800; font-display:swap; src:url("/static/fonts/archivo-800.woff2") format("woff2"); }
 @font-face { font-family:"Archivo"; font-style:normal; font-weight:900; font-display:swap; src:url("/static/fonts/archivo-900.woff2") format("woff2"); }
 @font-face { font-family:"Space Grotesk"; font-style:normal; font-weight:400; font-display:swap; src:url("/static/fonts/space-grotesk-400.woff2") format("woff2"); }
 @font-face { font-family:"Space Grotesk"; font-style:normal; font-weight:500; font-display:swap; src:url("/static/fonts/space-grotesk-500.woff2") format("woff2"); }
+@font-face { font-family:"Space Grotesk"; font-style:normal; font-weight:600; font-display:swap; src:url("/static/fonts/space-grotesk-600.woff2") format("woff2"); }
+@font-face { font-family:"Space Grotesk"; font-style:normal; font-weight:700; font-display:swap; src:url("/static/fonts/space-grotesk-700.woff2") format("woff2"); }
 @font-face { font-family:"IBM Plex Mono"; font-style:normal; font-weight:400; font-display:swap; src:url("/static/fonts/ibm-plex-mono-400.woff2") format("woff2"); }
 @font-face { font-family:"IBM Plex Mono"; font-style:normal; font-weight:500; font-display:swap; src:url("/static/fonts/ibm-plex-mono-500.woff2") format("woff2"); }
 
