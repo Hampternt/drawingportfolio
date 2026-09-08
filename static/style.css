@@ -1228,7 +1228,7 @@ body.fitness-dark #fit-toast { bottom: calc(var(--fit-bar-h) + var(--space-5)); 
    bar carries it and this would be a second button for one job.
 
    Scoped through .fit-head rather than written flat, and not for tidiness:
-   `:is(body.art-page, body.fitness-dark, body.sorting-dark) .hm-btn` is (0,2,1)
+   `:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-btn` is (0,2,1)
    — `:is()` takes its most specific argument's weight, so the third page name
    changed nothing — and it sits ~800
    lines later in this file, so a flat `body.fitness-dark .fit-head__copy` ties
@@ -1726,11 +1726,13 @@ body.fitness-dark .meal-cal { color: var(--noc-muted); font-size: 12px; }
    nothing that does not read them is affected.
 
    Everything that PAINTS is scoped. The primitives — resets, icons, Button,
-   IconButton, Kbd, Field, utility surfaces — carry all three page scopes
-   (art, fitness, sorting); the site chrome, the PostCard and the feed layout
-   stay artportfolio-only. Adding a page to that :is() list is free: :is()
-   takes its most specific argument's weight, so a fourth name shifts no
-   existing rule's specificity. Comments
+   IconButton, Kbd, Field, utility surfaces — carry all four page scopes
+   (art, fitness, sorting, site); the feed layout stays artportfolio-only.
+   Adding a page to that :is() list is free: :is() takes its most specific
+   argument's weight, so the fourth name shifted no existing rule's
+   specificity — site-dark was added to every occurrence at once rather than
+   to the handful a screen happened to need, because a half-swept list is a
+   page that is dark in patches. Comments
    from the source files are stripped: CSS comments do not nest, and a lifted
    opening marker inside this block would silently drop the next rule. Guarded
    by tests/static_assets.rs.
@@ -1971,20 +1973,25 @@ body.fitness-dark .meal-cal { color: var(--noc-muted); font-size: 12px; }
 /* Resets — tokens/base.css, rewritten under the design-system scope. Linking
    that file as-is would repaint every page on the site on the next request.
 
-   The scope is a two-page :is() list, not one class, because both surfaces
-   already carry their own body class and base.html re-derives those from
-   content markers on every boosted swap. Adding a third shared class would
-   mean a third thing that can fail to be re-derived. :is(a, b) X takes the
+   The scope is a four-page :is() list, not one class, because each surface
+   already carries its own body class and base.html re-derives those from
+   content markers on every boosted swap. A single shared class would be one
+   more thing that can fail to be re-derived. :is(a, b) X takes the
    specificity of its most specific argument, so each of these still weighs
    exactly what `body.art-page X` weighed — the cascade is unchanged.
 
-   Only the primitives below are shared. The site chrome, the PostCard and the
-   feed layout stay artportfolio-only, further down. */
-:is(body.art-page, body.fitness-dark, body.sorting-dark),
-:is(body.art-page, body.fitness-dark, body.sorting-dark) *,
-:is(body.art-page, body.fitness-dark, body.sorting-dark) *::before,
-:is(body.art-page, body.fitness-dark, body.sorting-dark) *::after { box-sizing: border-box; }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) {
+   `site-dark` is the site's own screens — the hub, the CV and the how-it-works
+   page — and its marker is `main .site-page`. No template carries that marker
+   yet; the class is wired here first so the screens that arrive later light up
+   without a second sweep of this file.
+
+   Only the primitives below are shared. The feed layout stays
+   artportfolio-only, further down. */
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark),
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) *,
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) *::before,
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) *::after { box-sizing: border-box; }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) {
   margin: 0;
   background: var(--surface-page);
   color: var(--text-body);
@@ -1993,35 +2000,35 @@ body.fitness-dark .meal-cal { color: var(--noc-muted); font-size: 12px; }
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) h1,
-:is(body.art-page, body.fitness-dark, body.sorting-dark) h2,
-:is(body.art-page, body.fitness-dark, body.sorting-dark) h3,
-:is(body.art-page, body.fitness-dark, body.sorting-dark) h4 {
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) h1,
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) h2,
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) h3,
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) h4 {
   margin: 0;
   color: var(--text-strong);
   font-family: var(--font-display);
   letter-spacing: var(--tracking-tight);
   text-wrap: balance;
 }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) p { margin: 0; text-wrap: pretty; }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) a {
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) p { margin: 0; text-wrap: pretty; }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) a {
   color: var(--text-link);
   text-decoration: none;
   text-underline-offset: 3px;
   transition: color var(--dur-fast) var(--ease-snap);
 }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) a:hover { color: var(--text-link-hover); text-decoration: underline; }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) code,
-:is(body.art-page, body.fitness-dark, body.sorting-dark) kbd,
-:is(body.art-page, body.fitness-dark, body.sorting-dark) pre,
-:is(body.art-page, body.fitness-dark, body.sorting-dark) samp { font-family: var(--font-mono); }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) ::selection { background: var(--violet-a28); color: var(--ink-050); }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) :focus-visible { outline: none; box-shadow: var(--focus-ring); }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) button,
-:is(body.art-page, body.fitness-dark, body.sorting-dark) input,
-:is(body.art-page, body.fitness-dark, body.sorting-dark) select,
-:is(body.art-page, body.fitness-dark, body.sorting-dark) textarea { font: inherit; color: inherit; }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) hr { border: none; border-top: 1px solid var(--border-subtle); margin: 0; }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) a:hover { color: var(--text-link-hover); text-decoration: underline; }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) code,
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) kbd,
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) pre,
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) samp { font-family: var(--font-mono); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) ::selection { background: var(--violet-a28); color: var(--ink-050); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) :focus-visible { outline: none; box-shadow: var(--focus-ring); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) button,
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) input,
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) select,
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) textarea { font: inherit; color: inherit; }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) hr { border: none; border-top: 1px solid var(--border-subtle); margin: 0; }
 
 /* Site chrome from base.html, restyled in place on both design-system pages.
    The markup is untouched — which is the whole point: base.html is shared with
@@ -2038,12 +2045,12 @@ body.fitness-dark .meal-cal { color: var(--noc-muted); font-size: 12px; }
    and `header { padding: 1rem 2rem }` — the first would clamp the 1180px feed to
    640px and kill the masonry outright, and the second fights the 56px bar. The
    fitness shell needs exactly the same two escapes for the same two reasons. */
-:is(body.art-page, body.fitness-dark, body.sorting-dark) main {
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) main {
   max-width: none;
   margin: 0;
   padding: 0;
 }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) header {
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) header {
   position: sticky;
   top: 0;
   z-index: 40;
@@ -2055,7 +2062,7 @@ body.fitness-dark .meal-cal { color: var(--noc-muted); font-size: 12px; }
   -webkit-backdrop-filter: blur(10px);
   border-bottom: 1px solid var(--border-subtle);
 }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) header .site-title {
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) header .site-title {
   font: 800 17px/1 var(--font-display);
   letter-spacing: -0.035em;
   color: var(--text-strong);
@@ -2063,7 +2070,7 @@ body.fitness-dark .meal-cal { color: var(--noc-muted); font-size: 12px; }
 /* The shared stylesheet never gives `nav` a display or a gap, so its links are
    inline elements separated by one space of whitespace. At this type size they
    read as one run-on string; lay them out explicitly. */
-:is(body.art-page, body.fitness-dark, body.sorting-dark) header nav {
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) header nav {
   display: flex;
   align-items: center;
   gap: var(--space-7);
@@ -2087,14 +2094,14 @@ body.fitness-dark .meal-cal { color: var(--noc-muted); font-size: 12px; }
 @media (max-width: 899px) {
   body.fitness-dark header nav { display: none; }
 }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) header nav a {
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) header nav a {
   font: var(--weight-medium) var(--text-14)/1.2 var(--font-sans);
   color: var(--text-muted);
 }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) header nav a:hover { color: var(--text-strong); text-decoration: none; }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) header nav a:hover { color: var(--text-strong); text-decoration: none; }
 
 /* The Ctrl-K affordance, which base.html renders as a bare <button> of <kbd>s. */
-:is(body.art-page, body.fitness-dark, body.sorting-dark) header .palette-hint {
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) header .palette-hint {
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
@@ -2104,7 +2111,7 @@ body.fitness-dark .meal-cal { color: var(--noc-muted); font-size: 12px; }
   background: none;
   cursor: pointer;
 }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) header .palette-hint kbd {
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) header .palette-hint kbd {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -2122,7 +2129,7 @@ body.fitness-dark .meal-cal { color: var(--noc-muted); font-size: 12px; }
 
 /* Icons — Lucide as CSS masks, so a glyph inherits currentColor and needs no
    recolouring per context. */
-:is(body.art-page, body.fitness-dark, body.sorting-dark) .hm-icon {
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-icon {
   display: inline-block;
   flex: none;
   width: 16px;
@@ -2132,16 +2139,16 @@ body.fitness-dark .meal-cal { color: var(--noc-muted); font-size: 12px; }
   -webkit-mask-position: center; mask-position: center;
   -webkit-mask-size: 100% 100%; mask-size: 100% 100%;
 }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) .hm-icon--search { -webkit-mask-image: url("/static/icons/search.svg"); mask-image: url("/static/icons/search.svg"); }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) .hm-icon--chevron-down { -webkit-mask-image: url("/static/icons/chevron-down.svg"); mask-image: url("/static/icons/chevron-down.svg"); }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) .hm-icon--x { -webkit-mask-image: url("/static/icons/x.svg"); mask-image: url("/static/icons/x.svg"); }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) .hm-icon--chevron-left { -webkit-mask-image: url("/static/icons/chevron-left.svg"); mask-image: url("/static/icons/chevron-left.svg"); }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) .hm-icon--calendar-days { -webkit-mask-image: url("/static/icons/calendar-days.svg"); mask-image: url("/static/icons/calendar-days.svg"); }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) .hm-icon--scan-line { -webkit-mask-image: url("/static/icons/scan-line.svg"); mask-image: url("/static/icons/scan-line.svg"); }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) .hm-icon--copy { -webkit-mask-image: url("/static/icons/copy.svg"); mask-image: url("/static/icons/copy.svg"); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-icon--search { -webkit-mask-image: url("/static/icons/search.svg"); mask-image: url("/static/icons/search.svg"); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-icon--chevron-down { -webkit-mask-image: url("/static/icons/chevron-down.svg"); mask-image: url("/static/icons/chevron-down.svg"); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-icon--x { -webkit-mask-image: url("/static/icons/x.svg"); mask-image: url("/static/icons/x.svg"); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-icon--chevron-left { -webkit-mask-image: url("/static/icons/chevron-left.svg"); mask-image: url("/static/icons/chevron-left.svg"); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-icon--calendar-days { -webkit-mask-image: url("/static/icons/calendar-days.svg"); mask-image: url("/static/icons/calendar-days.svg"); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-icon--scan-line { -webkit-mask-image: url("/static/icons/scan-line.svg"); mask-image: url("/static/icons/scan-line.svg"); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-icon--copy { -webkit-mask-image: url("/static/icons/copy.svg"); mask-image: url("/static/icons/copy.svg"); }
 
 /* Button */
-:is(body.art-page, body.fitness-dark, body.sorting-dark) .hm-btn {
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -2161,32 +2168,32 @@ body.fitness-dark .meal-cal { color: var(--noc-muted); font-size: 12px; }
    (0,2,1) against `.hm-btn`'s (0,1,1), so `text-decoration: none` above loses
    on hover no matter where it sits. Restating it at :hover parity fixes it for
    every variant at once. */
-:is(body.art-page, body.fitness-dark, body.sorting-dark) .hm-btn:hover { text-decoration: none; }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) .hm-btn:focus-visible { outline: none; box-shadow: var(--focus-ring); }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) .hm-btn:active { transform: translateY(1px); }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) .hm-btn[disabled],
-:is(body.art-page, body.fitness-dark, body.sorting-dark) .hm-btn[aria-disabled="true"] { opacity: .42; pointer-events: none; }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) .hm-btn--sm { height: var(--control-height-sm); padding: 0 var(--space-5); font-size: var(--text-13); }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) .hm-btn--md { height: var(--control-height-md); padding: 0 var(--space-6); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-btn:hover { text-decoration: none; }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-btn:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-btn:active { transform: translateY(1px); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-btn[disabled],
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-btn[aria-disabled="true"] { opacity: .42; pointer-events: none; }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-btn--sm { height: var(--control-height-sm); padding: 0 var(--space-5); font-size: var(--text-13); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-btn--md { height: var(--control-height-md); padding: 0 var(--space-6); }
 /* `lg` exists for one caller — the phone action bar, where the buttons are the
    page's primary reach and a 34px target under a thumb is not enough. */
-:is(body.art-page, body.fitness-dark, body.sorting-dark) .hm-btn--lg { height: var(--control-height-lg); padding: 0 var(--space-6); font-size: var(--text-15); }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) .hm-btn--primary {
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-btn--lg { height: var(--control-height-lg); padding: 0 var(--space-6); font-size: var(--text-15); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-btn--primary {
   background: var(--accent);
   color: var(--text-on-accent);
   border-color: var(--violet-300);
   box-shadow: var(--shadow-inset-hairline);
 }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) .hm-btn--primary:hover { background: var(--accent-hover); }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) .hm-btn--primary:active { background: var(--accent-press); }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) .hm-btn--secondary { background: var(--ink-800); color: var(--text-strong); border-color: var(--border-default); }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) .hm-btn--secondary:hover { background: var(--ink-750); border-color: var(--border-strong); }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) .hm-btn--secondary:active { background: var(--ink-800); }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) .hm-btn--ghost { background: transparent; color: var(--text-muted); }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) .hm-btn--ghost:hover { background: var(--surface-hover); color: var(--text-strong); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-btn--primary:hover { background: var(--accent-hover); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-btn--primary:active { background: var(--accent-press); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-btn--secondary { background: var(--ink-800); color: var(--text-strong); border-color: var(--border-default); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-btn--secondary:hover { background: var(--ink-750); border-color: var(--border-strong); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-btn--secondary:active { background: var(--ink-800); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-btn--ghost { background: transparent; color: var(--text-muted); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-btn--ghost:hover { background: var(--surface-hover); color: var(--text-strong); }
 
 /* IconButton */
-:is(body.art-page, body.fitness-dark, body.sorting-dark) .hm-iconbtn {
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-iconbtn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -2197,14 +2204,14 @@ body.fitness-dark .meal-cal { color: var(--noc-muted); font-size: 12px; }
   cursor: pointer;
   transition: var(--transition-control);
 }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) .hm-iconbtn:hover { background: var(--surface-hover); color: var(--text-strong); }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) .hm-iconbtn:active { transform: translateY(1px); }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) .hm-iconbtn:focus-visible { outline: none; box-shadow: var(--focus-ring); }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) .hm-iconbtn--sm { width: var(--control-height-sm); height: var(--control-height-sm); }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) .hm-iconbtn--md { width: var(--control-height-md); height: var(--control-height-md); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-iconbtn:hover { background: var(--surface-hover); color: var(--text-strong); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-iconbtn:active { transform: translateY(1px); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-iconbtn:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-iconbtn--sm { width: var(--control-height-sm); height: var(--control-height-sm); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-iconbtn--md { width: var(--control-height-md); height: var(--control-height-md); }
 
 /* Kbd */
-:is(body.art-page, body.fitness-dark, body.sorting-dark) .hm-kbd {
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-kbd {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -2221,7 +2228,7 @@ body.fitness-dark .meal-cal { color: var(--noc-muted); font-size: 12px; }
   font-size: var(--text-11);
   text-transform: uppercase;
 }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) .hm-kbd-group {
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-kbd-group {
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
@@ -2230,15 +2237,15 @@ body.fitness-dark .meal-cal { color: var(--noc-muted); font-size: 12px; }
 }
 
 /* Field primitives — the search field in the next slice is built from these. */
-:is(body.art-page, body.fitness-dark, body.sorting-dark) .hm-field { display: flex; flex-direction: column; gap: var(--space-3); }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) .hm-field__label {
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-field { display: flex; flex-direction: column; gap: var(--space-3); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-field__label {
   font: var(--type-label);
   letter-spacing: var(--tracking-caps);
   text-transform: uppercase;
   color: var(--text-muted);
 }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) .hm-field__hint { font: var(--type-body-sm); color: var(--text-faint); }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) .hm-input-wrap {
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-field__hint { font: var(--type-body-sm); color: var(--text-faint); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-input-wrap {
   position: relative;
   display: flex;
   align-items: center;
@@ -2251,9 +2258,9 @@ body.fitness-dark .meal-cal { color: var(--noc-muted); font-size: 12px; }
   color: var(--text-faint);
   transition: var(--transition-control);
 }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) .hm-input-wrap:hover { border-color: var(--border-strong); }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) .hm-input-wrap:focus-within { border-color: var(--border-focus); box-shadow: 0 0 0 3px var(--violet-a14); }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) .hm-input {
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-input-wrap:hover { border-color: var(--border-strong); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-input-wrap:focus-within { border-color: var(--border-focus); box-shadow: 0 0 0 3px var(--violet-a14); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-input {
   flex: 1;
   min-width: 0;
   background: none;
@@ -2263,7 +2270,7 @@ body.fitness-dark .meal-cal { color: var(--noc-muted); font-size: 12px; }
   font: var(--type-body);
   font-size: var(--text-14);
 }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) .hm-input::placeholder { color: var(--text-faint); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-input::placeholder { color: var(--text-faint); }
 
 /* PostCard */
 body.art-page .hm-post {
@@ -2308,18 +2315,18 @@ body.art-page .hm-post__meta {
 }
 
 /* Utility surfaces */
-:is(body.art-page, body.fitness-dark, body.sorting-dark) .hm-grid-bg {
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-grid-bg {
   background-color: var(--surface-page);
   background-image: var(--texture-grid);
   background-size: var(--texture-grid-size);
 }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) .hm-eyebrow {
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-eyebrow {
   font: var(--type-label);
   letter-spacing: var(--tracking-caps);
   text-transform: uppercase;
   color: var(--text-faint);
 }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) .hm-rule { height: 1px; background: var(--border-subtle); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-rule { height: 1px; background: var(--border-subtle); }
 
 /* Page layout */
 body.art-page .art-head {
@@ -3214,7 +3221,7 @@ body:has(.sorting-board.is-full) .sorting-page { padding: var(--space-5) var(--s
 
 /* ── Specificity escapes ───────────────────────────────────────────────────
    The design system resets `button`, `textarea` and `a` under
-   `:is(body.art-page, body.fitness-dark, body.sorting-dark)`. `:is()` takes its
+   `:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark)`. `:is()` takes its
    most specific argument's weight — one class — so those rules are (0,1,1) and
    a plain `.sort-…` class is (0,1,0): the reset wins on every property it
    names, whatever the source order. `font: inherit` in particular expands to

@@ -29,8 +29,13 @@
     //
     // The markers are the section wrappers: .fitness-page for the nutrition
     // tracker, .art-feed for the drawing portfolio, .sorting-page for the
-    // sorting board. Each section's template must keep its marker as the
+    // sorting board, .site-page for the site's own screens (the hub, the CV,
+    // how it works). Each section's template must keep its marker as the
     // outermost element inside its content block.
+    //
+    // Never write one of these classes on <body> in the markup instead:
+    // classList.toggle only removes what it toggles, so a hardcoded class
+    // would ride a boosted navigation onto every page reached from here.
     (function () {
       function syncBodyTheme() {
         document.body.classList.toggle('fitness-dark',
@@ -39,6 +44,8 @@
           !!document.querySelector('main .art-feed'));
         document.body.classList.toggle('sorting-dark',
           !!document.querySelector('main .sorting-page'));
+        document.body.classList.toggle('site-dark',
+          !!document.querySelector('main .site-page'));
       }
       // The target guard matters: without it every fragment swap — Load more,
       // an HTMX partial — re-runs this against a half-updated DOM.
