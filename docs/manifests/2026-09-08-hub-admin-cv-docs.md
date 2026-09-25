@@ -570,9 +570,12 @@ nothing, `routes::hub` is the precedent.
 
 Decisions made while porting, each flagged here for review:
 
-- ⚠ **`[ÅRSTALL]` is still owed.** No start year was given, so the driver entry
-  ships with no date rather than a blank. Add the `cv-entry__date` span back
-  when the year is known.
+- **Content revised by the user, 2026-09-25 (same day):** the CV no longer
+  carries the handoff's text verbatim. Anything reading as criticism of the
+  current workplace is gone; the site itself (`hampter.`) leads the projects,
+  with claims checked against this repo; MVE Bread List and Breadify are one
+  short, neutral entry; the driver job reads `2025–nå` (the user recalls
+  starting around October 2025).
 - **"Last ned som PDF" is `window.print()`** over an `@media print` block —
   every rule gated on `body:has(.cv-page)`, and no `@page`, which cannot be
   scoped. The print dialog's "Save as PDF" is the download; the PDF can never

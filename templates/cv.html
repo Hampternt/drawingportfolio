@@ -40,8 +40,8 @@
 
 <section class="cv-section">
   <h2 class="cv-section__label">Om meg</h2>
-  <p class="cv-lead">Fagutdannet dataelektroniker med fire år som backend-utvikler bak seg. I dag kjører jeg varelevering, og har brukt den plassen til å bygge verktøyene jeg selv skulle ønske vi hadde: en mobil plukkliste for ruta, og et program som gjør dagens ordreeksport om til ferdige plukkark.</p>
-  <p class="cv-lead">Jeg ser problemet fra gulvet, bygger løsningen selv, og bruker AI-assisterte utviklingsverktøy til å komme raskt fram — uten å gi slipp på testing, dokumentasjon og vedlikehold.</p>
+  <p class="cv-lead">Fagutdannet dataelektroniker med fire års erfaring som backend-utvikler i C# og ASP.NET. På fritiden bygger jeg egne programmer, mest i Rust, og tar dem hele veien: datamodell og server, brukergrensesnitt, testing og drift på egen server.</p>
+  <p class="cv-lead">Jeg er interessert i hvordan systemer henger sammen — datamodeller, sikkerhet, sanntid og verktøy som gjør kode lettere å forstå. Jeg bruker AI-assisterte utviklingsverktøy til å jobbe raskt, uten å gi slipp på testing, dokumentasjon og vedlikehold.</p>
 </section>
 
 <section class="cv-section cv-section--projects">
@@ -49,34 +49,17 @@
 
   <article class="cv-entry">
     <div class="cv-entry__head">
-      <h3>MVE Bread List <span class="cv-entry__qual">— mobil plukkliste for ruteleveranse</span></h3>
-      <span class="cv-entry__date">2025–2026</span>
+      <h3>hampter. <span class="cv-entry__qual">— personlig nettsted og plattform</span></h3>
+      <span class="cv-entry__date">pågående</span>
     </div>
-    <div class="cv-entry__tags">
-      <span class="cv-entry__meta">mvebread.dblo.net</span>
-      <span class="hm-badge hm-badge--accent">Prototype i aktiv bruk på ekte ordrer</span>
-    </div>
+    <div class="cv-entry__meta">Rust · Axum · SQLite · HTMX · egen Linux-server</div>
     <ul class="cv-list">
-      <li><span><strong>Problemet:</strong> brødet kommer i én haug på lageret. Hver sjåfør skal finne sin rute i den, pakke i riktig rekkefølge og huske hva som manglet. Papirlista svarer ikke på noe av det.</span></li>
-      <li><span><strong>Løsningen:</strong> nettapp som henter dagens ordre fra et publisert Google Sheet og sorterer kundene i motsatt leveringsrekkefølge — siste stopp pakkes først og havner innerst i bilen. Du krysser av mens du pakker; det som er ferdig synker til bunnen, og det som gjenstår ligger alltid øverst.</span></li>
-      <li><span><strong>Avvik:</strong> langtrykk på en ordre registrerer antall som mangler og eventuell erstatningsvare. Alt samles i en mangelrapport som kan åpnes på en hvilken som helst enhet.</span></li>
-      <li><span><strong>Sanntid:</strong> Firebase synkroniserer på tvers av enheter, så flere sjåfører ser hverandres avkryssinger med én gang.</span></li>
-      <li><span><strong>Teknologi:</strong> JavaScript, Firebase Realtime Database, Google Sheets (CSV), mobiltilpasset HTML/CSS. Egen opplæringsside skrevet for ikke-tekniske brukere.</span></li>
-    </ul>
-  </article>
-
-  <article class="cv-entry">
-    <div class="cv-entry__head">
-      <h3>Breadify <span class="cv-entry__qual">— fra ordreeksport til ferdige plukkark</span></h3>
-      <span class="cv-entry__date">2026</span>
-    </div>
-    <div class="cv-entry__meta">Rust · skrivebordsprogram for Windows og Linux · distribuert via GitHub Releases</div>
-    <ul class="cv-list">
-      <li><span><strong>Problemet:</strong> dagens eksport er et regneark ingen kan plukke etter.</span></li>
-      <li><span><strong>Løsningen:</strong> dra fila inn i vinduet, se hva den fant, skriv ut. Ett ark per rute, i den rekkefølgen bilen tømmes, med kassematematikk — en vare kan settes til å ta en halv eller to plasser, og innstillingen huskes.</span></li>
-      <li><span>Fryseeksporten kjennes igjen på filnavnet og skrives ut som avkryssingsliste i stedet, siden de varene kommer ferdig pakket.</span></li>
-      <li><span><strong>Validering i tre nivåer</strong> — merknad, advarsel og blokkerende feil — så brukeren vet når det faktisk haster å lese meldingen.</span></li>
-      <li><span>Ferdig binærfil uten installasjon, med brukerveiledning skrevet for folk uten teknisk bakgrunn.</span></li>
+      <li><span><strong>Arkitektur:</strong> én Rust-binærfil med server-side rendering og HTMX — ingen byggesteg på frontend, og databasemigreringer som kjører ved oppstart.</span></li>
+      <li><span><strong>Innlogging og tilgang:</strong> passkeys (WebAuthn) og PIN med Argon2-hashing og sperre etter gjentatte feil. Tilgangsnivåene eier, admin og bruker håndheves av typesystemet, og hver brukers data er skilt fra de andres.</span></li>
+      <li><span><strong>Kunstportefølje:</strong> bildeopplasting til S3-kompatibel lagring, AVIF-konvertering i bakgrunnen, tagger, samlinger og synlighetsstyring.</span></li>
+      <li><span><strong>Treningslogg:</strong> kosthold og makroer per bruker, med strekkodeskanning i nettleseren mot OpenFoodFacts.</span></li>
+      <li><span><strong>Sanntid:</strong> flerspillerspill over Server-Sent Events med romkoder og storskjermvisning — blant annet et spill med skjulte roller, bygget slik at hemmelig informasjon aldri kan nå den åpne strømmen.</span></li>
+      <li><span><strong>Kvalitet og drift:</strong> over 1100 automatiske tester og én verifikasjonsportal (formatering, lint, tester); automatisk utrulling med GitHub Actions bak nginx.</span></li>
     </ul>
   </article>
 
@@ -96,6 +79,18 @@
     </div>
     <div class="cv-entry__meta">Rust · web</div>
     <p>Verktøy som leser et kodeprosjekt og tegner strukturen visuelt. Laget fordi jeg trengte dem selv, og fordi det er raskere å forstå et system man kan se.</p>
+  </article>
+
+  <article class="cv-entry">
+    <div class="cv-entry__head">
+      <h3>Plukk- og pakkeverktøy <span class="cv-entry__qual">— for ruteleveranse</span></h3>
+      <span class="cv-entry__date">2025–2026</span>
+    </div>
+    <div class="cv-entry__meta">JavaScript · Firebase · Rust</div>
+    <ul class="cv-list">
+      <li><span><strong>MVE Bread List:</strong> mobil plukkliste som henter ordrer fra Google Sheets og synkroniserer avkryssinger mellom enheter i sanntid med Firebase.</span></li>
+      <li><span><strong>Breadify:</strong> skrivebordsprogram i Rust som gjør en ordreeksport om til utskriftsklare plukkark, med validering i tre nivåer. Distribuert som ferdig binærfil via GitHub Releases.</span></li>
+    </ul>
   </article>
 </section>
 
@@ -118,8 +113,9 @@
   <article class="cv-entry">
     <div class="cv-entry__head">
       <h3>Sjåfør, varelevering <span class="cv-entry__qual">— Matvare-Expressen, Stavanger</span></h3>
+      <span class="cv-entry__date">2025–nå</span>
     </div>
-    <p>Daglig ruteleveranse med plukk, pakking, avvikshåndtering og kundekontakt under tidspress. Det er kjennskapen til arbeidsprosessen innenfra som ligger bak verktøyene over — jeg har bygget dem for jobben jeg selv gjør.</p>
+    <p>Daglig ruteleveranse med plukk, pakking, avvikshåndtering og kundekontakt under tidspress.</p>
   </article>
 
   <article class="cv-entry">
@@ -166,15 +162,15 @@
     <span class="hm-eyebrow">Ferdigheter</span>
     <div class="cv-skill">
       <span class="cv-skill__name">Språk og rammeverk</span>
-      <span class="cv-skill__value">Rust · C# · ASP.NET · JavaScript · TypeScript · Svelte · Tauri · SQL · HTML/CSS</span>
+      <span class="cv-skill__value">Rust · Axum · C# · ASP.NET · JavaScript · TypeScript · Svelte · Tauri · HTMX · SQL · HTML/CSS</span>
     </div>
     <div class="cv-skill">
       <span class="cv-skill__name">Data og integrasjon</span>
-      <span class="cv-skill__value">SQL Server · SQLite · Firebase · REST-API-er · import av CSV og XLSX · Google Sheets som datakilde</span>
+      <span class="cv-skill__value">SQL Server · SQLite · Firebase · REST-API-er · Server-Sent Events · S3-kompatibel lagring · import av CSV og XLSX</span>
     </div>
     <div class="cv-skill">
       <span class="cv-skill__name">Verktøy og arbeidsmåte</span>
-      <span class="cv-skill__value">Git og versjonskontroll · GitHub Releases · Linux · AI-assistert utvikling (Claude Code) · teknisk dokumentasjon og brukerveiledninger</span>
+      <span class="cv-skill__value">Git · GitHub Actions · Linux-server og nginx · AI-assistert utvikling (Claude Code) · teknisk dokumentasjon og brukerveiledninger</span>
     </div>
     <div class="cv-skill">
       <span class="cv-skill__name">Fagbakgrunn</span>
