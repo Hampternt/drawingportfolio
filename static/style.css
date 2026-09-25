@@ -2056,6 +2056,22 @@ body.fitness-dark .meal-cal { color: var(--noc-muted); font-size: 12px; }
 @media (max-width: 899px) {
   body.fitness-dark header nav { display: none; }
 }
+/* The other three dark scopes keep their nav on a phone and scroll it
+   sideways instead (ruled with the CV, 2026-09-25, when the fifth link made
+   the clipping impossible to ignore). min-width: 0 is what lets a flex item
+   shrink below its content at all; without it the row still overflows and
+   the page, not the nav, is what scrolls. The scrollbar is hidden because a
+   thumb under a 56px bar reads as a rendering fault, and a swipe finds the
+   rest without it. */
+@media (max-width: 899px) {
+  :is(body.art-page, body.sorting-dark, body.site-dark) header nav {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  :is(body.art-page, body.sorting-dark, body.site-dark) header nav::-webkit-scrollbar { display: none; }
+}
 :is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) header nav a {
   font: var(--weight-medium) var(--text-14)/1.2 var(--font-sans);
   color: var(--text-muted);
@@ -3334,7 +3350,7 @@ header .site-admin {
    a template that overrides nothing writes the empty string, which matches no
    selector below and marks nothing. That is the whole mechanism — no per-page
    class, no server-side loop over the links, and nothing to keep in sync but
-   the four names.
+   the five names.
 
    Stated twice for the two chromes again, and the colours are not the same
    value: --text-strong is a near-white meant for the dark bar and would be
@@ -3348,13 +3364,15 @@ header .site-admin {
 header nav[data-active="artportfolio"] a[href="/artportfolio"],
 header nav[data-active="tasks"] a[href="/tasks"],
 header nav[data-active="fitness"] a[href="/fitness"],
-header nav[data-active="sorting"] a[href="/sorting"] {
+header nav[data-active="sorting"] a[href="/sorting"],
+header nav[data-active="cv"] a[href="/cv"] {
   color: #222;
 }
 :is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) header nav[data-active="artportfolio"] a[href="/artportfolio"],
 :is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) header nav[data-active="tasks"] a[href="/tasks"],
 :is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) header nav[data-active="fitness"] a[href="/fitness"],
-:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) header nav[data-active="sorting"] a[href="/sorting"] {
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) header nav[data-active="sorting"] a[href="/sorting"],
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) header nav[data-active="cv"] a[href="/cv"] {
   color: var(--text-strong);
 }
 
@@ -3570,6 +3588,214 @@ body.site-dark .hub-foot__mark { color: var(--text-muted); }
 body.site-dark .hub-foot__admin { margin-left: auto; }
 body.site-dark .hub-foot__row a { color: var(--text-faint); }
 body.site-dark .hub-foot__row a:hover { color: var(--text-muted); }
+
+/* The CV. Content lives in templates/cv.html and nowhere else, so a finished
+   CV swaps the template and leaves these rules alone.
+
+   The page head repeats the hub hero's move — .hm-grid-bg full bleed, an
+   inner 1180px column — at the handoff's tighter 64/40 padding. The body
+   below is the column itself, 1180px wide with its 32px gutters inside,
+   which is the Sections band's arrangement and carries the same 32px step
+   against the head above 1244px; see the note on .hub-sections.
+
+   Bullets are .cv-list rather than .hm-prose: prose puts a 16px margin
+   between every sibling, and the CV's rhythm is gaps the handoff specifies
+   per block (8px between bullets, 10px inside a project, 44px between
+   sections). The dot is the same 4px accent dot at the same 9px offset.
+   Every <li> wraps its text in one <span> — the <li> is a flex row, and a
+   bare <strong> followed by text would otherwise become two flex items side
+   by side instead of one sentence.
+
+   #3A3448, the mock's contact separator, is not on the ink scale; --ink-600
+   is its neighbour, and a separator is the one place a step darker costs
+   nothing. The rail's link card to the how-it-works page is omitted until
+   that route exists (Pack 7), same rule as the hub footer. */
+body.site-dark .cv-head {
+  padding: var(--space-12) var(--space-9) var(--space-10);
+  border-bottom: var(--border-width) solid var(--border-subtle);
+}
+body.site-dark .cv-head__inner { max-width: var(--page-max); margin: 0 auto; }
+body.site-dark .cv-head__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-8);
+  margin-top: 14px;
+}
+body.site-dark .cv-head__title { min-width: 0; }
+body.site-dark .cv-head__name {
+  color: var(--text-strong);
+  font: var(--weight-black) clamp(38px, 5.4vw, 60px)/var(--leading-tight) var(--font-display);
+  letter-spacing: var(--tracking-tight);
+}
+body.site-dark .cv-head__role { margin-top: 14px; color: var(--text-body); font-size: 17px; }
+body.site-dark .cv-head__actions { display: flex; gap: var(--space-4); flex: none; margin-left: auto; }
+body.site-dark .cv-contact {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-4) var(--space-7);
+  margin-top: 28px;
+  padding-top: var(--space-6);
+  border-top: var(--border-width) solid var(--border-subtle);
+  color: var(--text-muted);
+  font: var(--weight-medium) var(--text-12)/1.4 var(--font-mono);
+  letter-spacing: var(--tracking-wide);
+}
+body.site-dark .cv-contact > * { white-space: nowrap; }
+body.site-dark .cv-contact__sep { color: var(--ink-600); }
+
+body.site-dark .cv-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 260px;
+  gap: var(--space-11);
+  align-items: start;
+  max-width: var(--page-max);
+  margin: 0 auto;
+  padding: var(--space-10) var(--space-9) 96px;
+}
+body.site-dark .cv-main { display: flex; flex-direction: column; gap: 44px; min-width: 0; }
+body.site-dark .cv-section p { max-width: var(--prose-max); color: var(--text-body); }
+body.site-dark .cv-section > p + *,
+body.site-dark .cv-section > .cv-list + * { margin-top: 14px; }
+body.site-dark .cv-section > p.cv-lead { font-size: var(--text-16); }
+body.site-dark .cv-section > p.cv-lead + p.cv-lead { margin-top: var(--space-5); }
+body.site-dark .cv-section__label {
+  margin-bottom: 14px;
+  padding-bottom: 10px;
+  border-bottom: var(--border-width) solid var(--border-subtle);
+  color: var(--text-muted);
+  font: var(--type-label);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+}
+body.site-dark .cv-section:has(> .cv-entry) .cv-section__label { margin-bottom: var(--space-7); }
+
+body.site-dark .cv-entry {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding-bottom: var(--space-7);
+  margin-bottom: var(--space-7);
+  border-bottom: var(--border-width) solid var(--border-subtle);
+}
+body.site-dark .cv-section--projects .cv-entry {
+  gap: 10px;
+  padding-bottom: var(--space-8);
+  margin-bottom: var(--space-8);
+}
+body.site-dark .cv-entry:last-child { padding-bottom: 0; margin-bottom: 0; border-bottom: none; }
+body.site-dark .cv-entry__head { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-5); }
+body.site-dark .cv-entry__head h3 {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--text-strong);
+  font: var(--weight-semibold) 20px/1.3 var(--font-display);
+  letter-spacing: -0.015em;
+}
+body.site-dark .cv-entry__qual { color: var(--text-muted); font-weight: var(--weight-regular); }
+body.site-dark .cv-entry__date {
+  flex: none;
+  color: var(--text-faint);
+  font: var(--weight-medium) var(--text-12)/1.4 var(--font-mono);
+  letter-spacing: var(--tracking-wide);
+}
+body.site-dark .cv-entry__tags { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+body.site-dark .cv-entry__meta { color: var(--text-muted); font: var(--weight-medium) var(--text-12)/1.4 var(--font-mono); }
+
+body.site-dark .cv-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  max-width: var(--prose-max);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+body.site-dark .cv-list li { display: flex; gap: var(--space-5); }
+body.site-dark .cv-list li::before {
+  content: "";
+  flex: none;
+  width: 4px;
+  height: 4px;
+  margin-top: 9px;
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+}
+body.site-dark .cv-list strong { color: var(--text-strong); font-weight: var(--weight-semibold); }
+
+/* The rail sticks 80px down — the 56px header plus the 24px the handoff
+   leaves under it. */
+body.site-dark .cv-rail {
+  position: sticky;
+  top: 80px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-7);
+  min-width: 0;
+}
+body.site-dark .cv-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  padding: 18px;
+  background: var(--surface-card);
+  border: var(--border-width) solid var(--border-subtle);
+  border-radius: var(--radius-md);
+}
+body.site-dark .cv-card--inset { gap: 10px; background: var(--surface-inset); }
+body.site-dark .cv-skill { display: flex; flex-direction: column; gap: var(--space-3); }
+body.site-dark .cv-skill__name {
+  color: var(--text-strong);
+  font: var(--weight-semibold) var(--text-12)/1.3 var(--font-display);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+}
+body.site-dark .cv-skill__value { color: var(--text-muted); font-size: var(--text-14); }
+
+/* A narrow window stacks the rail ABOVE the entries, as the handoff's
+   responsive note asks, and drops the stickiness a single column has no use
+   for. */
+@media (max-width: 899px) {
+  body.site-dark .cv-head { padding: var(--space-10) var(--gutter) var(--space-9); }
+  body.site-dark .cv-body { grid-template-columns: minmax(0, 1fr); gap: var(--space-9); padding: var(--space-9) var(--gutter) var(--space-12); }
+  body.site-dark .cv-rail { position: static; order: -1; }
+  body.site-dark .cv-head__actions { margin-left: 0; }
+}
+
+/* Print, which is what "Last ned som PDF" opens: the browser's print dialog
+   saves a PDF on every platform, and the page itself is the source, so the
+   PDF can never drift from what the site shows. Ink on paper, the site
+   chrome and the two buttons gone, one column with the skills after the
+   entries.
+
+   No @page rule. It cannot be scoped to a selector, so it would change the
+   margins of every page anyone prints from this site; the browser's default
+   margins are the price of leaving the rest alone. Every rule below is gated
+   on body:has(.cv-page) for the same reason. */
+@media print {
+  body.site-dark:has(.cv-page) {
+    --text-strong: #000;
+    --text-body: #222;
+    --text-muted: #444;
+    --text-faint: #666;
+    --border-subtle: #ccc;
+    --surface-card: #fff;
+    --surface-inset: #fff;
+    background: #fff;
+  }
+  body.site-dark:has(.cv-page) > header,
+  body.site-dark .cv-head__actions,
+  body.site-dark:has(.cv-page) #palette-overlay { display: none; }
+  body.site-dark .cv-head { padding: 0 0 var(--space-6); background: none; }
+  body.site-dark .cv-contact a { color: var(--text-body); }
+  body.site-dark .cv-body { display: block; padding: var(--space-6) 0 0; }
+  body.site-dark .cv-main { gap: var(--space-8); }
+  body.site-dark .cv-rail { position: static; margin-top: var(--space-8); }
+  body.site-dark .cv-entry { break-inside: avoid; }
+  body.site-dark .cv-list li::before { background: #000; }
+  body.site-dark .hm-badge--accent { background: none; border-color: #999; color: #444; }
+}
 
 /* ── Sorting: crate sort and van load ────────────────────────────────────────
    Two screens. `/sorting` lists the sessions; `/sorting/{id}` is the board that

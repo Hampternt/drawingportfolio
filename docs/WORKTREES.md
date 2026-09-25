@@ -31,8 +31,10 @@ from this file on 2026-08-12; `git log docs/WORKTREES.md` recovers them.
   "How it works" page (`/docs`). Fitness, artportfolio and drinks are
   deliberately untouched. Container manifest:
   `docs/manifests/2026-09-08-hub-admin-cv-docs.md` — seven packs, planned
-  one level deep; three rulings block Packs 3, 6 and 7 and no execution go
-  has been given. Merges → `master`, not `dev` (see the manifest's status
+  one level deep. Packs 1–2 done (2026-09-09); **Pack 6, the CV, done
+  2026-09-25** on `claude/cv-worktree-completion-lq2wps`, PR'd into this
+  branch (ruling 1 taken; the driver job's start year is still owed).
+  Packs 3–5 and 7 not started — rulings 2 and 3 still block 3 and 7. Merges → `master`, not `dev` (see the manifest's status
   block for the ancestry check).
 
 - **`claude/secret-hitler-game-jg8xqs`** (started 2026-09-07, from `master`,

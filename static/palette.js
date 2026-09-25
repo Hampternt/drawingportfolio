@@ -86,6 +86,11 @@ const COMMANDS = [
     },
   },
   {
+    label: 'Go to CV',
+    keywords: ['cv', 'resume', 'work', 'experience', 'hire', 'pdf'],
+    action() { location.href = '/cv'; },
+  },
+  {
     label: 'Go to Hub',
     keywords: ['home', 'hub', 'index', 'start', 'main'],
     action() { location.href = '/'; },
