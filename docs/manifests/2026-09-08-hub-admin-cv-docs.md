@@ -5,8 +5,7 @@ gated and walked; ledgers at the foot. **Packs 3, 4, 5 and 7 are not started.**
 Ruling 1 was taken by the user 2026-09-25 and Pack 6 shipped on it; **ruling 2
 (how `admin_page` gets identity) still blocks Pack 3** and **ruling 3 (the
 documentation route's name) still blocks Pack 7**. Open PR:
-Hampternt/drawingportfolio#20 — currently **conflicting with `master`** in
-`docs/WORKTREES.md`, an add/add where both sides indexed this stream.
+Hampternt/drawingportfolio#20, with `master` merged in as of 2026-09-25.
 
 *(This line read "NOT STARTED" from 2026-09-08 until 2026-09-25: the Pack 1 and
 Pack 2 ledger commits tried to update it with an unasserted string replacement

@@ -24,18 +24,23 @@ from this file on 2026-08-12; `git log docs/WORKTREES.md` recovers them.
 
 ## Streams
 
-- **`feat/hub-admin-cv-docs`** (started 2026-09-08, from `master`, in the
-  main checkout — no separate worktree): the Claude Design handoff in
-  `docs/design/hub-admin-cv-docs/` — dark Hub and Admin on the Hampter Design
-  System, plus two new sections, a CV page (`/cv`) and an employer-facing
-  "How it works" page (`/docs`). Fitness, artportfolio and drinks are
-  deliberately untouched. Container manifest:
-  `docs/manifests/2026-09-08-hub-admin-cv-docs.md` — seven packs, planned
-  one level deep. Packs 1–2 done (2026-09-09); **Pack 6, the CV, done
-  2026-09-25** on `claude/cv-worktree-completion-lq2wps`, PR'd into this
-  branch (ruling 1 taken; CV text revised by the user).
-  Packs 3–5 and 7 not started — rulings 2 and 3 still block 3 and 7. Merges → `master`, not `dev` (see the manifest's status
-  block for the ancestry check).
+- **`feat/hub-admin-cv-docs`** (started 2026-09-08, from `master` @ afbad7f,
+  in the main checkout — no separate worktree; merges → `master`, not `dev`):
+  the Claude Design handoff — the Hub and Admin onto the Hampter Design System,
+  plus two new sections, a **CV page (`GET /cv`)** and an employer-facing
+  "How it works" page. Fitness, artportfolio and drinks are deliberately
+  untouched in content; they do inherit the shared header and command palette.
+  Container manifest: `docs/manifests/2026-09-08-hub-admin-cv-docs.md` (on the
+  branch) — seven packs, planned one level deep.
+  Design handoff: `docs/design/hub-admin-cv-docs/` (on the branch) — **the CV
+  design is `CV.dc.html`** (Norwegian, "Jesper Løvland — Utvikler, interne
+  digitale verktøy og automatisering").
+  **Packs 1 (shared shell), 2 (Hub) and 6 (CV) are done**; Pack 6 landed
+  2026-09-25 from `claude/cv-worktree-completion-lq2wps` via
+  Hampternt/drawingportfolio#19, with ruling 1 taken by the user and the CV
+  text revised by them. **Packs 3, 4, 5 and 7 are not started** — ruling 2
+  (how `admin_page` gets identity) blocks 3, ruling 3 (the documentation
+  route's name) blocks 7. Open PR: Hampternt/drawingportfolio#20.
 
 - **`claude/secret-hitler-game-jg8xqs`** (started 2026-09-07, from `master`,
   in the main checkout — no separate worktree): **Backroom**, a fourth game

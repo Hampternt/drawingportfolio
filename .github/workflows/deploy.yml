@@ -4,6 +4,29 @@ on:
   push:
     branches: [master]
 
+# One deploy at a time. Without this, two merges close together produce two
+# runs racing to the same server: both scp a binary to the same path and both
+# restart the service, so whichever finishes LAST wins — which is not
+# necessarily the newest commit. Measured 2026-09-07: runs 42 and 43 started
+# 14s apart and overlapped for their whole length.
+#
+# cancel-in-progress is false on purpose, and it is the more important half.
+# The deploy step is a four-stage sequence — scp, atomic mv, rsync static/,
+# systemctl restart — and cancelling partway through it is worse than the race
+# it would prevent:
+#   * killed between mv and restart, the new binary sits on disk while the old
+#     process keeps serving from its own inode. A silent no-op deploy that
+#     jumps versions at whatever unrelated restart comes next.
+#   * killed between mv and rsync, a new binary runs against old static/ —
+#     which nginx serves with a one-year immutable Cache-Control, so returning
+#     visitors are stranded on mismatched assets.
+# So a running deploy always finishes. GitHub keeps only the newest PENDING
+# run in the group and drops the rest, so the newest commit still deploys
+# last and no superseded binary is ever shipped.
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   deploy:
     runs-on: ubuntu-24.04
