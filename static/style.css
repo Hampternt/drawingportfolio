@@ -31,34 +31,6 @@ nav a {
 
 nav a:hover { color: #222; }
 
-.hub-intro {
-  margin-bottom: 2rem;
-}
-
-.hub-intro h1 { margin: 0 0 0.5rem; }
-
-.hub-projects {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-}
-
-.hub-card {
-  display: block;
-  background: #fff;
-  border: 1px solid #ddd;
-  border-radius: 8px;
-  padding: 1.25rem 1.5rem;
-  text-decoration: none;
-  color: inherit;
-}
-
-.hub-card:hover { border-color: #aaa; }
-
-.hub-card h2 { margin: 0 0 0.4rem; font-size: 1.1rem; }
-
-.hub-card p { margin: 0; color: #666; font-size: 0.9rem; }
-
 main {
   max-width: 640px;
   margin: 2rem auto;
@@ -69,38 +41,6 @@ main {
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
-}
-
-.post-card {
-  background: #fff;
-  border: 1px solid #ddd;
-  border-radius: 8px;
-  overflow: hidden;
-}
-
-.post-card picture {
-  display: block;
-  min-height: 300px;
-  background: #000;
-}
-
-.post-card img {
-  width: 100%;
-  display: block;
-  max-height: 600px;
-  object-fit: contain;
-}
-
-.caption {
-  padding: 0.75rem 1rem 0.25rem;
-  margin: 0;
-}
-
-.date {
-  display: block;
-  padding: 0 1rem 0.75rem;
-  color: #888;
-  font-size: 0.8rem;
 }
 
 .load-more {
@@ -1228,7 +1168,7 @@ body.fitness-dark #fit-toast { bottom: calc(var(--fit-bar-h) + var(--space-5)); 
    bar carries it and this would be a second button for one job.
 
    Scoped through .fit-head rather than written flat, and not for tidiness:
-   `:is(body.art-page, body.fitness-dark, body.sorting-dark) .hm-btn` is (0,2,1)
+   `:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-btn` is (0,2,1)
    — `:is()` takes its most specific argument's weight, so the third page name
    changed nothing — and it sits ~800
    lines later in this file, so a flat `body.fitness-dark .fit-head__copy` ties
@@ -1726,11 +1666,13 @@ body.fitness-dark .meal-cal { color: var(--noc-muted); font-size: 12px; }
    nothing that does not read them is affected.
 
    Everything that PAINTS is scoped. The primitives — resets, icons, Button,
-   IconButton, Kbd, Field, utility surfaces — carry all three page scopes
-   (art, fitness, sorting); the site chrome, the PostCard and the feed layout
-   stay artportfolio-only. Adding a page to that :is() list is free: :is()
-   takes its most specific argument's weight, so a fourth name shifts no
-   existing rule's specificity. Comments
+   IconButton, Kbd, Field, utility surfaces — carry all four page scopes
+   (art, fitness, sorting, site); the feed layout stays artportfolio-only.
+   Adding a page to that :is() list is free: :is() takes its most specific
+   argument's weight, so the fourth name shifted no existing rule's
+   specificity — site-dark was added to every occurrence at once rather than
+   to the handful a screen happened to need, because a half-swept list is a
+   page that is dark in patches. Comments
    from the source files are stripped: CSS comments do not nest, and a lifted
    opening marker inside this block would silently drop the next rule. Guarded
    by tests/static_assets.rs.
@@ -1866,6 +1808,7 @@ body.fitness-dark .meal-cal { color: var(--noc-muted); font-size: 12px; }
   --type-display:var(--weight-black) var(--text-68)/var(--leading-tight) var(--font-display);
   --type-h1:800 var(--text-40)/var(--leading-snug) var(--font-display);
   --type-h2:700 var(--text-26)/var(--leading-snug) var(--font-display);
+  --type-h3:600 var(--text-18)/var(--leading-snug) var(--font-display);
   --type-body:var(--weight-regular) var(--text-15)/var(--leading-normal) var(--font-sans);
   --type-body-sm:var(--weight-regular) var(--text-13)/var(--leading-normal) var(--font-sans);
   --type-ui:var(--weight-medium) var(--text-14)/1.2 var(--font-sans);
@@ -1958,33 +1901,59 @@ body.fitness-dark .meal-cal { color: var(--noc-muted); font-size: 12px; }
 }
 
 /* Faces. Self-hosted from /static/fonts — no third-party handshake, matching
-   how base.html self-hosts HTMX. Archivo 600 is deliberately absent: nothing
-   lifted here uses --type-h3, the only role that asks for it. */
+   how base.html self-hosts HTMX.
+
+   Archivo 600 used to be deliberately absent, because nothing lifted here used
+   --type-h3, the only role that asks for it. The hub-and-admin handoff sets
+   every card title, dialog title and pane heading in it, so the token is
+   declared above and the face ships with it. Archivo 500 and Space Grotesk
+   600/700 come along for the same reason: the handoff's headings and its
+   emphasised UI text name weights the browser would otherwise synthesise by
+   slanting and smearing a lighter face, which is exactly the thing self-hosting
+   is for.
+
+   IBM Plex Mono stays at 400 and 500. The bundle's own @import asks for 600 as
+   well, but nothing in the four screens sets a mono run at that weight — the
+   mono roles are the 11px uppercase micro-labels at 500 and metadata at 400 —
+   so the third face would be a download nobody reads.
+
+   These are byte-identical copies of drinkinggame/assets/fonts, verified by
+   md5. Never re-encode one: a file under /static/fonts/ moves no ?v= and nginx
+   serves it immutable for a year, so a changed glyph needs a new filename. */
+@font-face { font-family:"Archivo"; font-style:normal; font-weight:500; font-display:swap; src:url("/static/fonts/archivo-500.woff2") format("woff2"); }
+@font-face { font-family:"Archivo"; font-style:normal; font-weight:600; font-display:swap; src:url("/static/fonts/archivo-600.woff2") format("woff2"); }
 @font-face { font-family:"Archivo"; font-style:normal; font-weight:700; font-display:swap; src:url("/static/fonts/archivo-700.woff2") format("woff2"); }
 @font-face { font-family:"Archivo"; font-style:normal; font-weight:800; font-display:swap; src:url("/static/fonts/archivo-800.woff2") format("woff2"); }
 @font-face { font-family:"Archivo"; font-style:normal; font-weight:900; font-display:swap; src:url("/static/fonts/archivo-900.woff2") format("woff2"); }
 @font-face { font-family:"Space Grotesk"; font-style:normal; font-weight:400; font-display:swap; src:url("/static/fonts/space-grotesk-400.woff2") format("woff2"); }
 @font-face { font-family:"Space Grotesk"; font-style:normal; font-weight:500; font-display:swap; src:url("/static/fonts/space-grotesk-500.woff2") format("woff2"); }
+@font-face { font-family:"Space Grotesk"; font-style:normal; font-weight:600; font-display:swap; src:url("/static/fonts/space-grotesk-600.woff2") format("woff2"); }
+@font-face { font-family:"Space Grotesk"; font-style:normal; font-weight:700; font-display:swap; src:url("/static/fonts/space-grotesk-700.woff2") format("woff2"); }
 @font-face { font-family:"IBM Plex Mono"; font-style:normal; font-weight:400; font-display:swap; src:url("/static/fonts/ibm-plex-mono-400.woff2") format("woff2"); }
 @font-face { font-family:"IBM Plex Mono"; font-style:normal; font-weight:500; font-display:swap; src:url("/static/fonts/ibm-plex-mono-500.woff2") format("woff2"); }
 
 /* Resets — tokens/base.css, rewritten under the design-system scope. Linking
    that file as-is would repaint every page on the site on the next request.
 
-   The scope is a two-page :is() list, not one class, because both surfaces
-   already carry their own body class and base.html re-derives those from
-   content markers on every boosted swap. Adding a third shared class would
-   mean a third thing that can fail to be re-derived. :is(a, b) X takes the
+   The scope is a four-page :is() list, not one class, because each surface
+   already carries its own body class and base.html re-derives those from
+   content markers on every boosted swap. A single shared class would be one
+   more thing that can fail to be re-derived. :is(a, b) X takes the
    specificity of its most specific argument, so each of these still weighs
    exactly what `body.art-page X` weighed — the cascade is unchanged.
 
-   Only the primitives below are shared. The site chrome, the PostCard and the
-   feed layout stay artportfolio-only, further down. */
-:is(body.art-page, body.fitness-dark, body.sorting-dark),
-:is(body.art-page, body.fitness-dark, body.sorting-dark) *,
-:is(body.art-page, body.fitness-dark, body.sorting-dark) *::before,
-:is(body.art-page, body.fitness-dark, body.sorting-dark) *::after { box-sizing: border-box; }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) {
+   `site-dark` is the site's own screens — the hub, the CV and the how-it-works
+   page — and its marker is `main .site-page`. No template carries that marker
+   yet; the class is wired here first so the screens that arrive later light up
+   without a second sweep of this file.
+
+   Only the primitives below are shared. The feed layout stays
+   artportfolio-only, further down. */
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark),
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) *,
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) *::before,
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) *::after { box-sizing: border-box; }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) {
   margin: 0;
   background: var(--surface-page);
   color: var(--text-body);
@@ -1993,35 +1962,35 @@ body.fitness-dark .meal-cal { color: var(--noc-muted); font-size: 12px; }
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) h1,
-:is(body.art-page, body.fitness-dark, body.sorting-dark) h2,
-:is(body.art-page, body.fitness-dark, body.sorting-dark) h3,
-:is(body.art-page, body.fitness-dark, body.sorting-dark) h4 {
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) h1,
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) h2,
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) h3,
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) h4 {
   margin: 0;
   color: var(--text-strong);
   font-family: var(--font-display);
   letter-spacing: var(--tracking-tight);
   text-wrap: balance;
 }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) p { margin: 0; text-wrap: pretty; }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) a {
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) p { margin: 0; text-wrap: pretty; }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) a {
   color: var(--text-link);
   text-decoration: none;
   text-underline-offset: 3px;
   transition: color var(--dur-fast) var(--ease-snap);
 }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) a:hover { color: var(--text-link-hover); text-decoration: underline; }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) code,
-:is(body.art-page, body.fitness-dark, body.sorting-dark) kbd,
-:is(body.art-page, body.fitness-dark, body.sorting-dark) pre,
-:is(body.art-page, body.fitness-dark, body.sorting-dark) samp { font-family: var(--font-mono); }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) ::selection { background: var(--violet-a28); color: var(--ink-050); }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) :focus-visible { outline: none; box-shadow: var(--focus-ring); }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) button,
-:is(body.art-page, body.fitness-dark, body.sorting-dark) input,
-:is(body.art-page, body.fitness-dark, body.sorting-dark) select,
-:is(body.art-page, body.fitness-dark, body.sorting-dark) textarea { font: inherit; color: inherit; }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) hr { border: none; border-top: 1px solid var(--border-subtle); margin: 0; }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) a:hover { color: var(--text-link-hover); text-decoration: underline; }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) code,
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) kbd,
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) pre,
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) samp { font-family: var(--font-mono); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) ::selection { background: var(--violet-a28); color: var(--ink-050); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) :focus-visible { outline: none; box-shadow: var(--focus-ring); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) button,
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) input,
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) select,
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) textarea { font: inherit; color: inherit; }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) hr { border: none; border-top: 1px solid var(--border-subtle); margin: 0; }
 
 /* Site chrome from base.html, restyled in place on both design-system pages.
    The markup is untouched — which is the whole point: base.html is shared with
@@ -2038,12 +2007,12 @@ body.fitness-dark .meal-cal { color: var(--noc-muted); font-size: 12px; }
    and `header { padding: 1rem 2rem }` — the first would clamp the 1180px feed to
    640px and kill the masonry outright, and the second fights the 56px bar. The
    fitness shell needs exactly the same two escapes for the same two reasons. */
-:is(body.art-page, body.fitness-dark, body.sorting-dark) main {
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) main {
   max-width: none;
   margin: 0;
   padding: 0;
 }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) header {
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) header {
   position: sticky;
   top: 0;
   z-index: 40;
@@ -2055,7 +2024,7 @@ body.fitness-dark .meal-cal { color: var(--noc-muted); font-size: 12px; }
   -webkit-backdrop-filter: blur(10px);
   border-bottom: 1px solid var(--border-subtle);
 }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) header .site-title {
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) header .site-title {
   font: 800 17px/1 var(--font-display);
   letter-spacing: -0.035em;
   color: var(--text-strong);
@@ -2063,7 +2032,7 @@ body.fitness-dark .meal-cal { color: var(--noc-muted); font-size: 12px; }
 /* The shared stylesheet never gives `nav` a display or a gap, so its links are
    inline elements separated by one space of whitespace. At this type size they
    read as one run-on string; lay them out explicitly. */
-:is(body.art-page, body.fitness-dark, body.sorting-dark) header nav {
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) header nav {
   display: flex;
   align-items: center;
   gap: var(--space-7);
@@ -2087,14 +2056,30 @@ body.fitness-dark .meal-cal { color: var(--noc-muted); font-size: 12px; }
 @media (max-width: 899px) {
   body.fitness-dark header nav { display: none; }
 }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) header nav a {
+/* The other three dark scopes keep their nav on a phone and scroll it
+   sideways instead (ruled with the CV, 2026-09-25, when the fifth link made
+   the clipping impossible to ignore). min-width: 0 is what lets a flex item
+   shrink below its content at all; without it the row still overflows and
+   the page, not the nav, is what scrolls. The scrollbar is hidden because a
+   thumb under a 56px bar reads as a rendering fault, and a swipe finds the
+   rest without it. */
+@media (max-width: 899px) {
+  :is(body.art-page, body.sorting-dark, body.site-dark) header nav {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  :is(body.art-page, body.sorting-dark, body.site-dark) header nav::-webkit-scrollbar { display: none; }
+}
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) header nav a {
   font: var(--weight-medium) var(--text-14)/1.2 var(--font-sans);
   color: var(--text-muted);
 }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) header nav a:hover { color: var(--text-strong); text-decoration: none; }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) header nav a:hover { color: var(--text-strong); text-decoration: none; }
 
 /* The Ctrl-K affordance, which base.html renders as a bare <button> of <kbd>s. */
-:is(body.art-page, body.fitness-dark, body.sorting-dark) header .palette-hint {
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) header .palette-hint {
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
@@ -2104,7 +2089,7 @@ body.fitness-dark .meal-cal { color: var(--noc-muted); font-size: 12px; }
   background: none;
   cursor: pointer;
 }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) header .palette-hint kbd {
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) header .palette-hint kbd {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -2122,7 +2107,7 @@ body.fitness-dark .meal-cal { color: var(--noc-muted); font-size: 12px; }
 
 /* Icons — Lucide as CSS masks, so a glyph inherits currentColor and needs no
    recolouring per context. */
-:is(body.art-page, body.fitness-dark, body.sorting-dark) .hm-icon {
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-icon {
   display: inline-block;
   flex: none;
   width: 16px;
@@ -2132,16 +2117,59 @@ body.fitness-dark .meal-cal { color: var(--noc-muted); font-size: 12px; }
   -webkit-mask-position: center; mask-position: center;
   -webkit-mask-size: 100% 100%; mask-size: 100% 100%;
 }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) .hm-icon--search { -webkit-mask-image: url("/static/icons/search.svg"); mask-image: url("/static/icons/search.svg"); }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) .hm-icon--chevron-down { -webkit-mask-image: url("/static/icons/chevron-down.svg"); mask-image: url("/static/icons/chevron-down.svg"); }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) .hm-icon--x { -webkit-mask-image: url("/static/icons/x.svg"); mask-image: url("/static/icons/x.svg"); }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) .hm-icon--chevron-left { -webkit-mask-image: url("/static/icons/chevron-left.svg"); mask-image: url("/static/icons/chevron-left.svg"); }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) .hm-icon--calendar-days { -webkit-mask-image: url("/static/icons/calendar-days.svg"); mask-image: url("/static/icons/calendar-days.svg"); }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) .hm-icon--scan-line { -webkit-mask-image: url("/static/icons/scan-line.svg"); mask-image: url("/static/icons/scan-line.svg"); }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) .hm-icon--copy { -webkit-mask-image: url("/static/icons/copy.svg"); mask-image: url("/static/icons/copy.svg"); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-icon--search { -webkit-mask-image: url("/static/icons/search.svg"); mask-image: url("/static/icons/search.svg"); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-icon--chevron-down { -webkit-mask-image: url("/static/icons/chevron-down.svg"); mask-image: url("/static/icons/chevron-down.svg"); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-icon--x { -webkit-mask-image: url("/static/icons/x.svg"); mask-image: url("/static/icons/x.svg"); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-icon--chevron-left { -webkit-mask-image: url("/static/icons/chevron-left.svg"); mask-image: url("/static/icons/chevron-left.svg"); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-icon--calendar-days { -webkit-mask-image: url("/static/icons/calendar-days.svg"); mask-image: url("/static/icons/calendar-days.svg"); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-icon--scan-line { -webkit-mask-image: url("/static/icons/scan-line.svg"); mask-image: url("/static/icons/scan-line.svg"); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-icon--copy { -webkit-mask-image: url("/static/icons/copy.svg"); mask-image: url("/static/icons/copy.svg"); }
+
+/* The set the hub, admin, CV and how-it-works screens draw from, Lucide
+   v0.462.0, alphabetical. The seven above arrived with the feed and the board
+   and keep their own order.
+
+   THE SVG FILES ARE NOT IN THE TREE YET. Lucide is on no local disk here and
+   the handoff bundle carries CDN URLs rather than the glyphs, so fetching them
+   is a network download the owner has not yet authorised. The rules ship ahead
+   of the files so the stylesheet is complete and one drop into static/icons/
+   finishes the job.
+
+   Until then, be ready for what a missing mask looks like: a mask-image that
+   404s does not hide the element, it leaves it unmasked, so the icon paints as
+   a solid 16px block of currentColor. That is the expected appearance of the
+   admin-only settings button in the header, and of any other icon a screen
+   reaches for before the files land. It is not a bug in the rule below it.
+
+   Names, all 25: activity, arrow-up-right, beer, book-open, chevron-right, clipboard-list, download, eye, eye-off, file-text, github, home, image, image-plus, link, list-checks, log-out, pencil, settings, tag, trash-2, truck, upload, user-plus, users. */
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-icon--activity { -webkit-mask-image: url("/static/icons/activity.svg"); mask-image: url("/static/icons/activity.svg"); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-icon--arrow-up-right { -webkit-mask-image: url("/static/icons/arrow-up-right.svg"); mask-image: url("/static/icons/arrow-up-right.svg"); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-icon--beer { -webkit-mask-image: url("/static/icons/beer.svg"); mask-image: url("/static/icons/beer.svg"); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-icon--book-open { -webkit-mask-image: url("/static/icons/book-open.svg"); mask-image: url("/static/icons/book-open.svg"); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-icon--chevron-right { -webkit-mask-image: url("/static/icons/chevron-right.svg"); mask-image: url("/static/icons/chevron-right.svg"); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-icon--clipboard-list { -webkit-mask-image: url("/static/icons/clipboard-list.svg"); mask-image: url("/static/icons/clipboard-list.svg"); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-icon--download { -webkit-mask-image: url("/static/icons/download.svg"); mask-image: url("/static/icons/download.svg"); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-icon--eye { -webkit-mask-image: url("/static/icons/eye.svg"); mask-image: url("/static/icons/eye.svg"); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-icon--eye-off { -webkit-mask-image: url("/static/icons/eye-off.svg"); mask-image: url("/static/icons/eye-off.svg"); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-icon--file-text { -webkit-mask-image: url("/static/icons/file-text.svg"); mask-image: url("/static/icons/file-text.svg"); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-icon--github { -webkit-mask-image: url("/static/icons/github.svg"); mask-image: url("/static/icons/github.svg"); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-icon--house { -webkit-mask-image: url("/static/icons/house.svg"); mask-image: url("/static/icons/house.svg"); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-icon--image { -webkit-mask-image: url("/static/icons/image.svg"); mask-image: url("/static/icons/image.svg"); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-icon--image-plus { -webkit-mask-image: url("/static/icons/image-plus.svg"); mask-image: url("/static/icons/image-plus.svg"); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-icon--link { -webkit-mask-image: url("/static/icons/link.svg"); mask-image: url("/static/icons/link.svg"); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-icon--list-checks { -webkit-mask-image: url("/static/icons/list-checks.svg"); mask-image: url("/static/icons/list-checks.svg"); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-icon--log-out { -webkit-mask-image: url("/static/icons/log-out.svg"); mask-image: url("/static/icons/log-out.svg"); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-icon--pencil { -webkit-mask-image: url("/static/icons/pencil.svg"); mask-image: url("/static/icons/pencil.svg"); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-icon--settings { -webkit-mask-image: url("/static/icons/settings.svg"); mask-image: url("/static/icons/settings.svg"); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-icon--tag { -webkit-mask-image: url("/static/icons/tag.svg"); mask-image: url("/static/icons/tag.svg"); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-icon--trash-2 { -webkit-mask-image: url("/static/icons/trash-2.svg"); mask-image: url("/static/icons/trash-2.svg"); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-icon--truck { -webkit-mask-image: url("/static/icons/truck.svg"); mask-image: url("/static/icons/truck.svg"); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-icon--upload { -webkit-mask-image: url("/static/icons/upload.svg"); mask-image: url("/static/icons/upload.svg"); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-icon--user-plus { -webkit-mask-image: url("/static/icons/user-plus.svg"); mask-image: url("/static/icons/user-plus.svg"); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-icon--users { -webkit-mask-image: url("/static/icons/users.svg"); mask-image: url("/static/icons/users.svg"); }
 
 /* Button */
-:is(body.art-page, body.fitness-dark, body.sorting-dark) .hm-btn {
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -2161,32 +2189,38 @@ body.fitness-dark .meal-cal { color: var(--noc-muted); font-size: 12px; }
    (0,2,1) against `.hm-btn`'s (0,1,1), so `text-decoration: none` above loses
    on hover no matter where it sits. Restating it at :hover parity fixes it for
    every variant at once. */
-:is(body.art-page, body.fitness-dark, body.sorting-dark) .hm-btn:hover { text-decoration: none; }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) .hm-btn:focus-visible { outline: none; box-shadow: var(--focus-ring); }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) .hm-btn:active { transform: translateY(1px); }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) .hm-btn[disabled],
-:is(body.art-page, body.fitness-dark, body.sorting-dark) .hm-btn[aria-disabled="true"] { opacity: .42; pointer-events: none; }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) .hm-btn--sm { height: var(--control-height-sm); padding: 0 var(--space-5); font-size: var(--text-13); }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) .hm-btn--md { height: var(--control-height-md); padding: 0 var(--space-6); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-btn:hover { text-decoration: none; }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-btn:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-btn:active { transform: translateY(1px); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-btn[disabled],
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-btn[aria-disabled="true"] { opacity: .42; pointer-events: none; }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-btn--sm { height: var(--control-height-sm); padding: 0 var(--space-5); font-size: var(--text-13); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-btn--md { height: var(--control-height-md); padding: 0 var(--space-6); }
 /* `lg` exists for one caller — the phone action bar, where the buttons are the
    page's primary reach and a 34px target under a thumb is not enough. */
-:is(body.art-page, body.fitness-dark, body.sorting-dark) .hm-btn--lg { height: var(--control-height-lg); padding: 0 var(--space-6); font-size: var(--text-15); }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) .hm-btn--primary {
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-btn--lg { height: var(--control-height-lg); padding: 0 var(--space-6); font-size: var(--text-15); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-btn--primary {
   background: var(--accent);
   color: var(--text-on-accent);
   border-color: var(--violet-300);
   box-shadow: var(--shadow-inset-hairline);
 }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) .hm-btn--primary:hover { background: var(--accent-hover); }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) .hm-btn--primary:active { background: var(--accent-press); }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) .hm-btn--secondary { background: var(--ink-800); color: var(--text-strong); border-color: var(--border-default); }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) .hm-btn--secondary:hover { background: var(--ink-750); border-color: var(--border-strong); }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) .hm-btn--secondary:active { background: var(--ink-800); }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) .hm-btn--ghost { background: transparent; color: var(--text-muted); }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) .hm-btn--ghost:hover { background: var(--surface-hover); color: var(--text-strong); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-btn--primary:hover { background: var(--accent-hover); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-btn--primary:active { background: var(--accent-press); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-btn--secondary { background: var(--ink-800); color: var(--text-strong); border-color: var(--border-default); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-btn--secondary:hover { background: var(--ink-750); border-color: var(--border-strong); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-btn--secondary:active { background: var(--ink-800); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-btn--ghost { background: transparent; color: var(--text-muted); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-btn--ghost:hover { background: var(--surface-hover); color: var(--text-strong); }
+/* Danger is an outline, not a filled red block: it sits in a row of row
+   actions where a solid fill would read as the primary thing to do. The hover
+   tint has no token — it is an 10% wash of --status-danger and the bundle
+   writes it long. */
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-btn--danger { background: transparent; color: var(--status-danger); border-color: var(--status-danger-dim); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-btn--danger:hover { background: rgba(247,118,142,.10); color: var(--rose-400); }
 
 /* IconButton */
-:is(body.art-page, body.fitness-dark, body.sorting-dark) .hm-iconbtn {
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-iconbtn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -2197,14 +2231,18 @@ body.fitness-dark .meal-cal { color: var(--noc-muted); font-size: 12px; }
   cursor: pointer;
   transition: var(--transition-control);
 }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) .hm-iconbtn:hover { background: var(--surface-hover); color: var(--text-strong); }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) .hm-iconbtn:active { transform: translateY(1px); }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) .hm-iconbtn:focus-visible { outline: none; box-shadow: var(--focus-ring); }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) .hm-iconbtn--sm { width: var(--control-height-sm); height: var(--control-height-sm); }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) .hm-iconbtn--md { width: var(--control-height-md); height: var(--control-height-md); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-iconbtn:hover { background: var(--surface-hover); color: var(--text-strong); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-iconbtn:active { transform: translateY(1px); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-iconbtn:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-iconbtn--sm { width: var(--control-height-sm); height: var(--control-height-sm); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-iconbtn--md { width: var(--control-height-md); height: var(--control-height-md); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-iconbtn--outline { border-color: var(--border-default); background: var(--ink-800); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-iconbtn--outline:hover { border-color: var(--border-strong); background: var(--ink-750); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-iconbtn--accent { color: var(--accent); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-iconbtn--accent:hover { background: var(--accent-tint); color: var(--accent-hover); }
 
 /* Kbd */
-:is(body.art-page, body.fitness-dark, body.sorting-dark) .hm-kbd {
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-kbd {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -2221,7 +2259,7 @@ body.fitness-dark .meal-cal { color: var(--noc-muted); font-size: 12px; }
   font-size: var(--text-11);
   text-transform: uppercase;
 }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) .hm-kbd-group {
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-kbd-group {
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
@@ -2229,16 +2267,101 @@ body.fitness-dark .meal-cal { color: var(--noc-muted); font-size: 12px; }
   font: var(--type-label);
 }
 
+/* Badge. Six tones, each a 12% wash of its status colour over a dim border of
+   the same hue. The washes are written long because no token names them and
+   inventing six would be six names for one gradient step. */
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 20px;
+  padding: 0 var(--space-3);
+  border: var(--border-width) solid;
+  border-radius: var(--radius-xs);
+  font: var(--type-label);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-caps);
+  white-space: nowrap;
+}
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-badge--neutral { background: var(--ink-800); border-color: var(--border-default); color: var(--text-muted); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-badge--accent { background: var(--violet-a14); border-color: var(--violet-a45); color: var(--violet-300); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-badge--success { background: rgba(79,214,168,.12); border-color: var(--mint-600); color: var(--mint-400); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-badge--warning { background: rgba(255,181,112,.12); border-color: var(--amber-600); color: var(--amber-400); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-badge--danger { background: rgba(247,118,142,.12); border-color: var(--rose-600); color: var(--rose-400); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-badge--info { background: rgba(122,162,247,.12); border-color: var(--azure-600); color: var(--azure-400); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-badge__dot { width: 5px; height: 5px; border-radius: var(--radius-pill); background: currentColor; }
+
+/* Tag. A pill, mono, 24px — the post row's tag list and the filter rail's
+   chips. Only --interactive takes a cursor, so a decorative tag cannot be
+   mistaken for a control. */
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  height: 24px;
+  padding: 0 var(--space-4);
+  border: var(--border-width) solid var(--border-subtle);
+  border-radius: var(--radius-pill);
+  background: var(--white-a04);
+  color: var(--text-muted);
+  font: var(--type-mono);
+  font-size: var(--text-12);
+  transition: var(--transition-control);
+}
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-tag--interactive { cursor: pointer; }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-tag--interactive:hover { border-color: var(--border-strong); color: var(--text-strong); background: var(--white-a07); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-tag.is-selected { background: var(--accent-tint); border-color: var(--violet-a45); color: var(--violet-300); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-tag__remove { display: inline-flex; margin-right: -2px; opacity: .6; cursor: pointer; }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-tag__remove:hover { opacity: 1; color: var(--status-danger); }
+
+/* Card. The generic surface the admin panes, the CV sections and the
+   how-it-works boxes are all built from. `position: relative` is load-bearing:
+   every overlay the four screens place on a card is absolute inside it. */
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface-card);
+  border: var(--border-width) solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  transition: var(--transition-surface), box-shadow var(--dur-base) var(--ease-snap);
+}
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-card--inset { background: var(--surface-inset); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-card--flush { background: transparent; }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-card--interactive { cursor: pointer; }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-card--interactive:hover { border-color: var(--border-strong); transform: translateY(-2px); box-shadow: var(--shadow-2); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-card--interactive:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-card--accent { border-color: var(--violet-a45); box-shadow: var(--glow-accent); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-card__header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-5) var(--space-6);
+  border-bottom: var(--border-width) solid var(--border-subtle);
+}
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-card__title { font: var(--type-h3); color: var(--text-strong); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-card__body { padding: var(--space-6); display: flex; flex-direction: column; gap: var(--space-4); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-card__footer {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-5) var(--space-6);
+  border-top: var(--border-width) solid var(--border-subtle);
+  color: var(--text-faint);
+  font: var(--type-mono);
+  font-size: var(--text-12);
+}
+
 /* Field primitives — the search field in the next slice is built from these. */
-:is(body.art-page, body.fitness-dark, body.sorting-dark) .hm-field { display: flex; flex-direction: column; gap: var(--space-3); }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) .hm-field__label {
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-field { display: flex; flex-direction: column; gap: var(--space-3); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-field__label {
   font: var(--type-label);
   letter-spacing: var(--tracking-caps);
   text-transform: uppercase;
   color: var(--text-muted);
 }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) .hm-field__hint { font: var(--type-body-sm); color: var(--text-faint); }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) .hm-input-wrap {
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-field__hint { font: var(--type-body-sm); color: var(--text-faint); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-input-wrap {
   position: relative;
   display: flex;
   align-items: center;
@@ -2251,9 +2374,9 @@ body.fitness-dark .meal-cal { color: var(--noc-muted); font-size: 12px; }
   color: var(--text-faint);
   transition: var(--transition-control);
 }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) .hm-input-wrap:hover { border-color: var(--border-strong); }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) .hm-input-wrap:focus-within { border-color: var(--border-focus); box-shadow: 0 0 0 3px var(--violet-a14); }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) .hm-input {
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-input-wrap:hover { border-color: var(--border-strong); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-input-wrap:focus-within { border-color: var(--border-focus); box-shadow: 0 0 0 3px var(--violet-a14); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-input {
   flex: 1;
   min-width: 0;
   background: none;
@@ -2263,10 +2386,79 @@ body.fitness-dark .meal-cal { color: var(--noc-muted); font-size: 12px; }
   font: var(--type-body);
   font-size: var(--text-14);
 }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) .hm-input::placeholder { color: var(--text-faint); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-input::placeholder { color: var(--text-faint); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-input--mono { font-family: var(--font-mono); font-size: var(--text-13); }
+/* Textarea is a bare element, not an .hm-input-wrap child: it has no icon
+   slot and it resizes, so wrapping it would give the wrap a height to fight. */
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-textarea {
+  width: 100%;
+  min-height: 96px;
+  padding: var(--space-5);
+  resize: vertical;
+  background: var(--surface-inset);
+  border: var(--border-width) solid var(--border-default);
+  border-radius: var(--radius-sm);
+  color: var(--text-strong);
+  font: var(--type-body);
+  font-size: var(--text-14);
+  outline: none;
+  transition: var(--transition-control);
+}
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-textarea:focus { border-color: var(--border-focus); box-shadow: 0 0 0 3px var(--violet-a14); }
 
-/* PostCard */
-body.art-page .hm-post {
+/* Choice — checkbox and radio. The real input is visually hidden rather than
+   removed, so it keeps its focus, its label association and its keyboard
+   behaviour; .hm-choice__box is the thing that paints and it is the input's
+   next sibling, which is what the :checked and :focus-visible rules select on. */
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-choice {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: var(--space-4);
+  cursor: pointer;
+  color: var(--text-body);
+  font: var(--type-body);
+  font-size: var(--text-14);
+}
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-choice.is-disabled { opacity: .45; pointer-events: none; }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-choice input { position: absolute; opacity: 0; width: 0; height: 0; }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-choice__box {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+  border: var(--border-width) solid var(--border-strong);
+  border-radius: var(--radius-xs);
+  background: var(--surface-inset);
+  color: var(--text-on-accent);
+  transition: var(--transition-control);
+}
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-choice__box--radio { border-radius: var(--radius-pill); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-choice input:checked + .hm-choice__box { background: var(--accent); border-color: var(--violet-300); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-choice input:focus-visible + .hm-choice__box { box-shadow: var(--focus-ring); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-choice__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-pill);
+  background: var(--text-on-accent);
+  transform: scale(0);
+  transition: transform var(--dur-fast) var(--ease-snap);
+}
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-choice input:checked + .hm-choice__box .hm-choice__dot { transform: scale(1); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-choice__text { display: flex; flex-direction: column; gap: 2px; }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-choice__desc { font-size: var(--text-13); color: var(--text-faint); }
+
+/* PostCard. Shared, not artportfolio-only: the admin redesign specifies its
+   post row as `.hm-post` and keeps the feed's
+   `hx-target="closest .hm-post" hx-swap="outerHTML"` contract, so forking an
+   admin-only row class would mean reproducing that contract rather than
+   sharing it. Promoting the seven rules below costs nothing today — :is()
+   takes its most specific argument's weight and no page outside
+   /artportfolio carries a .hm-post — and the feed's own layout rules further
+   down stay art-only, which is where anything positional belongs. */
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-post {
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -2275,12 +2467,12 @@ body.art-page .hm-post {
   border-radius: var(--radius-md);
   transition: var(--transition-surface), box-shadow var(--dur-base) var(--ease-snap);
 }
-body.art-page .hm-post:hover {
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-post:hover {
   border-color: var(--border-strong);
   transform: translateY(-2px);
   box-shadow: var(--shadow-2);
 }
-body.art-page .hm-post__media {
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-post__media {
   position: relative;
   background: var(--ink-900);
   background-image: var(--texture-grid);
@@ -2291,15 +2483,15 @@ body.art-page .hm-post__media {
 /* No object-fit here, deliberately. components.css sets it to cover, which
    crops; the design brief mandates drawings render uncropped at natural ratio
    and says they are never force-cropped to a tile. */
-body.art-page .hm-post__media img { width: 100%; height: auto; display: block; }
-body.art-page .hm-post__body {
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-post__media img { width: 100%; height: auto; display: block; }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-post__body {
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
   padding: var(--space-5) var(--space-6) var(--space-6);
 }
-body.art-page .hm-post__caption { font: var(--type-body); color: var(--text-body); }
-body.art-page .hm-post__meta {
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-post__caption { font: var(--type-body); color: var(--text-body); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-post__meta {
   display: flex;
   align-items: center;
   gap: var(--space-4);
@@ -2307,19 +2499,41 @@ body.art-page .hm-post__meta {
   color: var(--text-faint);
 }
 
+/* HubCard — the section tile on the index. A Card that is always a link, so
+   it carries its own hover rather than borrowing --interactive: the lift is the
+   same 2px but the border goes accent instead of strong. */
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-hub {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-7);
+  background: var(--surface-card);
+  border: var(--border-width) solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  color: var(--text-body);
+  cursor: pointer;
+  transition: var(--transition-surface), box-shadow var(--dur-base) var(--ease-snap);
+}
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-hub:hover { border-color: var(--border-accent); transform: translateY(-2px); box-shadow: var(--shadow-2); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-hub:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-hub__top { display: flex; align-items: center; gap: var(--space-4); color: var(--accent); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-hub__title { font: var(--type-h3); color: var(--text-strong); white-space: nowrap; }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-hub__desc { font: var(--type-body-sm); color: var(--text-muted); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-hub__foot { display: flex; align-items: center; gap: var(--space-3); margin-top: var(--space-2); font: var(--type-label); color: var(--text-faint); }
+
 /* Utility surfaces */
-:is(body.art-page, body.fitness-dark, body.sorting-dark) .hm-grid-bg {
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-grid-bg {
   background-color: var(--surface-page);
   background-image: var(--texture-grid);
   background-size: var(--texture-grid-size);
 }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) .hm-eyebrow {
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-eyebrow {
   font: var(--type-label);
   letter-spacing: var(--tracking-caps);
   text-transform: uppercase;
   color: var(--text-faint);
 }
-:is(body.art-page, body.fitness-dark, body.sorting-dark) .hm-rule { height: 1px; background: var(--border-subtle); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-rule { height: 1px; background: var(--border-subtle); }
 
 /* Page layout */
 body.art-page .art-head {
@@ -2948,6 +3162,641 @@ body.fitness-dark .account-form input {
 }
 .account-links { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
 
+/* ── Site chrome: hub, admin, CV, how it works ───────────────────────────────
+   Everything the site's own four screens need that is not a design-system
+   primitive. The primitives stay up in the Hampter Design System block with
+   their families; this section is the screens.
+
+   WHY IT SITS HERE, ABOVE THE SORTING BANNER. tests/static_assets.rs slices
+   the stylesheet from the sorting section's banner string to the end of the
+   file and fails on a literal px in any rule body outside the van diagram.
+   The sorting board earns that rule — it is worked from a tablet by someone
+   who may have turned the text size up. These four screens are a handoff
+   specified end to end in px, at a fidelity bar of "recreate pixel-for-pixel",
+   so converting it would be inventing a second set of numbers. Placement is
+   the fix: above the marker the guard cannot reach, and the sorting section
+   stays the last thing in the file so "to the end" keeps meaning all of it.
+   Add nothing to this section below that banner.
+
+   SPECIFICITY. The design-system resets land at (0,1,1) under
+   :is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) —
+   :is() takes its most specific argument's weight — and they name button,
+   textarea, input and a. A bare component class is (0,1,0) and loses to them
+   on every property they name, source order be damned; font: inherit is the
+   one that bites, because it expands to font-size. One extra ancestor,
+   body.site-dark before the class, takes a rule to (0,2,0) and ends the
+   argument. Same trap, same fix, as the sorting section's escapes at the foot
+   of this file.
+
+   FONTS AND ICONS RENAME, THEY DO NOT CHANGE. src/assets.rs hashes only the
+   top level of static/ for the ?v= query, so a file added or edited under
+   static/fonts/ or static/icons/ moves no version, and nginx serves /static/
+   with a one-year immutable Cache-Control. A returning browser therefore never
+   re-fetches one of these by the same name, for up to a year. Changing a glyph
+   or a face means shipping it under a NEW filename and repointing the rule.
+   ────────────────────────────────────────────────────────────────────────── */
+
+/* Prose. The scoped resets zero every margin on p and h1-h4, say nothing at
+   all about h5, h6, ul, ol, dl or table, and hand lists straight back to the
+   user agent — so a page authored as plain paragraphs and bullets renders as
+   one undifferentiated block sitting over UA discs at a UA indent. The CV and
+   the how-it-works page are exactly that kind of page, so they get a container
+   that puts the rhythm back rather than each of them re-deriving it.
+
+   The scope prefix is not decoration. `.hm-prose p` alone is (0,1,1) and the
+   reset it has to beat is (0,1,2); one more class ancestor takes it to (0,2,2)
+   and settles it. Same arithmetic for a, h1-h4 and the rest.
+
+   Bullets are a flex row with a 4px violet dot, never list-style — the handoff
+   forbids the marker outright, and a real marker cannot be recoloured or
+   aligned to a 68ch measure without ::marker support that is not everywhere
+   yet. The dot's 9px top offset centres it on the first line of 15px/1.5 text;
+   it is a length in this section, where px is what the handoff speaks. */
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-prose {
+  max-width: var(--prose-max);
+  color: var(--text-body);
+  font: var(--type-body);
+}
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-prose > * + * { margin-top: var(--space-6); }
+/* `* + h2` and not `> h2`: a prose block that OPENS with a heading has no
+   preceding sibling and must not be pushed down by 32px of nothing. */
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-prose > * + h2,
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-prose > * + h3,
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-prose > * + h4,
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-prose > * + h5,
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-prose > * + h6 { margin-top: var(--space-9); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-prose h2 { font: var(--type-h2); letter-spacing: var(--tracking-tight); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-prose h3 { font: var(--type-h3); letter-spacing: var(--tracking-tight); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-prose h4 { font: var(--weight-semibold) var(--text-16)/var(--leading-snug) var(--font-display); letter-spacing: var(--tracking-snug); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-prose h5,
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-prose h6 {
+  margin: 0;
+  color: var(--text-strong);
+  font: var(--type-label);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+}
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-prose a { text-decoration: underline; text-underline-offset: 3px; }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-prose strong { color: var(--text-strong); font-weight: var(--weight-medium); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-prose ul,
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-prose ol {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: hm-prose-item;
+}
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-prose li { display: flex; gap: var(--space-5); align-items: flex-start; }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-prose ul > li::before {
+  content: "";
+  flex: none;
+  width: 4px;
+  height: 4px;
+  margin-top: 9px;
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+}
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-prose ol > li {
+  counter-increment: hm-prose-item;
+}
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-prose ol > li::before {
+  content: counter(hm-prose-item);
+  flex: none;
+  min-width: 1.5em;
+  font: var(--type-mono);
+  color: var(--text-faint);
+}
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-prose li > ul,
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-prose li > ol { margin-top: var(--space-4); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-prose table {
+  width: 100%;
+  border-collapse: collapse;
+  font: var(--type-body-sm);
+}
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-prose th,
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-prose td {
+  padding: var(--space-4) var(--space-5);
+  border-bottom: var(--border-width) solid var(--border-subtle);
+  text-align: left;
+  vertical-align: top;
+}
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-prose th {
+  color: var(--text-faint);
+  font: var(--type-label);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* The header, as base.html now writes it. Three things changed in the markup:
+   the wordmark reads `hampter.` with a violet full stop, the right-hand
+   controls moved into a .site-actions group, and an admin gets a settings
+   button next to the palette keycaps.
+
+   The nav layout has to be stated TWICE because two chromes render this same
+   markup. The dark one is the design system's, further up this file; the light
+   one is the original stylesheet at the top, which /tasks and today's hub still
+   wear and which gives `nav` no display at all — so its four links come out as
+   one run-on string separated by a single space of whitespace. The unscoped
+   rules below fix that chrome without touching the dark one, which already
+   lays the row out and simply never said anything about wrapping.
+
+   .site-actions carries the margin-left:auto that used to be the palette
+   button's alone. The button keeps its own copy: inside a content-width flex
+   group there is no free space for an auto margin to absorb, so it resolves to
+   zero here, while /admin — whose header this pack deliberately does not touch,
+   because Pack 3 replaces it wholesale — still gets its button pushed right.
+
+   The settings button is .hm-iconbtn, which is scoped. On the light chrome
+   nothing paints it, so it also carries .site-admin below for a plain 34px
+   box; and its glyph is one of the icon files item 1.5 is waiting on, so until
+   those land it shows as a solid block on a dark page and an empty outline on
+   a light one. */
+header nav {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+header nav a { white-space: nowrap; }
+header .site-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-left: auto;
+}
+.site-title__dot { color: var(--accent); }
+header .site-admin {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: var(--radius-sm);
+}
+
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) header .palette-hint {
+  height: var(--control-height-md);
+  padding: 0 var(--space-5);
+  border-radius: var(--radius-sm);
+  transition: var(--transition-control);
+}
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) header .palette-hint:hover { background: var(--surface-hover); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) header .palette-hint:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+
+/* Active nav. base.html writes the section's own name into
+   `nav data-active`, filled from a {block} the extending template overrides;
+   a template that overrides nothing writes the empty string, which matches no
+   selector below and marks nothing. That is the whole mechanism — no per-page
+   class, no server-side loop over the links, and nothing to keep in sync but
+   the five names.
+
+   Stated twice for the two chromes again, and the colours are not the same
+   value: --text-strong is a near-white meant for the dark bar and would be
+   invisible on the light one, which /tasks still wears. The light rule
+   therefore reuses that chrome's own ink, the same #222 its hover already
+   uses.
+
+   Weights: the light pair is (0,2,3) against a (0,0,2) base rule, the dark
+   pair (0,3,3) against (0,1,4) — an attribute counts as a class, so both win
+   on class count without a single !important. */
+header nav[data-active="artportfolio"] a[href="/artportfolio"],
+header nav[data-active="tasks"] a[href="/tasks"],
+header nav[data-active="fitness"] a[href="/fitness"],
+header nav[data-active="sorting"] a[href="/sorting"],
+header nav[data-active="cv"] a[href="/cv"] {
+  color: #222;
+}
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) header nav[data-active="artportfolio"] a[href="/artportfolio"],
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) header nav[data-active="tasks"] a[href="/tasks"],
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) header nav[data-active="fitness"] a[href="/fitness"],
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) header nav[data-active="sorting"] a[href="/sorting"],
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) header nav[data-active="cv"] a[href="/cv"] {
+  color: var(--text-strong);
+}
+
+/* Command palette, dark. palette.js appends #palette-overlay to <body>, so a
+   scoped ancestor reaches it; the light rules near the top of this file sit at
+   ID specificity with no dark override anywhere, which is why Ctrl+K has been
+   opening a white box on a black page on every dark page since the first one
+   shipped.
+
+   NOT ONE OF THESE RULES MAY NAME `display`. #palette-overlay[hidden] is
+   (1,1,0) and the scoped selector below is (1,1,1) — restating display:flex
+   here, which is the obvious thing to do when recolouring a copy of the block
+   above, would beat the hidden attribute and leave the palette open on every
+   load of three shipped pages. Colour, border, radius and shadow only.
+
+   .palette-selected has to be recoloured in the same pass as :hover: it is the
+   row the arrow keys move, and left at its light grey under light text the
+   keyboard selection is invisible.
+
+   This is the minimal dark pass, ruled deliberately. The bundle's .hm-cmdk —
+   groups, per-command icons, footer key hints, a live count — is a richer
+   panel that also changes markup, and it belongs with the Hub's palette bar
+   rather than in a commit whose job is that the thing is legible. */
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) #palette-overlay {
+  background: var(--scrim);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+}
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) #palette-box {
+  background: var(--surface-overlay);
+  border: var(--border-width) solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-3), var(--glow-accent);
+}
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) #palette-input {
+  background: none;
+  border-bottom: var(--border-width) solid var(--border-subtle);
+  color: var(--text-strong);
+  font-family: var(--font-sans);
+}
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) #palette-input::placeholder { color: var(--text-faint); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .palette-item { color: var(--text-body); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .palette-item:hover,
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .palette-selected { background: var(--surface-selected); color: var(--violet-200); }
+
+/* The hub's hero. The blueprint grid, the eyebrow and the violet full stop
+   are the site's signature and they are all three already primitives:
+   .hm-grid-bg is the 32px texture, .hm-eyebrow the 11px uppercase mono
+   micro-label. What is left here is the measure and the rhythm.
+
+   The horizontal padding is 32px, the header's is 24px, and they disagree on
+   purpose. The manifest pins the shared header's padding and gap as they are
+   — changing them moves every dark page at once — while the hub's own
+   sections are new rules that take the handoff's number. Below 1244px the two
+   left edges therefore sit 8px apart.
+
+   19px is not on the type scale. The scale steps 18 → 21 and the handoff asks
+   for 19 at a fidelity bar of "recreate pixel-for-pixel", so in this section,
+   which exists so px can be written, the handoff's number wins. Line height
+   is left to inherit the body's 1.5, as the mock does. */
+body.site-dark .hub-hero {
+  padding: 96px var(--space-9) 72px;
+  border-bottom: var(--border-width) solid var(--border-subtle);
+}
+body.site-dark .hub-hero__inner { max-width: var(--page-max); margin: 0 auto; }
+body.site-dark .hub-hero__title {
+  margin-top: var(--space-6);
+  color: var(--text-strong);
+  font: var(--weight-black) clamp(44px, 6.4vw, 72px)/var(--leading-tight) var(--font-display);
+  letter-spacing: var(--tracking-tight);
+}
+body.site-dark .hub-hero__dot { color: var(--accent); }
+body.site-dark .hub-hero__tagline {
+  max-width: 56ch;
+  margin-top: var(--space-7);
+  color: var(--text-body);
+  font-size: 19px;
+}
+
+/* The palette bar. It opens the palette by dispatching the same synthetic
+   Ctrl+K that base.html's header button dispatches, so there is one opener —
+   palette.js's keydown listener — and no second entry point to keep in step.
+   No script, and therefore nothing to bind on htmx:afterSwap either.
+
+   The scope prefix is doing work here, not decoration. The design-system
+   reset sets `button { font: inherit; color: inherit }` at (0,1,1); a bare
+   .hub-palette is (0,1,0) and would lose the font declaration outright.
+   body.site-dark takes it to (0,2,0) and settles it.
+
+   The .10 border alpha the mock draws is not on the scale, which steps .07 to
+   .12; --white-a12 is the near neighbour and the one that keeps the bar
+   reading stronger than a card hairline, which is the point of the value.
+   :focus-visible is deliberately absent — the shared reset already rings every
+   focusable element on this scope. */
+body.site-dark .hub-palette {
+  display: flex;
+  align-items: center;
+  gap: var(--space-5);
+  width: 100%;
+  max-width: 520px;
+  height: 48px;
+  margin-top: 36px;
+  padding: 0 var(--space-5) 0 var(--space-6);
+  background: var(--surface-card);
+  border: var(--border-width) solid var(--white-a12);
+  border-radius: var(--radius-md);
+  color: var(--text-muted);
+  cursor: pointer;
+  font: var(--type-body);
+  text-align: left;
+  transition: var(--transition-control);
+}
+body.site-dark .hub-palette:hover { border-color: var(--accent); }
+body.site-dark .hub-palette__label { flex: 1; }
+body.site-dark .hub-palette__caption { margin-top: var(--space-5); }
+
+/* The Sections band. The hero is a full-bleed section with an inner 1180px
+   column; this one IS the column — max-width 1180 with its 32px padding
+   inside that, border-box. The mock draws them that way and they are ported
+   as drawn.
+
+   The consequence is a step, not an alignment, and it is worth stating
+   because the obvious reading is the wrong one. Below a 1244px viewport both
+   text columns start at 32px and agree. Above it the hero's starts at
+   (W-1180)/2 and this one 32px further in, on a column 64px narrower: at
+   1440px, 130px against 162px. Reconciling them is a fidelity call for the
+   user, not a porting decision — the lever is max-width:
+   calc(var(--page-max) + 2 * var(--space-9)) here and on .hub-foot.
+
+   The heading rule is .hm-rule, a 1px hairline the design system already
+   owns; all it needs here is the flex grow that makes it fill whatever the
+   heading leaves. No letter-spacing is stated: the scoped h2 reset already
+   applies --tracking-tight, and the token scale is authoritative over the
+   mock's -0.02em. */
+body.site-dark .hub-sections {
+  max-width: var(--page-max);
+  margin: 0 auto;
+  padding: 56px var(--space-9) 0;
+}
+body.site-dark .hub-sections__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-6);
+  margin-bottom: var(--space-8);
+}
+body.site-dark .hub-sections__head h2 { font: var(--type-h2); }
+body.site-dark .hub-sections__head .hm-rule { flex: 1; }
+
+/* The tile grid. minmax(min(100%, 340px), 1fr) is the auto-fit idiom that
+   still collapses below 340px: without the min() the track floor stays 340px
+   and a 320px phone scrolls sideways.
+
+   Three rules here finish HubCard rather than restyle it. Pack 1 ported the
+   component's stylesheet; its markup lived in JSX, which set the leading
+   icon at 18px, the trailing arrow at 15px and that arrow's colour inline —
+   .hm-icon defaults to 16px, so those land with the screen that draws them.
+   The `>` in the first selector is what keeps the arrow out of it.
+
+   The hover rule is the one that is not cosmetic. .hm-hub is an <a>, and the
+   scoped reset's `a:hover { text-decoration: underline }` weighs (0,2,1)
+   against the tile's own (0,2,0) — so every tile underlines its title,
+   description and meta on hover. text-decoration propagates to in-flow
+   descendants and cannot be switched off by any of them, so the cure has to
+   sit on the anchor's own hover state. Colour needs no such rule: all four
+   children declare their own. */
+body.site-dark .hub-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr));
+  gap: var(--space-6);
+}
+body.site-dark .hm-hub:hover { text-decoration: none; }
+body.site-dark .hm-hub__top > .hm-icon { width: 18px; height: 18px; }
+body.site-dark .hm-hub__go {
+  display: flex;
+  margin-left: auto;
+  color: var(--text-faint);
+}
+body.site-dark .hm-hub__go .hm-icon { width: 15px; height: 15px; }
+
+/* The footer. Mono micro-type like the eyebrow but NOT uppercase, so it
+   states the font rather than borrowing .hm-eyebrow. The wordmark reuses the
+   header's .site-title__dot: it is the same wordmark and the same violet full
+   stop, and that rule is already global and unscoped.
+
+   The "how this site works" link the mock draws is omitted. Its route does not
+   exist until Pack 7, and the header follows the same rule — no pack leaves a
+   dead link in a live page.
+
+   /admin is behind is_admin, which is a departure from the mock and is forced
+   by the route rather than chosen: RequireAdmin answers a signed-in non-admin
+   with 404, and this item's done-condition is that no link on / 404s. The
+   template's only identity signal is OptionalAdmin's bool, so it cannot tell
+   an anonymous visitor (who would get the login redirect, and could safely be
+   shown the link) from a signed-in member (who would not). The header's
+   settings button already draws the same line. */
+body.site-dark .hub-foot {
+  max-width: var(--page-max);
+  margin: 0 auto;
+  padding: var(--space-12) var(--space-9) var(--space-11);
+}
+body.site-dark .hub-foot__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-8);
+  padding-top: var(--space-8);
+  border-top: var(--border-width) solid var(--border-subtle);
+  color: var(--text-faint);
+  font: var(--type-label);
+  letter-spacing: var(--tracking-caps);
+}
+body.site-dark .hub-foot__mark { color: var(--text-muted); }
+body.site-dark .hub-foot__admin { margin-left: auto; }
+body.site-dark .hub-foot__row a { color: var(--text-faint); }
+body.site-dark .hub-foot__row a:hover { color: var(--text-muted); }
+
+/* The CV. Content lives in templates/cv.html and nowhere else, so a finished
+   CV swaps the template and leaves these rules alone.
+
+   The page head repeats the hub hero's move — .hm-grid-bg full bleed, an
+   inner 1180px column — at the handoff's tighter 64/40 padding. The body
+   below is the column itself, 1180px wide with its 32px gutters inside,
+   which is the Sections band's arrangement and carries the same 32px step
+   against the head above 1244px; see the note on .hub-sections.
+
+   Bullets are .cv-list rather than .hm-prose: prose puts a 16px margin
+   between every sibling, and the CV's rhythm is gaps the handoff specifies
+   per block (8px between bullets, 10px inside a project, 44px between
+   sections). The dot is the same 4px accent dot at the same 9px offset.
+   Every <li> wraps its text in one <span> — the <li> is a flex row, and a
+   bare <strong> followed by text would otherwise become two flex items side
+   by side instead of one sentence.
+
+   #3A3448, the mock's contact separator, is not on the ink scale; --ink-600
+   is its neighbour, and a separator is the one place a step darker costs
+   nothing. The rail's link card to the how-it-works page is omitted until
+   that route exists (Pack 7), same rule as the hub footer. */
+body.site-dark .cv-head {
+  padding: var(--space-12) var(--space-9) var(--space-10);
+  border-bottom: var(--border-width) solid var(--border-subtle);
+}
+body.site-dark .cv-head__inner { max-width: var(--page-max); margin: 0 auto; }
+body.site-dark .cv-head__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-8);
+  margin-top: 14px;
+}
+body.site-dark .cv-head__title { min-width: 0; }
+body.site-dark .cv-head__name {
+  color: var(--text-strong);
+  font: var(--weight-black) clamp(38px, 5.4vw, 60px)/var(--leading-tight) var(--font-display);
+  letter-spacing: var(--tracking-tight);
+}
+body.site-dark .cv-head__role { margin-top: 14px; color: var(--text-body); font-size: 17px; }
+body.site-dark .cv-head__actions { display: flex; gap: var(--space-4); flex: none; margin-left: auto; }
+body.site-dark .cv-contact {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-4) var(--space-7);
+  margin-top: 28px;
+  padding-top: var(--space-6);
+  border-top: var(--border-width) solid var(--border-subtle);
+  color: var(--text-muted);
+  font: var(--weight-medium) var(--text-12)/1.4 var(--font-mono);
+  letter-spacing: var(--tracking-wide);
+}
+body.site-dark .cv-contact > * { white-space: nowrap; }
+body.site-dark .cv-contact__sep { color: var(--ink-600); }
+
+body.site-dark .cv-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 260px;
+  gap: var(--space-11);
+  align-items: start;
+  max-width: var(--page-max);
+  margin: 0 auto;
+  padding: var(--space-10) var(--space-9) 96px;
+}
+body.site-dark .cv-main { display: flex; flex-direction: column; gap: 44px; min-width: 0; }
+body.site-dark .cv-section p { max-width: var(--prose-max); color: var(--text-body); }
+body.site-dark .cv-section > p + *,
+body.site-dark .cv-section > .cv-list + * { margin-top: 14px; }
+body.site-dark .cv-section > p.cv-lead { font-size: var(--text-16); }
+body.site-dark .cv-section > p.cv-lead + p.cv-lead { margin-top: var(--space-5); }
+body.site-dark .cv-section__label {
+  margin-bottom: 14px;
+  padding-bottom: 10px;
+  border-bottom: var(--border-width) solid var(--border-subtle);
+  color: var(--text-muted);
+  font: var(--type-label);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+}
+body.site-dark .cv-section:has(> .cv-entry) .cv-section__label { margin-bottom: var(--space-7); }
+
+body.site-dark .cv-entry {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding-bottom: var(--space-7);
+  margin-bottom: var(--space-7);
+  border-bottom: var(--border-width) solid var(--border-subtle);
+}
+body.site-dark .cv-section--projects .cv-entry {
+  gap: 10px;
+  padding-bottom: var(--space-8);
+  margin-bottom: var(--space-8);
+}
+body.site-dark .cv-entry:last-child { padding-bottom: 0; margin-bottom: 0; border-bottom: none; }
+body.site-dark .cv-entry__head { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-5); }
+body.site-dark .cv-entry__head h3 {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--text-strong);
+  font: var(--weight-semibold) 20px/1.3 var(--font-display);
+  letter-spacing: -0.015em;
+}
+body.site-dark .cv-entry__qual { color: var(--text-muted); font-weight: var(--weight-regular); }
+body.site-dark .cv-entry__date {
+  flex: none;
+  color: var(--text-faint);
+  font: var(--weight-medium) var(--text-12)/1.4 var(--font-mono);
+  letter-spacing: var(--tracking-wide);
+}
+body.site-dark .cv-entry__tags { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+body.site-dark .cv-entry__meta { color: var(--text-muted); font: var(--weight-medium) var(--text-12)/1.4 var(--font-mono); }
+
+body.site-dark .cv-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  max-width: var(--prose-max);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+body.site-dark .cv-list li { display: flex; gap: var(--space-5); }
+body.site-dark .cv-list li::before {
+  content: "";
+  flex: none;
+  width: 4px;
+  height: 4px;
+  margin-top: 9px;
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+}
+body.site-dark .cv-list strong { color: var(--text-strong); font-weight: var(--weight-semibold); }
+
+/* The rail sticks 80px down — the 56px header plus the 24px the handoff
+   leaves under it. */
+body.site-dark .cv-rail {
+  position: sticky;
+  top: 80px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-7);
+  min-width: 0;
+}
+body.site-dark .cv-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  padding: 18px;
+  background: var(--surface-card);
+  border: var(--border-width) solid var(--border-subtle);
+  border-radius: var(--radius-md);
+}
+body.site-dark .cv-card--inset { gap: 10px; background: var(--surface-inset); }
+body.site-dark .cv-skill { display: flex; flex-direction: column; gap: var(--space-3); }
+body.site-dark .cv-skill__name {
+  color: var(--text-strong);
+  font: var(--weight-semibold) var(--text-12)/1.3 var(--font-display);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+}
+body.site-dark .cv-skill__value { color: var(--text-muted); font-size: var(--text-14); }
+
+/* A narrow window stacks the rail ABOVE the entries, as the handoff's
+   responsive note asks, and drops the stickiness a single column has no use
+   for. */
+@media (max-width: 899px) {
+  body.site-dark .cv-head { padding: var(--space-10) var(--gutter) var(--space-9); }
+  body.site-dark .cv-body { grid-template-columns: minmax(0, 1fr); gap: var(--space-9); padding: var(--space-9) var(--gutter) var(--space-12); }
+  body.site-dark .cv-rail { position: static; order: -1; }
+  body.site-dark .cv-head__actions { margin-left: 0; }
+}
+
+/* Print, which is what "Last ned som PDF" opens: the browser's print dialog
+   saves a PDF on every platform, and the page itself is the source, so the
+   PDF can never drift from what the site shows. Ink on paper, the site
+   chrome and the two buttons gone, one column with the skills after the
+   entries.
+
+   No @page rule. It cannot be scoped to a selector, so it would change the
+   margins of every page anyone prints from this site; the browser's default
+   margins are the price of leaving the rest alone. Every rule below is gated
+   on body:has(.cv-page) for the same reason. */
+@media print {
+  body.site-dark:has(.cv-page) {
+    --text-strong: #000;
+    --text-body: #222;
+    --text-muted: #444;
+    --text-faint: #666;
+    --border-subtle: #ccc;
+    --surface-card: #fff;
+    --surface-inset: #fff;
+    background: #fff;
+  }
+  body.site-dark:has(.cv-page) > header,
+  body.site-dark .cv-head__actions,
+  body.site-dark:has(.cv-page) #palette-overlay { display: none; }
+  body.site-dark .cv-head { padding: 0 0 var(--space-6); background: none; }
+  body.site-dark .cv-contact a { color: var(--text-body); }
+  body.site-dark .cv-body { display: block; padding: var(--space-6) 0 0; }
+  body.site-dark .cv-main { gap: var(--space-8); }
+  body.site-dark .cv-rail { position: static; margin-top: var(--space-8); }
+  body.site-dark .cv-entry { break-inside: avoid; }
+  body.site-dark .cv-list li::before { background: #000; }
+  body.site-dark .hm-badge--accent { background: none; border-color: #999; color: #444; }
+}
+
 /* ── Sorting: crate sort and van load ────────────────────────────────────────
    Two screens. `/sorting` lists the sessions; `/sorting/{id}` is the board that
    gets worked from, on a tablet, in a cold room, one-handed.
@@ -3214,7 +4063,7 @@ body:has(.sorting-board.is-full) .sorting-page { padding: var(--space-5) var(--s
 
 /* ── Specificity escapes ───────────────────────────────────────────────────
    The design system resets `button`, `textarea` and `a` under
-   `:is(body.art-page, body.fitness-dark, body.sorting-dark)`. `:is()` takes its
+   `:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark)`. `:is()` takes its
    most specific argument's weight — one class — so those rules are (0,1,1) and
    a plain `.sort-…` class is (0,1,0): the reset wins on every property it
    names, whatever the source order. `font: inherit` in particular expands to

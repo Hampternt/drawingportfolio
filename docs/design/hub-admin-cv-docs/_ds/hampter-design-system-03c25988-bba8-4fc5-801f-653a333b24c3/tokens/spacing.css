@@ -1,0 +1,28 @@
+:root{
+  --space-0:0px;
+  --space-1:2px;
+  --space-2:4px;
+  --space-3:6px;
+  --space-4:8px;
+  --space-5:12px;
+  --space-6:16px;
+  --space-7:20px;
+  --space-8:24px;
+  --space-9:32px;
+  --space-10:40px;
+  --space-11:48px;
+  --space-12:64px;
+  --space-13:80px;
+  --space-14:112px;
+  --space-15:160px;
+
+  /* layout */
+  --gutter:24px;
+  --page-max:1180px;
+  --prose-max:68ch;
+  --rail-width:236px;
+  --header-height:56px;
+  --control-height-sm:28px;
+  --control-height-md:34px;
+  --control-height-lg:42px;
+}

@@ -1,0 +1,109 @@
+/* Hampter color system — dark-native, violet-tinted.
+   Grounded in the two dark surfaces already shipping in Hampternt/drawingportfolio:
+   the drinking game (`drinkinggame/assets/game.css`: #0b0910 / #17141f / #b48ef7 /
+   #ffb570 / #f7768e / #f2eef8) and Nocturne, the fitness theme (`--noc-*` in
+   static/style.css). Legacy Nocturne values and their mapping live in
+   tokens/legacy-nocturne.css. There is no light theme. */
+:root{
+  /* --- base: ink (violet-tinted neutral ramp, dark → light) --- */
+  --ink-1000:#07060B;
+  --ink-950:#0B0910;  /* game.css --bg */
+  --ink-900:#0E0C14;  /* game.css --bg-elevated */
+  --ink-850:#17141F;  /* game.css --surface */
+  --ink-800:#1C1926;
+  --ink-750:#221E2E;
+  --ink-700:#262232;  /* game.css --chip */
+  --ink-600:#322C42;
+  --ink-500:#443C58;
+  --ink-400:#5F5876;
+  --ink-300:#8D87A0;  /* game.css --text-faint */
+  --ink-200:#ADA6BE;
+  --ink-100:#CDC6DD;  /* game.css --text-dim */
+  --ink-050:#F2EEF8;  /* game.css --text */
+  --ink-000:#FFFFFF;
+
+  /* --- base: violet (brand accent) --- */
+  --violet-700:#4A3A78;
+  --violet-600:#6A53A8;
+  --violet-500:#8F6FD8;
+  --violet-400:#B48EF7; /* game.css --violet */
+  --violet-300:#CBB0FF;
+  --violet-200:#DED0FF;
+  --violet-100:#EFE8FF;
+
+  /* --- base: semantic hues --- */
+  --mint-400:#4FD6A8;
+  --mint-600:#1F7F63;
+  --amber-400:#FFB570; /* game.css --amber */
+  --amber-600:#A86A34;
+  --rose-400:#F7768E;  /* game.css --red */
+  --rose-600:#8F3346;
+  --azure-400:#7AA2F7;
+  --azure-600:#2F4C8F;
+
+  /* --- base: alphas --- */
+  --violet-a08:rgba(180,142,247,.08);
+  --violet-a14:rgba(180,142,247,.14);
+  --violet-a28:rgba(180,142,247,.28);
+  --violet-a45:rgba(180,142,247,.45);
+  --white-a04:rgba(242,238,248,.04);
+  --white-a07:rgba(242,238,248,.07);
+  --white-a12:rgba(242,238,248,.12);
+  --white-a20:rgba(242,238,248,.20);
+  --black-a40:rgba(7,6,11,.40);
+  --black-a70:rgba(7,6,11,.72);
+
+  /* --- semantic: surfaces --- */
+  --surface-void:var(--ink-1000);
+  --surface-page:var(--ink-950);
+  --surface-raised:var(--ink-900);
+  --surface-card:var(--ink-850);
+  --surface-inset:var(--ink-900);
+  --surface-chip:var(--ink-700);
+  --surface-overlay:var(--ink-850);
+  --surface-hover:var(--white-a04);
+  --surface-active:var(--white-a07);
+  --surface-selected:var(--violet-a14);
+  --scrim:var(--black-a70);
+
+  /* --- semantic: text --- */
+  --text-strong:var(--ink-050);
+  --text-body:var(--ink-100);
+  --text-muted:var(--ink-300);
+  --text-faint:var(--ink-400);
+  --text-accent:var(--violet-300);
+  --text-on-accent:#191624; /* game.css --ink */
+  --text-link:var(--violet-300);
+  --text-link-hover:var(--violet-200);
+
+  /* --- semantic: borders --- */
+  --border-subtle:var(--white-a07);
+  --border-default:var(--ink-700);
+  --border-strong:var(--ink-600);
+  --border-accent:var(--violet-a45);
+  --border-focus:var(--violet-400);
+
+  /* --- semantic: interactive --- */
+  --accent:var(--violet-400);
+  --accent-hover:var(--violet-300);
+  --accent-press:var(--violet-500);
+  --accent-tint:var(--violet-a14);
+  --accent-glow:var(--violet-a28);
+  --accent-warm:var(--amber-400); /* secondary highlight: streaks, live state */
+
+  /* --- semantic: status --- */
+  --status-success:var(--mint-400);
+  --status-success-dim:var(--mint-600);
+  --status-warning:var(--amber-400);
+  --status-warning-dim:var(--amber-600);
+  --status-danger:var(--rose-400);
+  --status-danger-dim:var(--rose-600);
+  --status-info:var(--azure-400);
+  --status-info-dim:var(--azure-600);
+
+  /* --- semantic: syntax / terminal accents --- */
+  --code-key:var(--violet-300);
+  --code-string:var(--mint-400);
+  --code-num:var(--amber-400);
+  --code-comment:var(--ink-400);
+}
