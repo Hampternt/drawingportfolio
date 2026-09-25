@@ -441,7 +441,7 @@ three layers.
 
 ### Pack 6 — CV: `GET /cv`
 
-**Blocked on ruling 1 before its items are written.**
+**Ruling 1 taken 2026-09-25; done — see the ledger.**
 
 **Done when:** a new public route and template carry the CV on the shared dark
 scope, plus the four other artefacts the section checklist demands — the
@@ -554,6 +554,46 @@ Not blocking, but each needs an answer before the pack that consumes it.
 ---
 
 ## Ledger
+
+### Pack 6 — done 2026-09-25
+
+**Ruling 1, taken by the user 2026-09-25:** `CV.dc.html` is the source;
+`[ARBEIDSGIVER]` is **Matvare-Expressen**; the public page carries **email and
+GitHub only** — no phone number, no postcode (the city stays; every job entry
+names it anyway). Scope was the CV page alone; Packs 3–5 and 7 stay open.
+
+Shipped: `src/routes/cv.rs` + `templates/cv.html` (verbatim text), the
+`base.html` nav link with its `data-active="cv"` rules, the hub's sixth tile
+(eyebrow now "six sections"), the `Go to CV` palette command, and a CV block
+in the site-chrome section of `style.css`. **No migration** — the page reads
+nothing, `routes::hub` is the precedent.
+
+Decisions made while porting, each flagged here for review:
+
+- **Content revised by the user, 2026-09-25 (same day):** the CV no longer
+  carries the handoff's text verbatim. Anything reading as criticism of the
+  current workplace is gone; the site itself (`hampter.`) leads the projects,
+  with claims checked against this repo; MVE Bread List and Breadify are one
+  short, neutral entry; the driver job reads `2025–nå` (the user recalls
+  starting around October 2025).
+- **"Last ned som PDF" is `window.print()`** over an `@media print` block —
+  every rule gated on `body:has(.cv-page)`, and no `@page`, which cannot be
+  scoped. The print dialog's "Save as PDF" is the download; the PDF can never
+  drift from the page.
+- **The rail's how-it-works link card is omitted** until Pack 7's route
+  exists, same rule as the hub footer. A test pins that no `/docs` link ships.
+- **Mobile nav, the trade-off this pack consumed:** below 900px the nav on
+  `art-page`, `sorting-dark` and `site-dark` scrolls sideways (scrollbar
+  hidden); fitness keeps hiding it. Verified: no page-level horizontal scroll
+  at 390px on `/`, `/cv` and `/artportfolio`.
+- **Narrow window:** the rail stacks above the entries and stops sticking, per
+  the README's responsive note.
+- `#3A3448` (contact separator) is off the ink scale; `--ink-600` stands in.
+
+**Pack gate green:** `VERIFY OK`. Workspace **1108** tests (+3 in `cv.rs`:
+marker/nav, nothing private or blank published, no dead links). Board checks
+458, clippy 18 — unchanged. Walked in Chromium at 1440 and 390 wide, in print
+emulation, and via a boosted click from the hub tile (`body.site-dark` held).
 
 ### Pack 2 — done 2026-09-09
 

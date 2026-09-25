@@ -1,0 +1,196 @@
+{% extends "base.html" %}
+
+{% block title %}CV — Jesper Løvland{% endblock %}
+
+{% block nav_active %}cv{% endblock %}
+
+{% block body_class %}site-dark{% endblock %}
+
+{% block content %}
+<div class="site-page cv-page" lang="nb">
+<section class="cv-head hm-grid-bg">
+  <div class="cv-head__inner">
+    <span class="hm-eyebrow">cv</span>
+    <div class="cv-head__row">
+      <div class="cv-head__title">
+        <h1 class="cv-head__name">Jesper Løvland</h1>
+        <p class="cv-head__role">Utvikler — interne digitale verktøy og automatisering</p>
+      </div>
+      <div class="cv-head__actions">
+        <button type="button" class="hm-btn hm-btn--lg hm-btn--primary" onclick="window.print()">
+          <span class="hm-icon hm-icon--download" aria-hidden="true"></span>Last ned som PDF
+        </button>
+        <a href="https://github.com/Hampternt" class="hm-btn hm-btn--lg hm-btn--secondary">
+          <span class="hm-icon hm-icon--github" aria-hidden="true"></span>GitHub
+        </a>
+      </div>
+    </div>
+    <div class="cv-contact">
+      <span>Stavanger</span>
+      <span class="cv-contact__sep" aria-hidden="true">·</span>
+      <a href="mailto:jl@dblo.net">jl@dblo.net</a>
+      <span class="cv-contact__sep" aria-hidden="true">·</span>
+      <a href="https://github.com/Hampternt">github.com/Hampternt</a>
+    </div>
+  </div>
+</section>
+
+<div class="cv-body">
+<div class="cv-main">
+
+<section class="cv-section">
+  <h2 class="cv-section__label">Om meg</h2>
+  <p class="cv-lead">Fagutdannet dataelektroniker med fire års erfaring som backend-utvikler i C# og ASP.NET, fra 2019 til 2023 — før AI-verktøy ble vanlige. Grunnlaget i systemdesign, feilsøking og vedlikehold av kode har jeg bygget opp for hånd.</p>
+  <p class="cv-lead">I dag bygger jeg egne programmer, mest i Rust, og tar dem hele veien fra datamodell og server til brukergrensesnitt, testing og drift. AI-assisterte verktøy bruker jeg for å komme raskere fram: jeg bestemmer arkitekturen, stiller kravene og kontrollerer resultatet.</p>
+  <p class="cv-lead">Jeg er særlig interessert i kryptering og sikkerhet — hvordan innlogging, tilgang og data beskyttes i praksis — og i brukeropplevelse: et grensesnitt skal være så praktisk og behagelig å bruke som mulig, også for den som ikke er teknisk.</p>
+</section>
+
+<section class="cv-section cv-section--projects">
+  <h2 class="cv-section__label">Prosjekter — bygget selv</h2>
+
+  <article class="cv-entry">
+    <div class="cv-entry__head">
+      <h3>hampter. <span class="cv-entry__qual">— personlig nettsted og plattform</span></h3>
+      <span class="cv-entry__date">pågående</span>
+    </div>
+    <div class="cv-entry__meta">Rust · Axum · SQLite · HTMX · egen Linux-server</div>
+    <ul class="cv-list">
+      <li><span><strong>Arkitektur:</strong> én Rust-binærfil med server-side rendering og HTMX — ingen byggesteg på frontend, og databasemigreringer som kjører ved oppstart.</span></li>
+      <li><span><strong>Innlogging og tilgang:</strong> passkeys (WebAuthn) og PIN med Argon2-hashing og sperre etter gjentatte feil. Tilgangsnivåene eier, admin og bruker håndheves av typesystemet, og hver brukers data er skilt fra de andres.</span></li>
+      <li><span><strong>Kunstportefølje:</strong> bildeopplasting til S3-kompatibel lagring, AVIF-konvertering i bakgrunnen, tagger, samlinger og synlighetsstyring.</span></li>
+      <li><span><strong>Treningslogg:</strong> kosthold og makroer per bruker, med strekkodeskanning i nettleseren mot OpenFoodFacts.</span></li>
+      <li><span><strong>Sanntid:</strong> flerspillerspill over Server-Sent Events med romkoder og storskjermvisning — blant annet et spill med skjulte roller, bygget slik at hemmelig informasjon aldri kan nå den åpne strømmen.</span></li>
+      <li><span><strong>Kvalitet og drift:</strong> over 1100 automatiske tester og én verifikasjonsportal (formatering, lint, tester); automatisk utrulling med GitHub Actions bak nginx.</span></li>
+    </ul>
+  </article>
+
+  <article class="cv-entry">
+    <div class="cv-entry__head">
+      <h3>VTM Tools <span class="cv-entry__qual">— skrivebordsapp med sanntidsintegrasjon</span></h3>
+      <span class="cv-entry__date">2026</span>
+    </div>
+    <div class="cv-entry__meta">Tauri (Rust + Svelte/TypeScript) · nettleserutvidelse</div>
+    <p>Skrivebordsapp med tilhørende nettleserutvidelse som leser data fra en tredjeparts nettside i sanntid og synkroniserer den inn i appen. Bygget for å få to systemer som ikke er laget for hverandre til å snakke sammen.</p>
+  </article>
+
+  <article class="cv-entry">
+    <div class="cv-entry__head">
+      <h3>codemaps og planvisualiser <span class="cv-entry__qual">— egne utviklingsverktøy</span></h3>
+      <span class="cv-entry__date">2026</span>
+    </div>
+    <div class="cv-entry__meta">Rust · web</div>
+    <p>Verktøy som leser et kodeprosjekt og tegner strukturen visuelt. Laget fordi jeg trengte dem selv, og fordi det er raskere å forstå et system man kan se.</p>
+  </article>
+
+  <article class="cv-entry">
+    <div class="cv-entry__head">
+      <h3>Sortering og lasting av kasser <span class="cv-entry__qual">— personlig arbeidsverktøy, under utvikling</span></h3>
+      <span class="cv-entry__date">2026</span>
+    </div>
+    <div class="cv-entry__tags">
+      <span class="cv-entry__meta">JavaScript · Rust · nettbrett</span>
+      <span class="hm-badge hm-badge--warning">Under utvikling</span>
+    </div>
+    <p>Et verktøy jeg bygger til meg selv for å gjøre det enklere å sortere kasser og laste dem riktig inn i varebilen. Jeg bruker det i min egen arbeidshverdag, og det er også testingen: det som ikke fungerer i praksis, merker jeg selv og retter.</p>
+    <ul class="cv-list">
+      <li><span><strong>Lastetegning:</strong> en plan for sortering og lasting limes inn, og blir til en interaktiv tegning av lasterommet, sett fra bilens bakre hjørne, som jeg jobber meg gjennom på nettbrettet.</span></li>
+      <li><span><strong>Kontroll av planen:</strong> tellingene regnes ut på nytt i stedet for å stoles på — stabilitet, balanse og avstemming celle for celle — så feil i planen oppdages før bilen er lastet.</span></li>
+      <li><span><strong>Lagres lokalt:</strong> alt lagres lokalt på enheten, ikke via nett, og fremdriften føres som en logg der hvert steg kan angres.</span></li>
+      <li><span><strong>Én kilde til lastereglene:</strong> de samme filene driver appen, en frittstående demo og designdokumentet, og dekkes av over 450 automatiske kontroller.</span></li>
+  </article>
+</section>
+
+<section class="cv-section">
+  <h2 class="cv-section__label">Arbeidsmåte — AI-assistert utvikling</h2>
+  <p>Jeg lærte å utvikle før AI-verktøyene kom, og bruker dem nå til å gjennomføre raskere det jeg allerede vet hvordan skal gjøres. Claude Code er en fast del av arbeidsflyten, innenfor en ramme jeg har satt selv:</p>
+  <ul class="cv-list">
+    <li><span><strong>Jeg eier designet.</strong> Arkitektur, datamodell og sikkerhetsvalg bestemmer jeg; AI-en implementerer innenfor dem, og jeg leser og godkjenner det som skrives.</span></li>
+    <li><span><strong>Arbeidet brytes ned</strong> i enheter som hver har én setning som sier når de er ferdige. Større leveranser får et skriftlig plandokument med punktliste, avvik og dokumentert verifikasjon.</span></li>
+    <li><span><strong>To nivåer av kvalitetssikring:</strong> rask sjekk — kompilering, syntaks og berørte tester — etter hver enhet, og hele verifikasjonsløpet før noe leveres videre.</span></li>
+    <li><span><strong>Kodegjennomgang per leveranse.</strong> Det som er risikofylt — innlogging, databasemigreringer, samtidighet — merkes i planen og gjennomgås for seg.</span></li>
+    <li><span><strong>Brukervendte endringer prøves i ekte nettleser</strong> før de regnes som ferdige. Typekontroll verifiserer kode, ikke funksjon.</span></li>
+    <li><span><strong>Dokumentasjonen holdes levende:</strong> en oversikt over hva løsningen faktisk er, oppdatert som del av det å være ferdig — ikke etterpå.</span></li>
+  </ul>
+  <p>Kort sagt: erfaringen avgjør hva som bygges og om det holder mål — AI gjør at det blir ferdig raskere.</p>
+</section>
+
+<section class="cv-section">
+  <h2 class="cv-section__label">Arbeidserfaring</h2>
+
+  <article class="cv-entry">
+    <div class="cv-entry__head">
+      <h3>Sjåfør, varelevering <span class="cv-entry__qual">— Matvare-Expressen, Stavanger</span></h3>
+      <span class="cv-entry__date">2025–nå</span>
+    </div>
+    <p>Daglig ruteleveranse med plukk, pakking, avvikshåndtering og kundekontakt under tidspress.</p>
+  </article>
+
+  <article class="cv-entry">
+    <div class="cv-entry__head">
+      <h3>Backend-utvikler <span class="cv-entry__qual">— Veni, Stavanger</span></h3>
+      <span class="cv-entry__date">2019–2023</span>
+    </div>
+    <p>Utvikling av RESTful API-er i C# med ASP.NET på .NET, mot SQL Server. Arbeid med datamodeller, endepunkter og feilsøking i eksisterende kodebase — alt skrevet før AI-assisterte verktøy var i vanlig bruk.</p>
+  </article>
+
+  <article class="cv-entry">
+    <div class="cv-entry__head">
+      <h3>Kabeltekniker <span class="cv-entry__qual">— Get, Stavanger</span></h3>
+      <span class="cv-entry__date">2018–2019</span>
+    </div>
+    <p>Installasjon, vedlikehold og feilsøking av koaksial-, fiber- og Ethernet-kabling for telekommunikasjon og datanett. Lesing av tekniske tegninger og arbeid etter sikkerhetsrutiner ute hos kunde.</p>
+  </article>
+</section>
+
+<section class="cv-section">
+  <h2 class="cv-section__label">Utdanning</h2>
+
+  <article class="cv-entry">
+    <div class="cv-entry__head">
+      <h3>Fagbrev dataelektroniker <span class="cv-entry__qual">— Sola VGS, Stavanger</span></h3>
+      <span class="cv-entry__date">2018</span>
+    </div>
+    <p>Bred IT-utdanning med både programvare og maskinvare: digitalteknikk, nettverksdrift og programmering, avsluttet med fagprøve etter Vg3 og praksis. Det viktigste jeg tok med meg er evnen til å sette meg raskt inn i noe nytt — enten det er et system, et verktøy eller en maskinvare — og løse problemet eller få den nye løsningen på plass.</p>
+  </article>
+
+  <article class="cv-entry">
+    <div class="cv-entry__head">
+      <h3>Videregående vitnemål, elektro og dataelektronikk <span class="cv-entry__qual">— Sola VGS</span></h3>
+      <span class="cv-entry__date">2016</span>
+    </div>
+    <p>Vg1 Elektronikk, Vg2 og Vg3 Dataelektronikk.</p>
+  </article>
+</section>
+
+</div>
+
+<aside class="cv-rail">
+  <div class="cv-card">
+    <span class="hm-eyebrow">Ferdigheter</span>
+    <div class="cv-skill">
+      <span class="cv-skill__name">Språk og rammeverk</span>
+      <span class="cv-skill__value">Rust · Axum · C# · ASP.NET · JavaScript · TypeScript · Svelte · Tauri · HTMX · SQL · HTML/CSS</span>
+    </div>
+    <div class="cv-skill">
+      <span class="cv-skill__name">Data og integrasjon</span>
+      <span class="cv-skill__value">SQL Server · SQLite · REST-API-er · Server-Sent Events · S3-kompatibel lagring</span>
+    </div>
+    <div class="cv-skill">
+      <span class="cv-skill__name">Verktøy og arbeidsmåte</span>
+      <span class="cv-skill__value">Git · GitHub Actions · Linux-server og nginx · AI-assistert utvikling (Claude Code) · teknisk dokumentasjon og brukerveiledninger</span>
+    </div>
+    <div class="cv-skill">
+      <span class="cv-skill__name">Fagbakgrunn</span>
+      <span class="cv-skill__value">Digitalteknikk · nettverksdrift · kabling og feilsøking</span>
+    </div>
+  </div>
+  <div class="cv-card cv-card--inset">
+    <span class="cv-skill__value"><span class="cv-skill__name">Norsk</span> morsmål</span>
+    <span class="cv-skill__value"><span class="cv-skill__name">Engelsk</span> leser og forstår teknisk dokumentasjon</span>
+    <span class="cv-skill__value"><span class="cv-skill__name">Førerkort</span> klasse B</span>
+  </div>
+</aside>
+
+</div>
+</div>
+{% endblock %}
