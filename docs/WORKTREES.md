@@ -24,6 +24,20 @@ from this file on 2026-08-12; `git log docs/WORKTREES.md` recovers them.
 
 ## Streams
 
+- **`feat/hub-admin-cv-docs`** (started 2026-09-08, from `master` @ afbad7f,
+  in the main checkout — no separate worktree; merges → `master`, not `dev`):
+  moves the Hub and Admin onto the Hampter Design System and adds two new
+  pages, a **CV page (`GET /cv`)** and an employer-facing "How it works" page.
+  Manifest: `docs/manifests/2026-09-08-hub-admin-cv-docs.md` (on the branch).
+  Design handoff: `docs/design/hub-admin-cv-docs/` (on the branch) — **the CV
+  design is `CV.dc.html`** (Norwegian, "Jesper Løvland — Utvikler, interne
+  digitale verktøy og automatisering"). Packs 1 (shared shell) and 2 (Hub) are
+  done (2026-09-09); Packs 3–7 are not started. **The CV page (Pack 6) is
+  blocked on ruling 1 in the manifest**: which CV is authoritative (the
+  handoff's `CV.dc.html` or `~/projects/arbeidssoking/cv/cv-jesper-lovland.html`,
+  outside this repo), what fills `[ARBEIDSGIVER]` and `[ÅRSTALL]`, and whether
+  a public page shows the phone number and postcode. Not merged, no PR yet.
+
 - **`claude/secret-hitler-game-jg8xqs`** (started 2026-09-07, from `master`,
   in the main checkout — no separate worktree): **Backroom**, a fourth game
   for the `/drinks` room shell — a hidden-role game, mechanically Secret
