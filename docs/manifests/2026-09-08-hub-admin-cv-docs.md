@@ -1,8 +1,17 @@
 # Container — Hub, Admin, CV and How-it-works on the Hampter Design System
 
-**Status:** NOT STARTED — planned only. Pack 1 is drafted to item level and is
-ready to run; **three rulings below block Packs 3, 6 and 7** and are the user's
-to make. No execution go has been given.
+**Status:** ACTIVE — **Packs 1, 2 and 6 landed** (shared shell, Hub, CV), each
+gated and walked; ledgers at the foot. **Packs 3, 4, 5 and 7 are not started.**
+Ruling 1 was taken by the user 2026-09-25 and Pack 6 shipped on it; **ruling 2
+(how `admin_page` gets identity) still blocks Pack 3** and **ruling 3 (the
+documentation route's name) still blocks Pack 7**. Open PR:
+Hampternt/drawingportfolio#20 — currently **conflicting with `master`** in
+`docs/WORKTREES.md`, an add/add where both sides indexed this stream.
+
+*(This line read "NOT STARTED" from 2026-09-08 until 2026-09-25: the Pack 1 and
+Pack 2 ledger commits tried to update it with an unasserted string replacement
+that silently did not match, so the ledgers below landed while the status above
+them did not move. Assert on every replacement, including the cosmetic ones.)*
 **Branch:** `feat/hub-admin-cv-docs` (from `master` @ afbad7f, in the main
 checkout — no separate worktree; merges → `master`). `dev` is **not** the
 target: its only commit `master` lacks is a stale `docs/WORKTREES.md` edit
