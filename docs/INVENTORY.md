@@ -12,10 +12,15 @@ is part of the definition of merged. Manifests live in `docs/manifests/`.
 
 The landing page: entry point linking to every public area of the site.
 
-- 🚧 **Redesign in flight** — the front door moves onto the Hampter Design
-  System: a blueprint-grid hero, a click-to-open command palette bar, and a
-  tile grid covering every section.
-  Container: `docs/manifests/2026-09-08-hub-admin-cv-docs.md`
+- A dark front door on the house design system: a blueprint-grid hero naming
+  what the site runs on, the tagline, and nothing else competing for attention.
+- A search bar that opens the command palette on click, so every destination on
+  the site is reachable without knowing a URL. `Ctrl`+`K` does the same from any
+  page.
+- Six section tiles — drawing portfolio, drawing tasks, drinks, fitness,
+  sorting, CV — each saying what the section is and who can reach it.
+- The site header is shared from here: the wordmark, a nav that lights the
+  section you are in, and the palette. Every other page wears it too.
 
 ## Art portfolio — `/artportfolio`
 
@@ -28,10 +33,14 @@ The public showcase of drawings.
 - Visibility per post: public (listed), unlisted (permalink only), hidden.
 - Admin dashboard (`/admin`, passkey-gated): upload with automatic image
   variants, edit captions/tags, manage collections and visibility.
-- 🚧 **Admin redesign in flight** — `/admin` becomes a dark sidebar shell with
-  live counts, a searchable and filterable post list, and the owner-only
-  accounts pane folded in from `/admin/users`.
-  Container: `docs/manifests/2026-09-08-hub-admin-cv-docs.md`
+- 🚧 **Admin redesign — planned, no code written.** `/admin` would become a dark
+  sidebar shell with live counts, a searchable and filterable post list, and the
+  owner-only accounts pane folded in from `/admin/users`. Three packs (3, 4, 5)
+  of the container below; **blocked on one decision** — how the admin page
+  learns who is signed in, since the admin gate carries no name or owner flag
+  and changing that changes a security boundary. The accounts pane is the
+  container's only privilege boundary and is planned as its own pack for that
+  reason. Container: `docs/manifests/2026-09-08-hub-admin-cv-docs.md`
 
 ## Drawing tasks — `/tasks`
 
@@ -99,17 +108,25 @@ A party platform for phone-based drinking games in shared rooms.
 
 ## CV — `/cv`
 
-- 🚧 **New section in flight** — a public CV page: work history, projects and
-  skills, with the same content offered as a download.
-  Container: `docs/manifests/2026-09-08-hub-admin-cv-docs.md`
+A public CV, in Norwegian, for anyone considering hiring the owner.
+
+- Five sections: about, projects built personally, how the work gets done with
+  AI assistance, work experience, and education. A skills rail sits alongside.
+- Contact is email and GitHub only — deliberately no phone number and no
+  postcode, since the page is public and indexable. A test enforces that, and
+  also that none of the source document's unfilled blanks can ever reach it.
+- Print the page for a PDF; there is no separate file to keep in sync.
 
 ## How it works — `/docs`
 
-- 🚧 **New section in flight** — an employer-facing explainer of how the site
+- 🚧 **Planned, no code written.** An employer-facing explainer of how the site
   is built and run: the request path, the sections, how uploads and visibility
-  work, and the decisions behind them. The route name is still the user's to
-  rule; `/docs` is the recommendation this heading assumes.
-  Container: `docs/manifests/2026-09-08-hub-admin-cv-docs.md`
+  work, and the decisions behind them. Pack 7 of the container below, and last
+  by design — most of its prose is a claim about what the earlier packs shipped.
+  **Blocked on one decision:** the route name. `/docs` is the recommendation
+  this heading assumes; nothing links here yet, and the CV page carries a test
+  proving it does not. Container:
+  `docs/manifests/2026-09-08-hub-admin-cv-docs.md`
 
 ## Infrastructure
 
@@ -122,4 +139,6 @@ behind nginx. Quality gates: `scripts/check.sh` (item) and
 ---
 
 *In transit: the Hub/Admin/CV/How-it-works container —*
-*`docs/manifests/2026-09-08-hub-admin-cv-docs.md`.*
+*`docs/manifests/2026-09-08-hub-admin-cv-docs.md`. The shared shell, the Hub*
+*and the CV have shipped; the Admin redesign and the How-it-works page are*
+*planned only, each blocked on one decision recorded in that manifest.*
