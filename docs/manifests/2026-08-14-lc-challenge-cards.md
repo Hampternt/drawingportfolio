@@ -1,6 +1,10 @@
 # Last Call: challenge cards (container)
 
-**Status:** ACTIVE 2026-08-14 — Pack 1 in progress
+**Status:** IDLE — Pack 1 complete and merged 2026-08-14, since on `master`
+(engine, vote flow, bare UI; ledger in `2026-08-14-lc-challenge-pack1.md`).
+Its challenge cards ship at `copies: 0`, so live games draw none yet. Packs 2
+and 3 are not started, and no next pack is chosen. *(Read "ACTIVE — Pack 1 in
+progress" until 2026-09-28.)*
 **Branch:** `feat/lc-challenge-cards` (from `dev`; merges → `dev` → `master`)
 **Origin:** the deferred v2 plan recorded 2026-08-12 (memory
 `lastcall-v2-challenge-cards`): cards whose effect happens in real life —
@@ -52,7 +56,7 @@ a personal rule displayed on their seat).
 Only the active pack gets an item manifest; the lists below are the
 proposed shape, one level deep.
 
-### Pack 1 — challenge engine + bare loop (ACTIVE)
+### Pack 1 — challenge engine + bare loop (DONE 2026-08-14)
 
 Observable: in a test-mode room, play a challenge card; at Resolve the
 phase runs end to end in the browser — contestants named, non-contestants

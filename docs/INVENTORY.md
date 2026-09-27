@@ -36,11 +36,11 @@ The public showcase of drawings.
 - 🚧 **Admin redesign — planned, no code written.** `/admin` would become a dark
   sidebar shell with live counts, a searchable and filterable post list, and the
   owner-only accounts pane folded in from `/admin/users`. Three packs (3, 4, 5)
-  of the container below; **blocked on one decision** — how the admin page
-  learns who is signed in, since the admin gate carries no name or owner flag
-  and changing that changes a security boundary. The accounts pane is the
-  container's only privilege boundary and is planned as its own pack for that
-  reason. Container: `docs/manifests/2026-09-08-hub-admin-cv-docs.md`
+  of the container below. None waits on a decision now, and 4 and 5 follow 3:
+  how the admin page learns who is signed in — without changing the admin
+  gate, which is a security boundary — was decided 2026-09-27. The accounts pane is the container's only privilege
+  boundary and is planned as its own pack for that reason. Container:
+  `docs/manifests/2026-09-08-hub-admin-cv-docs.md`
 
 ## Drawing tasks — `/tasks`
 
@@ -126,7 +126,9 @@ A party platform for phone-based drinking games in shared rooms.
   show everyone's per-deck hand counts; a mode badge + pull count ride
   the tab row. Container: `docs/manifests/2026-08-13-lc-mobile-play-flow.md`
 - 🚧 Challenge cards — real-life party challenges as Last Call cards
-  (duels judged by table vote, solo dares, social penalties).
+  (duels judged by table vote, solo dares, social penalties). Idle: the first
+  pack's engine and table vote are live, but no challenge card is in the deck
+  yet, so no game draws one; the rest is not started.
   Container: `docs/manifests/2026-08-14-lc-challenge-cards.md`
 
 ## CV — `/cv`
@@ -146,9 +148,9 @@ A public CV, in Norwegian, for anyone considering hiring the owner.
   is built and run: the request path, the sections, how uploads and visibility
   work, and the decisions behind them. Pack 7 of the container below, and last
   by design — most of its prose is a claim about what the earlier packs shipped.
-  **Blocked on one decision:** the route name. `/docs` is the recommendation
-  this heading assumes; nothing links here yet, and the CV page carries a test
-  proving it does not. Container:
+  The route is `/docs`, decided 2026-09-27. **Blocked on one decision:**
+  whether the CV links here. Nothing links here yet, and the CV page carries a
+  test proving it does not. Container:
   `docs/manifests/2026-09-08-hub-admin-cv-docs.md`
 
 ## Infrastructure
@@ -164,4 +166,5 @@ behind nginx. Quality gates: `scripts/check.sh` (item) and
 *In transit: the Hub/Admin/CV/How-it-works container —*
 *`docs/manifests/2026-09-08-hub-admin-cv-docs.md`. The shared shell, the Hub*
 *and the CV have shipped; the Admin redesign and the How-it-works page are*
-*planned only, each blocked on one decision recorded in that manifest.*
+*planned only. The Admin redesign is unblocked; How-it-works waits on one*
+*decision recorded in that manifest.*

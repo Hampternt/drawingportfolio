@@ -1,22 +1,33 @@
 # Container — Hub, Admin, CV and How-it-works on the Hampter Design System
 
 **Status:** ACTIVE — **Packs 1, 2 and 6 landed** (shared shell, Hub, CV), each
-gated and walked; ledgers at the foot. **Packs 3, 4, 5 and 7 are not started.**
-Ruling 1 was taken by the user 2026-09-25 and Pack 6 shipped on it; **ruling 2
-(how `admin_page` gets identity) still blocks Pack 3** and **ruling 3 (the
-documentation route's name) still blocks Pack 7**. Open PR:
-Hampternt/drawingportfolio#20, with `master` merged in as of 2026-09-25.
+gated and walked; ledgers at the foot. They reached `master` as one
+squash-merge, Hampternt/drawingportfolio#20, on 2026-09-27. **Packs 3, 4, 5 and
+7 are not started, and the next pack is not chosen.** Ruling 1 was taken by the
+user 2026-09-25 and Pack 6 shipped on it. Rulings 2 and 3 were taken by the user
+2026-09-27: `admin_page` takes `AuthSession` alongside `RequireAdmin`, with
+neither extractor changed, and the documentation page's route is `/docs`. No
+ruling blocks Packs 3–5 now — Pack 3 can start, and Packs 4 and 5 still wait on
+it. **Ruling 4 (does the CV link to `/docs`?) is open and blocks Pack 7.** An
+external review of the live site was mapped onto this container on 2026-09-27;
+it was written against `master` before #20 landed, so it did not see Packs 1, 2
+and 6. The mapping and its proposed manifest changes are in
+`docs/handoffs/2026-09-27-portfolio-review.md` and its appendix. Of those
+proposals, C1, C2 and C12 are applied here; the rest are not.
 
 *(This line read "NOT STARTED" from 2026-09-08 until 2026-09-25: the Pack 1 and
 Pack 2 ledger commits tried to update it with an unasserted string replacement
 that silently did not match, so the ledgers below landed while the status above
 them did not move. Assert on every replacement, including the cosmetic ones.)*
-**Branch:** `feat/hub-admin-cv-docs` (from `master` @ afbad7f, in the main
-checkout — no separate worktree; merges → `master`). `dev` is **not** the
-target: its only commit `master` lacks is a stale `docs/WORKTREES.md` edit
-(e647d1c, 2026-08-29) and `master` has moved 33 commits past it, with the last
-two streams merged by PR straight to `master`. Ancestry checked both ways:
-`master` is not an ancestor of `dev`, `dev` is not an ancestor of `master`.
+**Branch:** none of its own now. Packs 1, 2 and 6 were built on
+`feat/hub-admin-cv-docs` (from `master` @ afbad7f) and squash-merged; that
+branch was deleted from `origin` on 2026-09-27, because its history carries
+personal data the squash keeps off `master`. The review follow-up runs on
+`feat/portfolio-review` (from `master` @ 0c0e99d), and later packs branch from
+`master` and merge back into it. `dev` is **not** the target: its only commit
+`master` lacks is a `docs/WORKTREES.md` edit (e647d1c, 2026-08-29), whose
+content `feat/portfolio-review` carries over by hand. Ancestry re-checked
+2026-09-28: neither branch is an ancestor of the other.
 **Spec:** `docs/design/hub-admin-cv-docs/` — the README is the spec; the
 `_ds/…/tokens/*.css` and `_ds/…/components/components.css` files are
 authoritative where they disagree with it. The `.dc.html` files are streaming
@@ -68,8 +79,9 @@ Ordered by the hazard each pack retires, not by how visible its screen is.
 | 6 | **CV — `/cv`** | The CV page, its nav link, its hub tile and its palette command |
 | 7 | **How it works** | The explainer at its ruled route, and every claim on it true of the site the six packs before it shipped |
 
-Only Pack 1 is planned to item level. Later packs get their items when they
-start; several of them are blocked on rulings recorded below.
+Each pack gets its items when it starts. Of the four numbered rulings below,
+only ruling 4 is still open, and it blocks Pack 7. The non-blocking open
+rulings under trade-offs are still answered before the pack that consumes each.
 
 **Nav grows in the pack that creates the route.** The header stays at four links
 through Pack 5, reaches five in Pack 6 and six in Pack 7. No pack ever leaves a
@@ -81,11 +93,13 @@ dead link in the header of a live site.
 
 ---
 
-## Blocking rulings — the user's to make
+## Rulings — the user's to make
 
-These three stop a pack from starting. The rest are recorded under trade-offs.
+Rulings 1–3 each stopped a pack from starting, and all three are now taken.
+Ruling 4 is open and blocks Pack 7. The rest are recorded under trade-offs.
 
-**1. Which CV is authoritative? (blocks Pack 6.)** The README cites
+**1. Which CV is authoritative? (Blocked Pack 6. Taken 2026-09-25 — see the
+Pack 6 ledger.)** The README cites
 `uploads/cv-<owner>.html`; that file does not exist in this repo and
 never has. Two other versions disagree structurally: `CV.dc.html` in the handoff
 (four project articles, a Kabeltekniker/Get job, no Sorting) and an out-of-repo
@@ -95,18 +109,46 @@ file at `~/projects/arbeidssoking/cv/cv-<owner>.html` (Sorting-led,
 public page carries the phone number and postcode. Shipping a literal amber
 `[ARBEIDSGIVER]` in front of an employer is worse than shipping nothing.
 
-**2. How does `admin_page` get identity? (blocks Pack 3.)** The design's header
-eyebrow reads `signed in as <name> · <role>`, and the rail's owner-only group
-needs `is_owner`. Only `AuthSession` carries `user_name` and `is_owner`;
-`RequireAdmin` is a unit struct that deliberately carries nothing. Either add
-`AuthSession` alongside it (two `load_session` calls per request) or give
-`RequireAdmin` the fields it currently refuses. Both change a security
-extractor, so neither is an implementer's call.
+**2. How does `admin_page` get identity? Taken by the user 2026-09-27: add
+`AuthSession` alongside `RequireAdmin`, in `admin_page` only.** No extractor
+changes shape: `RequireAdmin` stays the unit struct that carries nothing. It
+goes first in the argument list, so a rejected request never pays for the second
+`load_session`. In either order a signed-in non-admin gets the bare 404 and a
+request with no session gets the redirect to `/admin/login`; an admitted request
+pays two `load_session` calls, on this one full-page route. The `AuthSession` is
+for display only. It fills the eyebrow's `signed in as <name> · <role>` and
+decides whether the rail draws its *Owner only* entry. It never authorizes
+anything. Every other handler keeps the extractor it has today: `RequireAdmin`
+alone on `admin.rs`'s fragments and mutations, `RequireOwner` on the accounts
+routes. Pack 4's pane is still fetched as its own `RequireOwner` fragment, never
+rendered inline because `is_owner` was true. Not yet in the code (checked
+2026-09-28): `src/routes/admin.rs:43` still reads
+`admin_page(_: crate::middleware::RequireAdmin)`, and the doc comment on
+`RequireAdmin` (`src/middleware.rs:94–97`) still predicts that Pack 3 will widen
+it to carry the `AuthSession`. Pack 3 rewrites that comment to point here.
 
-**3. Route name for the documentation page.** `/docs` or `/how-it-works`? The
-handoff writes `GET /docs` then adds "(name it what you like)", and the palette
-command id is already `docs` in two prototypes. Needed before Pack 2 writes the
-hub footer link and before Pack 7's module is named. Recommendation: `/docs`.
+**3. Route name for the documentation page. Taken by the user 2026-09-27:
+`/docs`.** These follow from it and are not part of the ruling: the module is
+`src/routes/docs.rs` and the template is flat `templates/docs.html`, matching
+`cv.rs` / `cv.html`. The palette entry is the README's `How this site works`,
+with keywords `docs documentation architecture stack`; the real `palette.js`
+has no id field, so the prototypes' `id: 'docs'` does not carry over. The nav
+grows by exactly one link, to six.
+
+**4. Does the CV link to `/docs`? (Open — blocks Pack 7.)** Two records
+disagree. The user decided (2026-09-25/27) that the CV does not link the website
+itself. But README §3 gives the CV rail "a link card out to the how-it-works
+page", Pack 7's *Observable* expects "the CV rail's link card" to land on
+`/docs`, and the Pack 6 ledger omits that card only *until* Pack 7's route
+exists. Either the decision covers `/docs` too — the card is dropped for good,
+the README line is overridden and Pack 7's *Observable* loses that clause — or
+the card ships with Pack 7 as planned. Recommendation: drop it, the reading that
+keeps the decision whole. One consequence holds either way:
+`test_cv_links_nowhere_that_does_not_exist_yet` (`src/routes/cv.rs`) asserts on
+the whole rendered page, header included, so it fails the day Pack 7 puts
+`/docs` in the `base.html` nav. Before then it must be narrowed to the
+`<main>` slice, as the phone-number test beside it already is. Links *towards*
+the CV — nav, hub tile, palette — are not in question.
 
 ---
 
@@ -354,7 +396,8 @@ the user owns.
 
 ### Pack 3 — Admin: the shell, the Posts pane, and the end of `admin_post_card_html()`
 
-**Blocked on ruling 2 before its items are written.**
+**Unblocked: ruling 2 was taken 2026-09-27. Items are written when the pack
+starts.**
 
 **Done when:** `/admin` renders the design's standalone dark shell — its own
 header, a page head with four live counts, a 236px sticky rail and server-side
@@ -404,8 +447,12 @@ source" on `/admin` contains no other account's name.
 routes and every `render()` call site, each of which returns a whole page today),
 `templates/users.html`, `src/models.rs` (`UserRow` covers every column the grid
 draws), `src/middleware.rs`. Depends on Pack 3, which produces the shell, the
-rail, the pane routing and the extractor ruling. **Every item in this pack is
-flagged for individual review** — auth/session territory.
+rail, the pane routing and ruling 2's `AuthSession` on `admin_page`. That
+`AuthSession`'s `is_owner` decides only whether the rail *draws* the Accounts
+entry. The pane's rows still come from their own `RequireOwner` fragment, so a
+granted non-owner admin's `/admin` source holds no other account's row even if
+the flag were wrong. **Every item in this pack is flagged for individual
+review** — auth/session territory.
 ⚠ Placed before Pack 5 deliberately: risk before cosmetics.
 
 **Risks.** **The read leak is the whole reason this is its own pack.**
@@ -504,9 +551,10 @@ container: convert the 🚧 pointers in `docs/INVENTORY.md` into real entries in
 four places.
 
 **Risks.** Stale by construction, on a public page aimed at employers, with no
-test behind any of it. The board-check figure **already** disagrees inside this
-repo — CLAUDE.md says 458 while `scripts/verify.sh` still says 432 — so
-publishing a third copy is the same bug one level more visible. Three drafted
+test behind any of it. The board-check figure has **already** drifted inside
+this repo once — CLAUDE.md said 458 while `scripts/verify.sh` and two other
+copies said 432, until 2026-09-28 — so publishing another copy is the same bug
+one level more visible. Three drafted
 claims are wrong and must be fixed before publishing: "nothing to compile before
 a change goes live" and the `build step: none` stat are false for a Rust binary
 (the intended meaning is no front-end bundler); "four session extractors"
@@ -540,8 +588,9 @@ Not blocking, but each needs an answer before the pack that consumes it.
 - **Do the How-it-works numbers get a guard test** — the shape of
   `test_board_template_and_boot_agree_on_their_ids`, asserting the template's
   figures against their source — or is the drift accepted and recorded? The repo
-  already carries two different values for the board-check count, so "we will
-  remember to update it" has a track record.
+  carried two different values for the board-check count until 2026-09-28
+  (three copies said 432 against a measured 458), so "we will remember to
+  update it" has a track record.
 - **The PDF button on `/cv`.** A scoped `@media print` stylesheet plus
   `window.print()`, or serve a print-ready file as a static asset. The README
   recommends against generating server-side.
@@ -602,6 +651,17 @@ Decisions made while porting, each flagged here for review:
 marker/nav, nothing private or blank published, no dead links). Board checks
 458, clippy 18 — unchanged. Walked in Chromium at 1440 and 390 wide, in print
 emulation, and via a boosted click from the hub tile (`body.site-dark` held).
+
+**Revised 2026-09-27** (Hampternt/drawingportfolio#21, merged into the feature
+branch and carried to `master` inside #20's squash): the page's `<title>` and
+heading show the shortened name `Jesper L.`; the working-method section opens
+with design-first briefing, and its two review bullets became one — review
+depth scales with how critical a change is and how likely it is to go wrong
+(the English wording is in the handoff's §AI statement); the phone number and
+postcode were scrubbed from the design handoff as well, and the privacy test
+now checks by shape — no `+47`, no phone-length digit run in `<main>`, no digit
+in the contact row — never by value. #22 then closed the sorting entry's
+unclosed `<ul>`. Whether the CV may link to `/docs` is ruling 4.
 
 ### Pack 2 — done 2026-09-09
 
@@ -779,6 +839,14 @@ pre-existing and unchanged by this pack, so widening the gutter is a Pack 2
 decision that moves every dark page at once.
 
 
+- 2026-09-28 — rulings recorded from the portfolio-review handoff
+  (`docs/handoffs/2026-09-27-portfolio-review.md`): appendix proposals C1 and
+  C2 from the verifiers' revised texts, and C12 from its unchecked draft,
+  checked against the code when applied. Rulings 2 and 3 marked taken,
+  ruling 4 opened, the Status and Branch lines moved past #20's squash-merge,
+  Pack 3 unblocked, and Pack 4's brief given ruling 2's consequence. The
+  proposals' mentions of Pack 2b and Pack 8 were left out, since C3 is not
+  applied.
 - 2026-09-08 — handoff extracted from the delivered zip into
   `docs/design/hub-admin-cv-docs/`, stream registered in `docs/WORKTREES.md`,
   branch `feat/hub-admin-cv-docs` cut from `master` @ afbad7f and pushed
