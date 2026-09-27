@@ -1,0 +1,51 @@
+/* Legacy → new mapping.
+   The live site has two dark layers today: "Nocturne" (the fitness tracker, scoped to
+   `body.fitness-dark` in static/style.css) and the drinking game's own palette
+   (drinkinggame/assets/game.css). The new system is built from the drinking game's
+   values; Nocturne is the one that needs migrating.
+
+   Drop this file into the old CSS while migrating: `--noc-*` keeps working but now
+   resolves to the new tokens, so a page converts by deleting rules, not rewriting them.
+
+   | Nocturne (old)      | value    | New token          |
+   | ------------------- | -------- | ------------------ |
+   | --noc-bg            | #161826  | --surface-page     |
+   | --noc-surface       | #232532  | --surface-card     |
+   | --noc-surface-2     | #1c1e2b  | --surface-inset    |
+   | --noc-text          | #e9e9ed  | --text-strong      |
+   | --noc-muted (55%)   | —        | --text-muted       |
+   | --noc-faint (45%)   | —        | --text-faint       |
+   | --noc-accent        | #9184d9  | --accent (#B48EF7) |
+   | --noc-accent-300    | #d2cefd  | --violet-200       |
+   | --noc-accent-400    | #b5abfc  | --violet-300       |
+   | --noc-accent-900    | #2b2741  | --violet-700       |
+   | --noc-n700/800/900  | greys    | --ink-400/600/700  |
+   | --noc-divider       | 16% text | --border-subtle    |
+   | --noc-radius-sm/md/lg | 4/8/14 | --radius-sm(5)/md(8)/lg(12) |
+   | --noc-shadow-card   | 1px ring | border + --shadow-flat |
+   | --noc-shadow-pop    | ring+18px| --shadow-3         |
+
+   Note the two deliberate breaks: Nocturne's accent shifts from the greyer #9184d9 to
+   the drinking game's brighter #B48EF7, and its 1px-ring "shadow" becomes a real
+   border. Radii move 4/8/14 → 5/8/12. */
+body.fitness-dark,.legacy-nocturne{
+  --noc-bg:var(--surface-page);
+  --noc-surface:var(--surface-card);
+  --noc-surface-2:var(--surface-inset);
+  --noc-text:var(--text-strong);
+  --noc-accent:var(--accent);
+  --noc-accent-300:var(--violet-200);
+  --noc-accent-400:var(--violet-300);
+  --noc-accent-900:var(--violet-700);
+  --noc-n700:var(--ink-400);
+  --noc-n800:var(--ink-600);
+  --noc-n900:var(--ink-700);
+  --noc-divider:var(--border-subtle);
+  --noc-muted:var(--text-muted);
+  --noc-faint:var(--text-faint);
+  --noc-radius-sm:var(--radius-sm);
+  --noc-radius-md:var(--radius-md);
+  --noc-radius-lg:var(--radius-lg);
+  --noc-shadow-card:0 0 0 1px var(--border-default);
+  --noc-shadow-pop:var(--shadow-3);
+}

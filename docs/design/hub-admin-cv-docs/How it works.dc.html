@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="_ds/hampter-design-system-03c25988-bba8-4fc5-801f-653a333b24c3/tokens/fonts.css">
+<link rel="stylesheet" href="_ds/hampter-design-system-03c25988-bba8-4fc5-801f-653a333b24c3/tokens/colors.css">
+<link rel="stylesheet" href="_ds/hampter-design-system-03c25988-bba8-4fc5-801f-653a333b24c3/tokens/typography.css">
+<link rel="stylesheet" href="_ds/hampter-design-system-03c25988-bba8-4fc5-801f-653a333b24c3/tokens/spacing.css">
+<link rel="stylesheet" href="_ds/hampter-design-system-03c25988-bba8-4fc5-801f-653a333b24c3/tokens/shape.css">
+<link rel="stylesheet" href="_ds/hampter-design-system-03c25988-bba8-4fc5-801f-653a333b24c3/tokens/motion.css">
+<link rel="stylesheet" href="_ds/hampter-design-system-03c25988-bba8-4fc5-801f-653a333b24c3/tokens/base.css">
+<link rel="stylesheet" href="_ds/hampter-design-system-03c25988-bba8-4fc5-801f-653a333b24c3/components/components.css">
+<link rel="stylesheet" href="_ds/hampter-design-system-03c25988-bba8-4fc5-801f-653a333b24c3/tokens/legacy-nocturne.css">
+<link rel="stylesheet" href="_ds/hampter-design-system-03c25988-bba8-4fc5-801f-653a333b24c3/styles.css">
+<script src="_ds/hampter-design-system-03c25988-bba8-4fc5-801f-653a333b24c3/_ds_bundle.js"></script>
+<style>
+  a { color: #B48EF7; text-decoration: none; }
+  a:hover { color: #C9AEFA; }
+</style>
+</helmet>
+<div data-screen-label="How it works" style="min-height:100vh;background:#0B0910;color:#CDC6DD;font:400 15px/1.5 'Space Grotesk',system-ui,sans-serif">
+
+<header style="position:sticky;top:0;z-index:40;height:56px;display:flex;align-items:center;gap:24px;padding:0 32px;background:rgba(14,12,20,.82);backdrop-filter:blur(10px);border-bottom:1px solid rgba(242,238,248,.07)">
+<a href="Hub.dc.html" style="font-family:'Archivo',system-ui,sans-serif;font-weight:800;font-size:17px;letter-spacing:-0.035em;color:#F2EEF8;text-decoration:none;flex:none">hampter<span style="color:#B48EF7">.</span></a>
+<nav style="display:flex;align-items:center;gap:20px;font-size:14px;font-weight:500;min-width:0;overflow:hidden">
+<a href="#" style="color:#8D87A0;text-decoration:none;white-space:nowrap">Drawing Portfolio</a>
+<a href="#" style="color:#8D87A0;text-decoration:none;white-space:nowrap">Drawing Tasks</a>
+<a href="#" style="color:#8D87A0;text-decoration:none;white-space:nowrap">Fitness</a>
+<a href="#" style="color:#8D87A0;text-decoration:none;white-space:nowrap">Sorting</a>
+<a href="CV.dc.html" style="color:#8D87A0;text-decoration:none;white-space:nowrap">CV</a>
+<a href="#" style="color:#F2EEF8;text-decoration:none;white-space:nowrap">How it works</a>
+</nav>
+<div style="margin-left:auto;display:flex;align-items:center;gap:12px;flex:none">
+<button type="button" onClick="{{ openPalette }}" aria-label="Open command palette" style="display:flex;align-items:center;gap:8px;height:34px;padding:0 10px;background:none;border:1px solid transparent;border-radius:5px;cursor:pointer;color:#8D87A0" style-hover="background:rgba(242,238,248,.04);border-color:rgba(242,238,248,.07)">
+<x-import component-from-global-scope="HampterDesignSystem_03c259.KbdGroup" keys="{{ paletteKeys }}" hint-size="66px,20px"></x-import>
+</button>
+</div>
+</header>
+
+<section style="padding:72px 32px 48px;background-color:#0B0910;background-image:linear-gradient(rgba(242,238,248,.045) 1px,transparent 1px),linear-gradient(90deg,rgba(242,238,248,.045) 1px,transparent 1px);background-size:32px 32px;border-bottom:1px solid rgba(242,238,248,.07)">
+<div style="max-width:1180px;margin:0 auto">
+<span style="font:500 11px/1.2 'IBM Plex Mono',monospace;letter-spacing:.10em;text-transform:uppercase;color:#5F5876">documentation · written for a reader who does not code</span>
+<h1 style="margin:16px 0 0;font-family:'Archivo',system-ui,sans-serif;font-weight:900;font-size:clamp(40px,5.6vw,64px);line-height:1.04;letter-spacing:-0.025em;color:#F2EEF8">How this site works<span style="color:#B48EF7">.</span></h1>
+<p style="margin:20px 0 0;max-width:68ch;font-size:18px;color:#CDC6DD;text-wrap:pretty">I built and run everything you see here: five sections, one program, one server. This page explains what that program does, the decisions behind it, and how I know it still works after a change.</p>
+<div style="display:flex;flex-wrap:wrap;gap:32px;margin-top:36px">
+<span style="display:flex;flex-direction:column-reverse;gap:6px"><span style="font:500 11px/1.2 'IBM Plex Mono',monospace;letter-spacing:.10em;text-transform:uppercase;color:#5F5876">program</span><span style="font:400 24px/1 'IBM Plex Mono',monospace;color:#F2EEF8">1</span></span>
+<span style="display:flex;flex-direction:column-reverse;gap:6px"><span style="font:500 11px/1.2 'IBM Plex Mono',monospace;letter-spacing:.10em;text-transform:uppercase;color:#5F5876">sections</span><span style="font:400 24px/1 'IBM Plex Mono',monospace;color:#F2EEF8">5</span></span>
+<span style="display:flex;flex-direction:column-reverse;gap:6px"><span style="font:500 11px/1.2 'IBM Plex Mono',monospace;letter-spacing:.10em;text-transform:uppercase;color:#5F5876;white-space:nowrap">automated tests</span><span style="font:400 24px/1 'IBM Plex Mono',monospace;color:#4FD6A8">1105</span></span>
+<span style="display:flex;flex-direction:column-reverse;gap:6px"><span style="font:500 11px/1.2 'IBM Plex Mono',monospace;letter-spacing:.10em;text-transform:uppercase;color:#5F5876;white-space:nowrap">build step</span><span style="font:400 24px/1 'IBM Plex Mono',monospace;color:#F2EEF8">none</span></span>
+</div>
+</div>
+</section>
+
+<div style="max-width:1180px;margin:0 auto;padding:48px 32px 96px;display:flex;flex-direction:column;gap:56px">
+
+<section style="display:flex;flex-direction:column;gap:16px">
+<h2 style="margin:0;font:700 28px/1.22 'Archivo',system-ui,sans-serif;letter-spacing:-0.02em;color:#F2EEF8">What it is</h2>
+<p style="margin:0;max-width:68ch;font-size:16px;color:#CDC6DD;text-wrap:pretty">The site is one program written in Rust. A visitor asks for a page, the program reads what it needs from a small database, fills in an HTML template and sends back a finished page. There is no separate app to install, no framework to keep up with, and nothing to compile before a change goes live.</p>
+<p style="margin:0;max-width:68ch;font-size:16px;color:#CDC6DD;text-wrap:pretty">That choice is the reason a page arrives fast on a phone on mobile data, and the reason one person can maintain the whole thing. Everything below follows from it.</p>
+<sc-if value="{{ showDetail }}">
+<div style="padding:14px 16px;background:#0E0C14;border:1px solid rgba(242,238,248,.07);border-left:2px solid #B48EF7;border-radius:0 8px 8px 0;max-width:68ch">
+<span style="font:500 11px/1.2 'IBM Plex Mono',monospace;letter-spacing:.10em;text-transform:uppercase;color:#5F5876">For a technical reader</span>
+<p style="margin:8px 0 0;font-size:14px;color:#8D87A0;text-wrap:pretty">Rust + Axum 0.8, SQLite through sqlx, Askama templates, HTMX with <span style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#CDC6DD">hx-boost</span> for navigation, S3-compatible object storage for images, WebAuthn passkeys and PIN sign-in. One stylesheet. Twenty-four database migrations, run automatically at startup.</p>
+</div>
+</sc-if>
+</section>
+
+<sc-if value="{{ showDiagrams }}" hint-placeholder-val="{{ true }}">
+<section style="display:flex;flex-direction:column;gap:20px">
+<div style="display:flex;flex-direction:column;gap:6px">
+<h2 style="margin:0;font:700 28px/1.22 'Archivo',system-ui,sans-serif;letter-spacing:-0.02em;color:#F2EEF8">What happens when you open a page</h2>
+<p style="margin:0;max-width:68ch;font-size:16px;color:#8D87A0;text-wrap:pretty">Four steps, all on the same server. Nothing is fetched from someone else's service while the page is loading.</p>
+</div>
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,210px),1fr));gap:12px;padding:24px;background:#0E0C14;border:1px solid rgba(242,238,248,.07);border-radius:8px">
+<div style="min-width:0;display:flex;flex-direction:column;gap:6px;padding:16px;background:#17141F;border:1px solid rgba(242,238,248,.10);border-radius:8px">
+<span style="font:500 11px/1.2 'IBM Plex Mono',monospace;letter-spacing:.10em;text-transform:uppercase;color:#5F5876;white-space:nowrap">step 1</span>
+<span style="font:600 16px/1.3 'Archivo',system-ui,sans-serif;color:#F2EEF8">The front door</span>
+<span style="font-size:14px;color:#8D87A0;text-wrap:pretty">nginx terminates the connection, limits request rates and serves cached files directly.</span>
+</div>
+<div style="min-width:0;display:flex;flex-direction:column;gap:6px;padding:16px;background:#17141F;border:1px solid rgba(242,238,248,.10);border-radius:8px">
+<span style="font:500 11px/1.2 'IBM Plex Mono',monospace;letter-spacing:.10em;text-transform:uppercase;color:#5F5876;white-space:nowrap"><span style="color:#B48EF7">→</span> step 2</span>
+<span style="font:600 16px/1.3 'Archivo',system-ui,sans-serif;color:#F2EEF8">The program</span>
+<span style="font-size:14px;color:#8D87A0;text-wrap:pretty">One Rust binary matches the address to a section and checks whether you are allowed to see it.</span>
+</div>
+<div style="min-width:0;display:flex;flex-direction:column;gap:6px;padding:16px;background:#17141F;border:1px solid rgba(242,238,248,.10);border-radius:8px">
+<span style="font:500 11px/1.2 'IBM Plex Mono',monospace;letter-spacing:.10em;text-transform:uppercase;color:#5F5876;white-space:nowrap"><span style="color:#B48EF7">→</span> step 3</span>
+<span style="font:600 16px/1.3 'Archivo',system-ui,sans-serif;color:#F2EEF8">The data</span>
+<span style="font-size:14px;color:#8D87A0;text-wrap:pretty">Text and numbers come from a SQLite file on the same machine; drawings come from object storage.</span>
+</div>
+<div style="min-width:0;display:flex;flex-direction:column;gap:6px;padding:16px;background:#17141F;border:1px solid rgba(180,142,247,.45);border-radius:8px">
+<span style="font:500 11px/1.2 'IBM Plex Mono',monospace;letter-spacing:.10em;text-transform:uppercase;color:#5F5876;white-space:nowrap"><span style="color:#B48EF7">→</span> step 4</span>
+<span style="font:600 16px/1.3 'Archivo',system-ui,sans-serif;color:#F2EEF8">The page</span>
+<span style="font-size:14px;color:#8D87A0;text-wrap:pretty">A template is filled in and sent as finished HTML — the browser has nothing left to assemble.</span>
+</div>
+</div>
+</section>
+</sc-if>
+
+<section style="display:flex;flex-direction:column;gap:20px">
+<div style="display:flex;flex-direction:column;gap:6px">
+<h2 style="margin:0;font:700 28px/1.22 'Archivo',system-ui,sans-serif;letter-spacing:-0.02em;color:#F2EEF8">The five sections</h2>
+<p style="margin:0;max-width:68ch;font-size:16px;color:#8D87A0;text-wrap:pretty">Each one solves a problem I actually had. They share one header, one stylesheet and one sign-in.</p>
+</div>
+<div style="display:flex;flex-direction:column;overflow-x:auto">
+<div style="display:grid;grid-template-columns:150px minmax(260px,1fr) 190px;gap:16px;min-width:640px;padding:0 4px 10px;border-bottom:1px solid rgba(242,238,248,.07);font:500 11px/1.2 'IBM Plex Mono',monospace;letter-spacing:.10em;text-transform:uppercase;color:#5F5876">
+<span>Section</span><span>What it does</span><span>Who can use it</span>
+</div>
+<sc-for list="{{ sections }}" as="s" hint-placeholder-count="5">
+<div style="display:grid;grid-template-columns:150px minmax(260px,1fr) 190px;gap:16px;min-width:640px;padding:14px 4px;border-bottom:1px solid rgba(242,238,248,.07);align-items:start">
+<span style="display:flex;flex-direction:column;gap:4px">
+<span style="font:600 15px/1.3 'Archivo',system-ui,sans-serif;color:#F2EEF8">{{ s.name }}</span>
+<span style="font:500 12px/1.3 'IBM Plex Mono',monospace;color:#5F5876">{{ s.route }}</span>
+</span>
+<span style="font-size:15px;color:#CDC6DD;text-wrap:pretty">{{ s.what }}</span>
+<span style="font-size:14px;color:#8D87A0;text-wrap:pretty">{{ s.who }}</span>
+</div>
+</sc-for>
+</div>
+</section>
+
+<section style="display:flex;flex-direction:column;gap:20px">
+<div style="display:flex;flex-direction:column;gap:6px">
+<h2 style="margin:0;font:700 28px/1.22 'Archivo',system-ui,sans-serif;letter-spacing:-0.02em;color:#F2EEF8">A worked example: uploading a drawing</h2>
+<p style="margin:0;max-width:68ch;font-size:16px;color:#8D87A0;text-wrap:pretty">Uploading used to take 39 seconds. It now takes about three. Nothing was removed — the slow work was moved out of the wait.</p>
+</div>
+<sc-if value="{{ showDiagrams }}" hint-placeholder-val="{{ true }}">
+<div style="display:flex;flex-direction:column;gap:0;padding:24px;background:#0E0C14;border:1px solid rgba(242,238,248,.07);border-radius:8px">
+<div style="display:flex;flex-wrap:wrap;align-items:baseline;gap:12px;padding-bottom:14px">
+<span style="flex:none;width:88px;font:500 11px/1.2 'IBM Plex Mono',monospace;letter-spacing:.10em;text-transform:uppercase;color:#5F5876">in browser</span>
+<span style="flex:1 1 260px;min-width:0;font-size:15px;color:#CDC6DD;text-wrap:pretty">The picture is shrunk to a web format before it leaves the phone, so the server never has to convert what the phone can.</span>
+<span style="flex:none;font:500 12px/1.4 'IBM Plex Mono',monospace;color:#8D87A0">&lt; 1 s</span>
+</div>
+<div style="display:flex;flex-wrap:wrap;align-items:baseline;gap:12px;padding:14px 0;border-top:1px solid rgba(242,238,248,.07)">
+<span style="flex:none;width:88px;font:500 11px/1.2 'IBM Plex Mono',monospace;letter-spacing:.10em;text-transform:uppercase;color:#5F5876">in request</span>
+<span style="flex:1 1 260px;min-width:0;font-size:15px;color:#CDC6DD;text-wrap:pretty">The file is stored, the row is written, and the finished card comes back. At this point I can close the tab.</span>
+<span style="flex:none;font:500 12px/1.4 'IBM Plex Mono',monospace;color:#4FD6A8">2–3 s</span>
+</div>
+<div style="display:flex;flex-wrap:wrap;align-items:baseline;gap:12px;padding-top:14px;border-top:1px solid rgba(242,238,248,.07)">
+<span style="flex:none;width:88px;font:500 11px/1.2 'IBM Plex Mono',monospace;letter-spacing:.10em;text-transform:uppercase;color:#5F5876">after</span>
+<span style="flex:1 1 260px;min-width:0;font-size:15px;color:#CDC6DD;text-wrap:pretty">A smaller, slower-to-produce version of the image is made in the background and swapped in when it is ready. If it fails, the page still works.</span>
+<span style="flex:none;font:500 12px/1.4 'IBM Plex Mono',monospace;color:#FFB570">nobody waits</span>
+</div>
+</div>
+</sc-if>
+<p style="margin:0;max-width:68ch;font-size:16px;color:#CDC6DD;text-wrap:pretty">The rule I took from it: if a step does not change what the person sees next, it does not belong in the wait. The same rule shapes the rest of the site — images reserve their space before they load so the page never jumps, and the first image on a feed is given priority while the rest load as you scroll.</p>
+</section>
+
+<section style="display:flex;flex-direction:column;gap:20px">
+<div style="display:flex;flex-direction:column;gap:6px">
+<h2 style="margin:0;font:700 28px/1.22 'Archivo',system-ui,sans-serif;letter-spacing:-0.02em;color:#F2EEF8">Who can see what</h2>
+<p style="margin:0;max-width:68ch;font-size:16px;color:#8D87A0;text-wrap:pretty">Sections like the food log hold personal data, so access is decided in one place and every page has to state which rule it uses.</p>
+</div>
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));gap:12px">
+<div style="display:flex;flex-direction:column;gap:8px;padding:16px;background:#17141F;border:1px solid rgba(242,238,248,.07);border-radius:8px">
+<span style="display:flex"><x-import component-from-global-scope="HampterDesignSystem_03c259.Badge" tone="neutral" hint-size="80px,20px">visitor</x-import></span>
+<span style="font-size:15px;color:#CDC6DD;text-wrap:pretty">Sees the drawings, the practice board and the public pages. Nothing else exists as far as the site is concerned.</span>
+</div>
+<div style="display:flex;flex-direction:column;gap:8px;padding:16px;background:#17141F;border:1px solid rgba(242,238,248,.07);border-radius:8px">
+<span style="display:flex"><x-import component-from-global-scope="HampterDesignSystem_03c259.Badge" tone="info" hint-size="80px,20px">member</x-import></span>
+<span style="font-size:15px;color:#CDC6DD;text-wrap:pretty">Signs in with a name and PIN, and gets their own food log and their own sorting plans. A member cannot see anyone else's.</span>
+</div>
+<div style="display:flex;flex-direction:column;gap:8px;padding:16px;background:#17141F;border:1px solid rgba(242,238,248,.07);border-radius:8px">
+<span style="display:flex"><x-import component-from-global-scope="HampterDesignSystem_03c259.Badge" tone="accent" hint-size="80px,20px">admin</x-import></span>
+<span style="font-size:15px;color:#CDC6DD;text-wrap:pretty">Manages drawings: uploads, captions, tags and whether something is listed. Being signed in is not enough on its own.</span>
+</div>
+<div style="display:flex;flex-direction:column;gap:8px;padding:16px;background:#17141F;border:1px solid rgba(180,142,247,.45);border-radius:8px">
+<span style="display:flex"><x-import component-from-global-scope="HampterDesignSystem_03c259.Badge" tone="warning" hint-size="80px,20px">owner</x-import></span>
+<span style="font-size:15px;color:#CDC6DD;text-wrap:pretty">One account. Creates accounts, resets PINs, grants admin. An admin cannot do any of those, which means nothing granted can be turned back on the owner.</span>
+</div>
+</div>
+<sc-if value="{{ showDetail }}">
+<div style="padding:14px 16px;background:#0E0C14;border:1px solid rgba(242,238,248,.07);border-left:2px solid #B48EF7;border-radius:0 8px 8px 0;max-width:68ch">
+<span style="font:500 11px/1.2 'IBM Plex Mono',monospace;letter-spacing:.10em;text-transform:uppercase;color:#5F5876">For a technical reader</span>
+<p style="margin:8px 0 0;font-size:14px;color:#8D87A0;text-wrap:pretty">Four session extractors, one per rule, so picking the wrong one is visible in the handler's signature. Admin routes answer a signed-in non-admin with a 404 rather than a 403 — a 403 would confirm the route exists. Every function that reads a post takes a required viewer argument, so forgetting it is a compile error rather than a leak. PIN attempts are counted in the database: five wrong ones lock the account for fifteen minutes, and a restart does not clear the count.</p>
+</div>
+</sc-if>
+</section>
+
+<section style="display:flex;flex-direction:column;gap:20px">
+<div style="display:flex;flex-direction:column;gap:6px">
+<h2 style="margin:0;font:700 28px/1.22 'Archivo',system-ui,sans-serif;letter-spacing:-0.02em;color:#F2EEF8">How I know it still works</h2>
+<p style="margin:0;max-width:68ch;font-size:16px;color:#8D87A0;text-wrap:pretty">A hobby project is where habits are cheap to build. These are the same ones I would bring to a team.</p>
+</div>
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:12px">
+<div style="display:flex;flex-direction:column;gap:8px;padding:18px;background:#17141F;border:1px solid rgba(242,238,248,.07);border-radius:8px">
+<span style="font:400 22px/1 'IBM Plex Mono',monospace;color:#4FD6A8">1105 + 458</span>
+<span style="font:600 16px/1.3 'Archivo',system-ui,sans-serif;color:#F2EEF8">Automated checks</span>
+<span style="font-size:15px;color:#8D87A0;text-wrap:pretty">Tests covering sign-in, the database layer, the calorie maths and every game, plus 458 checks on the loading rules of the van board.</span>
+</div>
+<div style="display:flex;flex-direction:column;gap:8px;padding:18px;background:#17141F;border:1px solid rgba(242,238,248,.07);border-radius:8px">
+<span style="font:400 22px/1 'IBM Plex Mono',monospace;color:#F2EEF8">2 gates</span>
+<span style="font:600 16px/1.3 'Archivo',system-ui,sans-serif;color:#F2EEF8">Fast check, full check</span>
+<span style="font-size:15px;color:#8D87A0;text-wrap:pretty">A six-second check after every small piece of work, and one full run — formatting, linting, the whole test suite — before anything is called done.</span>
+</div>
+<div style="display:flex;flex-direction:column;gap:8px;padding:18px;background:#17141F;border:1px solid rgba(242,238,248,.07);border-radius:8px">
+<span style="font:400 22px/1 'IBM Plex Mono',monospace;color:#F2EEF8">tried in a browser</span>
+<span style="font:600 16px/1.3 'Archivo',system-ui,sans-serif;color:#F2EEF8">Before it counts as finished</span>
+<span style="font-size:15px;color:#8D87A0;text-wrap:pretty">A passing test proves the code runs, not that the screen is right. Anything a person touches gets opened and used first.</span>
+</div>
+</div>
+</section>
+
+<section style="display:flex;flex-direction:column;gap:20px">
+<div style="display:flex;flex-direction:column;gap:6px">
+<h2 style="margin:0;font:700 28px/1.22 'Archivo',system-ui,sans-serif;letter-spacing:-0.02em;color:#F2EEF8">Decisions I would defend</h2>
+<p style="margin:0;max-width:68ch;font-size:16px;color:#8D87A0;text-wrap:pretty">Each one costs something. Knowing what it costs is the point.</p>
+</div>
+<div style="display:flex;flex-direction:column;gap:12px">
+<sc-for list="{{ tradeoffs }}" as="t" hint-placeholder-count="4">
+<div style="display:flex;flex-wrap:wrap;gap:16px;padding:16px;background:#17141F;border:1px solid rgba(242,238,248,.07);border-radius:8px">
+<span style="flex:1 1 240px;min-width:0;font:600 16px/1.4 'Archivo',system-ui,sans-serif;color:#F2EEF8;text-wrap:pretty">{{ t.choice }}</span>
+<span style="flex:2 1 320px;min-width:0;font-size:15px;color:#8D87A0;text-wrap:pretty">{{ t.cost }}</span>
+</div>
+</sc-for>
+</div>
+</section>
+
+<section style="display:flex;flex-wrap:wrap;align-items:center;gap:20px;padding:24px;background-color:#0E0C14;background-image:linear-gradient(rgba(242,238,248,.045) 1px,transparent 1px),linear-gradient(90deg,rgba(242,238,248,.045) 1px,transparent 1px);background-size:32px 32px;border:1px solid rgba(242,238,248,.07);border-radius:8px">
+<div style="flex:1 1 320px;min-width:0;display:flex;flex-direction:column;gap:6px">
+<h2 style="margin:0;font:700 22px/1.22 'Archivo',system-ui,sans-serif;letter-spacing:-0.02em;color:#F2EEF8">The whole site by keyboard</h2>
+<p style="margin:0;max-width:68ch;font-size:15px;color:#8D87A0;text-wrap:pretty">Every destination is reachable without a mouse. Press the two keys, type three letters, and you are there before a page could have loaded.</p>
+</div>
+<div style="flex:none;white-space:nowrap">
+<x-import component-from-global-scope="HampterDesignSystem_03c259.KbdGroup" keys="{{ paletteKeys }}" hint="try it" hint-size="120px,24px"></x-import>
+</div>
+</section>
+
+<footer style="display:flex;flex-wrap:wrap;align-items:baseline;gap:24px;padding-top:24px;border-top:1px solid rgba(242,238,248,.07);font:500 11px/1.2 'IBM Plex Mono',monospace;letter-spacing:.10em;color:#5F5876">
+<span style="color:#8D87A0">hampter<span style="color:#B48EF7">.</span></span>
+<span style="white-space:nowrap">source on <a href="https://github.com/Hampternt/drawingportfolio" style="color:#5F5876">github</a></span>
+<span style="margin-left:auto"><a href="CV.dc.html" style="color:#5F5876">cv</a></span>
+</footer>
+
+</div>
+
+<x-import component-from-global-scope="HampterDesignSystem_03c259.CommandPalette" open="{{ paletteOpen }}" commands="{{ commands }}" isAdmin="{{ false }}" placeholder="Search commands…" onClose="{{ closePalette }}" onRun="{{ closePalette }}" hint-size="0px,0px"></x-import>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;showDiagrams&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Content&quot;},&quot;showDetail&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Content&quot;}}">
+class Component extends DCLogic {
+  state = { paletteOpen: false };
+
+  componentDidMount() {
+    this._onKey = (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        this.setState((s) => ({ paletteOpen: !s.paletteOpen }));
+      } else if (e.key === 'Escape') {
+        this.setState({ paletteOpen: false });
+      }
+    };
+    document.addEventListener('keydown', this._onKey);
+  }
+
+  componentWillUnmount() {
+    document.removeEventListener('keydown', this._onKey);
+  }
+
+  renderVals() {
+    return {
+      paletteKeys: ['Ctrl', 'K'],
+      paletteOpen: this.state.paletteOpen,
+      openPalette: () => this.setState({ paletteOpen: true }),
+      closePalette: () => this.setState({ paletteOpen: false }),
+      showDiagrams: this.props.showDiagrams ?? true,
+      showDetail: this.props.showDetail ?? false,
+      sections: [
+        { name: 'Drawing Portfolio', route: '/artportfolio', what: 'A feed of my drawings, grouped by month and filterable by tag or collection.', who: 'Anyone. Only I can upload.' },
+        { name: 'Drawing Tasks', route: '/tasks', what: 'Practice prompts attached to reference images, sorted by subject, difficulty and type.', who: 'Anyone can read it.' },
+        { name: 'Fitness Tracker', route: '/fitness', what: 'A food log with calorie and macro targets, a week view, and barcode scanning in the phone camera.', who: 'Signed in, and private per person.' },
+        { name: 'Sorting', route: '/sorting', what: "Turns the day's order export into a pick list and a loading diagram, with the counts checked against each other.", who: 'Signed in, on a tablet in the van.' },
+        { name: 'Drinks', route: '/drinks', what: 'Four party games sharing a room code, with a live leaderboard and a screen anyone can watch.', who: 'Anyone with the room code.' },
+      ],
+      tradeoffs: [
+        { choice: 'Server-rendered HTML instead of a front-end framework', cost: 'Less fashionable, and some interactions take more care to build. In return there is no build step, no dependency churn, and a page arrives complete on a slow connection.' },
+        { choice: 'An unlisted drawing is not a secret one', cost: 'Post addresses are sequential, so someone determined could guess an unlisted one. Unlisted means "not in the feed"; anything that must not be seen is hidden instead, and that returns a plain 404.' },
+        { choice: 'The day boundary is UTC, not local time', cost: 'Food logged between midnight and 02:00 lands on the previous day. Accepted knowingly, written down, and cheap to change if it ever matters to someone else.' },
+        { choice: 'Static files are cached in the browser for a year', cost: 'A visitor never re-downloads the stylesheet, but a deploy has to change the address of the file it replaces. It is handled automatically, and there is a test that fails if a page forgets.' },
+        { choice: 'One dark theme, no light mode', cost: 'A second theme doubles every visual decision. One is maintained properly instead.' },
+      ],
+      commands: [
+        { id: 'hub', group: 'Navigate', label: 'Go to Hub', icon: 'home' },
+        { id: 'cv', group: 'Navigate', label: 'Go to CV', icon: 'file-text' },
+        { id: 'docs', group: 'Navigate', label: 'How this site works', icon: 'book-open' },
+        { id: 'art', group: 'Navigate', label: 'Go to Art Portfolio', icon: 'image' },
+        { id: 'tasks', group: 'Navigate', label: 'Go to Drawing Tasks', icon: 'list-checks' },
+        { id: 'fitness', group: 'Navigate', label: 'Go to Fitness Tracker', icon: 'activity' },
+        { id: 'sorting', group: 'Navigate', label: 'Go to Sorting', icon: 'truck' },
+      ],
+    };
+  }
+}
+</script>
+</body>
+</html>
