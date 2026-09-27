@@ -20,7 +20,7 @@ date: 2026-09-08T01:20:00Z
 | `Current Admin.dc.html` | `templates/admin.html`, `src/routes/admin.rs` (`admin_post_card_html`), `static/style.css` |
 | `Hub.dc.html` | `templates/hub/hub.html`, `templates/base.html`, `static/palette.js`, `CLAUDE.md` |
 | `Admin.dc.html` | `templates/admin.html`, `src/routes/admin.rs`, `templates/users.html`, `templates/artportfolio/partials/card_edit_popover.html`, `templates/partials/post_card.html` |
-| `CV.dc.html` | `uploads/cv-jesper-lovland.html` (user-supplied CV, content verbatim) |
+| `CV.dc.html` | `uploads/cv-<owner>.html` (user-supplied CV, content verbatim) |
 | `How it works.dc.html` | `CLAUDE.md`, `docs/design.md`, `src/routes/*.rs` route summaries, `static/palette.js` |
 
 ## Notes

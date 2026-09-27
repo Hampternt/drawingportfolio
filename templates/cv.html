@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}CV — Jesper Løvland{% endblock %}
+{% block title %}CV — Jesper L.{% endblock %}
 
 {% block nav_active %}cv{% endblock %}
 
@@ -13,7 +13,7 @@
     <span class="hm-eyebrow">cv</span>
     <div class="cv-head__row">
       <div class="cv-head__title">
-        <h1 class="cv-head__name">Jesper Løvland</h1>
+        <h1 class="cv-head__name">Jesper L.</h1>
         <p class="cv-head__role">Utvikler — interne digitale verktøy og automatisering</p>
       </div>
       <div class="cv-head__actions">
@@ -102,12 +102,11 @@
 
 <section class="cv-section">
   <h2 class="cv-section__label">Arbeidsmåte — AI-assistert utvikling</h2>
-  <p>Jeg lærte å utvikle før AI-verktøyene kom, og bruker dem nå til å gjennomføre raskere det jeg allerede vet hvordan skal gjøres. Claude Code er en fast del av arbeidsflyten, innenfor en ramme jeg har satt selv:</p>
+  <p>Jeg designer løsningen først — datamodell, grenser, feiltilfeller og hva som må testes — og gir deretter Claude Code en presis bestilling å implementere. Fordi jeg kjenner teknologien og vet hvor det vanligvis går galt, formulerer jeg kravene riktig fra start: første utkast treffer, og både utviklingstid og tokenbruk holdes lav. Rammen rundt arbeidet:</p>
   <ul class="cv-list">
-    <li><span><strong>Jeg eier designet.</strong> Arkitektur, datamodell og sikkerhetsvalg bestemmer jeg; AI-en implementerer innenfor dem, og jeg leser og godkjenner det som skrives.</span></li>
+    <li><span><strong>Gjennomgangen tilpasses risikoen.</strong> Enkle endringer med lite å tape får en rask kontroll, mens alt som går ut til ekte brukere, berører sikkerhet eller data, eller er komplekst nok til å skjule feil, gjennomgås grundig — ofte allerede på planstadiet, før koden skrives.</span></li>
     <li><span><strong>Arbeidet brytes ned</strong> i enheter som hver har én setning som sier når de er ferdige. Større leveranser får et skriftlig plandokument med punktliste, avvik og dokumentert verifikasjon.</span></li>
     <li><span><strong>To nivåer av kvalitetssikring:</strong> rask sjekk — kompilering, syntaks og berørte tester — etter hver enhet, og hele verifikasjonsløpet før noe leveres videre.</span></li>
-    <li><span><strong>Kodegjennomgang per leveranse.</strong> Det som er risikofylt — innlogging, databasemigreringer, samtidighet — merkes i planen og gjennomgås for seg.</span></li>
     <li><span><strong>Brukervendte endringer prøves i ekte nettleser</strong> før de regnes som ferdige. Typekontroll verifiserer kode, ikke funksjon.</span></li>
     <li><span><strong>Dokumentasjonen holdes levende:</strong> en oversikt over hva løsningen faktisk er, oppdatert som del av det å være ferdig — ikke etterpå.</span></li>
   </ul>
