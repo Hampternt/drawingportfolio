@@ -33,8 +33,8 @@ from this file on 2026-08-12; `git log docs/WORKTREES.md` recovers them.
   Container manifest: `docs/manifests/2026-09-08-hub-admin-cv-docs.md` (on the
   branch) — seven packs, planned one level deep.
   Design handoff: `docs/design/hub-admin-cv-docs/` (on the branch) — **the CV
-  design is `CV.dc.html`** (Norwegian, "Jesper Løvland — Utvikler, interne
-  digitale verktøy og automatisering").
+  design is `CV.dc.html`** (Norwegian, "Utvikler — interne digitale verktøy og
+  automatisering").
   **Packs 1 (shared shell), 2 (Hub) and 6 (CV) are done**; Pack 6 landed
   2026-09-25 from `claude/cv-worktree-completion-lq2wps` via
   Hampternt/drawingportfolio#19, with ruling 1 taken by the user and the CV

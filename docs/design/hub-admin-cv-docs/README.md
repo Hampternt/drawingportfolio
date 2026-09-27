@@ -192,7 +192,7 @@ that block can finally be deleted from `static/style.css`.
 
 **Purpose:** a readable CV for an employer, plus a PDF.
 
-**Content is the user's own, verbatim, in Norwegian** — from `uploads/cv-jesper-lovland.html`.
+**Content is the user's own, verbatim, in Norwegian** — from the owner's own CV file (`uploads/cv-<owner>.html`).
 Do not rewrite or translate it. Two fields are still unfilled and are highlighted amber in the
 design: `[ARBEIDSGIVER]` and `[ÅRSTALL]` (`color: #FFB570`, `background: rgba(255,181,112,.12)`,
 3px radius). **The CV may be swapped for a finished version — keep the content in the template,
@@ -201,10 +201,10 @@ not in code.**
 **Layout:**
 
 - Same sticky header and nav (CV active).
-- Page head on the blueprint grid, `padding: 64px 32px 40px`: mono `cv`, `h1` "Jesper Løvland"
+- Page head on the blueprint grid, `padding: 64px 32px 40px`: mono `cv`, `h1` with the owner's name
   (Archivo 900, `clamp(38px,5.4vw,60px)`), role line 17px `#CDC6DD`, and right-aligned
   primary "Last ned som PDF" (`download` icon) + secondary "GitHub" Buttons. Below a 1px rule:
-  the contact row in mono 12px — `Stavanger, 4042 · jl@dblo.net · +47 405 50 447 ·
+  the contact row in mono 12px — `Stavanger · jl@dblo.net ·
   github.com/Hampternt`, separators `#3A3448`, email and GitHub as links, each item `nowrap`.
 - Body: `grid-template-columns: minmax(0,1fr) 260px`, `gap: 48px`, `align-items: start`.
   - **Main column**, sections `gap: 44px`. Each section head is a mono 11px uppercase label

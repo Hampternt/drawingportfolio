@@ -86,10 +86,10 @@ dead link in the header of a live site.
 These three stop a pack from starting. The rest are recorded under trade-offs.
 
 **1. Which CV is authoritative? (blocks Pack 6.)** The README cites
-`uploads/cv-jesper-lovland.html`; that file does not exist in this repo and
+`uploads/cv-<owner>.html`; that file does not exist in this repo and
 never has. Two other versions disagree structurally: `CV.dc.html` in the handoff
 (four project articles, a Kabeltekniker/Get job, no Sorting) and an out-of-repo
-file at `~/projects/arbeidssoking/cv/cv-jesper-lovland.html` (Sorting-led,
+file at `~/projects/arbeidssoking/cv/cv-<owner>.html` (Sorting-led,
 `Matvare-Expressen` filled in). Bundled with it: what fills `[ARBEIDSGIVER]` and
 `[ÅRSTALL]`, whether to ship with the amber placeholders visible, and whether a
 public page carries the phone number and postcode. Shipping a literal amber
@@ -792,7 +792,7 @@ decision that moves every dark page at once.
   so CLAUDE.md's "Post cards" paragraph is wrong as item 1.11 states;
   `static/icons/` holds 7 files and `static/fonts/` 7; `src/middleware.rs`
   defines 5 extractors; the 458-vs-432 board-check split is real
-  (`CLAUDE.md:33` vs `scripts/verify.sh:17`); `uploads/cv-jesper-lovland.html`
+  (`CLAUDE.md:33` vs `scripts/verify.sh:17`); `uploads/cv-<owner>.html`
   does not exist.
 - 2026-09-08 — container opened. Pack sequence planned one level deep from a
   14-agent survey of the handoff, the design system and the current tree: ten

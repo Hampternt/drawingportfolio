@@ -47,9 +47,23 @@ mod tests {
         let html = render();
         // Ruled 2026-09-25: a public page carries the email and GitHub only.
         assert!(html.contains("mailto:jl@dblo.net"));
-        for leaked in ["405 50 447", "+47", "4042"] {
-            assert!(!html.contains(leaked), "public CV leaks {leaked:?}");
-        }
+        // Checked by shape, never by value: a test that names the number
+        // publishes it in the repo it is guarding.
+        assert!(!html.contains("+47"), "public CV carries a country code");
+        let main = &html[html.find("<main>").unwrap()..html.find("</main>").unwrap()];
+        let digits: String = main.chars().filter(|c| *c != ' ').collect();
+        let longest_run = digits
+            .split(|c: char| !c.is_ascii_digit())
+            .map(str::len)
+            .max()
+            .unwrap_or(0);
+        assert!(longest_run < 8, "public CV carries a phone-length number");
+        let contact = &main[main.find("cv-contact").unwrap()..];
+        let contact = &contact[..contact.find("</div>").unwrap()];
+        assert!(
+            !contact.chars().any(|c| c.is_ascii_digit()),
+            "the contact row carries a number (postcode or phone)"
+        );
         // The handoff's amber blanks must never reach an employer.
         for blank in ["[ARBEIDSGIVER]", "[ÅRSTALL]"] {
             assert!(!html.contains(blank), "public CV ships {blank:?}");
