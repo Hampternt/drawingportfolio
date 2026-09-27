@@ -78,16 +78,39 @@ Each person has their own log; the food catalog is shared.
 - On a phone it is one column with Scan, Search and copy-yesterday in thumb
   reach; `/` jumps to the search field and `Esc` backs out one layer.
 
+## Sorting & loading — `/sorting` (private, per-user)
+
+The warehouse half of a delivery round: sort the crates, then load the van.
+Built for a tablet on the floor, signed in, with each person's sessions their
+own.
+
+- A generated plan is pasted in as JSON; the app parses it, then re-derives its
+  arithmetic independently and shows where the plan disagrees with itself
+  rather than trusting the numbers it was handed.
+- The loading board is drawn from the van's own rear-right corner, so what is
+  on screen matches what the driver is looking at.
+- Every move is optimistic and appends to a log, so the board survives a
+  reload, queues up when there is no signal on the floor, and can be undone a
+  step at a time.
+- The van's shape is remembered per person rather than per session — a van does
+  not change between mornings — and can be reset to the plan's own defaults.
+- A full-screen mode hides the site chrome for the duration of a load.
+
 ## Drinks — `/drinks`
 
 A party platform for phone-based drinking games in shared rooms.
 
 - Rooms joined by name + PIN; three-tab phone shell (game / standings /
   room) plus a spectator "big screen" view with live standings.
-- Three games per room: Ring of Fire, 3 Man, and Last Call. Last Call's
-  beats advance when every player taps READY (no clock — the table sets
-  its own pace); card swaps are free in the lobby, once a round after;
-  staging and locking happen during the open Diplomacy talk beat.
+- Four games per room: Ring of Fire, 3 Man, Last Call, and Backroom.
+  Last Call's beats advance when every player taps READY (no clock — the
+  table sets its own pace); card swaps are free in the lobby, once a round
+  after; staging and locking happen during the open Diplomacy talk beat.
+- Backroom is a hidden-role game for five to ten players — you are dealt a
+  secret allegiance and spend the game reading the table. It pours no
+  drinks in its first version, deliberately: the room's live feed is
+  readable by anyone holding the room code, including the spectator
+  screen, so a drink that depended on a secret would give the secret away.
 - Test play mode (`DRINKS_TEST_MODE=1`): spawn fake players and hop
   between identities to drive every seat from one browser. Off — routes
   404 — unless the server opts in, so production can never expose it.
