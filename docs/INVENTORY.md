@@ -148,9 +148,9 @@ A public CV, in Norwegian, for anyone considering hiring the owner.
   is built and run: the request path, the sections, how uploads and visibility
   work, and the decisions behind them. Pack 7 of the container below, and last
   by design — most of its prose is a claim about what the earlier packs shipped.
-  The route is `/docs`, decided 2026-09-27. **Blocked on one decision:**
-  whether the CV links here. Nothing links here yet, and the CV page carries a
-  test proving it does not. Container:
+  The route is `/docs`, decided 2026-09-27, and nothing blocks it now. Nothing
+  links here yet; the nav and the hub footer will once it exists, and the CV
+  deliberately never does — a test holds it to that. Container:
   `docs/manifests/2026-09-08-hub-admin-cv-docs.md`
 
 ## Infrastructure
@@ -166,5 +166,4 @@ behind nginx. Quality gates: `scripts/check.sh` (item) and
 *In transit: the Hub/Admin/CV/How-it-works container —*
 *`docs/manifests/2026-09-08-hub-admin-cv-docs.md`. The shared shell, the Hub*
 *and the CV have shipped; the Admin redesign and the How-it-works page are*
-*planned only. The Admin redesign is unblocked; How-it-works waits on one*
-*decision recorded in that manifest.*
+*planned only, and neither waits on a decision now.*

@@ -24,8 +24,9 @@ from this file on 2026-08-12; `git log docs/WORKTREES.md` recovers them.
 
 ## Streams
 
-- **`feat/portfolio-review`** (started 2026-09-28, from `master` @ 0c0e99d,
-  in the main checkout — no separate worktree): works through the 2026-09-27
+- **`feat/portfolio-review`** (started 2026-09-28, from `master` @ 0c0e99d, in
+  `~/projects/drawingportfolio.worktrees/portfolio-review` — it moved out of the
+  main checkout when another session took that over): works through the 2026-09-27
   portfolio review, `docs/handoffs/2026-09-27-portfolio-review.md`, in the order
   it suggests. Step 1 records rulings 2 and 3 in the Hub/Admin/CV container and
   fixes the status lines the review's mapping found stale.
@@ -47,7 +48,8 @@ from this file on 2026-08-12; `git log docs/WORKTREES.md` recovers them.
   with ruling 1 taken by the user and the CV text revised by them. **Packs 3,
   4, 5 and 7 are not started.** Rulings 2 and 3 were taken 2026-09-27, so no
   ruling blocks Packs 3–5: Pack 3 can start, and 4 and 5 follow it. Ruling 4
-  (does the CV link to `/docs`?) is open and blocks Pack 7.
+  was taken 2026-09-28 — the CV links nowhere on the site — so Pack 7 is
+  unblocked too.
 
 - **`claude/secret-hitler-game-jg8xqs`** — **LANDED 2026-09-07**, merged to
   `master` via Hampternt/drawingportfolio#15 (with the CI fixes #16 and #17).

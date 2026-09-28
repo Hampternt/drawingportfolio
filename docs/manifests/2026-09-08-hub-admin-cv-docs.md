@@ -6,10 +6,11 @@ squash-merge, Hampternt/drawingportfolio#20, on 2026-09-27. **Packs 3, 4, 5 and
 7 are not started, and the next pack is not chosen.** Ruling 1 was taken by the
 user 2026-09-25 and Pack 6 shipped on it. Rulings 2 and 3 were taken by the user
 2026-09-27: `admin_page` takes `AuthSession` alongside `RequireAdmin`, with
-neither extractor changed, and the documentation page's route is `/docs`. No
-ruling blocks Packs 3–5 now — Pack 3 can start, and Packs 4 and 5 still wait on
-it. **Ruling 4 (does the CV link to `/docs`?) is open and blocks Pack 7.** An
-external review of the live site was mapped onto this container on 2026-09-27;
+neither extractor changed, and the documentation page's route is `/docs`.
+Ruling 4 was taken 2026-09-28: the CV's own content links nowhere on this site,
+so its rail's link card to `/docs` is dropped for good. **No ruling blocks any
+pack now** — Pack 3 can start, and Packs 4 and 5 still wait on it. An external
+review of the live site was mapped onto this container on 2026-09-27;
 it was written against `master` before #20 landed, so it did not see Packs 1, 2
 and 6. The mapping and its proposed manifest changes are in
 `docs/handoffs/2026-09-27-portfolio-review.md` and its appendix. Of those
@@ -79,9 +80,9 @@ Ordered by the hazard each pack retires, not by how visible its screen is.
 | 6 | **CV — `/cv`** | The CV page, its nav link, its hub tile and its palette command |
 | 7 | **How it works** | The explainer at its ruled route, and every claim on it true of the site the six packs before it shipped |
 
-Each pack gets its items when it starts. Of the four numbered rulings below,
-only ruling 4 is still open, and it blocks Pack 7. The non-blocking open
-rulings under trade-offs are still answered before the pack that consumes each.
+Each pack gets its items when it starts. All four numbered rulings below are
+taken, so none blocks a pack. The non-blocking open rulings under trade-offs are
+still answered before the pack that consumes each.
 
 **Nav grows in the pack that creates the route.** The header stays at four links
 through Pack 5, reaches five in Pack 6 and six in Pack 7. No pack ever leaves a
@@ -95,8 +96,8 @@ dead link in the header of a live site.
 
 ## Rulings — the user's to make
 
-Rulings 1–3 each stopped a pack from starting, and all three are now taken.
-Ruling 4 is open and blocks Pack 7. The rest are recorded under trade-offs.
+All four are taken. Rulings 1–3 each stopped a pack from starting; ruling 4
+blocked Pack 7 until it was taken. The rest are recorded under trade-offs.
 
 **1. Which CV is authoritative? (Blocked Pack 6. Taken 2026-09-25 — see the
 Pack 6 ledger.)** The README cites
@@ -135,20 +136,21 @@ with keywords `docs documentation architecture stack`; the real `palette.js`
 has no id field, so the prototypes' `id: 'docs'` does not carry over. The nav
 grows by exactly one link, to six.
 
-**4. Does the CV link to `/docs`? (Open — blocks Pack 7.)** Two records
-disagree. The user decided (2026-09-25/27) that the CV does not link the website
-itself. But README §3 gives the CV rail "a link card out to the how-it-works
-page", Pack 7's *Observable* expects "the CV rail's link card" to land on
-`/docs`, and the Pack 6 ledger omits that card only *until* Pack 7's route
-exists. Either the decision covers `/docs` too — the card is dropped for good,
-the README line is overridden and Pack 7's *Observable* loses that clause — or
-the card ships with Pack 7 as planned. Recommendation: drop it, the reading that
-keeps the decision whole. One consequence holds either way:
-`test_cv_links_nowhere_that_does_not_exist_yet` (`src/routes/cv.rs`) asserts on
-the whole rendered page, header included, so it fails the day Pack 7 puts
-`/docs` in the `base.html` nav. Before then it must be narrowed to the
-`<main>` slice, as the phone-number test beside it already is. Links *towards*
-the CV — nav, hub tile, palette — are not in question.
+**4. Does the CV link to `/docs`? Taken by the user 2026-09-28: no — the CV's
+own content links nowhere on this site.** The 2026-09-25/27 decision that the
+CV does not link the website itself covers `/docs` too. This overrides README
+§3's "a link card out to the how-it-works page": the card is dropped for good,
+not deferred, and Pack 7's *Observable* no longer expects it. The rule covers
+everything inside the CV's `<main>`, which links only `mailto:` and
+`github.com/Hampternt`. The shared header's nav on `/cv` is site chrome, not
+CV, and keeps every nav link, `/docs` included once Pack 7 adds it; print hides
+that header. One gap is outside the page's control: the browser's own print
+header/footer can stamp the page URL onto a saved PDF, and suppressing it needs
+`@page`, which Pack 6 ruled out. Links *towards* the CV — nav, hub tile,
+palette — are unaffected. Pinned by `test_cv_content_links_nowhere_on_this_site`
+(`src/routes/cv.rs`), which replaced `test_cv_links_nowhere_that_does_not_exist_yet`:
+it checks the `<main>` slice only, so Pack 7's nav link cannot break it, and
+rejects any root-relative `href="/` and any `portfolio.dblo.net` there.
 
 ---
 
@@ -538,15 +540,16 @@ of the site that the earlier packs create.
 **Observable:** the hero's four-stat mono row, the four request-path boxes, the
 sections table scrolling horizontally rather than colliding, the upload timeline,
 the visibility cards, the verification cards, the defended-decision rows and the
-keyboard callout. The hub footer link and the CV rail's link card both land here,
-and every claim on the page is true of the site the previous six packs shipped.
+keyboard callout. The hub footer link lands here (the CV links nowhere on the
+site — ruling 4), and every claim on the page is true of the site the previous
+six packs shipped.
 
 **Agent brief:** read first — `How it works.dc.html`, README §4 (including its
 rule: *"Every fact and number comes from the repo's own CLAUDE.md /
 docs/design.md. If you change the code, change this page"*) and, for the numbers,
 the actual output of `cargo test --workspace` and `./scripts/verify.sh` — never
 another document. Depends on Pack 1 for the scope, Pack 2 for the hub footer
-link, and Pack 6 for the CV link and a complete nav. This pack closes the
+link, and Pack 6 for a complete nav. This pack closes the
 container: convert the 🚧 pointers in `docs/INVENTORY.md` into real entries in all
 four places.
 
@@ -639,6 +642,8 @@ Decisions made while porting, each flagged here for review:
   drift from the page.
 - **The rail's how-it-works link card is omitted** until Pack 7's route
   exists, same rule as the hub footer. A test pins that no `/docs` link ships.
+  *(Dropped for good by ruling 4, 2026-09-28; the test now checks `<main>`
+  only.)*
 - **Mobile nav, the trade-off this pack consumed:** below 900px the nav on
   `art-page`, `sorting-dark` and `site-dark` scrolls sideways (scrollbar
   hidden); fitness keeps hiding it. Verified: no page-level horizontal scroll
@@ -661,7 +666,8 @@ depth scales with how critical a change is and how likely it is to go wrong
 postcode were scrubbed from the design handoff as well, and the privacy test
 now checks by shape — no `+47`, no phone-length digit run in `<main>`, no digit
 in the contact row — never by value. #22 then closed the sorting entry's
-unclosed `<ul>`. Whether the CV may link to `/docs` is ruling 4.
+unclosed `<ul>`. Ruling 4 (2026-09-28) then settled that the CV links nowhere
+on the site.
 
 ### Pack 2 — done 2026-09-09
 
@@ -839,6 +845,9 @@ pre-existing and unchanged by this pack, so widening the gutter is a Pack 2
 decision that moves every dark page at once.
 
 
+- 2026-09-28 — ruling 4 taken by the user: the CV's link card to `/docs` is
+  dropped for good. `cv.rs`'s link test narrowed to `<main>` and renamed to
+  `test_cv_content_links_nowhere_on_this_site`.
 - 2026-09-28 — rulings recorded from the portfolio-review handoff
   (`docs/handoffs/2026-09-27-portfolio-review.md`): appendix proposals C1 and
   C2 from the verifiers' revised texts, and C12 from its unchecked draft,
