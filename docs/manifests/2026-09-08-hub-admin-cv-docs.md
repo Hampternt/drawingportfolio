@@ -817,7 +817,7 @@ Not blocking, but each needs an answer before the pack that consumes it.
 
 ## Ledger
 
-### Pack 2b — built and walked 2026-09-28; review and merge pending
+### Pack 2b — built, walked and reviewed 2026-09-28; merge pending
 
 Ten items, one commit each on `feat/portfolio-review`: `b1465c2` (2b.0 the
 login redirect), `c78510d` (2b.1 identity line), `ed75f2b` (2b.2 badges),
@@ -837,6 +837,22 @@ the plain redirect fails the htmx test. Seven faults planted in the hub
 template — the `/drinks` boost dropped, either `/admin` link boosted, "no build
 step" restored, a `/docs` link added, a phone-shaped number in `<main>`, a
 badge removed — fail seven assertions.
+
+**Review, one pass for the pack plus the auth items individually** (two
+reviewers, and a skeptic to refute each finding): four findings, one refuted.
+The other three were two issues, both fixed in `dfcece2`:
+- *Sign-out swapped an unstyled login page in* (medium, pre-existing): both
+  sign-out forms sit in boosted pages and `logout` answered with a bare 303.
+  It now answers an htmx request with 200 + `HX-Redirect`, the same shape as
+  `to_login`.
+- *A history-cache miss on a gated URL did nothing* (low, caused by 2b.0):
+  htmx's miss fetch never reads `HX-Redirect`, so the 401 left the old page
+  under the new URL. Both shells now set `refreshOnHistoryMiss`.
+The refuted finding was that the badge test compares totals rather than
+counting per tile; six tiles and six badges hold today. **Gate re-run on
+`dfcece2`:** `VERIFY OK`, **1116** tests (+1 in `auth.rs`, +1 in
+`middleware.rs`). Both new tests fail when their fault is planted. Neither
+fix was walked signed in.
 
 <details>
 <summary><b>Walkthrough evidence</b> — logged out, fresh browser profile, dev
