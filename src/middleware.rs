@@ -10,12 +10,12 @@ use axum::{
 };
 use std::{net::SocketAddr, sync::Arc};
 
-/// Extractor: requires a valid session cookie. Redirects to /admin/login if
-/// missing/expired.
+/// Extractor: requires a valid session cookie. Sends the request to
+/// /admin/login if missing/expired (see [`to_login`]).
 ///
 /// This answers "who are you", **not** "are you an admin". Holding one of these
-/// is enough for `/fitness` and nothing else — every art-portfolio route wants
-/// [`RequireAdmin`]. Before multi-user the two questions had the same answer,
+/// is enough for `/fitness`, `/sorting` and the self-service account routes,
+/// and nothing else — every art-portfolio route wants [`RequireAdmin`]. Before multi-user the two questions had the same answer,
 /// which is exactly the assumption this type exists to break.
 pub struct AuthSession {
     pub user_id: i64,
@@ -63,6 +63,23 @@ async fn load_session(parts: &Parts, state: &Arc<AppState>) -> Option<Session> {
     db::get_session(&state.pool, &id).await
 }
 
+/// What every session extractor answers when there is no session at all.
+///
+/// A page load gets a redirect to the login page. An htmx request gets
+/// `HX-Redirect` instead, which makes htmx navigate the whole window. A boosted
+/// click would otherwise follow the redirect inside its XHR and swap
+/// `login.html` into the current page — without its `<head>`, so unstyled, and
+/// with `#pin-form` boosted, which htmx 2.0.4 submits as a GET carrying the
+/// name and PIN in the URL even after `startPinLogin` has prevented the
+/// default. The 401 keeps a rejected request from ever reading as a 200.
+fn to_login(parts: &Parts) -> axum::response::Response {
+    if parts.headers.contains_key("hx-request") {
+        (StatusCode::UNAUTHORIZED, [("HX-Redirect", "/admin/login")]).into_response()
+    } else {
+        Redirect::to("/admin/login").into_response()
+    }
+}
+
 impl FromRequestParts<Arc<AppState>> for AuthSession {
     type Rejection = axum::response::Response;
 
@@ -74,7 +91,7 @@ impl FromRequestParts<Arc<AppState>> for AuthSession {
             Some(session) => Ok(session.into()),
             None => {
                 tracing::warn!("rejected request with no valid session");
-                Err(Redirect::to("/admin/login").into_response())
+                Err(to_login(parts))
             }
         }
     }
@@ -85,7 +102,7 @@ impl FromRequestParts<Arc<AppState>> for AuthSession {
 ///
 /// The two rejections are deliberately different:
 ///
-/// - **No session at all** → redirect to the login page, as before.
+/// - **No session at all** → the login page, via [`to_login`].
 /// - **A valid session without admin** → `404`, never a redirect and never a
 ///   `403`. Redirecting would bounce a signed-in member to a login screen they
 ///   are already past, and both a redirect and a 403 confirm the route exists.
@@ -120,7 +137,7 @@ impl FromRequestParts<Arc<AppState>> for RequireAdmin {
             }
             None => {
                 tracing::warn!("rejected admin request with no valid session");
-                Err(Redirect::to("/admin/login").into_response())
+                Err(to_login(parts))
             }
         }
     }
@@ -165,7 +182,7 @@ impl FromRequestParts<Arc<AppState>> for RequireOwner {
             }
             None => {
                 tracing::warn!("rejected owner-only request with no valid session");
-                Err(Redirect::to("/admin/login").into_response())
+                Err(to_login(parts))
             }
         }
     }
@@ -228,4 +245,74 @@ impl<S: Send + Sync> FromRequestParts<S> for LocalhostOnly {
 
 pub fn make_session_cookie(id: &str) -> String {
     format!("session={id}; HttpOnly; SameSite=Strict; Max-Age=2592000; Path=/")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::{body::Body, http::Request, routing::get, Router};
+    use sqlx::sqlite::SqlitePoolOptions;
+    use tower::ServiceExt;
+
+    /// One route per session extractor, so each one's no-session answer is
+    /// checked on its own rather than through whichever handler uses it.
+    async fn app() -> Router {
+        let pool = SqlitePoolOptions::new()
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        crate::db::run_migrations(&pool).await;
+        let storage = crate::storage::ObjectStorage::from_env().await;
+        let rp_origin = url::Url::parse("http://localhost:3000").unwrap();
+        let webauthn = webauthn_rs::prelude::WebauthnBuilder::new("localhost", &rp_origin)
+            .unwrap()
+            .build()
+            .unwrap();
+        let state = Arc::new(AppState {
+            pool,
+            storage,
+            webauthn,
+        });
+        Router::new()
+            .route("/session", get(|_: AuthSession| async { "ok" }))
+            .route("/admin", get(|_: RequireAdmin| async { "ok" }))
+            .route("/owner", get(|_: RequireOwner| async { "ok" }))
+            .with_state(state)
+    }
+
+    fn get_req(uri: &str, htmx: bool) -> Request<Body> {
+        let mut b = Request::builder().method("GET").uri(uri);
+        if htmx {
+            b = b.header("HX-Request", "true");
+        }
+        b.body(Body::empty()).unwrap()
+    }
+
+    #[tokio::test]
+    async fn test_no_session_page_load_redirects_to_login() {
+        let app = app().await;
+        for uri in ["/session", "/admin", "/owner"] {
+            let resp = app.clone().oneshot(get_req(uri, false)).await.unwrap();
+            assert_eq!(resp.status(), StatusCode::SEE_OTHER, "{uri}");
+            assert_eq!(resp.headers()["location"], "/admin/login", "{uri}");
+            assert!(!resp.headers().contains_key("hx-redirect"), "{uri}");
+        }
+    }
+
+    /// The boosted-login bug: a 302/303 here is followed inside htmx's XHR, and
+    /// the login page lands in the current page with its PIN form boosted into
+    /// a GET. `HX-Redirect` with no `Location` is what makes htmx navigate.
+    #[tokio::test]
+    async fn test_no_session_htmx_request_navigates_to_login() {
+        let app = app().await;
+        for uri in ["/session", "/admin", "/owner"] {
+            let resp = app.clone().oneshot(get_req(uri, true)).await.unwrap();
+            assert_eq!(resp.status(), StatusCode::UNAUTHORIZED, "{uri}");
+            assert_eq!(resp.headers()["hx-redirect"], "/admin/login", "{uri}");
+            assert!(
+                !resp.headers().contains_key("location"),
+                "{uri}: a Location header would be followed inside the XHR"
+            );
+        }
+    }
 }
