@@ -2,8 +2,9 @@
 
 **Status:** ACTIVE — **Packs 1, 2 and 6 landed** (shared shell, Hub, CV), each
 gated and walked; ledgers at the foot. They reached `master` as one
-squash-merge, Hampternt/drawingportfolio#20, on 2026-09-27. **Packs 3, 4, 5 and
-7 are not started, and the next pack is not chosen.** Ruling 1 was taken by the
+squash-merge, Hampternt/drawingportfolio#20, on 2026-09-27. **Pack 2b, the hub
+follow-up, is next: planned 2026-09-28, waiting on three answers from the user
+before execution.** Packs 3, 4, 5 and 7 are not started. Ruling 1 was taken by the
 user 2026-09-25 and Pack 6 shipped on it. Rulings 2 and 3 were taken by the user
 2026-09-27: `admin_page` takes `AuthSession` alongside `RequireAdmin`, with
 neither extractor changed, and the documentation page's route is `/docs`.
@@ -14,7 +15,8 @@ review of the live site was mapped onto this container on 2026-09-27;
 it was written against `master` before #20 landed, so it did not see Packs 1, 2
 and 6. The mapping and its proposed manifest changes are in
 `docs/handoffs/2026-09-27-portfolio-review.md` and its appendix. Of those
-proposals, C1, C2 and C12 are applied here; the rest are not.
+proposals, C1, C2, C4, C5 and C12 are applied here, and C3 only as far as Pack
+2b's row; the rest are not.
 
 *(This line read "NOT STARTED" from 2026-09-08 until 2026-09-25: the Pack 1 and
 Pack 2 ledger commits tried to update it with an unasserted string replacement
@@ -62,7 +64,7 @@ a dozen unported `hm-*` primitives, the header, the nav and the command palette
 — has a blast radius that reaches three pages this container declares out of
 scope. That substrate is a pack on its own, and it has to land first.
 
-One of the seven packs crosses a privilege boundary (Pack 4, the owner-only
+One of the eight packs crosses a privilege boundary (Pack 4, the owner-only
 Accounts pane). One is blocked on content the repo does not have (Pack 6).
 Neither is a thing to discover halfway through a pack.
 
@@ -73,7 +75,8 @@ Ordered by the hazard each pack retires, not by how visible its screen is.
 | # | Pack | Ends in something you can see |
 | --- | --- | --- |
 | 1 | **The shared shell** | Every page's header reads `hampter.`, the active nav link lights, and Ctrl+K opens a dark palette instead of a white box |
-| 2 | **The Hub** | `/` on the blueprint grid: hero, palette bar, five section tiles |
+| 2 | **The Hub** | `/` on the blueprint grid: hero, palette bar and section tiles (five at landing; Pack 6 added the CV's sixth) |
+| 2b | **Hub follow-up** | The hero names `Jesper L.` in the user's words, every tile carries a status badge, the Drinks tile says a name and PIN come first, the footer drops the false `no build step`, and a signed-out visitor sees sign-in walls before hitting them and can get back from the login page |
 | 3 | **Admin — shell + Posts pane** | `/admin` dark, with live counts, search, visibility chips and working row actions |
 | 4 | **Admin — Accounts pane** | The owner sees the accounts grid inside `/admin`; a non-owner admin sees no trace of it in the page source |
 | 5 | **Admin — New post pane** | Drop a file, caption it, tag it, choose a visibility, upload |
@@ -337,6 +340,13 @@ Pack 1 decision — no data, no mutations, no permission boundary — so a misse
   tasks, fitness, sorting, drinks. It becomes wrong when `/cv` and the docs page
   land, and Pack 7 already owns reconciling that count with its own `sections`
   stat.
+  *(Superseded 2026-09-25: Pack 6 changed the eyebrow to "six sections" when it
+  added the CV tile (`templates/hub/hub.html:11`). The count is still not
+  settled. The How-it-works design says "five sections" three times: in its hero
+  line, its `sections` stat and its table heading. Once `/docs` lands, the nav
+  (six links, no Drinks) and the hub (six tiles, no docs page) count different
+  things. Pack 7 picks one definition of a section and makes the eyebrow and its
+  own page agree. The stat is already on its list of wrong drafted claims.)*
 - **The header's two disputed numbers stay as they are.** The mock specifies
   `padding: 0 32px` with `gap: 24px`; the live scoped rule has them the other way
   round, `padding: 0 var(--gutter)` = 24px with `gap: var(--space-9)` = 32px.
@@ -393,8 +403,139 @@ prove the marker survives.
 `/drinks` card and the mock does not model it; dropping it boosts a
 `nest_service` mount whose templates do not extend `base.html`. The hero eyebrow
 reads "one binary, five sections" while the design draws six tiles — resolve the
-number before hardcoding the string. The about line is flagged placeholder copy
-the user owns.
+number before hardcoding the string. *(Resolved for the hub in Pack 6; see the
+eyebrow ruling above.)* The about line is flagged placeholder copy the user
+owns.
+
+### Pack 2b — Hub follow-up: identity, status, and the copy that is wrong
+
+**Awaiting the user before execution** (asked 2026-09-28): 2b.1's line, 2b.2's
+badge vocabulary, and which contacts 2b.4 puts in the footer. Planned from the
+appendix's C4, merging both verifiers' revisions, and checked against the tree
+at `25c88c2`.
+
+**Why it exists.** The 2026-09-27 review was written against the live site
+before #20 landed, so it saw the old light hub. Pack 2 already answers part of
+it: the hub is rebuilt (R23), and the Fitness and Sorting tiles already say
+`sign-in required` (`hub.html:63`, `:72`), the tile half of R9. Four of the
+review's hub points still stand. The page names no one. No tile says whether its
+section is live. The Drinks tile promises a room code (`hub.html:53-54`), but
+`/drinks` first asks for a name and PIN (`drinkinggame/templates/landing.html:39`).
+And nothing says how to reach the owner. Two more come from this manifest's own
+findings: the footer's "no build step" (`hub.html:88`) is the claim Pack 7's
+Risks call false for a Rust binary, and `login.html` is standalone, so a visitor
+who follows a sign-in tile lands on a page with no way back.
+
+**Done when:** the hero carries `Jesper L.` and one line of the user's copy;
+every tile carries a status badge; the Drinks tile and the footer say only true
+things, and the footer carries the contacts the user approves; the palette
+commands that need sign-in say so; the login page links back to `/`; and
+`src/routes/hub.rs` has its first tests. `hub_page` itself does not change.
+
+**Observable:** logged out, in a private window, at 1440px and 390px: `Jesper
+L.` and the identity line sit under the tagline; each of the six tiles shows one
+badge and nothing clips at 390px; the footer reads "no front-end build step" and
+never "no build step"; Ctrl+K, on `/` and on `/artportfolio`, marks the four
+sign-in commands; clicking the Fitness tile lands on `/admin/login`, which links
+back to `/`; and the Drinks tile still does a full page load.
+
+**Agent brief:** read first — Pack 2's rulings and ledger; Pack 6's ledger
+(ruling 1 and the 2026-09-27 revision); `templates/hub/hub.html`;
+`templates/cv.html` (`:16` the name, `:17` the role line, `:31–33` the contacts,
+`:58` the front-end build claim); `src/routes/cv.rs`'s tests, the pattern for
+2b.8; `static/palette.js` (rows render `cmd.label` through `textContent`, there
+is no hint field, item 1.10 deferred the richer palette, and the script loads on
+every page); `templates/login.html` (standalone, with its own `<style>` block
+under the same exception as `admin.html`); and `Hub.dc.html:54` for the about
+slot's styling. Depends on Pack 6 for the six tiles. Independent of Packs 3–5.
+Runs before Pack 7, which adds the footer's `/docs` link.
+
+- [ ] **2b.1 The identity line.** Fills the about slot Pack 2 left empty
+      (`Hub.dc.html:54`: a muted paragraph under the tagline, 62ch wide): the
+      name, then one line saying what the owner does. **The name is `Jesper
+      L.`**, the form `/cv` has used since #21 — never the full surname. **The
+      line is the user's copy, verbatim.** The only approved source today is the
+      CV's Norwegian role line (`cv.html:17`), which carries `lang="nb"` if used
+      as is.
+      *Done: the hero shows the name and the user's line.*
+- [ ] **2b.2 Status badges and stack.** One `.hm-badge` per tile, from item
+      1.6's tones (`static/style.css:2286–2291`), so no new primitive. The
+      vocabulary is the user's pick: state only — `live` (success) or
+      `in progress` (warning), with access left to the foot line — or the
+      review's `live` / `private` / `in progress`. Either way Sorting is
+      `in progress`, as the CV badges it `Under utvikling` (`cv.html:92`). Stack
+      words go on the foot line only where a section departs from the eyebrow's
+      `rust · axum · sqlite · htmx`: Drinks (server-sent events), Sorting (a
+      plain-JS board), Fitness (in-browser barcode scanning), each checked
+      against CLAUDE.md. `.hm-hub__title` is `white-space: nowrap` and shares its
+      row with the go arrow (`static/style.css:2520`), so the badge goes where it
+      survives 390px.
+      *Done: six tiles, six badges, nothing clipped at 390px.*
+- [ ] **2b.3 The Drinks tile says what the page asks.** Description: "Four
+      party games in one room — pick a name and PIN, then join with a room
+      code." Foot: `name + PIN · room code · big screen`. The sections table
+      Pack 7 ports makes the same mistake ("Anyone with the room code.",
+      `How it works.dc.html:278`), so Pack 7 takes these words. `hx-boost="false"`
+      stays.
+      *Done: the tile names the PIN step and still does a full page load.*
+- [ ] **2b.4 The footer.** `server-rendered · no build step` becomes
+      `server-rendered · no front-end build step`, the claim the CV already makes
+      ("ingen byggesteg på frontend", `cv.html:58`). Contacts as the user
+      approves them: `mailto:jl@dblo.net` and `https://github.com/Hampternt`,
+      both public on `/cv` under ruling 1. No `/docs` link — Pack 7 adds it with
+      its route. No dated "work in progress" line, because nothing real supplies
+      the date. The footer text now departs from the handoff (`README.md:115`,
+      `Hub.dc.html:85`); record that in this pack's ledger.
+      *Done: the footer carries the approved contacts, and no "no build step"
+      remains in `hub.html`.*
+- [ ] **2b.5 Sign-in is visible before the click.** `Go to Fitness Tracker`,
+      `Go to Fitness Week`, `Go to Sorting` and `New sorting session`
+      (`static/palette.js:60–75`) each carry a marker in their label: the
+      proposed suffix is ` · sign-in`. The palette knows only `IS_ADMIN`, so
+      signed-in members see the marker too. That is fine, because it describes
+      the section, not the viewer. A hint field belongs to the deferred palette
+      restyle, not to this item.
+      *Done: the four labels carry the marker on every page.*
+- [ ] **2b.6 A way back from the login page.** `templates/login.html` gains one
+      link to `/`. ⚠ This is the auth page: template only, nothing in
+      `webauthn.js` or `auth.rs`. **Flagged for individual review.**
+      *Done: `/admin/login` links to `/`, and the ids `webauthn.js` reads
+      (`login-btn`, `pin-form`, `pin-name`, `pin-pin`, `status`) are unchanged.*
+- [ ] **2b.7** The CV tile's Norwegian description gets `lang="nb"`, as `/cv`'s
+      wrapper already has (`cv.html:10`).
+      *Done: the attribute is on that tile's `.hm-hub__desc`.*
+- [ ] **2b.8 The hub's first tests.** A test module in `hub.rs` on `cv.rs`'s
+      pattern: the `/drinks` tile keeps `hx-boost="false"`; "no build step" is
+      gone; no `/docs` link yet (Pack 7 flips this when it adds the footer
+      link); `Jesper L.` is present; and the page carries no phone-length digit
+      run — the CV's shape test, extended now that the hub also carries contact
+      details. Checked by shape, never by value.
+      *Done: the tests pass, and each one fails when its fault is planted.*
+
+**Not in this pack:** screenshots on tiles — `.hm-hub` has no image slot
+(`static/style.css:2505–2522`), and a Fitness or Sorting screenshot would
+publish real data unless drawn from fictional data, which ties it to the demo
+work. "Demo coming" copy, which ships only once a demo has its own manifest.
+Page titles, favicon and meta tags, which are site-wide rather than the hub's.
+The review's hire line (R12), which is the user's copy and lives on `/cv` unless
+they supply a hub version.
+
+**Item gate:** `./scripts/check.sh`, plus `cargo test --test static_assets`
+after every CSS edit, plus `cargo test -p drawingportfolio hub::` once 2b.8
+exists.
+**Pack gate:** `./scripts/verify.sh`, plus the Pack 2 walk done logged out in a
+private window, following every tile and every palette command to where it
+lands. The review also asks for a *weekly* private-window check (R31). That is
+the owner's habit, not an agent schedule.
+
+**Risks.** 2b.1 and 2b.2 make statements about a real person and the state of
+their tools on a public page, so nothing ships as a stand-in and the surname
+stays off. Each badge is one more hand-maintained claim: `in progress` on
+Sorting goes stale the day the tool is done. The `/drinks` tile's
+`hx-boost="false"` must survive, and 2b.8 is the first test that pins it. The
+footer departs from the handoff, so a later "port the mock faithfully" pass
+must not restore "no build step". `palette.js` loads on every page, so its
+label change shows everywhere.
 
 ### Pack 3 — Admin: the shell, the Posts pane, and the end of `admin_post_card_html()`
 
@@ -600,8 +741,11 @@ Not blocking, but each needs an answer before the pack that consumes it.
 - **Language.** The CV is Norwegian, all site chrome is English, and the CV hub
   tile's description is Norwegian while its five siblings are English. The README
   raises the same mismatch for the docs page.
-- **The hub's about line** is flagged placeholder copy the user owns, and the
-  hero eyebrow's "five sections" conflicts with the tile count.
+- **The hub's about line** is flagged placeholder copy the user owns. Consumed
+  by Pack 2b item 2b.1.
+  *(Until 2026-09-25 this bullet also said the eyebrow's "five sections"
+  conflicted with the tile count. Pack 6 made both six. What remains is Pack 7's
+  definition of a section; see Pack 2's eyebrow ruling.)*
 - **IBM Plex Mono, weight 600 only.** The handoff flags the mono face as an
   unresolved substitution and its own `tokens/fonts.css` comment claims "no mono
   face is self-hosted in the repo yet" — **that claim is false, verified in this
@@ -845,6 +989,10 @@ pre-existing and unchanged by this pack, so widening the gutter is a Pack 2
 decision that moves every dark page at once.
 
 
+- 2026-09-28 — Pack 2b planned from the appendix's C4, merging both
+  verifiers' revisions, together with C3's Pack 2b row and C5's five-sections
+  annotations. Before execution the user decides 2b.1's copy, 2b.2's badge
+  vocabulary and 2b.4's footer contacts.
 - 2026-09-28 — ruling 4 taken by the user: the CV's link card to `/docs` is
   dropped for good. `cv.rs`'s link test narrowed to `<main>` and renamed to
   `test_cv_content_links_nowhere_on_this_site`.

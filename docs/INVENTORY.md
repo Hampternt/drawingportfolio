@@ -21,6 +21,11 @@ The landing page: entry point linking to every public area of the site.
   sorting, CV — each saying what the section is and who can reach it.
 - The site header is shared from here: the wordmark, a nav that lights the
   section you are in, and the palette. Every other page wears it too.
+- 🚧 **Hub follow-up — planned, no code written.** The owner named in the
+  hero, a status badge on every tile, Drinks copy that mentions the name-and-PIN
+  step, contact links in the footer, sign-in marked in the palette before the
+  click, and a way back from the login page. Waiting on the owner's copy.
+  Pack 2b of the container: `docs/manifests/2026-09-08-hub-admin-cv-docs.md`
 
 ## Art portfolio — `/artportfolio`
 
@@ -166,4 +171,5 @@ behind nginx. Quality gates: `scripts/check.sh` (item) and
 *In transit: the Hub/Admin/CV/How-it-works container —*
 *`docs/manifests/2026-09-08-hub-admin-cv-docs.md`. The shared shell, the Hub*
 *and the CV have shipped; the Admin redesign and the How-it-works page are*
-*planned only, and neither waits on a decision now.*
+*planned only, and neither waits on a decision now. A hub follow-up is planned*
+*and waits on the owner's copy.*

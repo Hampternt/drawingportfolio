@@ -28,8 +28,9 @@ from this file on 2026-08-12; `git log docs/WORKTREES.md` recovers them.
   `~/projects/drawingportfolio.worktrees/portfolio-review` — it moved out of the
   main checkout when another session took that over): works through the 2026-09-27
   portfolio review, `docs/handoffs/2026-09-27-portfolio-review.md`, in the order
-  it suggests. Step 1 records rulings 2 and 3 in the Hub/Admin/CV container and
-  fixes the status lines the review's mapping found stale.
+  it suggests. Step 1 recorded rulings 2 and 3 in the Hub/Admin/CV container and
+  fixed the status lines the review's mapping found stale. Step 2 is that
+  container's Pack 2b, the hub follow-up.
 
 - **`feat/hub-admin-cv-docs`** — **Packs 1, 2 and 6 LANDED 2026-09-27**,
   squash-merged to `master` as Hampternt/drawingportfolio#20 and deployed. The
@@ -40,8 +41,8 @@ from this file on 2026-08-12; `git log docs/WORKTREES.md` recovers them.
   "How it works" page at `/docs`. Fitness, artportfolio and drinks are
   deliberately untouched in content; they do inherit the shared header and
   command palette. Container manifest:
-  `docs/manifests/2026-09-08-hub-admin-cv-docs.md` — seven packs, planned one
-  level deep. Design handoff: `docs/design/hub-admin-cv-docs/` — **the CV
+  `docs/manifests/2026-09-08-hub-admin-cv-docs.md` — eight packs (Pack 2b
+  added 2026-09-28), planned one level deep. Design handoff: `docs/design/hub-admin-cv-docs/` — **the CV
   design is `CV.dc.html`** (Norwegian, "Utvikler — interne digitale verktøy og
   automatisering"). Pack 6 first landed on the feature branch 2026-09-25 from
   `claude/cv-worktree-completion-lq2wps` via Hampternt/drawingportfolio#19,
