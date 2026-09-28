@@ -315,4 +315,19 @@ mod tests {
             );
         }
     }
+
+    /// The one htmx path that never reads `HX-Redirect` is its history-cache
+    /// miss: it sends `HX-Request`, gets `to_login`'s 401, and gives up — the
+    /// address bar shows the gated URL over the previous page. Both shells make
+    /// a miss a full reload instead, which is a plain GET and gets the 303.
+    #[test]
+    fn test_both_shells_reload_on_a_history_cache_miss() {
+        for shell in [
+            include_str!("../templates/base.html"),
+            include_str!("../templates/admin.html"),
+        ] {
+            assert!(shell
+                .contains(r#"<meta name="htmx-config" content='{"refreshOnHistoryMiss":true}'>"#));
+        }
+    }
 }

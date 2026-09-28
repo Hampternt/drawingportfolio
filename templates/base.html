@@ -13,6 +13,7 @@
   <link rel="prefetch" href="/tasks">
   <link rel="prefetch" href="/sorting">
   <!-- Self-hosted HTMX — eliminates DNS lookup + TLS handshake to unpkg.com -->
+  <meta name="htmx-config" content='{"refreshOnHistoryMiss":true}'>
   <script src="/static/htmx.min.js?v={{ crate::assets::asset_version() }}" defer></script>
   <script>const IS_ADMIN = {% if is_admin %}true{% else %}false{% endif %};</script>
   <script src="/static/palette.js?v={{ crate::assets::asset_version() }}" defer></script>
