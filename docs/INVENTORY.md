@@ -21,7 +21,7 @@ The landing page: entry point linking to every public area of the site.
   sorting, CV — each saying what the section is and who can reach it.
 - The site header is shared from here: the wordmark, a nav that lights the
   section you are in, and the palette. Every other page wears it too.
-- 🚧 **Hub follow-up — in progress.** The owner named in the hero, a status
+- 🚧 **Hub follow-up — built, not yet merged.** The owner named in the hero, a status
   badge on every tile, Drinks copy that mentions the name-and-PIN step, contact
   links in the footer, sign-in marked in the palette before the click, a way
   back from the login page, and the login page always loading as a proper page.

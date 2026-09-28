@@ -3,7 +3,7 @@
 **Status:** ACTIVE — **Packs 1, 2 and 6 landed** (shared shell, Hub, CV), each
 gated and walked; ledgers at the foot. They reached `master` as one
 squash-merge, Hampternt/drawingportfolio#20, on 2026-09-27. **Pack 2b, the hub
-follow-up, is in execution** (planned and given the go 2026-09-28). Packs 3, 4,
+follow-up, is built, gated and walked** (2026-09-28), awaiting its review and the merge. Packs 3, 4,
 5 and 7 are not started. Ruling 1 was taken by the
 user 2026-09-25 and Pack 6 shipped on it. Rulings 2 and 3 were taken by the user
 2026-09-27: `admin_page` takes `AuthSession` alongside `RequireAdmin`, with
@@ -473,7 +473,7 @@ header, no palette); and `Hub.dc.html:54` for the about slot's styling. Depends
 on Pack 6 for the six tiles. Independent of Packs 3–5. Runs before Pack 7, which
 adds the footer's `/docs` link.
 
-- [ ] **2b.0 The login page always loads as a page.** Pre-existing and live. A
+- [x] **2b.0 The login page always loads as a page.** Pre-existing and live. A
       boosted click on a sign-in tile or nav link sends an htmx request; the
       no-session rejection is a 302, which the XHR follows, so `login.html` is
       swapped into the current page. htmx drops the response's `<head>`, so the
@@ -491,13 +491,13 @@ adds the footer's `/docs` link.
       `Location`. In the browser, a signed-out click on the Fitness tile lands
       on a styled login page, and a wrong PIN leaves the URL without a query
       string.*
-- [ ] **2b.1 The identity line.** Fills the about slot Pack 2 left empty
+- [x] **2b.1 The identity line.** Fills the about slot Pack 2 left empty
       (`Hub.dc.html:54`: a muted paragraph under the tagline, 62ch wide):
       **`Jesper L.`**, the form `/cv` has used since #21 and never the full
       surname, then the approved line "Developer — internal digital tools and
       automation".
       *Done: the hero shows the name and the line.*
-- [ ] **2b.2 Status badges and stack.** One `.hm-badge` per tile, from item
+- [x] **2b.2 Status badges and stack.** One `.hm-badge` per tile, from item
       1.6's tones (`static/style.css:2286–2291`), so no new primitive: `live`
       (success) on five tiles, and `in progress` (warning) on Sorting, as the
       CV badges it `Under utvikling` (`cv.html:92`). The badge sits in the top
@@ -510,14 +510,14 @@ adds the footer's `/docs` link.
       against CLAUDE.md. Drinks' foot belongs to 2b.3.
       *Done: six tiles, six badges, each at its natural width, and nothing
       clipped at 390px.*
-- [ ] **2b.3 The Drinks tile says what the page asks.** Description: "Four
+- [x] **2b.3 The Drinks tile says what the page asks.** Description: "Four
       party games in one room — pick a name and PIN, then join with a room
       code." Foot: `name + PIN · room code · big screen`. The sections table
       Pack 7 ports makes the same mistake ("Anyone with the room code.",
       `How it works.dc.html:278`), so Pack 7 takes these words. `hx-boost="false"`
       stays.
       *Done: the tile names the PIN step and still does a full page load.*
-- [ ] **2b.4 The footer.** `server-rendered · no build step` becomes
+- [x] **2b.4 The footer.** `server-rendered · no build step` becomes
       `server-rendered · no front-end build step`, the claim the CV already makes
       ("ingen byggesteg på frontend", `cv.html:58`). Add `mailto:jl@dblo.net`
       and `https://github.com/Hampternt`, both public on `/cv` under ruling 1.
@@ -527,7 +527,7 @@ adds the footer's `/docs` link.
       that in this pack's ledger.
       *Done: the footer carries both contacts, and no "no build step" remains
       in `hub.html`.*
-- [ ] **2b.5 Sign-in is visible before the click.** `Go to Fitness Tracker`,
+- [x] **2b.5 Sign-in is visible before the click.** `Go to Fitness Tracker`,
       `Go to Fitness Week`, `Go to Sorting` and `New sorting session`
       (`static/palette.js:60–75`) each carry the suffix ` · sign-in` in their
       label. The palette knows only `IS_ADMIN`, so signed-in members see the
@@ -535,17 +535,17 @@ adds the footer's `/docs` link.
       viewer. A hint field belongs to the deferred palette restyle, not to this
       item.
       *Done: the four labels carry the marker wherever the palette loads.*
-- [ ] **2b.6 A way back from the login page.** `templates/login.html` gains one
+- [x] **2b.6 A way back from the login page.** `templates/login.html` gains one
       link to `/`. ⚠ This is the auth page: template only, nothing in
       `webauthn.js` or `auth.rs`. **Flagged for individual review.**
       *Done: `/admin/login` links to `/`, and the page's contract with
       `webauthn.js` is unchanged. That contract is the ids it reads (`status`,
       `pin-btn`, `pin-name`, `pin-pin`) and the inline handlers `startLogin()`
       on `#login-btn` and `startPinLogin(event)` on `#pin-form`.*
-- [ ] **2b.7** The CV tile's Norwegian description gets `lang="nb"`, as `/cv`'s
+- [x] **2b.7** The CV tile's Norwegian description gets `lang="nb"`, as `/cv`'s
       wrapper already has (`cv.html:10`).
       *Done: the attribute is on that tile's `.hm-hub__desc`.*
-- [ ] **2b.8 The hub's first tests.** A test module in `hub.rs` on `cv.rs`'s
+- [x] **2b.8 The hub's first tests.** A test module in `hub.rs` on `cv.rs`'s
       pattern: the `/drinks` tile and the footer's `/admin` link each keep
       `hx-boost="false"`; "no build step" is gone; there is no `/docs` link yet
       (Pack 7 flips this when it adds the footer link); `Jesper L.` is present;
@@ -554,7 +554,7 @@ adds the footer's `/docs` link.
       scopes it, because `base.html`'s `?v=` hashes are hex and must stay out
       of the scan. Checked by shape, never by value.
       *Done: the tests pass, and each one fails when its fault is planted.*
-- [ ] **2b.9 Links to standalone pages are never boosted.** `admin.html` is
+- [x] **2b.9 Links to standalone pages are never boosted.** `admin.html` is
       standalone, and its styles live in its own `<head>`, which a boosted swap
       drops. So the two links into `/admin` that #20 added — the header
       settings button (`base.html`) and the hub footer's `/admin` link — take
@@ -816,6 +816,85 @@ Not blocking, but each needs an answer before the pack that consumes it.
 ---
 
 ## Ledger
+
+### Pack 2b — built and walked 2026-09-28; review and merge pending
+
+Ten items, one commit each on `feat/portfolio-review`: `b1465c2` (2b.0 the
+login redirect), `c78510d` (2b.1 identity line), `ed75f2b` (2b.2 badges),
+`94ecf81` (2b.3 Drinks copy), `446b0ab` (2b.4 footer), `bfe3978` (2b.5
+palette), `947806a` (2b.6 login back link), `128dcb3` (2b.7 `lang="nb"`),
+`b3b1a29` (2b.8 hub tests), `92782e8` (2b.9 unboosted standalone links).
+
+**Pack gate green,** run in the worktree: `VERIFY OK — fmt, clippy, tests, JS
+syntax, board suites all clean.` Workspace **1114** tests (347 + 8 + 524 + 235;
++2 in `middleware.rs`, +4 in `hub.rs`). Board checks **458** (265 + 193).
+Clippy raises nothing in any file this pack touched. That was checked against
+the gate's own output; the 18-distinct baseline was not re-measured from a
+clean build.
+
+**Every new test was shown to fail on its fault.** Forcing `to_login` back to
+the plain redirect fails the htmx test. Seven faults planted in the hub
+template — the `/drinks` boost dropped, either `/admin` link boosted, "no build
+step" restored, a `/docs` link added, a phone-shaped number in `<main>`, a
+badge removed — fail seven assertions.
+
+<details>
+<summary><b>Walkthrough evidence</b> — logged out, fresh browser profile, dev
+server on the worktree</summary>
+
+*The hub.* `body.site-dark`; the about line reads "Jesper L. · Developer —
+internal digital tools and automation" at 16px, `rgb(141, 135, 160)`, 10px
+under the tagline, with the name at weight 600. Six tiles, six badges, five
+`live` at 45px and one `in progress` at 99px. At 390×844, horizontal overflow
+is **0** on the page, on every tile's top row and foot row, on the footer row
+and on the about line. The footer reads "server-rendered · no front-end build
+step · jl@dblo.net · github.com/Hampternt". Logged out, no `/admin` or
+`/docs` link is present.
+
+*2b.0, the bug and its fix, seen on the wire.* Clicking the Fitness tile sent
+`GET /fitness → 401` (the htmx request), then a full document load of
+`GET /admin/login → 200` with its stylesheet. The script context did not
+survive, which a boosted swap would have kept. The login page came up styled
+(`.login-box` `rgb(255, 255, 255)`, 360px) with its `<style>` in `<head>`, and
+`<main hx-boost="false">`. A wrong PIN for a made-up name showed "Wrong name
+or PIN"; the URL stayed `/admin/login` with no query, and the only request
+carrying the PIN was `POST /api/auth/login/pin → 401`. The header's Fitness
+nav link behaves the same.
+
+*The rest.* "← Back to the hub" returns to `/`. Ctrl+K on `/`, and on
+`/artportfolio` after a boosted click that stayed in the same document, lists
+the four ` · sign-in` commands, and typing "fit" still matches both fitness
+ones. The Drinks tile does a full page load.
+
+</details>
+
+<details>
+<summary><b>Deviations and debt</b></summary>
+
+- **The badge sits in the foot row, not the title row.** The plan named the
+  title row first, with the foot as the fallback. The foot was chosen before
+  walking, because a nowrap title, a nowrap badge and the go arrow leave too
+  little width at 390px. The walk confirmed the foot row fits.
+- **Drinks carries no stack word.** Its foot is 2b.3's, and "server-sent
+  events" does not fit beside the name-and-PIN copy. Fitness gets "barcode
+  scanning", Sorting "plain-JS board".
+- **2b.9 took a third link.** `users.html` links `/admin/login` from a boosted
+  page. It now carries `hx-boost="false"` as well, since every link into a
+  standalone page follows the same rule.
+- **The 401 shows in the console.** Browsers log any non-2xx load, so each
+  signed-out boosted click logs one "Failed to load resource: 401". A 200 with
+  `HX-Redirect` would be silent. The 401 was kept so a rejected request never
+  reads as success in logs or tests.
+- **`base.html`'s `<link rel="prefetch">` tags** fetch `/fitness` and `/sorting`
+  on every page. They are plain requests, so they still get the 303 and land
+  on the login page; the redirect is followed but its response is discarded.
+  That behaviour predates this pack and was left alone.
+- **Not walked:** the two `/admin` links and the owner-only paths, because
+  they need a session and this session holds no credentials. `hub.rs` pins the
+  attributes. A signed-in click through both links is owed at the next signed-in
+  walk, along with Pack 1's `/fitness` and `/sorting` check.
+
+</details>
 
 ### Pack 6 — done 2026-09-25
 
