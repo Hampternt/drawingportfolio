@@ -3451,6 +3451,19 @@ body.site-dark .hub-hero__tagline {
   color: var(--text-body);
   font-size: 19px;
 }
+/* The about slot the mock fills with placeholder copy. The line is the owner's
+   own (Pack 2b), and the name is the shortened form /cv uses. The 10px gap is
+   the mock's and sits between two steps of the scale, like the tagline's 19px. */
+body.site-dark .hub-hero__about {
+  max-width: 62ch;
+  margin-top: 10px;
+  color: var(--text-muted);
+  font-size: var(--text-16);
+}
+body.site-dark .hub-hero__about strong {
+  color: var(--text-strong);
+  font-weight: var(--weight-semibold);
+}
 
 /* The palette bar. It opens the palette by dispatching the same synthetic
    Ctrl+K that base.html's header button dispatches, so there is one opener —
