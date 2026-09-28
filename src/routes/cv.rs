@@ -81,8 +81,14 @@ mod tests {
         // below would match if <main> ever did.
         assert!(html.contains(r#"href="/"#));
         let main = &html[html.find("<main>").unwrap()..html.find("</main>").unwrap()];
-        assert!(main.contains("mailto:jl@dblo.net"), "<main> lost the contact row");
+        assert!(
+            main.contains("mailto:jl@dblo.net"),
+            "<main> lost the contact row"
+        );
         assert!(!main.contains(r#"href="/"#), "the CV links into the site");
-        assert!(!main.contains("portfolio.dblo.net"), "the CV names the site");
+        assert!(
+            !main.contains("portfolio.dblo.net"),
+            "the CV names the site"
+        );
     }
 }
