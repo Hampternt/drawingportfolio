@@ -11,8 +11,9 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <script src="{{ base_path }}/assets/htmx.min.js" defer></script>
+  <script src="{{ base_path }}/assets/sh_room.js" defer></script>
 </head>
-<body data-player-id="{{ player_id }}">
+<body data-player-id="{{ player_id }}" data-base-path="{{ base_path }}" data-code="{{ code }}">
   {{ test_bar|safe }}
   <header class="topbar">
     <div class="code-pill">
@@ -31,6 +32,7 @@
   </nav>
 
   <main class="tab-content">
+    <section class="tab-pane" data-pane="game" id="sh-private-slot"><div id="sh-private" data-sh-seq="0"></div></section>
     <section class="tab-pane" data-pane="game" id="game-panel">{{ game_panel|safe }}</section>
     <section class="tab-pane" data-pane="standings" hidden>
       <ol id="standings-list" class="standings-list">{{ leaderboard_items|safe }}</ol>
@@ -119,6 +121,11 @@ es.addEventListener("game", e => {
   if (document.getElementById("game-panel").querySelector("[data-lc-table]")) {
     window.location = BP + "/room/" + CODE + "/lastcall";
   }
+  // Backroom: the public frame doubles as the tick telling this phone to
+  // re-fetch its own private pane (assets/sh_room.js). Guarded because the
+  // deferred script may not have run yet on a very early frame; its own
+  // DOMContentLoaded boot covers that case.
+  if (window.shAfterGameSwap) window.shAfterGameSwap();
 });
 es.addEventListener("room", e => {
   const tpl = document.createElement("div");
@@ -127,7 +134,8 @@ es.addEventListener("room", e => {
   if (strip) document.getElementById("topbar-strip").innerHTML = strip.innerHTML;
   swapPanel("room-panel", "room", e.data);
   const mode = tpl.querySelector("[data-mode]")?.dataset.mode || "idle";
-  document.querySelector('[data-tab="room"]').textContent = mode === "three_man" ? "TABLE" : "ROOM";
+  const ROOM_TAB_LABEL = { three_man: "TABLE", secret_hitler: "TABLE" };
+  document.querySelector('[data-tab="room"]').textContent = ROOM_TAB_LABEL[mode] || "ROOM";
 });
 es.addEventListener("emote", e => {
   const s = document.createElement("span");

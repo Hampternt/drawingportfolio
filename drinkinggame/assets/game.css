@@ -844,3 +844,231 @@ button {
                    background: transparent; border: 1px solid #b8862f; color: #e8b555; }
 .test-bar button[data-me] { background: #e8b555; color: #1a1206; }
 .test-bar button:disabled { cursor: default; }
+
+/* ===================================================================
+   Backroom (secret_hitler)
+
+   Shares this sheet's tokens, .start-card, .game-active, .screen-panel
+   and .btn-primary with the other three games; everything below is
+   .sh- prefixed so it cannot reach them.
+
+   Two colours carry the whole game: violet for Reform, red for Racket.
+   They are the sheet's existing --violet and --red, so the board reads
+   as part of the same app rather than a bolted-on second theme.
+
+   Layout note: the public board and the private pane are two separate
+   .tab-pane sections (see room.html) because swapPanel() replaces
+   #game-panel's innerHTML wholesale. The pane comes FIRST so a phone
+   shows your own move above the board.
+   =================================================================== */
+
+.start-card-sh {
+  background: linear-gradient(160deg, rgba(247, 118, 142, .16), rgba(247, 118, 142, .04));
+  border-color: rgba(247, 118, 142, .4);
+}
+
+.sh-board { display: flex; flex-direction: column; gap: 14px; }
+.sh-head { display: flex; flex-direction: column; gap: 4px; }
+.sh-kicker {
+  font: 700 11px var(--font-ui); letter-spacing: .14em;
+  text-transform: uppercase; color: var(--text-faint);
+}
+.sh-phase { font: 700 17px/1.3 var(--font-display); color: var(--text); }
+.sh-warning {
+  font: 600 13px/1.4 var(--font-ui); color: var(--red);
+  background: rgba(247, 118, 142, .1); border: 1px solid rgba(247, 118, 142, .35);
+  border-radius: 10px; padding: 8px 10px;
+}
+.sh-note { font: 600 12px var(--font-ui); color: var(--amber); }
+.sh-deck { font: 500 12px var(--font-ui); color: var(--text-faint); }
+
+/* tracks */
+.sh-track { display: flex; flex-direction: column; gap: 5px; }
+.sh-track-label {
+  font: 700 11px var(--font-ui); letter-spacing: .1em;
+  text-transform: uppercase; color: var(--text-faint);
+}
+.sh-slots { display: flex; gap: 5px; list-style: none; margin: 0; padding: 0; }
+.sh-slot {
+  flex: 1; min-height: 40px; border-radius: 8px;
+  border: 1px solid var(--hairline-strong); background: var(--surface);
+  display: flex; align-items: flex-end; justify-content: center;
+  padding: 3px; text-align: center;
+}
+.sh-slot-power {
+  font: 700 8px/1.1 var(--font-ui); letter-spacing: .04em;
+  text-transform: uppercase; color: var(--text-faint);
+}
+.sh-track-liberal .sh-slot-on {
+  background: var(--violet); border-color: var(--violet);
+}
+.sh-track-fascist .sh-slot-on { background: var(--red); border-color: var(--red); }
+.sh-slot-on .sh-slot-power { color: var(--ink); }
+
+/* the failed-government counter */
+.sh-heat { display: flex; align-items: center; gap: 8px; }
+.sh-heat-label {
+  font: 700 11px var(--font-ui); letter-spacing: .1em;
+  text-transform: uppercase; color: var(--text-faint);
+}
+.sh-pips { display: flex; gap: 5px; list-style: none; margin: 0; padding: 0; }
+.sh-pip {
+  width: 11px; height: 11px; border-radius: 50%;
+  border: 1px solid var(--hairline-strong);
+}
+.sh-pip-on { background: var(--amber); border-color: var(--amber); }
+
+/* the seat roster */
+.sh-seats {
+  list-style: none; margin: 0; padding: 0;
+  display: flex; flex-direction: column; gap: 4px;
+}
+.sh-seat {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  background: var(--surface); border-radius: 10px; padding: 8px 10px;
+  min-height: 40px;
+}
+.sh-seat-out { opacity: .45; }
+.sh-seat-name { font: 700 14px var(--font-ui); color: var(--text); }
+.sh-badge {
+  font: 800 9px var(--font-ui); letter-spacing: .1em; text-transform: uppercase;
+  padding: 3px 6px; border-radius: 999px; border: 1px solid var(--hairline-strong);
+  color: var(--text-faint);
+}
+.sh-badge-chair { background: var(--violet); border-color: var(--violet); color: var(--ink); }
+.sh-badge-second { background: var(--violet-soft); border-color: var(--violet-border); color: var(--violet); }
+.sh-badge-dug { border-color: rgba(255, 181, 112, .5); color: var(--amber); }
+.sh-badge-out { border-color: rgba(247, 118, 142, .5); color: var(--red); }
+.sh-badge-role { background: var(--chip); color: var(--text-dim); }
+.sh-ballot {
+  margin-left: auto; width: 13px; height: 17px; border-radius: 3px;
+  border: 1px dashed var(--hairline-strong);
+}
+.sh-ballot-in { background: var(--text-dim); border-style: solid; border-color: var(--text-dim); }
+
+/* the public log and the vote record */
+.sh-log {
+  list-style: none; margin: 0; padding: 0;
+  display: flex; flex-direction: column; gap: 3px;
+  font: 500 12px/1.5 var(--font-ui); color: var(--text-dim);
+}
+.sh-vote-record { display: flex; flex-direction: column; gap: 4px; padding: 6px 0; }
+.sh-vote-head {
+  font: 700 11px var(--font-ui); letter-spacing: .08em;
+  text-transform: uppercase; color: var(--text-faint);
+}
+.sh-balls { display: flex; flex-wrap: wrap; gap: 4px; list-style: none; margin: 0; padding: 0; }
+.sh-ball {
+  font: 700 11px var(--font-ui); padding: 3px 7px; border-radius: 999px;
+  border: 1px solid var(--hairline-strong); color: var(--text-faint);
+}
+.sh-ball-yes { border-color: var(--violet-border); color: var(--violet); }
+.sh-ball-no { border-color: rgba(247, 118, 142, .45); color: var(--red); }
+.sh-history summary {
+  font: 700 12px var(--font-ui); letter-spacing: .08em; text-transform: uppercase;
+  color: var(--text-faint); cursor: pointer; padding: 6px 0;
+}
+.sh-vote-more { font: 500 11px var(--font-ui); color: var(--text-faint); }
+.sh-seating { display: flex; flex-direction: column; gap: 8px; }
+
+/* -------------------------------------------------------------------
+   The private pane. Everything below is fetched per viewer over a
+   session-authenticated route and never broadcast.
+   ------------------------------------------------------------------- */
+
+#sh-private:empty { display: none; }
+#sh-private { display: flex; flex-direction: column; gap: 12px; margin-bottom: 14px; }
+
+.sh-role {
+  background: linear-gradient(160deg, rgba(180, 142, 247, .18), rgba(180, 142, 247, .04));
+  border: 1px solid var(--violet-border); border-radius: 16px; padding: 14px;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.sh-role-name { font: 900 22px/1 var(--font-display); letter-spacing: -.02em; color: var(--text); }
+.sh-role-brief { font: 500 13px/1.5 var(--font-ui); color: var(--text-dim); }
+.sh-knows, .sh-private-results {
+  display: flex; flex-direction: column; gap: 4px;
+  border-top: 1px solid var(--hairline); padding-top: 8px; margin-top: 4px;
+}
+.sh-private-results {
+  background: var(--surface); border: 1px solid var(--hairline-strong);
+  border-radius: 12px; padding: 10px; margin-top: 0;
+}
+.sh-knows-label {
+  font: 700 10px var(--font-ui); letter-spacing: .12em;
+  text-transform: uppercase; color: var(--text-faint);
+}
+.sh-knows ul, .sh-private-results ul {
+  list-style: none; margin: 0; padding: 0;
+  display: flex; flex-direction: column; gap: 3px;
+  font: 600 13px var(--font-ui); color: var(--text);
+}
+
+.sh-controls { display: flex; flex-direction: column; gap: 8px; }
+.sh-prompt { font: 600 14px/1.4 var(--font-ui); color: var(--text-dim); }
+.sh-waiting { color: var(--text-faint); font-style: italic; }
+.sh-out { font: 600 13px/1.4 var(--font-ui); color: var(--red); }
+.sh-spectator { font: 500 13px/1.5 var(--font-ui); color: var(--text-faint); }
+
+.sh-picks, .sh-hand { display: flex; flex-wrap: wrap; gap: 8px; }
+.sh-picks button, .sh-hand button, .sh-veto {
+  flex: 1 1 auto; min-width: 96px; min-height: 48px;
+  font: 700 14px var(--font-ui); border-radius: 12px; cursor: pointer;
+  border: 1px solid var(--hairline-strong); background: var(--chip); color: var(--text);
+  padding: 12px;
+}
+.sh-vote-yes { background: var(--violet); border-color: var(--violet); color: var(--ink); }
+.sh-vote-no { background: transparent; border-color: rgba(247, 118, 142, .5); color: var(--red); }
+.sh-tile-liberal { background: var(--violet); border-color: var(--violet); color: var(--ink); }
+.sh-tile-fascist { background: var(--red); border-color: var(--red); color: var(--ink); }
+.sh-veto { border-color: rgba(255, 181, 112, .5); color: var(--amber); background: transparent; }
+.sh-power {
+  font: 800 11px var(--font-ui); letter-spacing: .08em; text-transform: uppercase;
+  padding: 3px 8px; border-radius: 999px; border: 1px solid var(--hairline-strong);
+}
+.sh-power-dig { color: var(--amber); border-color: rgba(255, 181, 112, .5); }
+.sh-power-snap { color: var(--violet); border-color: var(--violet-border); }
+.sh-power-peek { color: var(--text-dim); }
+.sh-power-86 { color: var(--red); border-color: rgba(247, 118, 142, .5); }
+
+/* game over */
+.sh-over, .sh-screen-over { display: flex; flex-direction: column; gap: 10px; }
+.sh-over-kicker {
+  font: 700 11px var(--font-ui); letter-spacing: .14em;
+  text-transform: uppercase; color: var(--text-faint);
+}
+.sh-over-title { font: 900 26px/1.1 var(--font-display); letter-spacing: -.02em; }
+
+/* the big screen: the same facts, sized for a television across the room */
+.sh-screen { display: flex; flex-direction: column; gap: 16px; }
+.sh-screen-body { display: flex; flex-direction: column; gap: 14px; flex: 1; }
+.sh-screen-phase { font: 800 clamp(20px, 3.4vw, 40px)/1.2 var(--font-display); }
+.sh-screen .sh-slot { min-height: clamp(40px, 5vw, 74px); }
+.sh-screen .sh-seat-name { font-size: clamp(14px, 1.6vw, 24px); }
+.sh-screen .sh-seats { flex-flow: row wrap; }
+.sh-screen .sh-seat { flex: 1 1 30%; }
+
+/* Wider phones and the screen get the two tracks side by side. */
+@media (min-width: 560px) {
+  .sh-board { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 14px; }
+  .sh-head, .sh-heat, .sh-seats, .sh-log, .sh-history,
+  .sh-last-vote, .sh-warning, .sh-note, .sh-deck { grid-column: 1 / -1; }
+}
+
+/* One reduced-motion block for the whole sheet — the first it has had.
+   Backroom's only animation is the phase-change flip room.html drives via
+   [data-anim]; honour the preference by simply not moving. */
+@media (prefers-reduced-motion: reduce) {
+  .sh-board [data-anim], .sh-board [data-anim].anim-a, .sh-board [data-anim].anim-b {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+/* landing credits */
+.landing-credits {
+  max-width: 420px; margin-top: 2rem; padding-top: 1rem;
+  border-top: 1px solid var(--hairline);
+  font: 400 11px/1.6 var(--font-ui); color: var(--text-faint); text-align: center;
+}
+.landing-credits a { color: var(--text-dim); }

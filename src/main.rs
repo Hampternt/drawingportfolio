@@ -10,11 +10,12 @@
 // These tell Rust "there are other .rs files in src/ that belong to this project".
 // Each `mod` declaration makes the module's public items available under that name,
 // e.g. `db::connect(...)` or `routes::feed::router()`.
+mod assets; // Cache-busting version string for /static/ asset URLs
 mod db; // All database queries (SQLite via sqlx)
 mod middleware; // Extractors: AuthSession, RequireAdmin, OptionalAdmin, LocalhostOnly
 mod models; // Plain data structs that mirror database rows
 mod pin; // Name + PIN credentials: Argon2 hashing, validation, lockout limits
-mod routes; // One sub-module per feature area (hub, feed, admin, auth, nutrition, tasks)
+mod routes; // One sub-module per feature area (hub, feed, admin, auth, nutrition, tasks, sorting)
 mod storage; // S3-compatible object storage wrapper (Hetzner)
 
 use axum::extract::DefaultBodyLimit;
@@ -138,11 +139,13 @@ async fn main() {
     // `.with_state(state)` injects AppState into every handler that asks for it.
     let app = Router::new()
         .merge(routes::hub::router()) // GET /
+        .merge(routes::cv::router()) // GET /cv
         .merge(routes::feed::router()) // GET /artportfolio (and HTMX/JSON sub-routes)
         .merge(routes::admin::router()) // GET /admin, POST/DELETE /api/admin/posts
         .merge(routes::auth::router()) // POST /api/auth/... (WebAuthn ceremonies)
         .merge(routes::nutrition::router()) // GET /fitness, POST/DELETE /api/nutrition/...
         .merge(routes::tasks::router()) // GET /tasks, POST/DELETE /api/tasks/...
+        .merge(routes::sorting::router()) // GET /sorting, POST/DELETE /api/sorting/...
         .merge(routes::users::router()) // GET /admin/users (owner), /fitness/account
         .nest_service("/drinks", drinks) // party drink tracker (drinkinggame crate)
         // Serve files from the `static/` directory on disk at the /static URL prefix.

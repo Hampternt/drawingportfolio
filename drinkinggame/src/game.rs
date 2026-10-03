@@ -39,6 +39,10 @@ pub async fn current_panel(
         Some(game) if game.kind == "last_call" => {
             render::lc_placeholder_panel(&state.base_path, code)
         }
+        Some(game) if game.kind == crate::secret_hitler::KIND => {
+            let (view, names) = crate::sh_routes::sh_view_data(state, &game).await;
+            crate::sh_render::sh_public_panel(&view, &names)
+        }
         Some(game) => active_panel(state, &game, code, announcement).await,
         None => idle_panel(state, code).await,
     }
@@ -188,6 +192,10 @@ pub async fn current_screen_panel(state: &GameState, room_id: i64, code: &str) -
             render::tm_screen_panel(&view)
         }
         Some(game) if game.kind == "last_call" => render::lc_screen_placeholder(code),
+        Some(game) if game.kind == crate::secret_hitler::KIND => {
+            let (view, names) = crate::sh_routes::sh_view_data(state, &game).await;
+            crate::sh_render::sh_screen_panel(&view, &names)
+        }
         Some(game) => active_screen_panel(state, &game, code).await,
         None => render::screen_panel_idle(code),
     }
@@ -220,6 +228,11 @@ pub async fn current_room_panel(state: &GameState, room_id: i64, code: &str) -> 
             )
         }
         Some(game) if game.kind == "last_call" => (Vec::new(), 0, game.kind, None),
+        Some(game) if game.kind == crate::secret_hitler::KIND => {
+            let (view, names) = crate::sh_routes::sh_view_data(state, &game).await;
+            let seating = crate::sh_render::sh_seating_html(&view, &names);
+            (Vec::new(), 0, game.kind, Some(seating))
+        }
         Some(game) => (
             db::house_rules(&state.pool, game.id).await,
             db::king_count(&state.pool, game.id).await,

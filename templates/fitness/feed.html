@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Fitness Tracker{% endblock %}
+{% block nav_active %}fitness{% endblock %}
 
 {% block body_class %}fitness-dark{% endblock %}
 
@@ -890,5 +891,5 @@ function toggleAddForm() {
 }
 
 </script>
-<script src="/static/barcode.js" defer></script>
+<script src="/static/barcode.js?v={{ crate::assets::asset_version() }}" defer></script>
 {% endblock %}
