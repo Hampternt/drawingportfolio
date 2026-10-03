@@ -24,88 +24,60 @@ from this file on 2026-08-12; `git log docs/WORKTREES.md` recovers them.
 
 ## Streams
 
-- **`feat/hub-admin-cv-docs`** (started 2026-09-08, from `master` @ afbad7f,
-  in the main checkout — no separate worktree; merges → `master`, not `dev`):
-  the Claude Design handoff — the Hub and Admin onto the Hampter Design System,
-  plus two new sections, a **CV page (`GET /cv`)** and an employer-facing
-  "How it works" page. Fitness, artportfolio and drinks are deliberately
-  untouched in content; they do inherit the shared header and command palette.
-  Container manifest: `docs/manifests/2026-09-08-hub-admin-cv-docs.md` (on the
-  branch) — seven packs, planned one level deep.
-  Design handoff: `docs/design/hub-admin-cv-docs/` (on the branch) — **the CV
-  design is `CV.dc.html`** (Norwegian, "Utvikler — interne digitale verktøy og
-  automatisering").
-  **Packs 1 (shared shell), 2 (Hub) and 6 (CV) are done**; Pack 6 landed
-  2026-09-25 from `claude/cv-worktree-completion-lq2wps` via
-  Hampternt/drawingportfolio#19, with ruling 1 taken by the user and the CV
-  text revised by them. **Packs 3, 4, 5 and 7 are not started** — ruling 2
-  (how `admin_page` gets identity) blocks 3, ruling 3 (the documentation
-  route's name) blocks 7. Open PR: Hampternt/drawingportfolio#20.
-
-- **`claude/secret-hitler-game-jg8xqs`** (started 2026-09-07, from `master`,
-  in the main checkout — no separate worktree): **Backroom**, a fourth game
-  for the `/drinks` room shell — a hidden-role game, mechanically Secret
-  Hitler, re-themed, 5–10 players. Manifest:
-  `docs/manifests/2026-09-07-backroom.md`. PR:
-  Hampternt/drawingportfolio#15. Drink-free in v1; the drinking variant
-  ("Secret Sippler") is a later mode and is constrained by the leaderboard
-  role-oracle finding recorded in the manifest and in `sh_theme.rs`.
-
-- **`claude/crate-counting-android-app-ewwc19`** (started 2026-08-25, from
-  `master`, in the main checkout — no separate worktree): the **Sorting &
-  Loading Assistant**, a new `/sorting` section. A generated crate-sort/van-load
-  plan is pasted in as JSON; what comes out is a board drawn from the van's own
-  rear-right corner that the driver works the load on, plus a panel of sanity
-  checks that re-derive the plan's arithmetic rather than trusting it. Built for
-  an Android tablet on the warehouse floor: every move is optimistic, appends to
-  a log, and queues in `localStorage` when there is no signal.
-
+- **`feat/portfolio-review`** (worktree
+  `~/projects/drawingportfolio.worktrees/portfolio-review`; merges → `master`):
+  the live continuation of `feat/hub-admin-cv-docs` — Pack 2b (the hub
+  follow-up) plus rulings 2–4, working from the review mapped in
+  `docs/handoffs/2026-09-27-portfolio-review.md`. No PR yet. Ledger:
+  `docs/manifests/2026-09-08-hub-admin-cv-docs.md`.
+- **`feat/hub-admin-cv-docs`** — Packs 1 (shared shell), 2 (Hub) and 6 (CV)
+  **LANDED** via Hampternt/drawingportfolio#20 (squashed). Packs 3, 4, 5 and 7
+  not started; the work continues on `feat/portfolio-review` above. The
+  pre-squash history is kept in the **local-only** tag
+  `archive/hub-admin-cv-docs` — never push it (public repo; a pushed tag
+  re-published scrubbed history once).
+- **`claude/last-call-game-overhaul-2laeqa`** (remote only, no worktree):
+  Last Call engine overhaul — five non-numeric effect systems and the round
+  resolution report. Draft PR Hampternt/drawingportfolio#13 → `master`,
+  idle since 2026-09-06.
+- **Backroom** (`claude/secret-hitler-game-jg8xqs`) — **LANDED** via
+  Hampternt/drawingportfolio#15. Manifest: `docs/manifests/2026-09-07-backroom.md`.
+  The drinking variant ("Secret Sippler") remains a later mode, constrained by
+  the leaderboard role-oracle finding in the manifest and in `sh_theme.rs`.
+  Branch deleted 2026-10-03.
+- **Sorting & Loading Assistant** (`claude/crate-counting-android-app-ewwc19`)
+  — **LANDED** via Hampternt/drawingportfolio#14: the `/sorting` section.
   The loading rules are one copy with three consumers —
   `static/sorting-{runtime,model,board}.js` and `templates/sorting/markup/` are
-  the app's, and the demo in `docs/design/sorting-live/` and the design document
-  in `docs/design/van-loading-board/` are built from them. Their 458 checks run
-  the served files and `./scripts/verify.sh` runs the checks. Migrations 023 and
-  024, `src/routes/sorting.rs`, `static/sorting-*.js`, `templates/sorting/`.
-  Source spec: the user's `sortingwebsitespec.md` (companion to
-  `delivery-loading-reference.md` and `van-loading-plan-generator.html`, neither
-  of which is in this repo). PR: Hampternt/drawingportfolio#14 — ready for
-  review, not yet merged or deployed.
-- **`feat/last-call-refinement`** (started 2026-08-13, from `dev`): refining
-  the recently released Last Call game — many small changes expected, worked
-  one issue at a time, each an item committed on this branch; merges into
-  `dev` when a coherent batch lands, then `dev → master`. First batch
-  (clock removal, beat restructure, test play mode, screen declutter +
-  installable app) merged to `master` 2026-08-13; the stream stays open for
-  the Reveal/Resolve visual passes and the table-screen card-play design.
-- **`feat/lc-challenge-cards`** (started 2026-08-14, from `dev`, in the
-  main checkout — no separate worktree): challenge-card container — real-
-  life party challenges as Last Call cards (vote-judged duels, solo dares,
-  social penalties, challenge HUD). Three packs; manifest:
-  `docs/manifests/2026-08-14-lc-challenge-cards.md`.
-- **`feat/fitness-today-overhaul`** — **MERGED TO `dev` 2026-08-18**, not yet on
-  `master` and not deployed. Rebuilt the `/fitness` Today screen from the design
-  handoff in `docs/design/fitness-today-overhaul/`: quantity moved onto the
-  logged row as one-tap fractions of the food's own basis, one-tap re-logging
-  and batch meals, day-level macro composition, and a phone layout with a
-  bottom action bar at a 900px breakpoint. All five packs complete; the
-  manifest `docs/manifests/2026-08-17-fitness-today-overhaul.md` holds the
-  ledgers, the per-pack walkthroughs and four recorded deviations from the
-  design. The worktree
-  `~/projects/drawingportfolio.worktrees/fitness-today-overhaul` can be removed.
-  **Decoy warning, still live:** the planning ran in a harness session worktree,
-  `.claude/worktrees/fitness-tracker-multi-user-54fb9b` on branch
-  `claude/fitness-tracker-multi-user-54fb9b`, which still holds the same two docs
-  commits under *different* SHAs (they were cherry-picked, so there is no ancestry
-  link). That worktree is **abandoned** — the copies now on `dev` are canonical.
-  Delete it and its branch.
+  the app's; `docs/design/sorting-live/` and `docs/design/van-loading-board/`
+  are built from them, and `./scripts/verify.sh` runs their checks. Branch
+  deleted 2026-10-03.
+- **`feat/last-call-refinement`** — **CLOSED 2026-08-29**, branch deleted
+  (fully merged; first batch — clock removal, beat restructure, test play
+  mode, screen declutter + installable app — hit `master` 2026-08-13).
+  The Reveal/Resolve visual passes and the table-screen card-play design
+  remain unstarted; recreate a branch from `dev` when they resume.
+- **`feat/lc-challenge-cards`** — Pack 1 (engine, vote flow, bare UI)
+  **merged**; branch deleted 2026-10-03 with nothing unmerged. The rest of the container is in the manifest — recreate
+  a branch from `dev` when it resumes. Manifest: `docs/manifests/2026-08-14-lc-challenge-cards.md`.
+- **`feat/fitness-today-overhaul`** — **LANDED** (merged to `dev` 2026-08-18,
+  since released to `master`). Rebuilt the `/fitness` Today screen from the
+  design handoff in `docs/design/fitness-today-overhaul/`: one-tap quantity
+  fractions on the logged row, one-tap re-logging and batch meals, day-level
+  macro composition, phone layout with a bottom action bar. Manifest with
+  ledgers, walkthroughs and four recorded deviations:
+  `docs/manifests/2026-08-17-fitness-today-overhaul.md`. Branch and worktree
+  removed 2026-08-29; the decoy harness session worktree
+  (`claude/fitness-tracker-multi-user-54fb9b`, cherry-picked older copies of
+  the docs commits) was verified superseded and deleted with its branch.
 - **`feat/multi-user-fitness`** — **LANDED 2026-08-17**, merged `dev → master`
   and deployed. Multi-user container: several people each with their own
   fitness log over a shared food catalog, logging in by name + PIN alongside
   the owner's passkeys; art-portfolio admin became a grantable permission
   rather than a synonym for "logged in". All four packs complete; the manifest
   `docs/manifests/2026-08-16-multi-user-fitness.md` holds the ledgers, the
-  populated-database upgrade test and the no-rollback note. The worktree
-  `~/projects/drawingportfolio.worktrees/multi-user-fitness` can be removed.
+  populated-database upgrade test and the no-rollback note. Branch and
+  worktree removed 2026-08-29.
   Deploy-time discovery worth carrying forward: the server's nginx config was
   still the 2026-07-28 file and carried `listen [::]` lines the repo had
   dropped in April — read the `deploying` skill before copying `nginx.conf`.
