@@ -44,20 +44,21 @@ from this file on 2026-08-12; `git log docs/WORKTREES.md` recovers them.
   Hampternt/drawingportfolio#15. Manifest: `docs/manifests/2026-09-07-backroom.md`.
   The drinking variant ("Secret Sippler") remains a later mode, constrained by
   the leaderboard role-oracle finding in the manifest and in `sh_theme.rs`.
+  Branch deleted 2026-10-03.
 - **Sorting & Loading Assistant** (`claude/crate-counting-android-app-ewwc19`)
   — **LANDED** via Hampternt/drawingportfolio#14: the `/sorting` section.
   The loading rules are one copy with three consumers —
   `static/sorting-{runtime,model,board}.js` and `templates/sorting/markup/` are
   the app's; `docs/design/sorting-live/` and `docs/design/van-loading-board/`
-  are built from them, and `./scripts/verify.sh` runs their checks.
+  are built from them, and `./scripts/verify.sh` runs their checks. Branch
+  deleted 2026-10-03.
 - **`feat/last-call-refinement`** — **CLOSED 2026-08-29**, branch deleted
   (fully merged; first batch — clock removal, beat restructure, test play
   mode, screen declutter + installable app — hit `master` 2026-08-13).
   The Reveal/Resolve visual passes and the table-screen card-play design
   remain unstarted; recreate a branch from `dev` when they resume.
 - **`feat/lc-challenge-cards`** — Pack 1 (engine, vote flow, bare UI)
-  **merged**; the local branch holds nothing unmerged (checked 2026-10-03) and
-  is safe to delete. The rest of the container is in the manifest — recreate
+  **merged**; branch deleted 2026-10-03 with nothing unmerged. The rest of the container is in the manifest — recreate
   a branch from `dev` when it resumes. Manifest: `docs/manifests/2026-08-14-lc-challenge-cards.md`.
 - **`feat/fitness-today-overhaul`** — **LANDED** (merged to `dev` 2026-08-18,
   since released to `master`). Rebuilt the `/fitness` Today screen from the
