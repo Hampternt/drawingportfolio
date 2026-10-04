@@ -35,7 +35,7 @@ const SECTIONS: &[Section] = &[
     Section {
         name: "Drawing Tasks",
         route: "/tasks",
-        what: "Practice prompts attached to reference images, sorted by subject, difficulty and type.",
+        what: "Practice prompts attached to reference images, filterable by subject, difficulty and type.",
         who: "Anyone can read it. Admins manage it.",
     },
     Section {
@@ -268,7 +268,7 @@ mod tests {
     fn test_docs_renders_the_pin_lockout_from_crate_pin() {
         let html = render();
         assert!(html.contains(&format!(
-            "{} wrong ones lock the account for {} minutes",
+            "{} wrong ones lock that account for {} minutes",
             crate::pin::MAX_PIN_ATTEMPTS,
             crate::pin::LOCKOUT_MINUTES
         )));

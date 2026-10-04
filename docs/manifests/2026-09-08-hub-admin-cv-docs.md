@@ -1071,6 +1071,22 @@ works". The console is clean. Screenshots:
 `docs/manifests/screens/2026-10-05-pack-7-docs-1440.jpg` and
 `docs/manifests/screens/2026-10-05-pack-7-docs-390-table.jpg`.
 
+**Fact-check review** (the Agents line's fact-check lens at high, with one
+skeptic per finding): 11 findings, 4 refuted and 7 confirmed. All 7 were fixed
+in the review-wave commit:
+- Tasks are *filterable* by subject, difficulty and type, not sorted by them.
+  This was also fixed on the hub tile, which said the same.
+- The README now names the sorting board as drawn in the browser.
+- The keyboard callout is scoped to the site's own pages, since `/drinks` and
+  the sign-in page load no palette.
+- The light-screens row adds `/admin`'s accounts page.
+- The PIN lockout is scoped to site accounts, since the drinks games have their
+  own sign-in.
+- The Axum version is dropped from the aside.
+- "Four party games" is pinned by adding it to CLAUDE.md's "Adding a game to
+  `/drinks`" checklist.
+The PIN test's sentence follows the new wording.
+
 <details>
 <summary><b>The builder's ledger</b> (folded in from
 <code>docs/manifests/archive/2026-10-05-pack-7.ledger.md</code>)</summary>

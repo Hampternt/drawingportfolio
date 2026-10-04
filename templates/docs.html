@@ -30,7 +30,7 @@
   <p class="docs-text">That choice keeps a page light on a phone on mobile data, and keeps the whole thing small enough for one person to run. Everything below follows from it.</p>
   <details class="docs-aside">
     <summary>For a technical reader</summary>
-    <p>Rust and Axum 0.8, SQLite through sqlx, Askama templates, and HTMX with <code>hx-boost</code> for navigation. Images live in S3-compatible object storage. Sign-in is a WebAuthn passkey or a name and PIN. Five of the six sections share one header and one stylesheet; the drinks games carry their own. {{ crate::routes::docs::MIGRATIONS }} database migrations run automatically at startup: {{ crate::routes::docs::SITE_MIGRATIONS }} for the site's database and {{ crate::routes::docs::DRINKS_MIGRATIONS }} for the drinks games' own.</p>
+    <p>Rust and Axum, SQLite through sqlx, Askama templates, and HTMX with <code>hx-boost</code> for navigation. Images live in S3-compatible object storage. Sign-in is a WebAuthn passkey or a name and PIN. Five of the six sections share one header and one stylesheet; the drinks games carry their own. {{ crate::routes::docs::MIGRATIONS }} database migrations run automatically at startup: {{ crate::routes::docs::SITE_MIGRATIONS }} for the site's database and {{ crate::routes::docs::DRINKS_MIGRATIONS }} for the drinks games' own.</p>
   </details>
 </section>
 
@@ -133,7 +133,7 @@
   </div>
   <details class="docs-aside">
     <summary>For a technical reader</summary>
-    <p>Four session extractors, one per rule — <code>OptionalAdmin</code> never refuses, <code>AuthSession</code> wants any account, <code>RequireAdmin</code> an admin, <code>RequireOwner</code> the owner — so picking the wrong one is visible in the handler's signature. A visitor without a session is sent to sign in. A signed-in account that lacks the rule gets a 404 rather than a 403, since a 403 would confirm the page exists. Every function that reads a post takes a required viewer argument, so forgetting it is a compile error rather than a leak. PIN attempts are counted in the database: {{ crate::pin::MAX_PIN_ATTEMPTS }} wrong ones lock the account for {{ crate::pin::LOCKOUT_MINUTES }} minutes, and a restart does not clear the count.</p>
+    <p>Four session extractors, one per rule — <code>OptionalAdmin</code> never refuses, <code>AuthSession</code> wants any account, <code>RequireAdmin</code> an admin, <code>RequireOwner</code> the owner — so picking the wrong one is visible in the handler's signature. A visitor without a session is sent to sign in. A signed-in account that lacks the rule gets a 404 rather than a 403, since a 403 would confirm the page exists. Every function that reads a post takes a required viewer argument, so forgetting it is a compile error rather than a leak. A site account's PIN attempts are counted in the database: {{ crate::pin::MAX_PIN_ATTEMPTS }} wrong ones lock that account for {{ crate::pin::LOCKOUT_MINUTES }} minutes, and a restart does not clear the count.</p>
   </details>
 </section>
 
@@ -209,15 +209,15 @@
     </div>
     <div class="docs-row">
       <span class="docs-row__title">Finish the admin redesign</span>
-      <span class="docs-row__text"><code>/admin</code> is still the old light page, and its redesign is planned.</span>
+      <span class="docs-row__text"><code>/admin</code> and its accounts page are still the old light pages, and their redesign is planned.</span>
     </div>
   </div>
 </section>
 
 <section class="docs-callout hm-grid-bg">
   <div class="docs-callout__text">
-    <h2>The whole site by keyboard</h2>
-    <p>Every section is one shortcut away: press the two keys, type a few letters, and press Enter.</p>
+    <h2>The site by keyboard</h2>
+    <p>From any of the site's own pages, every section is one shortcut away: press the two keys, type a few letters, and press Enter.</p>
   </div>
   <button type="button" class="docs-callout__keys" aria-label="Open command palette"
           onclick="document.dispatchEvent(new KeyboardEvent('keydown',{key:'k',ctrlKey:true,bubbles:true}))">

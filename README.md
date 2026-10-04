@@ -3,8 +3,8 @@
 The source of a personal website: a drawing portfolio, a practice board of
 drawing tasks, a fitness and food log, a crate-sorting and van-loading board,
 a set of party games, and a CV. It is one Rust program (Axum, SQLite, Askama
-templates and HTMX) that renders every page on the server, with no front-end
-build step.
+templates and HTMX) that renders its pages on the server — the sorting board is
+drawn in the browser from the day's plan — with no front-end build step.
 
 How it is put together, the decisions behind it and how it is tested are
 explained on the site itself: [How this site works](https://portfolio.dblo.net/docs).
