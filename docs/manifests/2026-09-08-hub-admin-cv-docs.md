@@ -10,8 +10,8 @@ user 2026-09-25 and Pack 6 shipped on it. Rulings 2 and 3 were taken by the user
 neither extractor changed, and the documentation page's route is `/docs`.
 Ruling 4 was taken 2026-09-28: the CV's own content links nowhere on this site,
 so its rail's link card to `/docs` is dropped for good. **No ruling blocks any
-pack now**. **Pack 7 is built (2026-10-05) and waits on the owner's Test it yourself
-pass.** Packs 3–5 follow it, and Packs 4 and 5 still wait on 3. An external
+pack now**. **Pack 7 landed via #26 (2026-10-05).** Packs 3–5 are next and are drafted
+before they start. Packs 3–5 follow it, and Packs 4 and 5 still wait on 3. An external
 review of the live site was mapped onto this container on 2026-09-27;
 it was written against `master` before #20 landed, so it did not see Packs 1, 2
 and 6. The mapping and its proposed manifest changes are in
@@ -805,8 +805,8 @@ than at the new struct.
 
 ### Pack 7 — How it works: `/docs`, the employer-facing explainer
 
-**Status: BUILT 2026-10-05, gate green and smoke-checked. Awaiting the owner's
-Test it yourself pass; it merges only after that pass and the owner's go.**
+**Status: LANDED 2026-10-05** via Hampternt/drawingportfolio#26, on the
+owner's go.
 The owner approved the draft as written, which took D1–D11 as recommended and
 was the go to build. The owner chose on 2026-10-05 to run it **before** Packs 3–5.
 Drafted from four readers (spec, facts against the code, the handoff's
@@ -1049,7 +1049,7 @@ Not blocking, but each needs an answer before the pack that consumes it.
 
 ## Ledger
 
-### Pack 7 — built 2026-10-05; Test it yourself and merge pending
+### Pack 7 — landed 2026-10-05 via #26 (built and reviewed the same day)
 
 One serial builder (`pack-implementer`, medium) built 7.1–7.6 in seven commits
 (`13804b2` … `959aba4`). 7.6 came before 7.5, because 7.5's README test reads
