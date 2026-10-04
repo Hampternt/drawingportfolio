@@ -819,6 +819,14 @@ Not blocking, but each needs an answer before the pack that consumes it.
 
 ### Pack 2b — landed 2026-10-04 via #24 (built, walked and reviewed 2026-09-28)
 
+**Deployed 2026-10-04** by the Deploy run for `f39eed9` (37237372199,
+success: test, build, deploy). Live smoke check on portfolio.dblo.net: the
+hub renders the identity line, six badges, the new footer and the
+`htmx-config` meta; no console errors; 0 horizontal overflow at 390px and
+1440px. A signed-out click on the Fitness tile loads `/admin/login` as a
+fresh, styled document with its back link. Still owed: a signed-in pass over
+sign-out and the two `/admin` links.
+
 Ten items, one commit each on `feat/portfolio-review`: `b1465c2` (2b.0 the
 login redirect), `c78510d` (2b.1 identity line), `ed75f2b` (2b.2 badges),
 `94ecf81` (2b.3 Drinks copy), `446b0ab` (2b.4 footer), `bfe3978` (2b.5
