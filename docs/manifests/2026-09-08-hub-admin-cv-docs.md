@@ -10,9 +10,8 @@ user 2026-09-25 and Pack 6 shipped on it. Rulings 2 and 3 were taken by the user
 neither extractor changed, and the documentation page's route is `/docs`.
 Ruling 4 was taken 2026-09-28: the CV's own content links nowhere on this site,
 so its rail's link card to `/docs` is dropped for good. **No ruling blocks any
-pack now** — Pack 3 can be drafted, and Packs 4 and 5 still wait on it. **The
-pack order and the integration branch are open questions to the owner**
-(2026-10-05). An external
+pack now**. **The owner chose Pack 7 next (2026-10-05); it is drafted below and
+awaits approval.** Packs 3–5 follow it, and Packs 4 and 5 still wait on 3. An external
 review of the live site was mapped onto this container on 2026-09-27;
 it was written against `master` before #20 landed, so it did not see Packs 1, 2
 and 6. The mapping and its proposed manifest changes are in
@@ -87,7 +86,7 @@ Ordered by the hazard each pack retires, not by how visible its screen is.
 | 4 | **Admin — Accounts pane** | The owner sees the accounts grid inside `/admin`; a non-owner admin sees no trace of it in the page source |
 | 5 | **Admin — New post pane** | Drop a file, caption it, tag it, choose a visibility, upload |
 | 6 | **CV — `/cv`** | The CV page, its nav link, its hub tile and its palette command |
-| 7 | **How it works** | The explainer at its ruled route, and every claim on it true of the site the packs before it shipped |
+| 7 | **How it works, `/docs`** (next, drafted) | The explainer at `/docs`, reached from the nav, the hub footer and Ctrl+K, with every claim on it true of today's site and the computable figures pinned by tests |
 
 Packs 1, 2 and 2b were planned to item level before they started, and Pack 6
 shipped from its brief. The remaining packs are drafted to item level and
@@ -105,10 +104,9 @@ chain, since 4 and 5 build on Pack 3's shell, so each runs as one builder
 after the one before. Pack 7 builds on none of their code, but its prose
 describes what they ship (uploads, visibility, the admin surface), so it fails
 the count rule's third condition. No remaining pair qualifies, and every
-remaining pack runs serially. Pack 7 was planned last for that reason. The
-handoff's suggested order puts it before the admin packs, which would mean
-writing its admin and upload claims for today's `/admin` and revisiting them
-after Pack 5. Which order is the owner's call (asked 2026-10-05).
+remaining pack runs serially. Pack 7 was planned last for that reason, and the
+owner moved it first on 2026-10-05, as the handoff's order has it. Its D9 makes
+Packs 3 and 5 update `/docs` wherever they change what it describes.
 
 **Each remaining pack is drafted when it is next:** its items with done-when
 lines, its `Agents:` line and a **Test it yourself** section, with any test data
@@ -460,8 +458,8 @@ review's hub points still stand. The page names no one. No tile says whether its
 section is live. The Drinks tile promises a room code (`hub.html:53-54`), but
 `/drinks` first asks for a name and PIN (`drinkinggame/templates/landing.html:39`).
 And nothing says how to reach the owner. One more comes from this manifest's own
-findings: the footer's "no build step" (`hub.html:88`) is the claim Pack 7's
-Risks call false for a Rust binary. The review mapping adds another:
+findings: the footer's "no build step" (`hub.html:88`) is false for a Rust
+binary, as Pack 7's false-claims table records. The review mapping adds another:
 `login.html` is standalone, so a visitor who follows a sign-in tile lands on a
 page with no way back.
 
@@ -680,6 +678,10 @@ Depends on Pack 1 (landed). Packs 4 and 5 depend on this pack.
 `tags` arm and the row mutations' wiring (both high) · verify: 3 skeptics per
 finding.
 
+**Also (Pack 7's D9):** update `/docs` wherever this pack changes what it
+describes — the admin card, the request path's access check and the decision
+rows.
+
 **Risks.** `patch_visibility` and `patch_post` both return the *feed* card;
 wiring the admin row's buttons to them without a second response shape swaps a
 feed card into the admin list — it compiles, it 200s, and `check.sh` cannot see
@@ -748,6 +750,11 @@ lens (high) on the visibility default and the tags the new pane sends, since
 this is the first UI to set either on upload (a wrong default publishes a post
 meant to be hidden) · verify: 3 skeptics per finding.
 
+**Also (Pack 7's D9):** update `/docs`'s upload timeline and admin card if this
+pack changes how an upload is converted, tagged or given a visibility. As the
+container's last pack, it also removes `/docs`'s "`/admin` awaits its redesign"
+row and INVENTORY's "In transit" footer.
+
 **Agent brief:** read first — repo `CLAUDE.md`, this manifest, `Admin.dc.html` §New post pane, `upload_post` (the
 `visibility` field already parses; the comment there even says "no upload control
 sends this yet"), and admin.html's existing canvas→WebP script, currently bound
@@ -796,52 +803,195 @@ the user's explicit call, not a side effect of porting the mock. A `CvTemplate`
 without `is_admin: bool` is an Askama compile error pointing at base.html rather
 than at the new struct.
 
-### Pack 7 — How it works: the employer-facing explainer
+### Pack 7 — How it works: `/docs`, the employer-facing explainer
 
-**Done when:** the documentation page renders at its ruled route on the shared
-dark scope, with its nav link, hub footer link, palette command and style
-section. Last in the container because half its prose is a claim about the state
-of the site that the earlier packs create.
+**Status: DRAFTED 2026-10-05, awaiting the owner's approval.** Approving it is
+the go to build. The owner chose on 2026-10-05 to run it **before** Packs 3–5.
+Drafted from four readers (spec, facts against the code, the handoff's
+constraints, repo conventions), then corrected by a two-agent check of the
+draft itself (accuracy and what's missing).
 
-**Observable:** the hero's four-stat mono row, the four request-path boxes, the
-sections table scrolling horizontally rather than colliding, the upload timeline,
-the visibility cards, the verification cards, the defended-decision rows and the
-keyboard callout. The hub footer link lands here (the CV links nowhere on the
-site — ruling 4), and every claim on the page is true of the site the packs
-before it shipped.
+**Rulings this approval takes.** Approving the draft as written accepts every
+recommendation below; name any you want otherwise.
 
-**Agent brief:** read first — repo `CLAUDE.md`, this manifest, `How it works.dc.html`, README §4 (including its
-rule: *"Every fact and number comes from the repo's own CLAUDE.md /
-docs/design.md. If you change the code, change this page"*) and, for the numbers,
-the actual output of `cargo test --workspace` and `./scripts/verify.sh` — never
-another document. Depends on Pack 1 for the scope, Pack 2 for the hub footer
-link, and Pack 6 for a complete nav. Depends on Pack 2b too: the sections
-table's Drinks row takes 2b.3's words, adding the footer's `/docs` link flips
-2b.8's no-`/docs` test in `hub.rs`, and the footer says "no front-end build
-step", which this page's wording must match. Its merge PR turns the `/docs`
-INVENTORY entry into ✅; each admin pack does the same for its own part. Whichever
-pack lands last also removes INVENTORY's "In transit" footer.
+| # | Question | Recommendation (taken on approval) |
+| --- | --- | --- |
+| D1 | What is a "section"? | **Six — the hub's tiles:** portfolio, tasks, drinks, fitness, sorting, CV. `/docs` is about the site, not a section. The page's stat, lede and table say six, and the table gains a CV row. |
+| D2 | Do the page's numbers get a guard test? | **Guard what the tree can compute and date the rest.** Tests pin the section count to the hub's tiles and the migration count to the `.sql` files of both databases. The PIN lockout figures are rendered from `crate::pin`'s constants, so they cannot drift. Test and board-check counts come from `cargo test --workspace` / `verify.sh` output after the pack's last test lands, and are shown with "as of" that date. |
+| D3 | Language | **English**, as the AI statement already is. No hire line unless you supply one; nothing about you ships as a stand-in. |
+| D4 | Who built it | The mock's lede "I built and run everything you see here" goes (it contradicts the AI statement). A **"How I build it"** block carries the AI statement word for word (handoff §AI statement) and links to `/cv`. Ruling 4 bars only CV → site links, not site → CV. |
+| D5 | "What I would change" (review R11) | **Include, without security-shaped items.** Rows: the largest modules want splitting; `/tasks` and the login page still wear the old light look; `/admin` awaits its redesign. Hardening gaps stay off the public page until that work lands, and the withheld finding never appears. |
+| D6 | Upload timeline figures | **Keep the sourced "39 seconds" and drop every unmeasured figure:** "about three", and the row labels "< 1 s" and "2–3 s". The rows are labelled *in the browser* / *during the upload* / *nobody waits*. "Shrunk" becomes "converted to WebP in the browser on the admin form", and "swapped in" becomes "used from the next page load". |
+| D7 | Sorting storage | **The page stays silent on where sorting progress is stored**, and the member card says only that each member's plans are their own. Describing the server-side log would publicly contradict `/cv`'s "lagres lokalt … ikke via nett". That CV line is recorded under *Accepted trade-offs and open rulings* for your call. |
+| D8 | Technical asides (the mock's `showDetail`) | **Ship them as native collapsed `<details>` blocks headed "For a technical reader".** No JS. |
+| D9 | Keeping `/docs` true after Packs 3–5 | **Word admin and upload claims at capability level** ("admins upload, caption, tag and set visibility"). This draft adds a line to Packs 3 and 5: update `/docs` wherever the pack changes what it describes. Pack 5, now the container's last, also removes the "awaits its redesign" row and INVENTORY's "In transit" footer. |
+| D10 | A root README (review R26) | **Include as item 7.6.** The page links "source on GitHub", which today lands on a repo with no README. It holds local-run instructions and the AI statement only. |
+| D11 | Integration branch | **`master`**, as #20 and #24 did. Recorded as this container's deliberate exception to the `dev` convention. |
 
-**Agents:** plan: main session · build 1 serial (medium) · review: a fact-check
-lens (high) on every claim and number on the page, opt-in for the owner (with
-ultracode on, this line is the opt-in) · verify: 1 skeptic per finding.
+**Claims the mock makes that are false today.** None of these strings ships;
+7.5's test asserts they are absent from the rendered page.
 
-**Risks.** Stale by construction, on a public page aimed at employers, with no
-test behind any of it. The board-check figure has **already** drifted inside
-this repo once — CLAUDE.md said 458 while `scripts/verify.sh` and two other
-copies said 432, until 2026-09-28 — so publishing another copy is the same bug
-one level more visible. Four drafted
-claims are wrong and must be fixed before publishing: "nothing to compile before
-a change goes live" and the `build step: none` stat are false for a Rust binary
-(the intended meaning is no front-end build step, the hub footer's wording since
-Pack 2b); "four session extractors" undercounts, since `src/middleware.rs` has
-five with `LocalhostOnly`; the `sections: 5` stat conflicts with a six-link nav
-and a six-tile hub; and the sections table's Drinks row says "Anyone with the
-room code." when `/drinks` asks for a name and PIN first — use 2b.3's words. This is also
-the only pack with no server state and no mutations, which makes it the one an
-implementer is most likely to skip the full gate on — and
-`tests/static_assets.rs`, where a forgotten `?v=` surfaces, runs only under
-`cargo test --workspace`, never bare `cargo test`.
+| Mock text | Why it is false | Replacement |
+| --- | --- | --- |
+| "nothing to compile before a change goes live"; stat `build step: none`; decision row "no build step" | Every deploy runs `cargo build --release` | "no front-end build step", as the hub footer says |
+| "Four steps, all on the same server. Nothing is fetched from someone else's service" | Drawings load from object storage at its own host | "Four steps on one server; the drawings themselves come from object storage" |
+| "five sections"; stat `sections: 5`; heading "The five sections" | The hub has six tiles (D1) | six |
+| "1105" | Re-measured at build (D2) | dated figure |
+| "Anyone with the room code." | `/drinks` asks for a name and PIN first | 2b.3's words |
+| "Only I can upload." | Any account the owner grants admin can | "Admins upload." |
+| "One stylesheet." (bare); "one header, one stylesheet and one sign-in" | `admin.html` and the login page carry their own styles; `/drinks` has its own CSS and sign-in | scoped to the five sections that share the site chrome |
+| "One dark theme, no light mode" | `/tasks`, the login page and today's `/admin` are light | "One theme, no light/dark toggle", with the light screens listed under D5 |
+| "I built and run everything you see here" | Contradicts the AI statement | D4 |
+
+**Done when:** `GET /docs` renders the explainer on the shared dark scope,
+reached from the sixth nav link, the hub footer and Ctrl+K, with every claim on
+it true of today's site, none of the false claims above, and the computable
+figures pinned by tests. The repo has a README that carries the same AI
+statement.
+
+**Observable:** open `/docs` from the hub footer. Page head: eyebrow, *How this
+site works.*, lede and four mono stats. Then: What it is; the four request-path
+boxes; a six-row sections table that scrolls sideways on a phone instead of
+colliding; the upload timeline; four who-can-see-what cards; How I build it;
+the verification cards; decisions I would defend; what I would change; the
+keyboard callout; and the mono footer. The nav's "How it works" link lights.
+
+**Agent brief:** read first — repo `CLAUDE.md`, this manifest (rulings 3–4,
+this section's D1–D11 and its false-claims table),
+`docs/design/hub-admin-cv-docs/README.md` §4 and `How it works.dc.html` as the
+design reference (never ported literally), and the handoff's §AI statement.
+Code to match: `cv.rs` and `cv.html` (route, flat template, site-page marker,
+`nav_active`, test module), the CV block in `static/style.css` (above the
+sorting banner, `body.site-dark` prefix), and `hub.html`'s footer with
+`hub.rs`'s `footer()` helper. Depends on Packs 1, 2, 2b and 6, all landed.
+Packs 3 and 5 depend on it for D9's copy duty.
+
+**Agents:** plan: main session + 4 readers + 2 checkers (as run) · build 1
+serial (medium) · review: a fact-check lens (high) on every claim and number,
+run if ultracode is on at build time or you opt in · verify: 1 skeptic per
+finding. Serial: no other pack runs alongside it (see the count-rule
+paragraph).
+
+- [ ] **7.1 The route, the shell and every registration.** `src/routes/docs.rs`
+      (`DocsTemplate { is_admin }`, `OptionalAdmin`, `GET /docs`) registered in
+      `routes/mod.rs` and `main.rs`. A flat `templates/docs.html` extending
+      `base.html`, with `<div class="site-page docs-page">`, `nav_active`
+      `docs` and `body_class` `site-dark`. A named `/docs` block in
+      `static/style.css` after the CV block and above the sorting banner, every
+      selector prefixed `body.site-dark`. The sixth nav link "How it works",
+      with its active-nav pair in both CSS lists. The palette entry `How this
+      site works` (keywords `docs documentation architecture stack`). The hub
+      footer link. And the `hub.rs` flip, scoped to the footer —
+      `footer(&html)` must contain `href="/docs"` — in the same commit as the
+      nav link. No migration, since the page reads nothing (precedent:
+      `routes::hub`). CLAUDE.md gains `docs.rs` in its route modules and test
+      locations. The first commit moves INVENTORY's `/docs` and README entries
+      from 💭 to 🚧 and updates the "In transit" footer's How-it-works clause.
+      *Done: `/docs` renders an empty dark page whose nav lights its link,
+      Ctrl+K → "docs" lands there, the hub footer test fails without the
+      footer link, and the suite is green.*
+- [ ] **7.2 Page head, What it is, and the request path.** Eyebrow, h1, the
+      lede rewritten per D1 and D4, and the stat row: program 1 · sections 6 ·
+      migrations 27 (24 for the site's database and 3 for the drinks games',
+      explained in the aside) · tests, dated. "What it is" follows, with the
+      false-claims table applied and its technical aside as a `<details>`
+      (D8). Then the request path, under the replacement subhead: nginx
+      terminates TLS, rate-limits sign-in and sets the year-long static cache;
+      one binary routes the request and checks access; SQLite on the machine,
+      with drawings from object storage; finished HTML, with the sorting board
+      as the one client-drawn exception.
+      *Done: the boxes wrap without an orphaned arrow at 390px.*
+- [ ] **7.3 The sections table, the upload timeline and who can see what.**
+      Six rows (D1). The Drinks row uses 2b.3's words, and portfolio uploads
+      are by "admins". The subhead covers the five sections that share the
+      site's header and stylesheet, and names Drinks as a separate part of the
+      same program with its own templates, database and sign-in. The timeline
+      follows D6. Then the four cards — visitor, member, admin, owner — with
+      badges at their natural width. The member card does not say where
+      sorting plans live (D7). Their aside names the four session extractors,
+      one per rule, and says a visitor without a session is sent to sign in.
+      The PIN figures are rendered from `crate::pin` (D2).
+      *Done: the table scrolls inside its own wrapper with no page-level
+      overflow at 390px, and every card's claim matches the extractor that
+      enforces it.*
+- [ ] **7.4 How I build it, verification, decisions, changes, callout,
+      footer.** The AI statement, held as one constant in `docs.rs`, which the
+      template renders with emphasis on the same two phrases as the handoff,
+      plus a `/cv` link (D4). Three verification cards carrying dated figures.
+      The five decision rows with the false-claims table applied, the UTC row
+      saying "the first hour or two after midnight". "What I would change" per
+      D5. The keyboard callout reuses the hub's palette dispatch, so no new JS.
+      The mono footer has the wordmark, "source on GitHub" and `cv`.
+      *Done: the statement reads word for word as the handoff's, and the
+      footer's links all resolve.*
+- [ ] **7.5 The guard tests (D2), then the figures.** In `docs.rs`:
+      - the page's section count and table routes equal the hub's tiles,
+        counted from `include_str!` of `templates/hub/hub.html` with the needle
+        `class="hm-hub"` that `hub.rs` uses;
+      - the migration figure equals the `.sql` files in `migrations/` and
+        `drinkinggame/migrations/`, read with `std::fs` under
+        `CARGO_MANIFEST_DIR`, in the test only and never at runtime;
+      - none of the false-claims table's strings appears, and "no front-end
+        build step" does;
+      - `<main>` carries no `+47` or phone-length digit run, as the CV's shape
+        test checks;
+      - `README.md` contains the AI-statement constant's sentences.
+
+      After this last test lands, re-measure `cargo test --workspace` and
+      `verify.sh`, and update the page's dated figures and CLAUDE.md's
+      workspace total in one commit.
+      *Done: each test fails when its fault is planted, and the page's figures
+      match the final run.*
+- [ ] **7.6 A root README (D10).** What the site is in a paragraph, how to run
+      it locally (`.env.example`, `cargo run`, the two gates), the AI statement
+      word for word, and a link to `/docs`. Nothing about deployment, the
+      server, nginx or passkey registration. No security findings or hardening
+      status, no figures that drift, and no personal data beyond what the site
+      already publishes.
+      *Done: the README renders on the branch, and 7.5's test holds it to the
+      same statement.*
+
+**Item gate:** `./scripts/check.sh`, plus `cargo test --test static_assets`
+after every CSS edit and `cargo test -p drawingportfolio docs::` once 7.5
+exists. **Pack gate:** `./scripts/verify.sh`. Then a smoke check: `/docs` at
+1440px and 390px, entered by a boosted click from the hub footer, with a
+screenshot and the clean console in the ledger, and the measured time from
+`wave-times.sh`. **The fact-check review** runs after the pack gate and before
+handover, per the Agents line.
+
+**Test it yourself** (local; nothing merges before you have done it). Start
+the dev server from the worktree (`cargo run`, with your usual `.env`) and use
+a private window. The page reads nothing, so it needs no test data.
+
+1. Open `/`. The footer now has "how this site works"; click it. You land on
+   `/docs` without a full reload, and the nav's "How it works" is lit.
+2. Read the page top to bottom against what you know of the site. Every claim
+   should be true; flag any line you would not say to an employer.
+3. "How I build it" should read exactly like your AI statement.
+4. The stat row should say six sections and 27 migrations, and the test count
+   should carry its date.
+5. Narrow to phone width. The page itself does not scroll sideways. Within the
+   content only the sections table does, and the header nav swipes as it does
+   on `/cv`.
+6. Press Ctrl+K, type "docs", and press Enter: you are on `/docs`. From another
+   page, the nav link gets you there too.
+7. Open `/cv`. It still links nowhere on the site; the nav's "How it works" is
+   site chrome, not CV.
+8. Open `README.md` in the worktree (or in your editor's Markdown preview): it
+   has the same AI statement, a link to `/docs`, and nothing about the server.
+
+**Risks.** Stale by construction: a public page for employers whose prose has
+no test, which is why D2 pins what can be pinned and dates the rest. The
+board-check figure has already drifted once (432 against 458, until
+2026-09-28). D9 makes Packs 3 and 5 responsible for the claims they change.
+Copy about a real person (the lede, How I build it, What I would change) ships
+only in your words or as approved here. The page has no state and no
+mutations, which makes it the pack most likely to have its full gate skipped;
+`tests/static_assets.rs` runs only under `cargo test --workspace`. The nav's
+sixth link widens the sideways-scrolling phone nav. Fitness still hides its
+nav, so `/docs`, like `/cv`, is not reachable from the fitness nav on a phone.
+The repo is public, so 7.6's README and every manifest line stay free of
+security detail.
 
 ---
 
@@ -863,7 +1013,11 @@ Not blocking, but each needs an answer before the pack that consumes it.
 - **Does `/admin/users` survive as its own URL** after Pack 4 folds Accounts into
   the dark shell? The URL surviving is the cheap default; the real question is
   whether a light `users.html` behind a dark `/admin` is an acceptable seam.
-- **Do the How-it-works numbers get a guard test** — the shape of
+- **The CV's sorting line.** `/cv` says the sorting tool "lagres lokalt …
+  ikke via nett", but every action is also saved on the server (the
+  append-only log in `sorting.rs`). It is your wording, so this is yours to
+  keep or change. `/docs` stays silent on it meanwhile (Pack 7's D7).
+- *(Taken by Pack 7's D2 on approval.)* **Do the How-it-works numbers get a guard test** — the shape of
   `test_board_template_and_boot_agree_on_their_ids`, asserting the template's
   figures against their source — or is the drift accepted and recorded? The repo
   carried two different values for the board-check count until 2026-09-28
@@ -872,7 +1026,7 @@ Not blocking, but each needs an answer before the pack that consumes it.
 - **The PDF button on `/cv`.** A scoped `@media print` stylesheet plus
   `window.print()`, or serve a print-ready file as a static asset. The README
   recommends against generating server-side.
-- **Language.** The CV is Norwegian, all site chrome is English, and the CV hub
+- *(For `/docs`, taken by Pack 7's D3 on approval.)* **Language.** The CV is Norwegian, all site chrome is English, and the CV hub
   tile's description is Norwegian while its five siblings are English. The README
   raises the same mismatch for the docs page.
 - **The hub's about line** is flagged placeholder copy the user owns. Consumed
@@ -1244,6 +1398,13 @@ pre-existing and unchanged by this pack, so widening the gutter is a Pack 2
 decision that moves every dark page at once.
 
 
+- 2026-10-05 — **Pack 7 drafted** at the owner's request ("draft pack 7"), which
+  also settled the order: Pack 7 before Packs 3–5. Four readers ran (the
+  design spec, facts against the code, the handoff's constraints, repo
+  conventions), and their findings shaped D1–D11. Two defects found on the way
+  are not this pack's. One: the `/artportfolio` composer uploads the original
+  file while `admin.rs:217` labels it WebP. The other is security-shaped and
+  was raised to the owner privately, not recorded here.
 - 2026-10-05 — Manifest brought up to the workflow of 2026-09-30 to 2026-10-04.
   "No two packs run in parallel" became the count rule. Packs 3, 4, 5 and 7
   gained `Agents:` lines and the note that each is drafted with its own Test it
