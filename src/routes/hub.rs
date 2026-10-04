@@ -63,10 +63,10 @@ mod tests {
         assert!(foot.contains("no front-end build step"));
         assert!(foot.contains(r#"href="mailto:jl@dblo.net""#));
         assert!(foot.contains(r#"href="https://github.com/Hampternt""#));
-        // Logged out there is no /admin link, and /docs arrives with its
-        // route in Pack 7 — which flips this assertion.
+        // Logged out there is no /admin link. /docs is scoped to the footer:
+        // the header nav carries it too, so a whole-page check proves nothing.
         assert!(!foot.contains(r#"href="/admin""#));
-        assert!(!html.contains(r#"href="/docs""#));
+        assert!(foot.contains(r#"href="/docs""#));
     }
 
     #[test]

@@ -94,6 +94,11 @@ const COMMANDS = [
     action() { location.href = '/cv'; },
   },
   {
+    label: 'How this site works',
+    keywords: ['docs', 'documentation', 'architecture', 'stack'],
+    action() { location.href = '/docs'; },
+  },
+  {
     label: 'Go to Hub',
     keywords: ['home', 'hub', 'index', 'start', 'main'],
     action() { location.href = '/'; },

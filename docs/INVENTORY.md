@@ -149,8 +149,10 @@ A public CV, in Norwegian, for anyone considering hiring the owner.
 
 ## How it works — `/docs`
 
-- 💭 An employer-facing explainer of how the site is built and run, at `/docs`.
-  Pack 7 of `docs/manifests/2026-09-08-hub-admin-cv-docs.md`, not started.
+- 🚧 An employer-facing explainer of how the site is built and run, at `/docs`.
+  Pack 7 of `docs/manifests/2026-09-08-hub-admin-cv-docs.md`, building.
+- 🚧 A README for the public repository: what the site is, how to run it
+  locally, and how AI is used to build it. Same pack.
 
 ## Infrastructure
 
@@ -174,7 +176,6 @@ A public CV, in Norwegian, for anyone considering hiring the owner.
 - 💭 How it works, the long read — engineering notes with real code excerpts, a
   dated build log, and the loading method in plain language, under `/docs`.
   Same handoff (C10).
-- 💭 A README for the public repository. Same handoff (N4).
 - 💭 Deploy and server hardening — CI building against the offline query cache,
   a database backup before every deploy, a deploy user with a pinned host key,
   and security headers. Same handoff (N3).
@@ -186,5 +187,5 @@ A public CV, in Norwegian, for anyone considering hiring the owner.
 
 *In transit: the Hub/Admin/CV/How-it-works container —*
 *`docs/manifests/2026-09-08-hub-admin-cv-docs.md`. The shared shell, the Hub,*
-*its follow-up and the CV have shipped; the Admin redesign and the*
-*How-it-works page are considered, not started.*
+*its follow-up and the CV have shipped; the How-it-works page is building*
+*(Pack 7), and the Admin redesign is considered, not started.*
