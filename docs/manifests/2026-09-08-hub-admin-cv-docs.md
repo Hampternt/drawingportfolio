@@ -824,8 +824,22 @@ success: test, build, deploy). Live smoke check on portfolio.dblo.net: the
 hub renders the identity line, six badges, the new footer and the
 `htmx-config` meta; no console errors; 0 horizontal overflow at 390px and
 1440px. A signed-out click on the Fitness tile loads `/admin/login` as a
-fresh, styled document with its back link. Still owed: a signed-in pass over
-sign-out and the two `/admin` links.
+fresh, styled document with its back link.
+
+**Signed-in check, 2026-10-05,** on the local dev server from this worktree,
+using a throwaway admin and three sessions in the worktree's database copy,
+all deleted afterwards. Each step was a full document load (the script
+context did not survive) onto a styled page:
+- the header settings button opened `/admin` with its own `<style>` applied;
+- the hub footer's `/admin` link did the same;
+- sign-out from `/admin` sent `POST /api/auth/logout → 200` (the htmx answer),
+  cleared the cookie, deleted the session row and landed on the login page;
+- sign-out from `/fitness/account` did the same;
+- the history miss: signed in on `/fitness`, a boosted click to `/tasks`, the
+  session ended server-side and htmx's history cache cleared. Back reloaded
+  into the login page instead of leaving `/tasks` under the `/fitness` URL.
+
+No console errors. Nothing from Pack 2b is still unwalked.
 
 Ten items, one commit each on `feat/portfolio-review`: `b1465c2` (2b.0 the
 login redirect), `c78510d` (2b.1 identity line), `ed75f2b` (2b.2 badges),
@@ -913,10 +927,9 @@ ones. The Drinks tile does a full page load.
   on every page. They are plain requests, so they still get the 303 and land
   on the login page; the redirect is followed but its response is discarded.
   That behaviour predates this pack and was left alone.
-- **Not walked:** the two `/admin` links and the owner-only paths, because
-  they need a session and this session holds no credentials. `hub.rs` pins the
-  attributes. A signed-in click through both links is owed at the next signed-in
-  walk, along with Pack 1's `/fitness` and `/sorting` check.
+- **Walked signed in later (2026-10-05):** the two `/admin` links, both
+  sign-outs and the history miss; see the entry above. Pack 1's own signed-in
+  check of `/fitness` and `/sorting` chrome is still owed.
 
 </details>
 
