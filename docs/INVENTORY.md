@@ -159,6 +159,11 @@ admin. Deployed to a Hetzner server via GitHub Actions on push to master,
 behind nginx. Quality gates: `scripts/check.sh` (item) and
 `scripts/verify.sh` (pack).
 
+## Considered
+
+- 💭 Spotify song sharing — friends share tracks and queue them straight into
+  their own Spotify. Parked idea: `docs/manifests/2026-10-04-spotify-song-share.md`
+
 ---
 
 *In transit: the Hub/Admin/CV/How-it-works container —*
