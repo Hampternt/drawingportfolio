@@ -14,6 +14,9 @@ from this file on 2026-08-12; `git log docs/WORKTREES.md` recovers them.
 - **`dev` is the staging branch** (decision 2026-08-13): it tracks `master`
   and is where changes accumulate before merging into `master`. Merge
   `dev → master` locally to release; `dev` is never deleted after a merge.
+  **Exception:** the Hub/Admin/CV/docs container (`feat/portfolio-review`)
+  merges straight into `master` (its ruling D11, 2026-10-05), as #20 and #24
+  did.
 - **Branch names say what the work is**: `feat/<stream>` for feature streams,
   `fix/<thing>` for single fixes.
 - **The worktree directory is named after the branch** minus the `feat/`

@@ -10,8 +10,8 @@ user 2026-09-25 and Pack 6 shipped on it. Rulings 2 and 3 were taken by the user
 neither extractor changed, and the documentation page's route is `/docs`.
 Ruling 4 was taken 2026-09-28: the CV's own content links nowhere on this site,
 so its rail's link card to `/docs` is dropped for good. **No ruling blocks any
-pack now**. **The owner chose Pack 7 next (2026-10-05); it is drafted below and
-awaits approval.** Packs 3–5 follow it, and Packs 4 and 5 still wait on 3. An external
+pack now**. **The owner chose Pack 7 next and approved its draft (2026-10-05); it is
+building.** Packs 3–5 follow it, and Packs 4 and 5 still wait on 3. An external
 review of the live site was mapped onto this container on 2026-09-27;
 it was written against `master` before #20 landed, so it did not see Packs 1, 2
 and 6. The mapping and its proposed manifest changes are in
@@ -805,16 +805,15 @@ than at the new struct.
 
 ### Pack 7 — How it works: `/docs`, the employer-facing explainer
 
-**Status: DRAFTED 2026-10-05, awaiting the owner's approval.** Approving it is
-the go to build. The owner chose on 2026-10-05 to run it **before** Packs 3–5.
+**Status: APPROVED 2026-10-05 and building.** The owner approved the draft
+as written, which takes D1–D11 as recommended and is the go to build. The owner chose on 2026-10-05 to run it **before** Packs 3–5.
 Drafted from four readers (spec, facts against the code, the handoff's
 constraints, repo conventions), then corrected by a two-agent check of the
 draft itself (accuracy and what's missing).
 
-**Rulings this approval takes.** Approving the draft as written accepts every
-recommendation below; name any you want otherwise.
+**Rulings taken with the approval (2026-10-05)**, every one as recommended:
 
-| # | Question | Recommendation (taken on approval) |
+| # | Question | Ruling |
 | --- | --- | --- |
 | D1 | What is a "section"? | **Six — the hub's tiles:** portfolio, tasks, drinks, fitness, sorting, CV. `/docs` is about the site, not a section. The page's stat, lede and table say six, and the table gains a CV row. |
 | D2 | Do the page's numbers get a guard test? | **Guard what the tree can compute and date the rest.** Tests pin the section count to the hub's tiles and the migration count to the `.sql` files of both databases. The PIN lockout figures are rendered from `crate::pin`'s constants, so they cannot drift. Test and board-check counts come from `cargo test --workspace` / `verify.sh` output after the pack's last test lands, and are shown with "as of" that date. |
@@ -1017,7 +1016,7 @@ Not blocking, but each needs an answer before the pack that consumes it.
   ikke via nett", but every action is also saved on the server (the
   append-only log in `sorting.rs`). It is your wording, so this is yours to
   keep or change. `/docs` stays silent on it meanwhile (Pack 7's D7).
-- *(Taken by Pack 7's D2 on approval.)* **Do the How-it-works numbers get a guard test** — the shape of
+- *(Taken by Pack 7's D2, 2026-10-05.)* **Do the How-it-works numbers get a guard test** — the shape of
   `test_board_template_and_boot_agree_on_their_ids`, asserting the template's
   figures against their source — or is the drift accepted and recorded? The repo
   carried two different values for the board-check count until 2026-09-28
@@ -1026,7 +1025,7 @@ Not blocking, but each needs an answer before the pack that consumes it.
 - **The PDF button on `/cv`.** A scoped `@media print` stylesheet plus
   `window.print()`, or serve a print-ready file as a static asset. The README
   recommends against generating server-side.
-- *(For `/docs`, taken by Pack 7's D3 on approval.)* **Language.** The CV is Norwegian, all site chrome is English, and the CV hub
+- *(For `/docs`, taken by Pack 7's D3, 2026-10-05.)* **Language.** The CV is Norwegian, all site chrome is English, and the CV hub
   tile's description is Norwegian while its five siblings are English. The README
   raises the same mismatch for the docs page.
 - **The hub's about line** is flagged placeholder copy the user owns. Consumed
@@ -1398,6 +1397,11 @@ pre-existing and unchanged by this pack, so widening the gutter is a Pack 2
 decision that moves every dark page at once.
 
 
+- 2026-10-05 — **Pack 7 approved** as drafted. D1–D11 are taken, D11 among
+  them: this container merges into `master`, a deliberate exception to the
+  `dev` convention. The owner also allowed the two unpushed draft commits to
+  be rewritten as one, which keeps a security detail out of the public
+  history.
 - 2026-10-05 — **Pack 7 drafted** at the owner's request ("draft pack 7"), which
   also settled the order: Pack 7 before Packs 3–5. Four readers ran (the
   design spec, facts against the code, the handoff's constraints, repo
