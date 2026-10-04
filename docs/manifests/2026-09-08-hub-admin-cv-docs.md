@@ -10,8 +10,8 @@ user 2026-09-25 and Pack 6 shipped on it. Rulings 2 and 3 were taken by the user
 neither extractor changed, and the documentation page's route is `/docs`.
 Ruling 4 was taken 2026-09-28: the CV's own content links nowhere on this site,
 so its rail's link card to `/docs` is dropped for good. **No ruling blocks any
-pack now**. **The owner chose Pack 7 next and approved its draft (2026-10-05); it is
-building.** Packs 3–5 follow it, and Packs 4 and 5 still wait on 3. An external
+pack now**. **Pack 7 is built (2026-10-05) and waits on the owner's Test it yourself
+pass.** Packs 3–5 follow it, and Packs 4 and 5 still wait on 3. An external
 review of the live site was mapped onto this container on 2026-09-27;
 it was written against `master` before #20 landed, so it did not see Packs 1, 2
 and 6. The mapping and its proposed manifest changes are in
@@ -805,8 +805,10 @@ than at the new struct.
 
 ### Pack 7 — How it works: `/docs`, the employer-facing explainer
 
-**Status: APPROVED 2026-10-05 and building.** The owner approved the draft
-as written, which takes D1–D11 as recommended and is the go to build. The owner chose on 2026-10-05 to run it **before** Packs 3–5.
+**Status: BUILT 2026-10-05, gate green and smoke-checked. Awaiting the owner's
+Test it yourself pass; it merges only after that pass and the owner's go.**
+The owner approved the draft as written, which took D1–D11 as recommended and
+was the go to build. The owner chose on 2026-10-05 to run it **before** Packs 3–5.
 Drafted from four readers (spec, facts against the code, the handoff's
 constraints, repo conventions), then corrected by a two-agent check of the
 draft itself (accuracy and what's missing).
@@ -871,7 +873,7 @@ run if ultracode is on at build time or you opt in · verify: 1 skeptic per
 finding. Serial: no other pack runs alongside it (see the count-rule
 paragraph).
 
-- [ ] **7.1 The route, the shell and every registration.** `src/routes/docs.rs`
+- [x] **7.1 The route, the shell and every registration.** `src/routes/docs.rs`
       (`DocsTemplate { is_admin }`, `OptionalAdmin`, `GET /docs`) registered in
       `routes/mod.rs` and `main.rs`. A flat `templates/docs.html` extending
       `base.html`, with `<div class="site-page docs-page">`, `nav_active`
@@ -889,7 +891,7 @@ paragraph).
       *Done: `/docs` renders an empty dark page whose nav lights its link,
       Ctrl+K → "docs" lands there, the hub footer test fails without the
       footer link, and the suite is green.*
-- [ ] **7.2 Page head, What it is, and the request path.** Eyebrow, h1, the
+- [x] **7.2 Page head, What it is, and the request path.** Eyebrow, h1, the
       lede rewritten per D1 and D4, and the stat row: program 1 · sections 6 ·
       migrations 27 (24 for the site's database and 3 for the drinks games',
       explained in the aside) · tests, dated. "What it is" follows, with the
@@ -900,7 +902,7 @@ paragraph).
       with drawings from object storage; finished HTML, with the sorting board
       as the one client-drawn exception.
       *Done: the boxes wrap without an orphaned arrow at 390px.*
-- [ ] **7.3 The sections table, the upload timeline and who can see what.**
+- [x] **7.3 The sections table, the upload timeline and who can see what.**
       Six rows (D1). The Drinks row uses 2b.3's words, and portfolio uploads
       are by "admins". The subhead covers the five sections that share the
       site's header and stylesheet, and names Drinks as a separate part of the
@@ -913,7 +915,7 @@ paragraph).
       *Done: the table scrolls inside its own wrapper with no page-level
       overflow at 390px, and every card's claim matches the extractor that
       enforces it.*
-- [ ] **7.4 How I build it, verification, decisions, changes, callout,
+- [x] **7.4 How I build it, verification, decisions, changes, callout,
       footer.** The AI statement, held as one constant in `docs.rs`, which the
       template renders with emphasis on the same two phrases as the handoff,
       plus a `/cv` link (D4). Three verification cards carrying dated figures.
@@ -923,7 +925,7 @@ paragraph).
       The mono footer has the wordmark, "source on GitHub" and `cv`.
       *Done: the statement reads word for word as the handoff's, and the
       footer's links all resolve.*
-- [ ] **7.5 The guard tests (D2), then the figures.** In `docs.rs`:
+- [x] **7.5 The guard tests (D2), then the figures.** In `docs.rs`:
       - the page's section count and table routes equal the hub's tiles,
         counted from `include_str!` of `templates/hub/hub.html` with the needle
         `class="hm-hub"` that `hub.rs` uses;
@@ -941,7 +943,7 @@ paragraph).
       workspace total in one commit.
       *Done: each test fails when its fault is planted, and the page's figures
       match the final run.*
-- [ ] **7.6 A root README (D10).** What the site is in a paragraph, how to run
+- [x] **7.6 A root README (D10).** What the site is in a paragraph, how to run
       it locally (`.env.example`, `cargo run`, the two gates), the AI statement
       word for word, and a link to `/docs`. Nothing about deployment, the
       server, nginx or passkey registration. No security findings or hardening
@@ -1046,6 +1048,177 @@ Not blocking, but each needs an answer before the pack that consumes it.
 ---
 
 ## Ledger
+
+### Pack 7 — built 2026-10-05; Test it yourself and merge pending
+
+One serial builder (`pack-implementer`, medium) built 7.1–7.6 in seven commits
+(`13804b2` … `959aba4`). 7.6 came before 7.5, because 7.5's README test reads
+`README.md`. **Measured** (`wave-times.sh 7e69d23 … 959aba4`): 8 commits over
+16 min, from the approval to the figures commit.
+
+**Pack gate, re-run by the main session on `959aba4`:** `VERIFY OK — fmt,
+clippy, tests, JS syntax, board suites all clean.` Workspace **1123** tests
+(356 + 8 + 524 + 235; +7 in `docs.rs`) and **458** board checks (265 + 193).
+Clippy raises nothing in `docs.rs` or `hub.rs`. Every new test was shown to
+fail on its planted fault.
+
+**Smoke check** (local dev server from the worktree): a boosted click on the
+hub footer's "how this site works" lands on `/docs` in the same document, with
+`body.site-dark`, the nav's "How it works" lit and the stats reading 1 · 6 ·
+27 · 1123 (dated). At 390px there is no page-level overflow, and the six-row
+table scrolls inside its own wrapper. Ctrl+K "docs" finds "How this site
+works". The console is clean. Screenshots:
+`docs/manifests/screens/2026-10-05-pack-7-docs-1440.jpg` and
+`docs/manifests/screens/2026-10-05-pack-7-docs-390-table.jpg`.
+
+<details>
+<summary><b>The builder's ledger</b> (folded in from
+<code>docs/manifests/archive/2026-10-05-pack-7.ledger.md</code>)</summary>
+
+- [x] **7.1 The route, the shell and every registration.** `src/routes/docs.rs`
+      (`DocsTemplate { is_admin }`, `OptionalAdmin`, `GET /docs`), `mod` +
+      `main.rs` merge, flat `templates/docs.html` (`site-page docs-page`,
+      `nav_active` docs, `site-dark`), sixth nav link "How it works" with both
+      active-nav pairs, palette "How this site works", hub footer link
+      (`hub-foot__docs`, muted ink as the mock draws it), `hub.rs` flip scoped to
+      `footer()`, a named `/docs` CSS block above the sorting banner, CLAUDE.md
+      route + test entries, INVENTORY `/docs` 💭→🚧, README moved up out of
+      Considered as 🚧 under the `/docs` section, In-transit clause updated.
+      Stale CSS comments fixed (hub footer "omitted until Pack 7", CV rail
+      card, active-nav "five names").
+      Gate: `CHECK OK`; `cargo test --workspace` 350 + 8 + 524 + 235 = 1117
+      passed, 0 failed; `static_assets` 8 passed; hub footer test planted
+      (link removed) → `FAILED. 3 passed; 1 failed`, restored → green.
+- [x] **7.2 Page head, What it is, and the request path.** Eyebrow, h1, the
+      binding lede, stat row program 1 · sections `SECTIONS.len()` · migrations
+      `SITE_MIGRATIONS + DRINKS_MIGRATIONS` (24 + 3, explained in the aside) ·
+      tests `WORKSPACE_TESTS` labelled "as of `MEASURED_ON`" (1117, the
+      2026-10-05 count after 7.1; 7.5 re-measures). All figures are constants
+      in `docs.rs`. What it is says "no front-end framework" and "no front-end
+      build step"; its aside is a `<details>` (D8) and scopes the shared
+      stylesheet to five of six sections. Request path under the replacement
+      subhead; box 1 says nginx *tells browsers to keep static files for a
+      year* rather than the mock's "serves cached files directly" (nginx
+      proxies `/static/` to the app and only sets the header); box 4 names the
+      sorting board as the client-drawn exception.
+      Gate: `CHECK OK`; `static_assets` 8 passed; `docs::` 1 passed. The 390px
+      wrap is CSS reasoning only (one auto-fit column per step below ~450px,
+      arrows inside their labels) — left to the main session's smoke check.
+- [x] **7.3 The sections table, the upload timeline and who can see what.**
+      Six-row `<table>` rendered from `SECTIONS` (hub tile order) in an
+      `overflow-x: auto` wrapper with a 640px floor; Drinks takes 2b.3's
+      words, portfolio says "Admins upload.", Tasks "Admins manage it."
+      (`tasks.rs` mutations are `RequireAdmin` — CLAUDE.md's "AuthSession" for
+      tasks is stale), Sorting takes the hub tile's words, CV per the binding
+      row. Subhead: "Five of them share the site's header and stylesheet" (not
+      "the five sections…", which the false-claims test bans). Timeline per D6:
+      rows *in the browser* / *during the upload* / *nobody waits*, 39 seconds
+      the only figure, WebP "on the admin form", AVIF "used from the next page
+      load". Rule paragraph drops the mock's "never jumps". Four role cards
+      with `align-items: flex-start` badges; member card names no storage
+      (D7) and says the owner creates accounts; visitor card says a sign-in
+      page sends them to sign in (mock's "nothing else exists" was false). The
+      aside names the four extractors and renders `crate::pin::
+      MAX_PIN_ATTEMPTS` / `LOCKOUT_MINUTES`.
+      Gate: `CHECK OK`; `static_assets` 8 passed; `docs::` 1 passed. Table
+      scroll at 390px is CSS reasoning only (wrapper overflow + `min-width: 0`
+      on `.docs-section`) — for the smoke check.
+- [x] **7.4 How I build it, verification, decisions, changes, callout,
+      footer.** `AI_STATEMENT` in `docs.rs` — the handoff's text word for
+      word, its two bold phrases as `<strong>` — rendered `|safe`, then "More
+      about me: CV (in Norwegian)." Three verification cards render
+      `WORKSPACE_TESTS + BOARD_CHECKS` and "Counted on `MEASURED_ON`"; the
+      mock's "six-second check" became "a check of a few seconds" (check.sh
+      measured 2.3 s warm, so no fixed figure). Five decision rows: "no
+      front-end build step", "less dependency churn" (chrono is pinned), the
+      UTC row per the manifest, the cache row scoped to "the stylesheet and
+      scripts" (fonts and icons rename by hand), "One theme, no light/dark
+      toggle". What I would change: the three binding rows. Keyboard callout
+      reuses the hub's synthetic-keydown `onclick`, no new JS; its copy drops
+      the mock's "before a page could have loaded" (the palette navigates with
+      `location.href`, a full load) and says "every section". Footer:
+      wordmark, "source on github" (`https://github.com/Hampternt/drawingportfolio`,
+      the `origin` remote), `cv`.
+      Gate: `CHECK OK`; `static_assets` 8 passed; `docs::` 1 passed; rendered
+      `<main>` read through as text, no dead claim found.
+- [x] **7.6 A root README (D10).** *Built before 7.5 — see Deviations.*
+      `README.md`: what the site is in a paragraph, a link to
+      `https://portfolio.dblo.net/docs`, local run (`cp .env.example .env`,
+      `SQLX_OFFLINE=true cargo run` on :3000, SQLite created and migrated on
+      first start — `db::connect` sets `create_if_missing`), the two gates,
+      the `--workspace` note, and the AI statement word for word with its two
+      bold phrases. Nothing on deployment, the server, nginx, passkey
+      registration, security or hardening; no drifting figures; no name.
+      Gate: `CHECK OK`. The statement match is held by 7.5's test.
+- [x] **7.5 The guard tests (D2), then the figures.** Six tests in
+      `docs.rs`: sections = the hub's tiles (hrefs found by the `class="hm-hub"`
+      needle over `include_str!` of `hub.html`, in order) plus each table row
+      and the stat; migrations = `.sql` files under `migrations/` and
+      `drinkinggame/migrations/` via `std::fs` + `CARGO_MANIFEST_DIR` (test
+      only); the false-claims table's strings absent from lowercased `<main>`
+      (plus "serves cached files directly", "nothing else exists", "before a
+      page could have loaded"), with "no front-end build step" present; no
+      `+47` / phone-length digit run in `<main>`; README carries
+      `AI_STATEMENT` sentence by sentence and whole, bold phrases bold; PIN
+      lockout rendered from `crate::pin`.
+      Planted faults, each reverted: hub gains a tile → sections test FAILED;
+      `SITE_MIGRATIONS` 23 → migrations test FAILED; "no build step" in copy →
+      false-claims test FAILED; a 10-digit run in `<main>` → phone test FAILED;
+      "thorough" → "careful" in README → statement test FAILED; lockout
+      hard-coded to 30 → PIN test FAILED. Each run `6 passed; 1 failed`.
+      Gate: `CHECK OK`; `docs::` 7 passed, 0 failed.
+      **Figures (second 7.5 commit).** Re-measured after the last test landed:
+      `./scripts/verify.sh` → `VERIFY OK — fmt, clippy, tests, JS syntax, board
+      suites all clean.`; tests 356 + 8 + 524 + 0 + 235 + 0 = **1123** passed,
+      0 failed; board `model.test.js` 265/265 + `board.test.js` 193/193 =
+      **458**; clippy: no warning in `docs.rs` or `hub.rs`. `WORKSPACE_TESTS`
+      1117 → 1123 (`BOARD_CHECKS` 458 and `MEASURED_ON` 2026-10-05 unchanged),
+      CLAUDE.md's workspace total 1116 → 1123. The page now reads "tests · as
+      of 2026-10-05 / 1123" and "1123 + 458 … Counted on 2026-10-05".
+      Re-check after the edit: `CHECK OK`; `cargo test --workspace` 1123
+      passed, 0 failed.
+
+## Deviations
+
+- **7.6 built before 7.5.** 7.5's README test reads `README.md` with
+  `include_str!`, so built in order it would not compile. 7.6 adds no tests,
+  so 7.5's re-measure is still the last run.
+- **Mock lines outside the false-claims table that are also false, not
+  ported:** nginx "serves cached files directly" (it proxies `/static/` and
+  sets the header); visitor "nothing else exists"; "no framework" (Axum is
+  one; now "no front-end framework"); "no dependency churn" (now "less");
+  "the page never jumps" (0×0 rows omit dimensions; now "does not jump");
+  callout "before a page could have loaded" (the palette does a full load);
+  "every destination" → "every section"; "six-second check" → "a few
+  seconds"; "Each one solves a problem I actually had" (owner copy not in the
+  brief); "every page has to state which rule it uses" → "every page behind a
+  sign-in names the rule it uses"; Sorting row takes the hub tile's words, not
+  the mock's "order export … in the van".
+- **Binding copy edited for fit only:** Drinks "who" is "Anyone, after
+  picking a name and PIN." (2b.3's step, the mock's row was false); Drinks
+  "what" is 2b.3's sentence plus "Live standings, and a big-screen view for
+  the room."; Tasks "who" adds "Admins manage it." (`RequireAdmin`).
+- **CLAUDE.md is stale on tasks:** it says task mutations need `AuthSession`;
+  `tasks.rs` uses `RequireAdmin`. Not edited (outside 7.1's CLAUDE.md lines).
+- **Attribution:** the builder agent file says "Claude Fable 5"; the dispatch
+  and harness say "Claude Opus 5.5". Commits use Opus 5.5.
+- **Not verified here (no browser by rule):** the 390px wrap of the request
+  path, the table's in-wrapper scroll, badge widths — CSS reasoning only, for
+  the main session's smoke check.
+
+Builder time: 7e69d23 (approval, 01:03) → the 7.5 figures commit (01:18),
+2026-10-05.
+
+**Pack gate on the handed-over tree** (the figures commit, re-run after it):
+`VERIFY OK — fmt, clippy, tests, JS syntax, board suites all clean.` — 356 +
+8 + 524 + 235 = 1123 tests passed, 0 failed; board 265/265 + 193/193 = 458.
+
+*Main session's note on the builder's ledger:* its "CLAUDE.md is stale on
+tasks" refers to the main checkout's copy, which subagents are given. This
+branch's CLAUDE.md already reads `OptionalAdmin` / `RequireAdmin`, as fixed in
+step 1.
+
+</details>
 
 ### Pack 2b — landed 2026-10-04 via #24 (built, walked and reviewed 2026-09-28)
 
