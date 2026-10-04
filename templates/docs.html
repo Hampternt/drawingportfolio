@@ -8,5 +8,61 @@
 
 {% block content %}
 <div class="site-page docs-page">
+<section class="docs-head hm-grid-bg">
+  <div class="docs-head__inner">
+    <span class="hm-eyebrow">documentation · written for a reader who does not code</span>
+    <h1 class="docs-head__title">How this site works<span class="site-title__dot">.</span></h1>
+    <p class="docs-head__lede">I run everything you see here: six sections, one program, one server. This page explains what that program does, the decisions behind it, and how I know it still works after a change.</p>
+    <div class="docs-stats">
+      <span class="docs-stat"><span class="docs-stat__label">program</span><span class="docs-stat__value">1</span></span>
+      <span class="docs-stat"><span class="docs-stat__label">sections</span><span class="docs-stat__value">{{ crate::routes::docs::SECTIONS.len() }}</span></span>
+      <span class="docs-stat"><span class="docs-stat__label">migrations</span><span class="docs-stat__value">{{ crate::routes::docs::MIGRATIONS }}</span></span>
+      <span class="docs-stat"><span class="docs-stat__label">tests · as of {{ crate::routes::docs::MEASURED_ON }}</span><span class="docs-stat__value docs-stat__value--ok">{{ crate::routes::docs::WORKSPACE_TESTS }}</span></span>
+    </div>
+  </div>
+</section>
+
+<div class="docs-body">
+
+<section class="docs-section">
+  <h2>What it is</h2>
+  <p class="docs-text">The site is one program written in Rust. A visitor asks for a page, the program reads what it needs from a small database, fills in an HTML template and sends back a finished page. There is no app to install, no front-end framework to keep up with, and no front-end build step: the browser gets the page as the server wrote it.</p>
+  <p class="docs-text">That choice keeps a page light on a phone on mobile data, and keeps the whole thing small enough for one person to run. Everything below follows from it.</p>
+  <details class="docs-aside">
+    <summary>For a technical reader</summary>
+    <p>Rust and Axum 0.8, SQLite through sqlx, Askama templates, and HTMX with <code>hx-boost</code> for navigation. Images live in S3-compatible object storage. Sign-in is a WebAuthn passkey or a name and PIN. Five of the six sections share one header and one stylesheet; the drinks games carry their own. {{ crate::routes::docs::MIGRATIONS }} database migrations run automatically at startup: {{ crate::routes::docs::SITE_MIGRATIONS }} for the site's database and {{ crate::routes::docs::DRINKS_MIGRATIONS }} for the drinks games' own.</p>
+  </details>
+</section>
+
+<section class="docs-section">
+  <div class="docs-section__head">
+    <h2>What happens when you open a page</h2>
+    <p class="docs-section__sub">Four steps on one server; the drawings themselves come from object storage.</p>
+  </div>
+  <ol class="docs-path">
+    <li class="docs-step">
+      <span class="docs-step__label">step 1</span>
+      <span class="docs-step__title">The front door</span>
+      <span class="docs-step__text">nginx handles the encrypted connection, limits how fast anyone can try to sign in, and tells browsers to keep the site's static files for a year.</span>
+    </li>
+    <li class="docs-step">
+      <span class="docs-step__label"><span class="docs-step__arrow" aria-hidden="true">→</span> step 2</span>
+      <span class="docs-step__title">The program</span>
+      <span class="docs-step__text">One Rust binary matches the address to a section and checks whether you are allowed to see it.</span>
+    </li>
+    <li class="docs-step">
+      <span class="docs-step__label"><span class="docs-step__arrow" aria-hidden="true">→</span> step 3</span>
+      <span class="docs-step__title">The data</span>
+      <span class="docs-step__text">Text and numbers come from SQLite on the same machine; drawings come from object storage.</span>
+    </li>
+    <li class="docs-step docs-step--last">
+      <span class="docs-step__label"><span class="docs-step__arrow" aria-hidden="true">→</span> step 4</span>
+      <span class="docs-step__title">The page</span>
+      <span class="docs-step__text">A template is filled in and sent as finished HTML. The one exception is the sorting board, which the browser draws from the day's plan.</span>
+    </li>
+  </ol>
+</section>
+
+</div>
 </div>
 {% endblock %}

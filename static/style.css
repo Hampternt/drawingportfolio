@@ -3822,7 +3822,119 @@ body.site-dark .cv-skill__value { color: var(--text-muted); font-size: var(--tex
 
 /* How this site works, /docs. A static explainer in templates/docs.html; the
    facts it states are data in src/routes/docs.rs, where the tests that pin
-   them live. Same page head and 1180px column as the CV. */
+   them live. Same page head and 1180px column as the CV.
+
+   The stat row is column-reverse so the label can come first in the markup
+   (it reads first to a screen reader) while the figure sits on top, as the
+   mock draws it. The technical asides are native <details>, collapsed by
+   default, which is the mock's showDetail prop without a line of script. */
+body.site-dark .docs-head {
+  padding: 72px var(--space-9) var(--space-11);
+  border-bottom: var(--border-width) solid var(--border-subtle);
+}
+body.site-dark .docs-head__inner { max-width: var(--page-max); margin: 0 auto; }
+body.site-dark .docs-head__title {
+  margin-top: var(--space-6);
+  color: var(--text-strong);
+  font: var(--weight-black) clamp(40px, 5.6vw, 64px)/var(--leading-tight) var(--font-display);
+  letter-spacing: var(--tracking-tight);
+}
+body.site-dark .docs-head__lede {
+  max-width: var(--prose-max);
+  margin-top: 20px;
+  color: var(--text-body);
+  font-size: var(--text-18);
+}
+body.site-dark .docs-stats { display: flex; flex-wrap: wrap; gap: var(--space-9); margin-top: 36px; }
+body.site-dark .docs-stat { display: flex; flex-direction: column-reverse; gap: 6px; }
+body.site-dark .docs-stat__label {
+  color: var(--text-faint);
+  font: var(--type-label);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+body.site-dark .docs-stat__value { color: var(--text-strong); font: var(--weight-regular) 24px/1 var(--font-mono); }
+body.site-dark .docs-stat__value--ok { color: var(--status-success); }
+
+body.site-dark .docs-body {
+  display: flex;
+  flex-direction: column;
+  gap: 56px;
+  max-width: var(--page-max);
+  margin: 0 auto;
+  padding: var(--space-11) var(--space-9) 96px;
+}
+body.site-dark .docs-section { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
+body.site-dark .docs-section h2 {
+  color: var(--text-strong);
+  font: var(--weight-bold) 28px/var(--leading-snug) var(--font-display);
+  letter-spacing: -0.02em;
+}
+body.site-dark .docs-section__head { display: flex; flex-direction: column; gap: 6px; }
+body.site-dark .docs-section__sub { max-width: var(--prose-max); color: var(--text-muted); font-size: var(--text-16); }
+body.site-dark .docs-text { max-width: var(--prose-max); color: var(--text-body); font-size: var(--text-16); }
+body.site-dark .docs-text a { text-decoration: underline; text-underline-offset: 3px; }
+
+body.site-dark .docs-aside {
+  max-width: var(--prose-max);
+  padding: 14px var(--space-6);
+  background: var(--surface-inset);
+  border: var(--border-width) solid var(--border-subtle);
+  border-left: 2px solid var(--accent);
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
+}
+body.site-dark .docs-aside summary {
+  color: var(--text-faint);
+  cursor: pointer;
+  font: var(--type-label);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+}
+body.site-dark .docs-aside summary:hover { color: var(--text-muted); }
+body.site-dark .docs-aside p { margin-top: var(--space-4); color: var(--text-muted); font-size: var(--text-14); }
+body.site-dark .docs-aside code { color: var(--text-body); font: var(--weight-regular) var(--text-13) var(--font-mono); }
+
+/* The request path. Steps 2 to 4 carry their arrow inside their own label, so
+   when the row wraps on a phone no arrow is left dangling at a line's end; the
+   last step is the one accent-bordered box in the group. */
+body.site-dark .docs-path {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 210px), 1fr));
+  gap: var(--space-5);
+  margin: 0;
+  padding: var(--space-8);
+  list-style: none;
+  background: var(--surface-inset);
+  border: var(--border-width) solid var(--border-subtle);
+  border-radius: var(--radius-md);
+}
+body.site-dark .docs-step {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding: var(--space-6);
+  background: var(--surface-card);
+  border: var(--border-width) solid rgba(242, 238, 248, .10);
+  border-radius: var(--radius-md);
+}
+body.site-dark .docs-step--last { border-color: var(--violet-a45); }
+body.site-dark .docs-step__label {
+  color: var(--text-faint);
+  font: var(--type-label);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+body.site-dark .docs-step__arrow { color: var(--accent); }
+body.site-dark .docs-step__title { color: var(--text-strong); font: var(--weight-semibold) var(--text-16)/1.3 var(--font-display); }
+body.site-dark .docs-step__text { color: var(--text-muted); font-size: var(--text-14); }
+
+@media (max-width: 899px) {
+  body.site-dark .docs-head { padding: var(--space-10) var(--gutter) var(--space-9); }
+  body.site-dark .docs-body { padding: var(--space-9) var(--gutter) var(--space-12); }
+}
 
 /* ── Sorting: crate sort and van load ────────────────────────────────────────
    Two screens. `/sorting` lists the sessions; `/sorting/{id}` is the board that
