@@ -3350,7 +3350,7 @@ header .site-admin {
    a template that overrides nothing writes the empty string, which matches no
    selector below and marks nothing. That is the whole mechanism — no per-page
    class, no server-side loop over the links, and nothing to keep in sync but
-   the five names.
+   the six names.
 
    Stated twice for the two chromes again, and the colours are not the same
    value: --text-strong is a near-white meant for the dark bar and would be
@@ -3365,14 +3365,16 @@ header nav[data-active="artportfolio"] a[href="/artportfolio"],
 header nav[data-active="tasks"] a[href="/tasks"],
 header nav[data-active="fitness"] a[href="/fitness"],
 header nav[data-active="sorting"] a[href="/sorting"],
-header nav[data-active="cv"] a[href="/cv"] {
+header nav[data-active="cv"] a[href="/cv"],
+header nav[data-active="docs"] a[href="/docs"] {
   color: #222;
 }
 :is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) header nav[data-active="artportfolio"] a[href="/artportfolio"],
 :is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) header nav[data-active="tasks"] a[href="/tasks"],
 :is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) header nav[data-active="fitness"] a[href="/fitness"],
 :is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) header nav[data-active="sorting"] a[href="/sorting"],
-:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) header nav[data-active="cv"] a[href="/cv"] {
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) header nav[data-active="cv"] a[href="/cv"],
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) header nav[data-active="docs"] a[href="/docs"] {
   color: var(--text-strong);
 }
 
@@ -3570,9 +3572,10 @@ body.site-dark .hm-hub__go .hm-icon { width: 15px; height: 15px; }
    header's .site-title__dot: it is the same wordmark and the same violet full
    stop, and that rule is already global and unscoped.
 
-   The "how this site works" link the mock draws is omitted. Its route does not
-   exist until Pack 7, and the header follows the same rule — no pack leaves a
-   dead link in a live page.
+   The "how this site works" link arrived with its route (Pack 7); until then
+   it was omitted, as the header's was — no pack leaves a dead link in a live
+   page. It takes the wordmark's muted ink, as the mock draws it, one step
+   brighter than the contact links.
 
    /admin is behind is_admin, which is a departure from the mock and is forced
    by the route rather than chosen: RequireAdmin answers a signed-in non-admin
@@ -3604,6 +3607,8 @@ body.site-dark .hub-foot__row {
 }
 body.site-dark .hub-foot__mark { color: var(--text-muted); }
 body.site-dark .hub-foot__admin { margin-left: auto; }
+body.site-dark .hub-foot__row a.hub-foot__docs { color: var(--text-muted); }
+body.site-dark .hub-foot__row a.hub-foot__docs:hover { color: var(--text-strong); }
 body.site-dark .hub-foot__row a { color: var(--text-faint); }
 body.site-dark .hub-foot__row a:hover { color: var(--text-muted); }
 
@@ -3626,8 +3631,8 @@ body.site-dark .hub-foot__row a:hover { color: var(--text-muted); }
 
    #3A3448, the mock's contact separator, is not on the ink scale; --ink-600
    is its neighbour, and a separator is the one place a step darker costs
-   nothing. The rail's link card to the how-it-works page is omitted until
-   that route exists (Pack 7), same rule as the hub footer. */
+   nothing. The rail's link card to the how-it-works page is dropped for good:
+   ruled 2026-09-28, the CV's own content links nowhere on this site. */
 body.site-dark .cv-head {
   padding: var(--space-12) var(--space-9) var(--space-10);
   border-bottom: var(--border-width) solid var(--border-subtle);
@@ -3813,6 +3818,302 @@ body.site-dark .cv-skill__value { color: var(--text-muted); font-size: var(--tex
   body.site-dark .cv-entry { break-inside: avoid; }
   body.site-dark .cv-list li::before { background: #000; }
   body.site-dark .hm-badge--accent { background: none; border-color: #999; color: #444; }
+}
+
+/* How this site works, /docs. A static explainer in templates/docs.html; the
+   facts it states are data in src/routes/docs.rs, where the tests that pin
+   them live. Same page head and 1180px column as the CV.
+
+   The stat row is column-reverse so the label can come first in the markup
+   (it reads first to a screen reader) while the figure sits on top, as the
+   mock draws it. The technical asides are native <details>, collapsed by
+   default, which is the mock's showDetail prop without a line of script. */
+body.site-dark .docs-head {
+  padding: 72px var(--space-9) var(--space-11);
+  border-bottom: var(--border-width) solid var(--border-subtle);
+}
+body.site-dark .docs-head__inner { max-width: var(--page-max); margin: 0 auto; }
+body.site-dark .docs-head__title {
+  margin-top: var(--space-6);
+  color: var(--text-strong);
+  font: var(--weight-black) clamp(40px, 5.6vw, 64px)/var(--leading-tight) var(--font-display);
+  letter-spacing: var(--tracking-tight);
+}
+body.site-dark .docs-head__lede {
+  max-width: var(--prose-max);
+  margin-top: 20px;
+  color: var(--text-body);
+  font-size: var(--text-18);
+}
+body.site-dark .docs-stats { display: flex; flex-wrap: wrap; gap: var(--space-9); margin-top: 36px; }
+body.site-dark .docs-stat { display: flex; flex-direction: column-reverse; gap: 6px; }
+body.site-dark .docs-stat__label {
+  color: var(--text-faint);
+  font: var(--type-label);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+body.site-dark .docs-stat__value { color: var(--text-strong); font: var(--weight-regular) 24px/1 var(--font-mono); }
+body.site-dark .docs-stat__value--ok { color: var(--status-success); }
+
+body.site-dark .docs-body {
+  display: flex;
+  flex-direction: column;
+  gap: 56px;
+  max-width: var(--page-max);
+  margin: 0 auto;
+  padding: var(--space-11) var(--space-9) 96px;
+}
+body.site-dark .docs-section { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
+body.site-dark .docs-section h2 {
+  color: var(--text-strong);
+  font: var(--weight-bold) 28px/var(--leading-snug) var(--font-display);
+  letter-spacing: -0.02em;
+}
+body.site-dark .docs-section__head { display: flex; flex-direction: column; gap: 6px; }
+body.site-dark .docs-section__sub { max-width: var(--prose-max); color: var(--text-muted); font-size: var(--text-16); }
+body.site-dark .docs-text { max-width: var(--prose-max); color: var(--text-body); font-size: var(--text-16); }
+body.site-dark .docs-text a { text-decoration: underline; text-underline-offset: 3px; }
+
+body.site-dark .docs-aside {
+  max-width: var(--prose-max);
+  padding: 14px var(--space-6);
+  background: var(--surface-inset);
+  border: var(--border-width) solid var(--border-subtle);
+  border-left: 2px solid var(--accent);
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
+}
+body.site-dark .docs-aside summary {
+  color: var(--text-faint);
+  cursor: pointer;
+  font: var(--type-label);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+}
+body.site-dark .docs-aside summary:hover { color: var(--text-muted); }
+body.site-dark .docs-aside p { margin-top: var(--space-4); color: var(--text-muted); font-size: var(--text-14); }
+body.site-dark .docs-aside code { color: var(--text-body); font: var(--weight-regular) var(--text-13) var(--font-mono); }
+
+/* The request path. Steps 2 to 4 carry their arrow inside their own label, so
+   when the row wraps on a phone no arrow is left dangling at a line's end; the
+   last step is the one accent-bordered box in the group. */
+body.site-dark .docs-path {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 210px), 1fr));
+  gap: var(--space-5);
+  margin: 0;
+  padding: var(--space-8);
+  list-style: none;
+  background: var(--surface-inset);
+  border: var(--border-width) solid var(--border-subtle);
+  border-radius: var(--radius-md);
+}
+body.site-dark .docs-step {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding: var(--space-6);
+  background: var(--surface-card);
+  border: var(--border-width) solid rgba(242, 238, 248, .10);
+  border-radius: var(--radius-md);
+}
+body.site-dark .docs-step--last { border-color: var(--violet-a45); }
+body.site-dark .docs-step__label {
+  color: var(--text-faint);
+  font: var(--type-label);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+body.site-dark .docs-step__arrow { color: var(--accent); }
+body.site-dark .docs-step__title { color: var(--text-strong); font: var(--weight-semibold) var(--text-16)/1.3 var(--font-display); }
+body.site-dark .docs-step__text { color: var(--text-muted); font-size: var(--text-14); }
+
+/* The sections table scrolls inside its own wrapper rather than the page:
+   the table holds a 640px floor, the wrapper takes whatever the column
+   leaves, and min-width: 0 on .docs-section is what lets the wrapper be
+   narrower than its content at all. */
+body.site-dark .docs-table-wrap { overflow-x: auto; }
+body.site-dark .docs-table {
+  width: 100%;
+  min-width: 640px;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+body.site-dark .docs-table th,
+body.site-dark .docs-table td {
+  padding: 14px var(--space-2);
+  border-bottom: var(--border-width) solid var(--border-subtle);
+  text-align: left;
+  vertical-align: top;
+}
+body.site-dark .docs-table thead th {
+  padding-top: 0;
+  padding-bottom: 10px;
+  color: var(--text-faint);
+  font: var(--type-label);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+}
+body.site-dark .docs-table thead th:first-child { width: 166px; }
+body.site-dark .docs-table thead th:last-child { width: 206px; }
+body.site-dark .docs-table__name,
+body.site-dark .docs-table__route { display: block; }
+body.site-dark .docs-table__route { margin-top: var(--space-2); }
+body.site-dark .docs-table__name { color: var(--text-strong); font: var(--weight-semibold) var(--text-15)/1.3 var(--font-display); }
+body.site-dark .docs-table__route { color: var(--text-faint); font: var(--weight-medium) var(--text-12)/1.3 var(--font-mono); }
+body.site-dark .docs-table__what { color: var(--text-body); font-size: var(--text-15); }
+body.site-dark .docs-table__who { color: var(--text-muted); font-size: var(--text-14); }
+
+/* The upload timeline. The row labels carry the colour the mock gave its
+   timings: the figures themselves were never measured and are gone. */
+body.site-dark .docs-timeline {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: var(--space-8);
+  list-style: none;
+  background: var(--surface-inset);
+  border: var(--border-width) solid var(--border-subtle);
+  border-radius: var(--radius-md);
+}
+body.site-dark .docs-timeline__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-5);
+  padding: 14px 0;
+  border-top: var(--border-width) solid var(--border-subtle);
+}
+body.site-dark .docs-timeline__row:first-child { padding-top: 0; border-top: none; }
+body.site-dark .docs-timeline__row:last-child { padding-bottom: 0; }
+body.site-dark .docs-timeline__when {
+  flex: none;
+  width: 140px;
+  color: var(--text-faint);
+  font: var(--type-label);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+}
+body.site-dark .docs-timeline__when--ok { color: var(--status-success); }
+body.site-dark .docs-timeline__when--warm { color: var(--status-warning); }
+body.site-dark .docs-timeline__what { flex: 1 1 260px; min-width: 0; color: var(--text-body); font-size: var(--text-15); }
+
+/* How I know it still works: three figure cards. Decisions and changes:
+   title-and-text rows that wrap to a stack on a narrow window. */
+body.site-dark .docs-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
+  gap: var(--space-5);
+}
+body.site-dark .docs-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: 18px;
+  background: var(--surface-card);
+  border: var(--border-width) solid var(--border-subtle);
+  border-radius: var(--radius-md);
+}
+body.site-dark .docs-card__figure { color: var(--text-strong); font: var(--weight-regular) 22px/1 var(--font-mono); }
+body.site-dark .docs-card__figure--ok { color: var(--status-success); }
+body.site-dark .docs-card__title { color: var(--text-strong); font: var(--weight-semibold) var(--text-16)/1.3 var(--font-display); }
+body.site-dark .docs-card__text { color: var(--text-muted); font-size: var(--text-15); }
+
+body.site-dark .docs-rows { display: flex; flex-direction: column; gap: var(--space-5); }
+body.site-dark .docs-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-6);
+  padding: var(--space-6);
+  background: var(--surface-card);
+  border: var(--border-width) solid var(--border-subtle);
+  border-radius: var(--radius-md);
+}
+body.site-dark .docs-row__title { flex: 1 1 240px; min-width: 0; color: var(--text-strong); font: var(--weight-semibold) var(--text-16)/1.4 var(--font-display); }
+body.site-dark .docs-row__text { flex: 2 1 320px; min-width: 0; color: var(--text-muted); font-size: var(--text-15); }
+body.site-dark .docs-row code,
+body.site-dark .docs-statement + p code { color: var(--text-body); font: var(--weight-regular) var(--text-13) var(--font-mono); }
+body.site-dark .docs-statement strong { color: var(--text-strong); font-weight: var(--weight-semibold); }
+
+/* The keyboard callout reuses the hub's palette dispatch, the same synthetic
+   keydown the header's keycap button sends, so there is no script here. The
+   button is reset to sit flat on the grid texture; the shared reset already
+   rings it on focus. */
+body.site-dark .docs-callout {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 20px;
+  padding: var(--space-8);
+  background-color: var(--surface-inset);
+  border: var(--border-width) solid var(--border-subtle);
+  border-radius: var(--radius-md);
+}
+body.site-dark .docs-callout__text { display: flex; flex: 1 1 320px; flex-direction: column; gap: 6px; min-width: 0; }
+body.site-dark .docs-callout h2 { color: var(--text-strong); font: var(--weight-bold) 22px/var(--leading-snug) var(--font-display); letter-spacing: -0.02em; }
+body.site-dark .docs-callout p { max-width: var(--prose-max); color: var(--text-muted); font-size: var(--text-15); }
+body.site-dark .docs-callout__keys {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-5);
+  background: none;
+  border: var(--border-width) solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  color: var(--text-faint);
+  cursor: pointer;
+  font: var(--type-label);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  white-space: nowrap;
+  transition: var(--transition-control);
+}
+body.site-dark .docs-callout__keys:hover { border-color: var(--accent); color: var(--text-muted); }
+
+/* The footer: the hub's mono micro-type, with cv pushed to the far end. */
+body.site-dark .docs-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-8);
+  padding-top: var(--space-8);
+  border-top: var(--border-width) solid var(--border-subtle);
+  color: var(--text-faint);
+  font: var(--type-label);
+  letter-spacing: var(--tracking-caps);
+}
+body.site-dark .docs-foot__mark { color: var(--text-muted); }
+body.site-dark .docs-foot a { color: var(--text-faint); }
+body.site-dark .docs-foot a:hover { color: var(--text-muted); }
+body.site-dark .docs-foot__cv { margin-left: auto; }
+
+/* Who can see what. align-items: flex-start keeps each badge at its natural
+   width; a column flex container would otherwise stretch it across the card. */
+body.site-dark .docs-roles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr));
+  gap: var(--space-5);
+}
+body.site-dark .docs-role {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-4);
+  padding: var(--space-6);
+  background: var(--surface-card);
+  border: var(--border-width) solid var(--border-subtle);
+  border-radius: var(--radius-md);
+}
+body.site-dark .docs-role--owner { border-color: var(--violet-a45); }
+body.site-dark .docs-role p { color: var(--text-body); font-size: var(--text-15); }
+
+@media (max-width: 899px) {
+  body.site-dark .docs-head { padding: var(--space-10) var(--gutter) var(--space-9); }
+  body.site-dark .docs-body { padding: var(--space-9) var(--gutter) var(--space-12); }
 }
 
 /* ── Sorting: crate sort and van load ────────────────────────────────────────
