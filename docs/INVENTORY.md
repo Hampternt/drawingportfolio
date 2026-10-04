@@ -13,12 +13,18 @@ is part of the definition of merged. Manifests live in `docs/manifests/`.
 The landing page: entry point linking to every public area of the site.
 
 - A dark front door on the house design system: a blueprint-grid hero naming
-  what the site runs on, the tagline, and nothing else competing for attention.
+  what the site runs on, the tagline, and who runs it — the owner's short name
+  and one line on what they do.
 - A search bar that opens the command palette on click, so every destination on
   the site is reachable without knowing a URL. `Ctrl`+`K` does the same from any
   page.
 - Six section tiles — drawing portfolio, drawing tasks, drinks, fitness,
-  sorting, CV — each saying what the section is and who can reach it.
+  sorting, CV — each saying what the section is, who can reach it, and whether
+  it is live or still in progress.
+- A footer with the owner's email and GitHub.
+- ✅ Sign-in walls show before the click: tiles and palette commands for
+  signed-in sections say so, and following one always lands on a proper login
+  page, which links back to the hub. Signing out lands there the same way.
 - The site header is shared from here: the wordmark, a nav that lights the
   section you are in, and the palette. Every other page wears it too.
 
@@ -36,11 +42,11 @@ The public showcase of drawings.
 - 🚧 **Admin redesign — planned, no code written.** `/admin` would become a dark
   sidebar shell with live counts, a searchable and filterable post list, and the
   owner-only accounts pane folded in from `/admin/users`. Three packs (3, 4, 5)
-  of the container below; **blocked on one decision** — how the admin page
-  learns who is signed in, since the admin gate carries no name or owner flag
-  and changing that changes a security boundary. The accounts pane is the
-  container's only privilege boundary and is planned as its own pack for that
-  reason. Container: `docs/manifests/2026-09-08-hub-admin-cv-docs.md`
+  of the container below. None waits on a decision now, and 4 and 5 follow 3:
+  how the admin page learns who is signed in — without changing the admin
+  gate, which is a security boundary — was decided 2026-09-27. The accounts pane is the container's only privilege
+  boundary and is planned as its own pack for that reason. Container:
+  `docs/manifests/2026-09-08-hub-admin-cv-docs.md`
 
 ## Drawing tasks — `/tasks`
 
@@ -126,7 +132,9 @@ A party platform for phone-based drinking games in shared rooms.
   show everyone's per-deck hand counts; a mode badge + pull count ride
   the tab row. Container: `docs/manifests/2026-08-13-lc-mobile-play-flow.md`
 - 🚧 Challenge cards — real-life party challenges as Last Call cards
-  (duels judged by table vote, solo dares, social penalties).
+  (duels judged by table vote, solo dares, social penalties). Idle: the first
+  pack's engine and table vote are live, but no challenge card is in the deck
+  yet, so no game draws one; the rest is not started.
   Container: `docs/manifests/2026-08-14-lc-challenge-cards.md`
 
 ## CV — `/cv`
@@ -146,9 +154,9 @@ A public CV, in Norwegian, for anyone considering hiring the owner.
   is built and run: the request path, the sections, how uploads and visibility
   work, and the decisions behind them. Pack 7 of the container below, and last
   by design — most of its prose is a claim about what the earlier packs shipped.
-  **Blocked on one decision:** the route name. `/docs` is the recommendation
-  this heading assumes; nothing links here yet, and the CV page carries a test
-  proving it does not. Container:
+  The route is `/docs`, decided 2026-09-27, and nothing blocks it now. Nothing
+  links here yet; the nav and the hub footer will once it exists, and the CV
+  deliberately never does — a test holds it to that. Container:
   `docs/manifests/2026-09-08-hub-admin-cv-docs.md`
 
 ## Infrastructure
@@ -164,4 +172,5 @@ behind nginx. Quality gates: `scripts/check.sh` (item) and
 *In transit: the Hub/Admin/CV/How-it-works container —*
 *`docs/manifests/2026-09-08-hub-admin-cv-docs.md`. The shared shell, the Hub*
 *and the CV have shipped; the Admin redesign and the How-it-works page are*
-*planned only, each blocked on one decision recorded in that manifest.*
+*planned only, and neither waits on a decision now. A hub follow-up is in*
+*progress.*

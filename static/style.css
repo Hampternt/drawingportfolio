@@ -3451,6 +3451,19 @@ body.site-dark .hub-hero__tagline {
   color: var(--text-body);
   font-size: 19px;
 }
+/* The about slot the mock fills with placeholder copy. The line is the owner's
+   own (Pack 2b), and the name is the shortened form /cv uses. The 10px gap is
+   the mock's and sits between two steps of the scale, like the tagline's 19px. */
+body.site-dark .hub-hero__about {
+  max-width: 62ch;
+  margin-top: 10px;
+  color: var(--text-muted);
+  font-size: var(--text-16);
+}
+body.site-dark .hub-hero__about strong {
+  color: var(--text-strong);
+  font-weight: var(--weight-semibold);
+}
 
 /* The palette bar. It opens the palette by dispatching the same synthetic
    Ctrl+K that base.html's header button dispatches, so there is one opener —
@@ -3567,7 +3580,12 @@ body.site-dark .hm-hub__go .hm-icon { width: 15px; height: 15px; }
    template's only identity signal is OptionalAdmin's bool, so it cannot tell
    an anonymous visitor (who would get the login redirect, and could safely be
    shown the link) from a signed-in member (who would not). The header's
-   settings button already draws the same line. */
+   settings button already draws the same line.
+
+   The mock's "server-rendered · no build step" is deliberately not ported: a
+   Rust binary is a build step. The claim that holds is no front-end build
+   step, which the CV already makes (Pack 2b). The contacts are the two the CV
+   publishes, email and GitHub, and the row wraps rather than overflowing. */
 body.site-dark .hub-foot {
   max-width: var(--page-max);
   margin: 0 auto;

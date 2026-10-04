@@ -1,6 +1,9 @@
 // Command palette — Ctrl+K / Cmd+K to open.
 // To add a command: push one object to COMMANDS.
 // adminOnly commands are hidden when IS_ADMIN is false.
+// A label ending ' · sign-in' marks a section behind a session, so a visitor
+// sees the wall before the click. It names the section, not the viewer: the
+// palette knows only IS_ADMIN, so members see the marker too.
 
 const COMMANDS = [
   {
@@ -57,22 +60,22 @@ const COMMANDS = [
     action() { location.href = '/drinks'; },
   },
   {
-    label: 'Go to Fitness Tracker',
+    label: 'Go to Fitness Tracker · sign-in',
     keywords: ['fitness', 'food', 'nutrition', 'calories', 'meals', 'health', 'tracker'],
     action() { location.href = '/fitness'; },
   },
   {
-    label: 'Go to Fitness Week',
+    label: 'Go to Fitness Week · sign-in',
     keywords: ['week', 'trends', 'weight', 'streak', 'fitness'],
     action() { location.href = '/fitness/week'; },
   },
   {
-    label: 'Go to Sorting',
+    label: 'Go to Sorting · sign-in',
     keywords: ['sorting', 'sort', 'crates', 'van', 'load', 'loading', 'route', 'delivery', 'pallet'],
     action() { location.href = '/sorting'; },
   },
   {
-    label: 'New sorting session',
+    label: 'New sorting session · sign-in',
     keywords: ['sorting', 'paste', 'plan', 'new', 'route', 'upload', 'crates'],
     action() {
       const box = document.getElementById('sort-payload');

@@ -26,10 +26,11 @@ from this file on 2026-08-12; `git log docs/WORKTREES.md` recovers them.
 
 - **`feat/portfolio-review`** (worktree
   `~/projects/drawingportfolio.worktrees/portfolio-review`; merges → `master`):
-  the live continuation of `feat/hub-admin-cv-docs` — Pack 2b (the hub
-  follow-up) plus rulings 2–4, working from the review mapped in
-  `docs/handoffs/2026-09-27-portfolio-review.md`. No PR yet. Ledger:
-  `docs/manifests/2026-09-08-hub-admin-cv-docs.md`.
+  the live continuation of `feat/hub-admin-cv-docs`, working from the review
+  mapped in `docs/handoffs/2026-09-27-portfolio-review.md`. Steps 1–2 —
+  rulings 2–4 recorded and Pack 2b (the hub follow-up) — **LANDED** via
+  Hampternt/drawingportfolio#24 (2026-10-04). The stream stays open for the
+  handoff's later steps. Ledger: `docs/manifests/2026-09-08-hub-admin-cv-docs.md`.
 - **`feat/hub-admin-cv-docs`** — Packs 1 (shared shell), 2 (Hub) and 6 (CV)
   **LANDED** via Hampternt/drawingportfolio#20 (squashed). Packs 3, 4, 5 and 7
   not started; the work continues on `feat/portfolio-review` above. The

@@ -11,6 +11,7 @@
     <span class="hm-eyebrow">rust · axum · sqlite · htmx — one binary, six sections</span>
     <h1 class="hub-hero__title">Portfolio<span class="hub-hero__dot">.</span></h1>
     <p class="hub-hero__tagline">A collection of personal projects — art, code, and whatever comes next.</p>
+    <p class="hub-hero__about"><strong>Jesper L.</strong> · Developer — internal digital tools and automation</p>
     <button type="button" class="hub-palette" aria-label="Open command palette"
             onclick="document.dispatchEvent(new KeyboardEvent('keydown',{key:'k',ctrlKey:true,bubbles:true}))">
       <span class="hm-icon hm-icon--search" aria-hidden="true"></span>
@@ -33,7 +34,7 @@
         <span class="hm-hub__go"><span class="hm-icon hm-icon--arrow-up-right" aria-hidden="true"></span></span>
       </span>
       <span class="hm-hub__desc">A feed of drawings and sketches.</span>
-      <span class="hm-hub__foot">public feed · admin uploads</span>
+      <span class="hm-hub__foot"><span class="hm-badge hm-badge--success">live</span>public feed · admin uploads</span>
     </a>
     <a href="/tasks" class="hm-hub">
       <span class="hm-hub__top">
@@ -42,7 +43,7 @@
         <span class="hm-hub__go"><span class="hm-icon hm-icon--arrow-up-right" aria-hidden="true"></span></span>
       </span>
       <span class="hm-hub__desc">Practice prompts on reference images — sorted by subject, difficulty, and task type.</span>
-      <span class="hm-hub__foot">public · filter by subject, difficulty, type</span>
+      <span class="hm-hub__foot"><span class="hm-badge hm-badge--success">live</span>public · filter by subject, difficulty, type</span>
     </a>
     <a href="/drinks" class="hm-hub" hx-boost="false">
       <span class="hm-hub__top">
@@ -50,8 +51,8 @@
         <span class="hm-hub__title">Drinks</span>
         <span class="hm-hub__go"><span class="hm-icon hm-icon--arrow-up-right" aria-hidden="true"></span></span>
       </span>
-      <span class="hm-hub__desc">Party night drink tracker — join with a room code.</span>
-      <span class="hm-hub__foot">4-letter room code · big screen</span>
+      <span class="hm-hub__desc">Four party games in one room — pick a name and PIN, then join with a room code.</span>
+      <span class="hm-hub__foot"><span class="hm-badge hm-badge--success">live</span>name + PIN · room code · big screen</span>
     </a>
     <a href="/fitness" class="hm-hub">
       <span class="hm-hub__top">
@@ -60,7 +61,7 @@
         <span class="hm-hub__go"><span class="hm-icon hm-icon--arrow-up-right" aria-hidden="true"></span></span>
       </span>
       <span class="hm-hub__desc">Track daily meals, calories, and macros.</span>
-      <span class="hm-hub__foot">sign-in required · per-user log</span>
+      <span class="hm-hub__foot"><span class="hm-badge hm-badge--success">live</span>sign-in required · per-user log · barcode scanning</span>
     </a>
     <a href="/sorting" class="hm-hub">
       <span class="hm-hub__top">
@@ -69,7 +70,7 @@
         <span class="hm-hub__go"><span class="hm-icon hm-icon--arrow-up-right" aria-hidden="true"></span></span>
       </span>
       <span class="hm-hub__desc">Crate sort and van load — a pick checklist, a live loading diagram, and the counts checked against each other.</span>
-      <span class="hm-hub__foot">sign-in required · tablet</span>
+      <span class="hm-hub__foot"><span class="hm-badge hm-badge--warning">in progress</span>sign-in required · tablet · plain-JS board</span>
     </a>
     <a href="/cv" class="hm-hub">
       <span class="hm-hub__top">
@@ -77,17 +78,19 @@
         <span class="hm-hub__title">CV</span>
         <span class="hm-hub__go"><span class="hm-icon hm-icon--arrow-up-right" aria-hidden="true"></span></span>
       </span>
-      <span class="hm-hub__desc">Hvor jeg har jobbet, hva jeg har bygget, og det samme som PDF.</span>
-      <span class="hm-hub__foot">one page · pdf download</span>
+      <span class="hm-hub__desc" lang="nb">Hvor jeg har jobbet, hva jeg har bygget, og det samme som PDF.</span>
+      <span class="hm-hub__foot"><span class="hm-badge hm-badge--success">live</span>one page · pdf download</span>
     </a>
   </div>
 </section>
 <footer class="hub-foot">
   <div class="hub-foot__row">
     <span class="hub-foot__mark">hampter<span class="site-title__dot">.</span></span>
-    <span>server-rendered · no build step</span>
+    <span>server-rendered · no front-end build step</span>
+    <a href="mailto:jl@dblo.net">jl@dblo.net</a>
+    <a href="https://github.com/Hampternt">github.com/Hampternt</a>
     {% if is_admin %}
-    <span class="hub-foot__admin"><a href="/admin">/admin</a></span>
+    <span class="hub-foot__admin"><a href="/admin" hx-boost="false">/admin</a></span>
     {% endif %}
   </div>
 </footer>

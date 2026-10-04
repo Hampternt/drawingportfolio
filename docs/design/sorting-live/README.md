@@ -133,7 +133,7 @@ apart. `src/store.js` is the only browser-only file — everything else runs und
 node, which is why the settings' serialiser and validator are in `model.js` and
 only the `localStorage` call is not.
 
-The two test files run on plain `node` with no dependencies — 432 checks over
+The two test files run on plain `node` with no dependencies — 458 checks over
 the rules, the rendering, the geometry, the settings and what comes back out of
 storage. Every setting is
 checked by putting the model in a state it decides: a screen of toggles that

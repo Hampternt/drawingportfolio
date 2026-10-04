@@ -13,6 +13,7 @@
   <link rel="prefetch" href="/tasks">
   <link rel="prefetch" href="/sorting">
   <!-- Self-hosted HTMX — eliminates DNS lookup + TLS handshake to unpkg.com -->
+  <meta name="htmx-config" content='{"refreshOnHistoryMiss":true}'>
   <script src="/static/htmx.min.js?v={{ crate::assets::asset_version() }}" defer></script>
   <script>const IS_ADMIN = {% if is_admin %}true{% else %}false{% endif %};</script>
   <script src="/static/palette.js?v={{ crate::assets::asset_version() }}" defer></script>
@@ -67,7 +68,7 @@
         <kbd>Ctrl</kbd><kbd>K</kbd>
       </button>
       {% if is_admin %}
-      <a href="/admin" class="hm-iconbtn hm-iconbtn--md hm-iconbtn--outline site-admin" title="Admin" aria-label="Admin">
+      <a href="/admin" class="hm-iconbtn hm-iconbtn--md hm-iconbtn--outline site-admin" title="Admin" aria-label="Admin" hx-boost="false">
         <span class="hm-icon hm-icon--settings" aria-hidden="true"></span>
       </a>
       {% endif %}
