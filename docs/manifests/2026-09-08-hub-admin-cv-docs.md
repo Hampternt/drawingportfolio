@@ -1051,6 +1051,13 @@ Not blocking, but each needs an answer before the pack that consumes it.
 
 ### Pack 7 — landed 2026-10-05 via #26 (built and reviewed the same day)
 
+**Deployed 2026-10-05** by the Deploy run for `6966012` (37244275674, success:
+test, build, deploy). Live smoke check on portfolio.dblo.net: a boosted click
+on the hub footer link lands on `/docs` in the same document; the stats read
+1 · 6 · 27 · 1123 (dated 2026-10-05); the table has six rows and the
+review-wave wording is live. There is no horizontal overflow at 1440px or
+390px, and the console is clean.
+
 One serial builder (`pack-implementer`, medium) built 7.1–7.6 in seven commits
 (`13804b2` … `959aba4`). 7.6 came before 7.5, because 7.5's README test reads
 `README.md`. **Measured** (`wave-times.sh 7e69d23 … 959aba4`): 8 commits over
