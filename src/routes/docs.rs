@@ -120,4 +120,157 @@ mod tests {
         assert!(html.contains(r#"data-active="docs""#));
         assert!(html.contains(r#"<a href="/docs">How it works</a>"#));
     }
+
+    fn main_of(html: &str) -> &str {
+        &html[html.find("<main>").unwrap()..html.find("</main>").unwrap()]
+    }
+
+    /// The hrefs of the hub's tiles, in order, found by the same needle
+    /// `hub.rs` counts them with.
+    fn hub_tile_routes() -> Vec<&'static str> {
+        const HUB: &str = include_str!("../../templates/hub/hub.html");
+        let needle = r#"class="hm-hub""#;
+        let mut routes = Vec::new();
+        for (at, _) in HUB.match_indices(needle) {
+            let tag = &HUB[HUB[..at].rfind("<a ").unwrap()..at];
+            let href = &tag[tag.find(r#"href=""#).unwrap() + 6..];
+            routes.push(&href[..href.find('"').unwrap()]);
+        }
+        routes
+    }
+
+    #[test]
+    fn test_docs_sections_are_the_hubs_tiles() {
+        let tiles = hub_tile_routes();
+        // Positive control: the needle finds the hub's tiles at all.
+        assert!(tiles.contains(&"/cv"), "no hub tiles found: {tiles:?}");
+        let rows: Vec<&str> = SECTIONS.iter().map(|s| s.route).collect();
+        assert_eq!(rows, tiles, "the sections table drifted from the hub");
+
+        let html = render();
+        let main = main_of(&html);
+        assert!(main.contains(&format!(
+            r#"<span class="docs-stat__value">{}</span>"#,
+            tiles.len()
+        )));
+        for s in SECTIONS {
+            let route = format!(r#"<span class="docs-table__route">{}</span>"#, s.route);
+            assert_eq!(main.matches(&route).count(), 1, "table row for {}", s.route);
+        }
+        // The lede states the count in words; six is what the hub has.
+        assert_eq!(tiles.len(), 6, "the lede says six sections");
+        assert!(main.contains("six sections, one program, one server"));
+    }
+
+    #[test]
+    fn test_docs_migration_figure_counts_both_databases_sql_files() {
+        // Read from the tree in the test only, never at runtime: the deployed
+        // binary has no source tree beside it.
+        fn sql_files(dir: &str) -> usize {
+            let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(dir);
+            std::fs::read_dir(&path)
+                .unwrap_or_else(|e| panic!("{}: {e}", path.display()))
+                .filter(|e| {
+                    e.as_ref()
+                        .unwrap()
+                        .path()
+                        .extension()
+                        .is_some_and(|x| x == "sql")
+                })
+                .count()
+        }
+        assert_eq!(SITE_MIGRATIONS, sql_files("migrations"));
+        assert_eq!(DRINKS_MIGRATIONS, sql_files("drinkinggame/migrations"));
+        let html = render();
+        assert!(main_of(&html).contains(&format!(
+            r#"<span class="docs-stat__value">{MIGRATIONS}</span>"#
+        )));
+    }
+
+    #[test]
+    fn test_docs_ships_none_of_the_mocks_false_claims() {
+        let html = render();
+        let main = main_of(&html).to_lowercase();
+        // The manifest's false-claims table, plus three more the build found.
+        for claim in [
+            "nothing to compile before a change goes live",
+            "no build step",
+            ">build step<",
+            "four steps, all on the same server",
+            "nothing is fetched from someone else's service",
+            "five sections",
+            "1105",
+            "anyone with the room code",
+            "only i can upload",
+            "one stylesheet.",
+            "one header, one stylesheet and one sign-in",
+            "one dark theme",
+            "no light mode",
+            "i built and run everything",
+            "serves cached files directly",
+            "nothing else exists",
+            "before a page could have loaded",
+        ] {
+            assert!(!main.contains(claim), "/docs claims {claim:?}");
+        }
+        // Positive control: the needles are matched against real copy.
+        assert!(main.contains("no front-end build step"));
+        assert!(main.contains("anyone, after picking a name and pin."));
+        assert!(main.contains("admins upload."));
+    }
+
+    #[test]
+    fn test_docs_publishes_no_phone_number() {
+        let html = render();
+        // Checked by shape, never by value, and only inside <main>: base.html's
+        // `?v=` hashes are hex and would trip a digit-run check on the head.
+        let main = main_of(&html);
+        assert!(!main.contains("+47"), "/docs carries a country code");
+        let digits: String = main.chars().filter(|c| *c != ' ').collect();
+        let longest_run = digits
+            .split(|c: char| !c.is_ascii_digit())
+            .map(str::len)
+            .max()
+            .unwrap_or(0);
+        assert!(longest_run < 8, "/docs carries a phone-length number");
+    }
+
+    #[test]
+    fn test_docs_and_readme_carry_the_same_ai_statement() {
+        fn plain(text: &str) -> String {
+            text.replace("<strong>", "")
+                .replace("</strong>", "")
+                .replace("**", "")
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ")
+        }
+        let html = render();
+        assert!(html.contains(AI_STATEMENT), "/docs lost the AI statement");
+        assert!(AI_STATEMENT.contains("<strong>How I use AI.</strong>"));
+        assert!(AI_STATEMENT.contains("<strong>Review is scaled to risk:</strong>"));
+
+        let readme = plain(include_str!("../../README.md"));
+        let statement = plain(AI_STATEMENT);
+        // Sentence by sentence, so a failure names the one that drifted.
+        for sentence in statement.split_inclusive(['.', ':', ';']) {
+            let sentence = sentence.trim();
+            assert!(readme.contains(sentence), "README lacks {sentence:?}");
+        }
+        assert!(readme.contains(&statement));
+        // The bold phrases are bold there too.
+        let raw = include_str!("../../README.md");
+        assert!(raw.contains("**How I use AI.**"));
+        assert!(raw.contains("**Review is scaled to risk:**"));
+    }
+
+    #[test]
+    fn test_docs_renders_the_pin_lockout_from_crate_pin() {
+        let html = render();
+        assert!(html.contains(&format!(
+            "{} wrong ones lock the account for {} minutes",
+            crate::pin::MAX_PIN_ATTEMPTS,
+            crate::pin::LOCKOUT_MINUTES
+        )));
+    }
 }
