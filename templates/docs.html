@@ -63,6 +63,80 @@
   </ol>
 </section>
 
+<section class="docs-section">
+  <div class="docs-section__head">
+    <h2>The six sections</h2>
+    <p class="docs-section__sub">Five of them share the site's header and stylesheet. Drinks is a separate part of the same program, with its own templates, database and sign-in.</p>
+  </div>
+  <div class="docs-table-wrap">
+    <table class="docs-table">
+      <thead>
+        <tr><th scope="col">Section</th><th scope="col">What it does</th><th scope="col">Who can use it</th></tr>
+      </thead>
+      <tbody>
+        {% for s in crate::routes::docs::SECTIONS %}
+        <tr>
+          <th scope="row"><span class="docs-table__name">{{ s.name }}</span><span class="docs-table__route">{{ s.route }}</span></th>
+          <td class="docs-table__what">{{ s.what }}</td>
+          <td class="docs-table__who">{{ s.who }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="docs-section">
+  <div class="docs-section__head">
+    <h2>A worked example: uploading a drawing</h2>
+    <p class="docs-section__sub">Uploading used to take 39 seconds. Nothing was removed — the slow work was moved out of the wait.</p>
+  </div>
+  <ol class="docs-timeline">
+    <li class="docs-timeline__row">
+      <span class="docs-timeline__when">in the browser</span>
+      <span class="docs-timeline__what">On the admin form, the picture is converted to WebP before it leaves the device, so the server never converts what the browser already can.</span>
+    </li>
+    <li class="docs-timeline__row">
+      <span class="docs-timeline__when docs-timeline__when--ok">during the upload</span>
+      <span class="docs-timeline__what">The file is stored, the row is written, and the finished card comes back. At this point I can close the tab.</span>
+    </li>
+    <li class="docs-timeline__row">
+      <span class="docs-timeline__when docs-timeline__when--warm">nobody waits</span>
+      <span class="docs-timeline__what">A second format, AVIF, is slower to produce, so it is made in the background and used from the next page load. If it fails, the page still works.</span>
+    </li>
+  </ol>
+  <p class="docs-text">The rule I took from it: if a step does not change what the person sees next, it does not belong in the wait. The same rule shapes the rest of the site — images reserve their space before they load, so the page does not jump as they arrive, and the first image on a feed is given priority while the rest load as you scroll.</p>
+</section>
+
+<section class="docs-section">
+  <div class="docs-section__head">
+    <h2>Who can see what</h2>
+    <p class="docs-section__sub">Sections like the food log hold personal data, so who may see what is decided in one place, and every page behind a sign-in names the rule it uses.</p>
+  </div>
+  <div class="docs-roles">
+    <div class="docs-role">
+      <span class="hm-badge hm-badge--neutral">visitor</span>
+      <p>Sees the public drawings, the practice board, the CV and this page, and can join the drinks games with a name and PIN. A page behind the site's sign-in sends them to sign in.</p>
+    </div>
+    <div class="docs-role">
+      <span class="hm-badge hm-badge--info">member</span>
+      <p>Signs in with a name and PIN on an account the owner created, and gets their own food log and their own sorting plans. A member cannot see anyone else's.</p>
+    </div>
+    <div class="docs-role">
+      <span class="hm-badge hm-badge--accent">admin</span>
+      <p>Manages drawings and the practice board: admins upload, caption, tag and set visibility. Being signed in is not enough on its own.</p>
+    </div>
+    <div class="docs-role docs-role--owner">
+      <span class="hm-badge hm-badge--warning">owner</span>
+      <p>One account. Creates accounts, resets PINs, grants admin. An admin cannot do any of those, so nothing granted can be turned back on the owner.</p>
+    </div>
+  </div>
+  <details class="docs-aside">
+    <summary>For a technical reader</summary>
+    <p>Four session extractors, one per rule — <code>OptionalAdmin</code> never refuses, <code>AuthSession</code> wants any account, <code>RequireAdmin</code> an admin, <code>RequireOwner</code> the owner — so picking the wrong one is visible in the handler's signature. A visitor without a session is sent to sign in. A signed-in account that lacks the rule gets a 404 rather than a 403, since a 403 would confirm the page exists. Every function that reads a post takes a required viewer argument, so forgetting it is a compile error rather than a leak. PIN attempts are counted in the database: {{ crate::pin::MAX_PIN_ATTEMPTS }} wrong ones lock the account for {{ crate::pin::LOCKOUT_MINUTES }} minutes, and a restart does not clear the count.</p>
+  </details>
+</section>
+
 </div>
 </div>
 {% endblock %}
