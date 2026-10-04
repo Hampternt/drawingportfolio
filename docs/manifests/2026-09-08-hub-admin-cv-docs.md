@@ -10,7 +10,9 @@ user 2026-09-25 and Pack 6 shipped on it. Rulings 2 and 3 were taken by the user
 neither extractor changed, and the documentation page's route is `/docs`.
 Ruling 4 was taken 2026-09-28: the CV's own content links nowhere on this site,
 so its rail's link card to `/docs` is dropped for good. **No ruling blocks any
-pack now** — Pack 3 can start, and Packs 4 and 5 still wait on it. An external
+pack now** — Pack 3 can be drafted, and Packs 4 and 5 still wait on it. **The
+pack order and the integration branch are open questions to the owner**
+(2026-10-05). An external
 review of the live site was mapped onto this container on 2026-09-27;
 it was written against `master` before #20 landed, so it did not see Packs 1, 2
 and 6. The mapping and its proposed manifest changes are in
@@ -67,8 +69,9 @@ a dozen unported `hm-*` primitives, the header, the nav and the command palette
 — has a blast radius that reaches three pages this container declares out of
 scope. That substrate is a pack on its own, and it has to land first.
 
-One of the eight packs crosses a privilege boundary (Pack 4, the owner-only
-Accounts pane). One was blocked on content the repo did not have (Pack 6,
+Two of the eight packs cross a privilege boundary: Pack 4, the owner-only
+Accounts pane, and Pack 2b, whose item 2b.0 changed what all three session
+extractors answer. One was blocked on content the repo did not have (Pack 6,
 until ruling 1). Neither is a thing to discover halfway through a pack.
 
 ## Pack sequence
@@ -86,9 +89,9 @@ Ordered by the hazard each pack retires, not by how visible its screen is.
 | 6 | **CV — `/cv`** | The CV page, its nav link, its hub tile and its palette command |
 | 7 | **How it works** | The explainer at its ruled route, and every claim on it true of the site the packs before it shipped |
 
-Packs 1 and 2 were planned to item level before they started, and Pack 6
-shipped from its brief. Pack 2b is planned to item level below; the other packs
-get their items when they start. All four numbered rulings below are taken, so
+Packs 1, 2 and 2b were planned to item level before they started, and Pack 6
+shipped from its brief. The remaining packs are drafted to item level and
+approved before they start. All four numbered rulings below are taken, so
 none blocks a pack. The non-blocking open rulings under trade-offs are
 still answered before the pack that consumes each.
 
@@ -99,16 +102,24 @@ dead link in the header of a live site.
 **Serial by default, parallel only by the count rule** (workflow of
 2026-10-04, replacing "no two packs run in parallel"). Packs 3, 4 and 5 are a
 chain, since 4 and 5 build on Pack 3's shell, so each runs as one builder
-after the one before. Pack 7 depends on none of them. Pack 3 and Pack 7 could
-run side by side only if each counts at least four items once drafted, with
-`static/style.css` divided into one named section per pack and `base.html`
-touched only by Pack 7's nav line. That pairing is the owner's call when a
-round is approved.
+after the one before. Pack 7 builds on none of their code, but its prose
+describes what they ship (uploads, visibility, the admin surface), so it fails
+the count rule's third condition. No remaining pair qualifies, and every
+remaining pack runs serially. Pack 7 was planned last for that reason. The
+handoff's suggested order puts it before the admin packs, which would mean
+writing its admin and upload claims for today's `/admin` and revisiting them
+after Pack 5. Which order is the owner's call (asked 2026-10-05).
 
 **Each remaining pack is drafted when it is next:** its items with done-when
 lines, its `Agents:` line and a **Test it yourself** section, with any test data
-committed alongside. Approving that draft is the go. The pack merges only
-after the owner's own pass through Test it yourself.
+committed alongside (made up, local database only). Approving that draft is the
+go. Each item passes the item gate (`./scripts/check.sh`, plus the targeted
+tests when it touches logic) before its commit. The pack passes the pack gate
+(`./scripts/verify.sh`) and a smoke check — each visible change loaded in a real
+browser, with a screenshot and the clean console in the ledger. Its measured
+time from `wave-times.sh` goes in the ledger too. The pack merges only after the
+owner's own pass through Test it yourself; its merge PR turns its own 🚧
+INVENTORY entry into ✅.
 
 ---
 
@@ -216,7 +227,7 @@ anything.
   download and need an explicit go. The item's CSS mask rules are written
   regardless; the files drop in behind them.
 
-- [ ] **1.1 The fourth theme scope.** Add `body.site-dark` to all **77**
+- [x] **1.1 The fourth theme scope.** Add `body.site-dark` to all **77**
       occurrences of `:is(body.art-page, body.fitness-dark, body.sorting-dark)`
       in `static/style.css` (count verified), and add the matching
       `classList.toggle('site-dark', …)` line to the syncBodyTheme IIFE in
@@ -227,7 +238,7 @@ anything.
       *Done: computed styles on `/artportfolio`, `/fitness` and `/sorting` are
       unchanged, no three-argument `:is(` list remains, and no page yet carries
       the marker.*
-- [ ] **1.2 Rule on `.hm-post`.** Promote it and its six siblings from
+- [x] **1.2 Rule on `.hm-post`.** Promote it and its six siblings from
       `body.art-page` onto the shared `:is()` list so Pack 3's admin row can keep
       the `hx-target="closest .hm-post" hx-swap="outerHTML"` contract, or fork a
       separate admin row class and leave the DS banner's deliberate
@@ -235,7 +246,7 @@ anything.
       *Done: `/artportfolio`'s card renders with identical computed styles
       before and after, and the decision is recorded here for Pack 3.*
       ⚠ **Flagged for individual review** — cross-page blast radius.
-- [ ] **1.3 The insertion anchor.** Open a
+- [x] **1.3 The insertion anchor.** Open a
       `/* ── Site chrome: hub, admin, CV, how it works ─── */` section **above**
       line 2951's sorting banner — `tests/static_assets.rs` slices from that
       marker string to EOF and rejects a literal `px` in any rule body, and this
@@ -245,7 +256,7 @@ anything.
       `static/icons/`.
       *Done: `cargo test --test static_assets` is green with a literal px value
       present in the new section, and the banner contains no nested comment.*
-- [ ] **1.4 Four font faces and the token they unlock.** Copy `archivo-500`,
+- [x] **1.4 Four font faces and the token they unlock.** Copy `archivo-500`,
       `archivo-600`, `space-grotesk-600` and `space-grotesk-700` from the
       handoff's `_ds/…/assets/fonts/` into `static/fonts/` (md5-identical to
       `drinkinggame/assets/fonts/` — copy, never re-encode), add their four
@@ -254,7 +265,7 @@ anything.
       now exists.
       *Done: `document.fonts.check('600 20px Archivo')` is true and no weight is
       synthesised.*
-- [ ] **1.5 Self-host the icon set.** `static/icons/` holds seven files today;
+- [x] **1.5 Self-host the icon set.** `static/icons/` holds seven files today;
       add the 23 Lucide v0.462.0 names the handoff enumerates that are missing,
       plus `arrow-up-right` and `chevron-right`, each with its mask rule. Include
       the six reachable only through the command palette — `home`, `tag`, `eye`,
@@ -262,14 +273,14 @@ anything.
       iconless.
       *Done: every icon name in the handoff resolves to a local file painting
       from `currentColor`, and no `unpkg.com` URL exists in the repo.*
-- [ ] **1.6 Port the missing `hm-*` primitives**, scoped: `.hm-badge` and its six
+- [x] **1.6 Port the missing `hm-*` primitives**, scoped: `.hm-badge` and its six
       tones, `.hm-tag`, `.hm-textarea`, `.hm-choice`, `.hm-hub`, `.hm-card`,
       `.hm-btn--danger`, the outline/accent icon-buttons, `.hm-input--mono`.
       Strip source comments — a nested `/* */` fails the asset test — and keep
       the repo's three deliberate deviations from the bundle.
       *Done: every ported class resolves each `var()` it names. Tabs, Tooltip,
       Toast, Switch, Select and CalorieRing are deliberately not ported.*
-- [ ] **1.7 A prose baseline.** The scoped resets zero `p` and `h1–h4` margins,
+- [x] **1.7 A prose baseline.** The scoped resets zero `p` and `h1–h4` margins,
       omit `h5`/`h6`, and carry no rule at all for lists or tables, so a prose
       page authored naively renders as one block over UA bullets. Add
       `.hm-prose`: stacked flow at 68ch, restored rhythm, and the design's bullet
@@ -277,7 +288,7 @@ anything.
       handoff forbids.
       *Done: a paragraph-and-bullets fixture renders with the design's spacing
       and no UA markers; CV and How-it-works inherit it.*
-- [ ] **1.8 The header chrome, in `templates/base.html` only.** Replace
+- [x] **1.8 The header chrome, in `templates/base.html` only.** Replace
       `<a href="/" class="site-title">Portfolio</a>` with the wordmark, add the
       34px `Ctrl K` palette button and the `is_admin`-only settings icon-button,
       and lay `header nav` out to spec under **both** the scoped chrome and the
@@ -286,11 +297,11 @@ anything.
       wholesale, which is where CLAUDE.md's update-both rule is satisfied.
       *Done: `/artportfolio`, `/fitness` and `/sorting` read `hampter.`,
       `/tasks`' four links render as a spaced row, admin.html is unchanged.*
-- [ ] **1.9 Active nav state.** Add `{% block nav_active %}` to `base.html` and
+- [x] **1.9 Active nav state.** Add `{% block nav_active %}` to `base.html` and
       fill it from the templates that extend it.
       *Done: `/fitness` renders Fitness at `--text-strong` and the rest muted,
       and a template that omits the block still compiles and marks nothing.*
-- [ ] **1.10 The command palette goes dark.** `#palette-overlay`, `#palette-box`,
+- [x] **1.10 The command palette goes dark.** `#palette-overlay`, `#palette-box`,
       `#palette-input`, `#palette-results` and `.palette-item` sit at ID
       specificity with no dark override anywhere, so Ctrl+K already opens a white
       box on a black page on three shipped dark pages — a pre-existing bug the
@@ -298,7 +309,7 @@ anything.
       and `docs` arrive with their routes.
       *Done: Ctrl+K on `/artportfolio`, `/fitness` and `/sorting` opens a dark
       panel.*
-- [ ] **1.11 Delete the dead legacy card CSS** at `static/style.css:74–104` and
+- [x] **1.11 Delete the dead legacy card CSS** at `static/style.css:74–104` and
       correct CLAUDE.md's "Post cards" paragraph, which is wrong on both halves
       of its claim: `admin_post_card_html()` emits `class="admin-post"`
       (admin.rs:653), and a repo-wide grep finds no emitter of `post-card` at
@@ -370,27 +381,27 @@ Pack 1 decision — no data, no mutations, no permission boundary — so a misse
   them is a container-level change that belongs with the mobile-nav ruling in
   Pack 6, not a hub pack's call.
 
-- [ ] **2.1 The page marker.** Add the `main .site-page` marker the Pack 1
+- [x] **2.1 The page marker.** Add the `main .site-page` marker the Pack 1
       sync script looks for, so `/` derives `body.site-dark`. Nothing else in
       this item.
       *Done: `/` carries `body.site-dark` on load, after a boosted navigation
       away and back, and after `htmx:historyRestore`.*
-- [ ] **2.2 The hero.** 96/72px padding on the 32px blueprint grid, the mono
+- [x] **2.2 The hero.** 96/72px padding on the 32px blueprint grid, the mono
       eyebrow, the `Portfolio.` headline in Archivo 900 with a violet full stop,
       and the tagline verbatim from today's `hub.html`. No about line — see the
       ruling above.
       *Done: computed background-size is `32px 32px`, the headline resolves
       Archivo 900, and the full stop computes `#B48EF7`.*
-- [ ] **2.3 The palette bar.** The 48px, 520px-max button under the hero with
+- [x] **2.3 The palette bar.** The 48px, 520px-max button under the hero with
       its search icon, "Search commands…" label, `Ctrl` `K` keycaps and the mono
       caption beneath. It opens the same palette the header button does — one
       handler, not two.
       *Done: clicking it opens the dark palette from Pack 1 item 1.10.*
-- [ ] **2.4 The Sections heading row.** `h2` at Archivo 700/26px followed by a
+- [x] **2.4 The Sections heading row.** `h2` at Archivo 700/26px followed by a
       1px rule filling the remaining width.
       *Done: the rule reaches the container's right edge at 1440px and at
       390px.*
-- [ ] **2.5 The five tiles.** `.hm-hub` cards in the auto-fit grid —
+- [x] **2.5 The five tiles.** `.hm-hub` cards in the auto-fit grid —
       Drawing Portfolio, Drawing Tasks, Fitness, Sorting, Drinks — descriptions
       and metas verbatim from the design (which took them from today's
       `hub.html`). **Five, not six: the CV tile arrives with its route in Pack
@@ -398,11 +409,11 @@ Pack 1 decision — no data, no mutations, no permission boundary — so a misse
       /drinks card and the mock does not model it — it must survive.
       *Done: five tiles, each lifting 2px with an accent border on hover, and
       /drinks still does a full page load rather than a boosted swap.*
-- [ ] **2.6 The footer.** The mono footer row. The "how this site works" link
+- [x] **2.6 The footer.** The mono footer row. The "how this site works" link
       targets a route that does not exist yet, so it is **omitted** here and
       arrives in Pack 7 with its route — same no-dead-links rule the nav follows.
       *Done: no link on `/` 404s.*
-- [ ] **2.7 Delete the light hub CSS** at `static/style.css:34-60`
+- [x] **2.7 Delete the light hub CSS** at `static/style.css:34-60`
       (`.hub-intro`, `.hub-projects`, `.hub-card` and friends) now that nothing
       renders it.
       *Done: `./scripts/verify.sh` green and no template references the deleted
@@ -603,9 +614,11 @@ auth-boundary change in this pack.
 review: one pass for the pack plus an auth lens on 2b.0, 2b.6 and 2b.9, with 1
 skeptic per finding. Ultracode was on.
 
-**Test it yourself** (added 2026-10-05, after the pack landed — it predates the
-rule; run it on the live site). No test data needed: the visitor steps use a
-private window, and the signed-in steps use your own accounts.
+**Test it yourself** (added 2026-10-05, after the pack landed; it predates the
+rule). Run it on the live site. The visitor steps use a private window and the
+owner steps your own passkey. Step 8 needs a throwaway member: create it at
+`/admin/users` as `walk-member` with PIN `2468`, without the admin grant, and
+delete it when you finish.
 
 1. *As a visitor,* open `/`. Under the tagline: "**Jesper L.** · Developer —
    internal digital tools and automation". Every tile's foot starts with a
@@ -618,9 +631,9 @@ private window, and the signed-in steps use your own accounts.
    New sorting session end in "· sign-in"; typing "fit" still finds both
    fitness commands.
 4. Click the Fitness tile. A normal login page loads (white card, styled
-   buttons), and "← Back to the hub" returns to `/`. Type a made-up name (a
-   real one would count toward that account's lockout) and any PIN: "Wrong
-   name or PIN" shows and the address bar has no `?name=`.
+   buttons), and "← Back to the hub" returns to `/`. Type the made-up name
+   `walk-nobody` (a real one would count toward that account's lockout) and the
+   PIN `0000`. "Wrong name or PIN" shows, and the address bar has no `?name=`.
 5. Click the Drinks tile: the drinks landing loads as its own page and asks for
    a name and PIN.
 6. *Signed in as yourself (the owner),* the header's settings icon opens a
@@ -628,9 +641,9 @@ private window, and the signed-in steps use your own accounts.
    `/admin` lands on the styled login page.
 7. Sign in again, open `/fitness/account` and sign out: the same styled login
    page.
-8. *As a member who is not an admin* (any PIN account without the grant): no
-   settings icon in the header, no `/admin` in the footer, and `/admin` typed
-   by hand gives a 404.
+8. *Signed in as `walk-member`:* no settings icon in the header, no `/admin` in
+   the footer, and `/admin` typed by hand gives a 404. Then delete `walk-member`
+   at `/admin/users` as the owner.
 
 ### Pack 3 — Admin: the shell, the Posts pane, and the end of `admin_post_card_html()`
 
@@ -650,7 +663,8 @@ filtering the list, each row showing its badge, tag pills, pixel dimensions, fil
 size and the amber `webp · avif pending` state, with edit / hide / unlist /
 delete working in place and a Load more at the foot.
 
-**Agent brief:** read first — `Admin.dc.html`, README §2, `src/routes/admin.rs`
+**Agent brief:** read first — repo `CLAUDE.md`, this manifest's ruling 2 (the
+reason for this pack's auth review), `Admin.dc.html`, README §2, `src/routes/admin.rs`
 (`upload_post`'s multipart arms, `htmx_admin_posts`, `patch_visibility`,
 `patch_post`, `edit_post_fragment`, `admin_post_card_html`), `feed.rs`'s
 `PageQuery::filter()` and `get_posts_page` as the pagination pattern to copy,
@@ -659,8 +673,12 @@ delete working in place and a Load more at the foot.
 unchanged. **Pack 3 owns `templates/admin.html`'s header** — Pack 1 deliberately
 left it alone rather than hand-editing a header this pack replaces wholesale.
 
+Depends on Pack 1 (landed). Packs 4 and 5 depend on this pack.
+
 **Agents:** plan: main session · build 1 serial (medium) · review: auth lens on
-`admin_page`'s second extractor (high), 1 skeptic per finding.
+`admin_page`'s second extractor, and a live-data lens on `upload_post`'s new
+`tags` arm and the row mutations' wiring (both high) · verify: 3 skeptics per
+finding.
 
 **Risks.** `patch_visibility` and `patch_post` both return the *feed* card;
 wiring the admin row's buttons to them without a second response shape swaps a
@@ -684,7 +702,7 @@ owner's own row) plus the create row, each action swapping only its own row.
 Signed in as a granted non-owner admin, the rail entry is absent and "view
 source" on `/admin` contains no other account's name.
 
-**Agent brief:** read first — `src/routes/users.rs` (all five `RequireOwner`
+**Agent brief:** read first — repo `CLAUDE.md`, this manifest, `src/routes/users.rs` (all five `RequireOwner`
 routes and every `render()` call site, each of which returns a whole page today),
 `templates/users.html`, `src/models.rs` (`UserRow` covers every column the grid
 draws), `src/middleware.rs`. Depends on Pack 3, which produces the shell, the
@@ -725,10 +743,12 @@ button — keeping the existing client-side canvas → WebP conversion before PO
 that badge, with `webp · avif pending` in amber for a second or two before the
 AVIF backfills.
 
-**Agents:** plan: main session · build 1 serial (medium) · review: none — the
-upload route and its limits do not change.
+**Agents:** plan: main session · build 1 serial (medium) · review: a live-data
+lens (high) on the visibility default and the tags the new pane sends, since
+this is the first UI to set either on upload (a wrong default publishes a post
+meant to be hidden) · verify: 3 skeptics per finding.
 
-**Agent brief:** read first — `Admin.dc.html` §New post pane, `upload_post` (the
+**Agent brief:** read first — repo `CLAUDE.md`, this manifest, `Admin.dc.html` §New post pane, `upload_post` (the
 `visibility` field already parses; the comment there even says "no upload control
 sends this yet"), and admin.html's existing canvas→WebP script, currently bound
 on `DOMContentLoaded` only. Any JS the dropzone adds must bind on **both**
@@ -790,7 +810,7 @@ keyboard callout. The hub footer link lands here (the CV links nowhere on the
 site — ruling 4), and every claim on the page is true of the site the packs
 before it shipped.
 
-**Agent brief:** read first — `How it works.dc.html`, README §4 (including its
+**Agent brief:** read first — repo `CLAUDE.md`, this manifest, `How it works.dc.html`, README §4 (including its
 rule: *"Every fact and number comes from the repo's own CLAUDE.md /
 docs/design.md. If you change the code, change this page"*) and, for the numbers,
 the actual output of `cargo test --workspace` and `./scripts/verify.sh` — never
@@ -798,14 +818,13 @@ another document. Depends on Pack 1 for the scope, Pack 2 for the hub footer
 link, and Pack 6 for a complete nav. Depends on Pack 2b too: the sections
 table's Drinks row takes 2b.3's words, adding the footer's `/docs` link flips
 2b.8's no-`/docs` test in `hub.rs`, and the footer says "no front-end build
-step", which this page's wording must match. This pack closes the
-container: convert the 🚧 pointers in `docs/INVENTORY.md` into real entries in all
-four places.
+step", which this page's wording must match. Its merge PR turns the `/docs`
+INVENTORY entry into ✅; each admin pack does the same for its own part. Whichever
+pack lands last also removes INVENTORY's "In transit" footer.
 
-**Agents:** plan: main session · build 1 serial (medium) · verify: one fact-check
-agent (high) checks every claim and number on the page against the tree before
-handover. The page is public, aimed at employers, and has no test behind its
-prose.
+**Agents:** plan: main session · build 1 serial (medium) · review: a fact-check
+lens (high) on every claim and number on the page, opt-in for the owner (with
+ultracode on, this line is the opt-in) · verify: 1 skeptic per finding.
 
 **Risks.** Stale by construction, on a public page aimed at employers, with no
 test behind any of it. The board-check figure has **already** drifted inside
@@ -882,7 +901,8 @@ success: test, build, deploy). Live smoke check on portfolio.dblo.net: the
 hub renders the identity line, six badges, the new footer and the
 `htmx-config` meta; no console errors; 0 horizontal overflow at 390px and
 1440px. A signed-out click on the Fitness tile loads `/admin/login` as a
-fresh, styled document with its back link.
+fresh, styled document with its back link. Screenshot of the live hub (re-taken 2026-10-05, clean
+console): `docs/manifests/screens/2026-10-05-pack-2b-live-hub.jpg`.
 
 **Signed-in check, 2026-10-05,** on the local dev server from this worktree,
 using a throwaway admin and three sessions in the worktree's database copy,

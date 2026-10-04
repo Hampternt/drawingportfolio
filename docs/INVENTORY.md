@@ -42,14 +42,9 @@ The public showcase of drawings.
 - ✅ Visibility per post: public (listed), unlisted (permalink only), hidden.
 - ✅ Admin dashboard (`/admin`, for the owner and accounts granted admin): upload with automatic image
   variants, edit captions/tags, manage collections and visibility.
-- 🚧 **Admin redesign — planned, no code written.** `/admin` would become a dark
-  sidebar shell with live counts, a searchable and filterable post list, and the
-  owner-only accounts pane folded in from `/admin/users`. Three packs (3, 4, 5)
-  of the container below. None waits on a decision now, and 4 and 5 follow 3:
-  how the admin page learns who is signed in — without changing the admin
-  gate, which is a security boundary — was decided 2026-09-27. The accounts pane is the container's only privilege
-  boundary and is planned as its own pack for that reason. Container:
-  `docs/manifests/2026-09-08-hub-admin-cv-docs.md`
+- 💭 Admin redesign — `/admin` as a dark sidebar shell with live counts, a
+  searchable post list, and the owner-only accounts pane folded in. Packs 3–5
+  of `docs/manifests/2026-09-08-hub-admin-cv-docs.md`, not started.
 
 ## Drawing tasks — `/tasks`
 
@@ -134,11 +129,12 @@ A party platform for phone-based drinking games in shared rooms.
   IN; card swaps happen in a full-screen mulligan overlay; seat chips
   show everyone's per-deck hand counts; a mode badge + pull count ride
   the tab row. Container: `docs/manifests/2026-08-13-lc-mobile-play-flow.md`
-- 🚧 Challenge cards — real-life party challenges as Last Call cards
-  (duels judged by table vote, solo dares, social penalties). Idle: the first
-  pack's engine and table vote are live, but no challenge card is in the deck
-  yet, so no game draws one; the rest is not started.
-  Container: `docs/manifests/2026-08-14-lc-challenge-cards.md`
+- ✅ Challenge-card engine — a played challenge pauses the round for a table
+  vote that settles it. No challenge card is in the deck yet, so no live game
+  draws one.
+- 💭 Challenge cards themselves — duels judged by table vote, solo dares, social
+  penalties, and their on-screen spectacle. Container
+  `docs/manifests/2026-08-14-lc-challenge-cards.md`, idle.
 
 ## CV — `/cv`
 
@@ -153,14 +149,8 @@ A public CV, in Norwegian, for anyone considering hiring the owner.
 
 ## How it works — `/docs`
 
-- 🚧 **Planned, no code written.** An employer-facing explainer of how the site
-  is built and run: the request path, the sections, how uploads and visibility
-  work, and the decisions behind them. Pack 7 of the container below, and last
-  by design — most of its prose is a claim about what the earlier packs shipped.
-  The route is `/docs`, decided 2026-09-27, and nothing blocks it now. Nothing
-  links here yet; the nav and the hub footer will once it exists, and the CV
-  deliberately never does — a test holds it to that. Container:
-  `docs/manifests/2026-09-08-hub-admin-cv-docs.md`
+- 💭 An employer-facing explainer of how the site is built and run, at `/docs`.
+  Pack 7 of `docs/manifests/2026-09-08-hub-admin-cv-docs.md`, not started.
 
 ## Infrastructure
 
@@ -177,13 +167,13 @@ A public CV, in Norwegian, for anyone considering hiring the owner.
   their own Spotify. Parked idea: `docs/manifests/2026-10-04-spotify-song-share.md`
 - 💭 Public polish — page titles with the owner's name, link previews and a
   favicon, robots.txt, and a 404 page that keeps the site header. From the
-  2026-09-27 review: `docs/handoffs/2026-09-27-portfolio-review.md` (N2).
+  portfolio review: `docs/handoffs/2026-09-27-portfolio-review.md` (N2).
 - 💭 Public demos — something a signed-out visitor can see working: a
   read-only sorting board with the loading method explained, a drinks room
   anyone can watch, and a fitness demo account. Same handoff (N1).
 - 💭 How it works, the long read — engineering notes with real code excerpts, a
   dated build log, and the loading method in plain language, under `/docs`.
-  Same handoff (C10, drafted as the container's Pack 8).
+  Same handoff (C10).
 - 💭 A README for the public repository. Same handoff (N4).
 - 💭 Deploy and server hardening — CI building against the offline query cache,
   a database backup before every deploy, a deploy user with a pinned host key,
@@ -195,7 +185,6 @@ A public CV, in Norwegian, for anyone considering hiring the owner.
 ---
 
 *In transit: the Hub/Admin/CV/How-it-works container —*
-*`docs/manifests/2026-09-08-hub-admin-cv-docs.md`. The shared shell, the Hub*
-*and the CV have shipped; the Admin redesign and the How-it-works page are*
-*planned only, and neither waits on a decision now. The hub follow-up (Pack*
-*2b) landed 2026-10-04.*
+*`docs/manifests/2026-09-08-hub-admin-cv-docs.md`. The shared shell, the Hub,*
+*its follow-up and the CV have shipped; the Admin redesign and the*
+*How-it-works page are considered, not started.*
