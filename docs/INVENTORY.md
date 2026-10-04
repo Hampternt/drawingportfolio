@@ -13,19 +13,20 @@ is part of the definition of merged. Manifests live in `docs/manifests/`.
 The landing page: entry point linking to every public area of the site.
 
 - A dark front door on the house design system: a blueprint-grid hero naming
-  what the site runs on, the tagline, and nothing else competing for attention.
+  what the site runs on, the tagline, and who runs it — the owner's short name
+  and one line on what they do.
 - A search bar that opens the command palette on click, so every destination on
   the site is reachable without knowing a URL. `Ctrl`+`K` does the same from any
   page.
 - Six section tiles — drawing portfolio, drawing tasks, drinks, fitness,
-  sorting, CV — each saying what the section is and who can reach it.
+  sorting, CV — each saying what the section is, who can reach it, and whether
+  it is live or still in progress.
+- A footer with the owner's email and GitHub.
+- ✅ Sign-in walls show before the click: tiles and palette commands for
+  signed-in sections say so, and following one always lands on a proper login
+  page, which links back to the hub. Signing out lands there the same way.
 - The site header is shared from here: the wordmark, a nav that lights the
   section you are in, and the palette. Every other page wears it too.
-- 🚧 **Hub follow-up — built, not yet merged.** The owner named in the hero, a status
-  badge on every tile, Drinks copy that mentions the name-and-PIN step, contact
-  links in the footer, sign-in marked in the palette before the click, a way
-  back from the login page, and the login page always loading as a proper page.
-  Pack 2b of the container: `docs/manifests/2026-09-08-hub-admin-cv-docs.md`
 
 ## Art portfolio — `/artportfolio`
 

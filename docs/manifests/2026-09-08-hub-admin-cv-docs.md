@@ -3,7 +3,7 @@
 **Status:** ACTIVE — **Packs 1, 2 and 6 landed** (shared shell, Hub, CV), each
 gated and walked; ledgers at the foot. They reached `master` as one
 squash-merge, Hampternt/drawingportfolio#20, on 2026-09-27. **Pack 2b, the hub
-follow-up, is built, gated and walked** (2026-09-28), awaiting its review and the merge. Packs 3, 4,
+follow-up, LANDED** via Hampternt/drawingportfolio#24 (2026-10-04). Packs 3, 4,
 5 and 7 are not started. Ruling 1 was taken by the
 user 2026-09-25 and Pack 6 shipped on it. Rulings 2 and 3 were taken by the user
 2026-09-27: `admin_page` takes `AuthSession` alongside `RequireAdmin`, with
@@ -817,7 +817,7 @@ Not blocking, but each needs an answer before the pack that consumes it.
 
 ## Ledger
 
-### Pack 2b — built, walked and reviewed 2026-09-28; merge pending
+### Pack 2b — landed 2026-10-04 via #24 (built, walked and reviewed 2026-09-28)
 
 Ten items, one commit each on `feat/portfolio-review`: `b1465c2` (2b.0 the
 login redirect), `c78510d` (2b.1 identity line), `ed75f2b` (2b.2 badges),
@@ -1152,6 +1152,11 @@ decision that moves every dark page at once.
   data off `master` only while **no** pushed ref reaches the old history, tags
   included. Before pushing any archive ref, check
   `git merge-base --is-ancestor e703a03 <ref>`.
+- 2026-10-04 — **Deleting refs was never enough: PR refs keep the data
+  public.** GitHub keeps every PR's commits under `refs/pull/N/head`
+  permanently. Those for #19, #20 and #21 still reach `e703a03`, whose design
+  handoff carries the phone number in two files, visible in each PR's commit
+  list. Only GitHub Support can purge PR refs; that request is the owner's.
 - 2026-09-28 — Pack 2b given the go, after the user took its three rulings and
   chose to add 2b.0 (the boosted-login fix) and 2b.9 (the boosted `/admin`
   links). The plan was corrected from a two-agent check pass: `webauthn.js`'s
