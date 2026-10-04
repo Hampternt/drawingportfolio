@@ -70,6 +70,20 @@ const SITE_MIGRATIONS: usize = 24;
 const DRINKS_MIGRATIONS: usize = 3;
 const MIGRATIONS: usize = SITE_MIGRATIONS + DRINKS_MIGRATIONS;
 
+/// The owner's statement on how AI is used, word for word from
+/// docs/handoffs/2026-09-27-portfolio-review.md §"The AI statement", with its
+/// two bold phrases as <strong>. The page renders it and README.md must carry
+/// the same sentences; a test holds both to this one copy.
+const AI_STATEMENT: &str = "<strong>How I use AI.</strong> I design the solution first \
+— the data model, the boundaries, the failure cases, what has to be tested — then hand \
+Claude Code a precise brief to implement it. Because I know the technology and where it \
+usually goes wrong, the brief names the right constraints up front, so the first pass \
+lands close and there are few rounds of correction. That keeps both cycle time and token \
+cost low. <strong>Review is scaled to risk:</strong> I weigh how critical a change is and \
+how likely it is to go wrong. Routine, low-stakes work gets a quick check; anything that \
+reaches live users, touches security or data, or is complex enough to hide errors gets a \
+thorough review — often of the plan, before any code is written.";
+
 /// `cargo test --workspace`'s total and `scripts/verify.sh`'s board checks,
 /// as measured on `MEASURED_ON`. Re-measure, never copy from another document.
 const WORKSPACE_TESTS: u32 = 1117;
