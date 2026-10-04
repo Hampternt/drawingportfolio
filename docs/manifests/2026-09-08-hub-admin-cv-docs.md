@@ -96,9 +96,19 @@ still answered before the pack that consumes each.
 through Pack 5, reaches five in Pack 6 and six in Pack 7. No pack ever leaves a
 dead link in the header of a live site.
 
-**No two packs run in parallel.** Every one of them writes into
-`static/style.css`, and Packs 1, 2, 6 and 7 also write into
-`templates/base.html`. Worktree isolation buys nothing here.
+**Serial by default, parallel only by the count rule** (workflow of
+2026-10-04, replacing "no two packs run in parallel"). Packs 3, 4 and 5 are a
+chain, since 4 and 5 build on Pack 3's shell, so each runs as one builder
+after the one before. Pack 7 depends on none of them. Pack 3 and Pack 7 could
+run side by side only if each counts at least four items once drafted, with
+`static/style.css` divided into one named section per pack and `base.html`
+touched only by Pack 7's nav line. That pairing is the owner's call when a
+round is approved.
+
+**Each remaining pack is drafted when it is next:** its items with done-when
+lines, its `Agents:` line and a **Test it yourself** section, with any test data
+committed alongside. Approving that draft is the go. The pack merges only
+after the owner's own pass through Test it yourself.
 
 ---
 
@@ -589,6 +599,39 @@ must not restore "no build step". `palette.js` loads on every page built on
 2b.0 changes what all three session extractors answer, which makes it the one
 auth-boundary change in this pack.
 
+**Agents (as run):** plan: main session · build 1 serial (the main session) ·
+review: one pass for the pack plus an auth lens on 2b.0, 2b.6 and 2b.9, with 1
+skeptic per finding. Ultracode was on.
+
+**Test it yourself** (added 2026-10-05, after the pack landed — it predates the
+rule; run it on the live site). No test data needed: the visitor steps use a
+private window, and the signed-in steps use your own accounts.
+
+1. *As a visitor,* open `/`. Under the tagline: "**Jesper L.** · Developer —
+   internal digital tools and automation". Every tile's foot starts with a
+   badge — LIVE on five, IN PROGRESS on Sorting. The footer reads
+   "server-rendered · no front-end build step", then your email and GitHub,
+   and shows no `/admin` link.
+2. Narrow the window to phone width: nothing scrolls sideways, and the badges
+   stay whole.
+3. Press Ctrl+K: Go to Fitness Tracker, Go to Fitness Week, Go to Sorting and
+   New sorting session end in "· sign-in"; typing "fit" still finds both
+   fitness commands.
+4. Click the Fitness tile. A normal login page loads (white card, styled
+   buttons), and "← Back to the hub" returns to `/`. Type a made-up name (a
+   real one would count toward that account's lockout) and any PIN: "Wrong
+   name or PIN" shows and the address bar has no `?name=`.
+5. Click the Drinks tile: the drinks landing loads as its own page and asks for
+   a name and PIN.
+6. *Signed in as yourself (the owner),* the header's settings icon opens a
+   styled `/admin`, and so does the hub footer's `/admin` link. "Log out" on
+   `/admin` lands on the styled login page.
+7. Sign in again, open `/fitness/account` and sign out: the same styled login
+   page.
+8. *As a member who is not an admin* (any PIN account without the grant): no
+   settings icon in the header, no `/admin` in the footer, and `/admin` typed
+   by hand gives a 404.
+
 ### Pack 3 — Admin: the shell, the Posts pane, and the end of `admin_post_card_html()`
 
 **Unblocked: ruling 2 was taken 2026-09-27. Items are written when the pack
@@ -615,6 +658,9 @@ delete working in place and a Load more at the foot.
 `src/middleware.rs`. Half the server side already exists and should be reused
 unchanged. **Pack 3 owns `templates/admin.html`'s header** — Pack 1 deliberately
 left it alone rather than hand-editing a header this pack replaces wholesale.
+
+**Agents:** plan: main session · build 1 serial (medium) · review: auth lens on
+`admin_page`'s second extractor (high), 1 skeptic per finding.
 
 **Risks.** `patch_visibility` and `patch_post` both return the *feed* card;
 wiring the admin row's buttons to them without a second response shape swaps a
@@ -650,6 +696,10 @@ the flag were wrong. **Every item in this pack is flagged for individual
 review** — auth/session territory.
 ⚠ Placed before Pack 5 deliberately: risk before cosmetics.
 
+**Agents:** plan: main session · build 1 serial (medium) · review: auth lens on
+every item (high), 3 skeptics per finding. The pack's Test it yourself section
+includes a pass as a granted non-owner admin.
+
 **Risks.** **The read leak is the whole reason this is its own pack.**
 `admin_page` is `RequireAdmin`; if the pane's rows render inline, a granted
 non-owner admin receives every user's name, role, PIN state and creation date in
@@ -674,6 +724,9 @@ button — keeping the existing client-side canvas → WebP conversion before PO
 `unlisted`, upload: the post appears in the Posts pane carrying those tags and
 that badge, with `webp · avif pending` in amber for a second or two before the
 AVIF backfills.
+
+**Agents:** plan: main session · build 1 serial (medium) · review: none — the
+upload route and its limits do not change.
 
 **Agent brief:** read first — `Admin.dc.html` §New post pane, `upload_post` (the
 `visibility` field already parses; the comment there even says "no upload control
@@ -748,6 +801,11 @@ table's Drinks row takes 2b.3's words, adding the footer's `/docs` link flips
 step", which this page's wording must match. This pack closes the
 container: convert the 🚧 pointers in `docs/INVENTORY.md` into real entries in all
 four places.
+
+**Agents:** plan: main session · build 1 serial (medium) · verify: one fact-check
+agent (high) checks every claim and number on the page against the tree before
+handover. The page is public, aimed at employers, and has no test behind its
+prose.
 
 **Risks.** Stale by construction, on a public page aimed at employers, with no
 test behind any of it. The board-check figure has **already** drifted inside
@@ -846,6 +904,9 @@ login redirect), `c78510d` (2b.1 identity line), `ed75f2b` (2b.2 badges),
 `94ecf81` (2b.3 Drinks copy), `446b0ab` (2b.4 footer), `bfe3978` (2b.5
 palette), `947806a` (2b.6 login back link), `128dcb3` (2b.7 `lang="nb"`),
 `b3b1a29` (2b.8 hub tests), `92782e8` (2b.9 unboosted standalone links).
+
+**Measured** (`wave-times.sh 6f0021a … dfcece2`): 15 commits over 28 min, from
+the go to the review fix, built serially by one builder.
 
 **Pack gate green,** run in the worktree: `VERIFY OK — fmt, clippy, tests, JS
 syntax, board suites all clean.` Workspace **1114** tests (347 + 8 + 524 + 235;
@@ -1163,6 +1224,13 @@ pre-existing and unchanged by this pack, so widening the gutter is a Pack 2
 decision that moves every dark page at once.
 
 
+- 2026-10-05 — Manifest brought up to the workflow of 2026-09-30 to 2026-10-04.
+  "No two packs run in parallel" became the count rule. Packs 3, 4, 5 and 7
+  gained `Agents:` lines and the note that each is drafted with its own Test it
+  yourself section when it is next. Pack 2b gained its as-run `Agents:` line, a
+  Test it yourself section added after it landed, and its measured time.
+  INVENTORY now opens every entry with a state, and the handoff's unscheduled
+  steps are listed under Considered.
 - 2026-09-28 — **A pushed tag re-published the scrubbed data; deleted the same
   day.** To keep the ledgers' cited hashes resolvable after the squash, another
   session tagged the pre-squash tip `archive/hub-admin-cv-docs` (fdcebf7) and
