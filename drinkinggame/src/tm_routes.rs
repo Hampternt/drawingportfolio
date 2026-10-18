@@ -501,13 +501,16 @@ pub async fn tm_seat_handler(
         Err(r) => return r,
     };
     let _guard = lock.lock().await;
-    let mut ctx = match load_tm(&state, &code, &player).await {
+    let ctx = match load_tm(&state, &code, &player).await {
         Ok(c) => c,
         Err(r) => return r,
     };
-    if let Err(e) = ctx.st.move_seat(form.target, form.dir) {
-        return map_tm(e).into_response();
+    // Seat order lives on the room now: ↑/↓ moves the room's ring, and the
+    // running game follows it, so the two orders can never disagree.
+    if let Err(e) =
+        crate::seats::swap_with_neighbour(&state, &ctx.room, form.target, form.dir).await
+    {
+        return e.into_response();
     }
-    persist_and_broadcast(&state, &ctx).await;
     StatusCode::NO_CONTENT.into_response()
 }

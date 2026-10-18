@@ -156,6 +156,29 @@ async fn join_room_handler(
     }
 }
 
+#[derive(Deserialize)]
+struct ScreenForm {
+    /// "room", not "code" — the same phone-keyboard reason as `JoinForm`.
+    #[serde(default)]
+    room: String,
+}
+
+/// `GET /screen?room=CODE` — the landing page's "Open big screen". Needs no
+/// session and joins nobody: a TV is in the room without being a player.
+/// The code is checked against the alphabet before it becomes part of a
+/// redirect path.
+async fn open_screen(
+    State(state): State<GameState>,
+    axum::extract::Query(form): axum::extract::Query<ScreenForm>,
+) -> axum::response::Response {
+    let code = form.room.trim().to_uppercase();
+    let well_formed = code.len() == 4 && code.bytes().all(|b| rooms::CODE_ALPHABET.contains(&b));
+    if well_formed && db::get_open_room(&state.pool, &code).await.is_some() {
+        return Redirect::to(&format!("{}/room/{code}/screen", state.base_path)).into_response();
+    }
+    error_page(&state, StatusCode::NOT_FOUND, "No open room with that code")
+}
+
 async fn room_page(
     State(state): State<GameState>,
     PlayerSession(player): PlayerSession,
@@ -960,9 +983,13 @@ pub fn router() -> Router<GameState> {
         .route("/account/pin", post(change_pin))
         .route("/rooms", post(create_room))
         .route("/join", post(join_room_handler))
+        .route("/screen", get(open_screen))
         .route("/room/{code}", get(room_page))
         .route("/room/{code}/test/spawn", post(test_spawn))
         .route("/room/{code}/test/act-as", post(test_act_as))
+        .route("/room/{code}/seats/move", post(crate::seats::move_handler))
+        .route("/room/{code}/sit-out", post(crate::seats::sit_out_handler))
+        .route("/room/{code}/sit-in", post(crate::seats::sit_in_handler))
         .route("/room/{code}/event", post(log_event))
         .route("/room/{code}/undo", post(undo_event))
         .route("/room/{code}/end", post(end_room_handler))

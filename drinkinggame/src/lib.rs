@@ -22,6 +22,7 @@ pub mod render;
 pub mod rooms;
 pub mod routes;
 pub mod rules;
+pub mod seats;
 pub mod secret_hitler;
 pub mod sh_render;
 pub mod sh_routes;
