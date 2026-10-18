@@ -546,6 +546,34 @@ body[data-player-id] { padding-bottom: 90px; }
   background: transparent; border: 1px solid rgba(255, 181, 112, .4); color: var(--amber);
 }
 
+/* Ring of Fire on the felt (card_ring.rs): the face-down deck in a loose
+   ring, the last card drawn face up in the middle. The ring box spans the
+   table so the percentages match the seats'; only the cards take taps. */
+.card-ring { position: absolute; inset: 0; pointer-events: none; }
+.ring-card {
+  position: absolute; width: 16px; height: 24px; border-radius: 3px;
+  background: repeating-linear-gradient(45deg, #3a2f58 0 3px, #2a2340 3px 6px);
+  border: 1px solid rgba(242, 238, 248, .35);
+  box-shadow: 0 2px 5px rgba(5, 3, 10, .6);
+  pointer-events: auto;
+}
+.card-ring[data-draw-url] .ring-card { cursor: pointer; }
+.ring-card.is-taken { visibility: hidden; }
+.felt-screen .ring-card { width: 44px; height: 64px; border-radius: 6px; border-width: 2px; }
+.felt-card .card-big { width: 64px; height: 92px; border-radius: 8px; box-shadow: 0 10px 28px rgba(0, 0, 0, .6); }
+.felt-card .card-rank-tl { top: 5px; left: 7px; font-size: 15px; }
+.felt-card .card-suit-tl { top: 21px; left: 7px; font-size: 11px; }
+.felt-card .card-pip { font-size: 34px; }
+.felt-card .card-rank-br { bottom: 5px; right: 7px; font-size: 15px; }
+.felt-screen .felt-card .card-big { width: 168px; height: 240px; border-radius: 16px; }
+.felt-screen .felt-card .card-rank-tl { top: 12px; left: 16px; font-size: 34px; }
+.felt-screen .felt-card .card-suit-tl { top: 48px; left: 17px; font-size: 24px; }
+.felt-screen .felt-card .card-pip { font-size: 92px; }
+.felt-screen .felt-card .card-rank-br { bottom: 12px; right: 16px; font-size: 34px; }
+.screen-active .felt-screen { min-height: 0; }
+.screen-active .screen-hero-felt .rule-title { font-size: 44px; }
+.screen-active .screen-hero-felt .rule-text { font-size: 22px; }
+
 /* ROOM tab seat list: the ring again as rows, a seat dropdown each, and
    SIT OUT / SIT BACK IN on the viewer's own row only (personalize()). */
 .seat-section .felt-table { margin: 4px 0 6px; }

@@ -858,6 +858,13 @@ async fn seat_drag_js() -> impl IntoResponse {
     )
 }
 
+async fn card_ring_js() -> impl IntoResponse {
+    (
+        [(header::CONTENT_TYPE, "application/javascript")],
+        include_str!("../assets/card_ring.js"),
+    )
+}
+
 async fn sh_room_js() -> impl IntoResponse {
     (
         [(header::CONTENT_TYPE, "application/javascript")],
@@ -1222,6 +1229,7 @@ pub fn router() -> Router<GameState> {
         .route("/assets/lc_loop.js", get(lc_loop_js))
         .route("/assets/sh_room.js", get(sh_room_js))
         .route("/assets/seat_drag.js", get(seat_drag_js))
+        .route("/assets/card_ring.js", get(card_ring_js))
         .route("/assets/fonts/{name}", get(font_asset))
         .route("/assets/sounds/{name}", get(sound_asset))
         .route("/lastcall/preview", get(crate::lc_preview::preview_page))

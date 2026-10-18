@@ -92,6 +92,7 @@ async fn test_assets_are_served() {
         ("/assets/lc_loop.js", "application/javascript"),
         ("/assets/sh_room.js", "application/javascript"),
         ("/assets/seat_drag.js", "application/javascript"),
+        ("/assets/card_ring.js", "application/javascript"),
     ] {
         let res = app
             .clone()
@@ -5228,6 +5229,7 @@ fn test_exactly_one_screen_panel_builder_marks_itself_live() {
             counts: &[],
             announcement: None,
             anim_key: String::new(),
+            table: None,
         },
         &[],
         0,
@@ -9907,4 +9909,83 @@ async fn test_three_man_screen_and_table_tab_are_the_felt_table() {
     assert!(html.contains(r#"class="felt-dice""#));
     assert!(!html.contains("SEATING ORDER"));
     assert!(!html.contains("/tm/seat"));
+}
+
+#[tokio::test]
+async fn test_ring_of_fire_taps_a_card_off_the_ring_but_deals_the_deck_in_order() {
+    let (app, pool, [alice, bob, _cara], code) = three_seat_room().await;
+    post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/game/start"),
+        "preset_id=1",
+    )
+    .await;
+    let screen = body_string(get(&app, &format!("/room/{code}/screen")).await).await;
+    assert!(screen.contains("felt-screen"));
+    assert_eq!(screen.matches(r#"class="ring-card""#).count(), 52);
+    assert!(!screen.contains("data-draw-url"), "the screen can't draw");
+    assert!(!screen.contains(" data-lc-live"));
+    let phone = room_page_html(&app, &bob, &code).await;
+    assert!(phone.contains("card_ring.js"));
+    assert!(phone.contains(&format!(r#"data-draw-url="/room/{code}/game/draw""#)));
+
+    // bob taps slot 5: that card leaves the ring, the first card is dealt.
+    let res = post_form(&app, &bob, &format!("/room/{code}/game/draw"), "slot=5").await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+    let room = drinkinggame::db::get_open_room(&pool, &code).await.unwrap();
+    let game = drinkinggame::db::get_active_game(&pool, room.id)
+        .await
+        .unwrap();
+    let draws = drinkinggame::db::get_draws(&pool, game.id).await;
+    assert_eq!((draws[0].card_index, draws[0].ring_slot), (0, Some(5)));
+    let screen = body_string(get(&app, &format!("/room/{code}/screen")).await).await;
+    assert_eq!(screen.matches(r#"class="ring-card""#).count(), 51);
+    assert!(!screen.contains(r#"data-slot="5""#));
+    assert!(screen.contains(r#"<div class="felt-card" data-anim="flip">"#));
+    assert!(screen.contains(r#"<span class="felt-badge">DREW</span>"#));
+    let phone = room_page_html(&app, &alice, &code).await;
+    assert!(!phone.contains(r#"data-slot="5""#));
+
+    // A stale phone taps 5 again: still a draw, the next card, and the ring
+    // still shrinks by one. The DRAW button (no slot) works as before.
+    post_form(&app, &alice, &format!("/room/{code}/game/draw"), "slot=5").await;
+    post_form(&app, &alice, &format!("/room/{code}/game/draw"), "").await;
+    let draws = drinkinggame::db::get_draws(&pool, game.id).await;
+    let idx: Vec<i64> = draws.iter().map(|d| d.card_index).collect();
+    assert_eq!(idx, vec![0, 1, 2]);
+    assert_eq!(draws[1].ring_slot, None, "a gone slot isn't recorded");
+    let screen = body_string(get(&app, &format!("/room/{code}/screen")).await).await;
+    assert_eq!(screen.matches(r#"class="ring-card""#).count(), 49);
+}
+
+#[tokio::test]
+async fn test_ring_of_fire_layout_survives_a_reload() {
+    let (app, _pool, [alice, _bob, _cara], code) = three_seat_room().await;
+    post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/game/start"),
+        "preset_id=1",
+    )
+    .await;
+    let ring = |html: String| {
+        let a = html.find(r#"<div class="card-ring""#).unwrap();
+        let b = html[a..].find("</div></div>").unwrap();
+        html[a..a + b]
+            .replace(r#" data-draw-url="/room/"#, "")
+            .to_string()
+    };
+    let one = ring(body_string(get(&app, &format!("/room/{code}/screen")).await).await);
+    let two = ring(body_string(get(&app, &format!("/room/{code}/screen")).await).await);
+    assert_eq!(one, two);
+    // The phone draws the same cards in the same places.
+    let phone = room_page_html(&app, &alice, &code).await;
+    let first = one.find(r#"<div class="ring-card""#).unwrap();
+    let card = &one[first..first + one[first..].find("</div>").unwrap()];
+    let card = card.replace(r#" data-sound="card-draw""#, "");
+    let phone_card_start = phone.find(r#"<div class="ring-card""#).unwrap();
+    let phone_card = &phone
+        [phone_card_start..phone_card_start + phone[phone_card_start..].find("</div>").unwrap()];
+    assert_eq!(phone_card.replace(r#" data-sound="card-draw""#, ""), card);
 }

@@ -114,6 +114,14 @@ pub async fn run_migrations(pool: &DbPool) {
             .await
             .expect("005 arranged");
     }
+    // Ring of Fire's card ring: which face-down card a draw took off the
+    // table. Visual only — the card drawn is still the next in deck_order.
+    if !column_exists(pool, "game_draws", "ring_slot").await {
+        sqlx::query("ALTER TABLE game_draws ADD COLUMN ring_slot INTEGER")
+            .execute(pool)
+            .await
+            .expect("005 ring_slot");
+    }
     // Angle backfill: evenly round the rim in the room's current seat
     // order. A join since 005 always writes an angle, so a NULL only ever
     // means a pre-005 room, and the rerun finds nothing to do.
@@ -911,7 +919,8 @@ pub async fn insert_draw(
 
 pub async fn get_draws(pool: &DbPool, game_id: i64) -> Vec<DrawRow> {
     sqlx::query_as::<_, DrawRow>(
-        "SELECT gd.id, gd.player_id, p.name AS player_name, gd.card_index, gd.spent_at, gd.rank
+        "SELECT gd.id, gd.player_id, p.name AS player_name, gd.card_index, gd.spent_at, gd.rank,
+                gd.ring_slot
          FROM game_draws gd JOIN players p ON p.id = gd.player_id
          WHERE gd.game_id = ?1 ORDER BY gd.card_index",
     )
@@ -919,6 +928,20 @@ pub async fn get_draws(pool: &DbPool, game_id: i64) -> Vec<DrawRow> {
     .fetch_all(pool)
     .await
     .expect("get_draws failed")
+}
+
+/// Records which face-down card on the table a draw took — the slot the
+/// player tapped. A separate statement after `insert_draw` rather than part
+/// of it, so the draw itself, its sequential `card_index` and its conflict
+/// retry stay exactly as they were. Each draw writes only its own row.
+pub async fn set_draw_ring_slot(pool: &DbPool, game_id: i64, card_index: i64, slot: i64) {
+    sqlx::query("UPDATE game_draws SET ring_slot = ?3 WHERE game_id = ?1 AND card_index = ?2")
+        .bind(game_id)
+        .bind(card_index)
+        .bind(slot)
+        .execute(pool)
+        .await
+        .expect("set_draw_ring_slot failed");
 }
 
 /// True only when the draw exists in game_id, belongs to player_id, and is

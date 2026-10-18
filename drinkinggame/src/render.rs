@@ -87,6 +87,46 @@ pub struct GameView<'a> {
     /// against the last-seen key per SSE event and only replays the flip
     /// animation on [data-anim] elements when it changes.
     pub anim_key: String,
+    /// The felt table (seats + card ring). `None` renders the panel
+    /// without one — only unit tests that check the rest of the panel.
+    pub table: Option<RofTable>,
+}
+
+/// What Ring of Fire's felt needs: the seat ring and the card ring.
+pub struct RofTable {
+    pub game_id: i64,
+    /// Seated members in seat order, at their rim angles.
+    pub seats: Vec<RoomMember>,
+    pub start: f64,
+    /// Each draw's tapped ring slot, in draw order.
+    pub draw_slots: Vec<Option<i64>>,
+}
+
+/// Ring of Fire's felt: the seats (whoever drew last lit and badged), the
+/// face-down cards in their loose ring, and `centre` — the last card drawn,
+/// face up. `tappable` makes the cards draw on tap (the phone).
+fn rof_table_html(
+    view: &GameView,
+    table: &RofTable,
+    centre: &str,
+    scale: crate::seat_ring::Scale,
+    tappable: bool,
+) -> String {
+    let last_drawer = view.current.as_ref().map(|c| c.drawer_id);
+    let mut seats = ring_seats(table.seats.iter());
+    for seat in &mut seats {
+        if Some(seat.player_id) == last_drawer {
+            seat.active = true;
+            seat.badge = Some("DREW");
+        }
+    }
+    let draw_url = format!("{}/room/{}/game/draw", view.base_path, view.code);
+    let ring = crate::card_ring::ring_html(
+        table.game_id,
+        &table.draw_slots,
+        tappable.then_some(draw_url.as_str()),
+    );
+    crate::seat_ring::table_html(&seats, table.start, centre, &ring, scale, None)
 }
 
 /// Post-game superlatives for the over panel (phone) and screen-over panel.
@@ -297,6 +337,18 @@ fn superla_grid(s: &GameSummary) -> String {
     )
 }
 
+/// The Jack's rule-input form, shown only to the drawer (personalize()),
+/// while their Jack still owes the room a rule.
+fn rof_rule_form(view: &GameView, c: &CurrentCard) -> String {
+    if !c.pending_rule {
+        return String::new();
+    }
+    format!(
+        r#"<div class="rule-input-row" data-show-player="{}" hidden><form hx-post="{}/room/{}/game/rule" hx-swap="none"><input type="hidden" name="draw_id" value="{}"><input type="text" name="text" maxlength="200" required placeholder="Your rule for the rest of the night"><button type="submit" class="btn-primary">SET</button></form></div>"#,
+        c.drawer_id, view.base_path, view.code, c.draw_id,
+    )
+}
+
 /// The live game panel (phone GAME tab): announcement, deck bar, hero card
 /// (+ Jack rule form when pending), TAP TO DRAW, IN HAND strip, end-early.
 /// Fragment root carries `data-anim-key` for the client's flip-replay gate.
@@ -326,6 +378,18 @@ pub fn game_active_panel(view: &GameView) -> String {
     );
 
     let (hero, rule_form) = match &view.current {
+        // On the felt: the card face sits in the table's centre, the rule
+        // text beside the table, as before.
+        Some(c) if view.table.is_some() => (
+            format!(
+                r#"<div class="hero-card hero-card-felt"><div class="hero-info"><span class="rule-kicker" data-me-text="YOU DREW" data-player-id="{}">{} DREW</span><h2 class="rule-title">{}</h2><p class="rule-text">{}</p></div></div>"#,
+                c.drawer_id,
+                html_escape(&c.drawer),
+                html_escape(&c.title),
+                html_escape(&c.text),
+            ),
+            rof_rule_form(view, c),
+        ),
         Some(c) => {
             let hero = format!(
                 r#"<div class="hero-card" data-anim="flip">{}<div class="hero-info"><span class="rule-kicker" data-me-text="YOU DREW" data-player-id="{}">{} DREW</span><h2 class="rule-title">{}</h2><p class="rule-text">{}</p></div></div>"#,
@@ -335,15 +399,7 @@ pub fn game_active_panel(view: &GameView) -> String {
                 html_escape(&c.title),
                 html_escape(&c.text),
             );
-            let rule_form = if c.pending_rule {
-                format!(
-                    r#"<div class="rule-input-row" data-show-player="{}" hidden><form hx-post="{base_path}/room/{code}/game/rule" hx-swap="none"><input type="hidden" name="draw_id" value="{}"><input type="text" name="text" maxlength="200" required placeholder="Your rule for the rest of the night"><button type="submit" class="btn-primary">SET</button></form></div>"#,
-                    c.drawer_id, c.draw_id,
-                )
-            } else {
-                String::new()
-            };
-            (hero, rule_form)
+            (hero, rof_rule_form(view, c))
         }
         None => (String::new(), String::new()),
     };
@@ -375,13 +431,31 @@ pub fn game_active_panel(view: &GameView) -> String {
     let draw_btn = format!(
         r#"<button class="btn-draw" hx-post="{base_path}/room/{code}/game/draw" hx-swap="none" data-sound="card-draw"><span class="btn-draw-label">TAP TO DRAW</span><span class="btn-draw-sub">FREE FOR ALL &middot; ANYONE CAN PULL</span></button>"#
     );
+    let felt = match &view.table {
+        Some(table) => {
+            let centre = view
+                .current
+                .as_ref()
+                .map(|c| {
+                    format!(
+                        r#"<div class="felt-card" data-anim="flip">{}</div>"#,
+                        card_face_html(c.card)
+                    )
+                })
+                .unwrap_or_else(|| {
+                    r#"<span class="felt-hint">TAP A CARD TO DRAW</span>"#.to_string()
+                });
+            rof_table_html(view, table, &centre, crate::seat_ring::Scale::Phone, true)
+        }
+        None => String::new(),
+    };
 
     let end_btn = format!(
         r#"<button class="btn-ghost" hx-post="{base_path}/room/{code}/game/end" hx-swap="none" hx-confirm="End the game for everyone?">End game early</button>"#
     );
 
     format!(
-        r#"<div class="game-active" data-anim-key="{}">{announce}{deck_row}{hero}{rule_form}{draw_btn}{held}{end_btn}</div>"#,
+        r#"<div class="game-active" data-anim-key="{}">{announce}{deck_row}{felt}{hero}{rule_form}{draw_btn}{held}{end_btn}</div>"#,
         view.anim_key,
     )
 }
@@ -496,6 +570,14 @@ pub fn screen_panel_active(view: &GameView, rules: &[HouseRule], kings: i64) -> 
         view.remaining,
     );
     let hero = match &view.current {
+        // On the felt: the card face sits in the table's centre and the
+        // rule text beside the table, as before.
+        Some(c) if view.table.is_some() => format!(
+            r#"<div class="screen-hero screen-hero-felt"><div class="screen-hero-info"><span class="rule-kicker">{} drew</span><h2 class="rule-title">{}</h2><p class="rule-text">{}</p></div></div>"#,
+            html_escape(&c.drawer),
+            html_escape(&c.title),
+            html_escape(&c.text),
+        ),
         Some(c) => format!(
             r#"<div class="screen-hero" data-anim="flip">{}<div class="screen-hero-info"><span class="rule-kicker">{} drew</span><h2 class="rule-title">{}</h2><p class="rule-text">{}</p></div></div>"#,
             card_face_html(c.card),
@@ -539,8 +621,25 @@ pub fn screen_panel_active(view: &GameView, rules: &[HouseRule], kings: i64) -> 
     let footer = format!(
         r#"<div class="screen-footer"><div class="kings-fill" style="height:{kings_pct:.1}%"></div><span class="screen-footer-rules">{rules_line}</span></div>"#
     );
+    let felt = match &view.table {
+        Some(table) => {
+            let centre = view
+                .current
+                .as_ref()
+                .map(|c| {
+                    format!(
+                        r#"<div class="felt-card" data-anim="flip">{}</div>"#,
+                        card_face_html(c.card)
+                    )
+                })
+                .unwrap_or_default();
+            rof_table_html(view, table, &centre, crate::seat_ring::Scale::Screen, false)
+        }
+        None => String::new(),
+    };
+    // No data-lc-live here: that handoff marker is Last Call's alone.
     format!(
-        r#"<div class="screen-panel screen-active" data-anim-key="{}">{top}{hero}{held}{footer}</div>"#,
+        r#"<div class="screen-panel screen-active" data-anim-key="{}">{top}{felt}{hero}{held}{footer}</div>"#,
         view.anim_key,
     )
 }
@@ -1645,6 +1744,7 @@ mod tests {
             counts,
             announcement: None,
             anim_key: "3-1".into(),
+            table: None,
         }
     }
 
@@ -1691,6 +1791,7 @@ mod tests {
             counts: &counts,
             announcement: None,
             anim_key: "1-0".into(),
+            table: None,
         };
         let html = game_active_panel(&view);
         assert!(!html.contains("/drinks/room/QK4M/game/rule"));
@@ -1711,6 +1812,7 @@ mod tests {
             counts: &counts,
             announcement: None,
             anim_key: "0-0".into(),
+            table: None,
         };
         let html = game_active_panel(&view);
         assert!(!html.contains("hero-card"));

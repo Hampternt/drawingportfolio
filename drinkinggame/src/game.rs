@@ -86,6 +86,7 @@ struct ActiveGameData {
     counts: Vec<DrawCount>,
     house_rules: Vec<HouseRule>,
     kings: i64,
+    table: render::RofTable,
 }
 
 async fn load_active_game_data(state: &GameState, game: &Game) -> ActiveGameData {
@@ -131,7 +132,14 @@ async fn load_active_game_data(state: &GameState, game: &Game) -> ActiveGameData
         })
         .collect();
 
+    let table = render::RofTable {
+        game_id: game.id,
+        seats: db::seated_members(&state.pool, game.room_id).await,
+        start: db::start_angle(&state.pool, game.room_id).await,
+        draw_slots: draws.iter().map(|d| d.ring_slot).collect(),
+    };
     ActiveGameData {
+        table,
         current,
         held,
         remaining: 52 - draws.len() as i64,
@@ -158,6 +166,7 @@ async fn active_panel(
         counts: &data.counts,
         announcement,
         anim_key: data.anim_key,
+        table: Some(data.table),
     };
     render::game_active_panel(&view)
 }
@@ -173,6 +182,7 @@ async fn active_screen_panel(state: &GameState, game: &Game, code: &str) -> Stri
         counts: &data.counts,
         announcement: None,
         anim_key: data.anim_key,
+        table: Some(data.table),
     };
     render::screen_panel_active(&view, &data.house_rules, data.kings)
 }
@@ -385,10 +395,19 @@ pub async fn start_game_handler(
     StatusCode::NO_CONTENT.into_response()
 }
 
+#[derive(Deserialize)]
+pub struct DrawForm {
+    /// The face-down card tapped on the phone's table, if one was; the
+    /// DRAW button sends none.
+    #[serde(default)]
+    pub slot: Option<i64>,
+}
+
 pub async fn draw_handler(
     State(state): State<GameState>,
     PlayerSession(player): PlayerSession,
     Path(code): Path<String>,
+    Form(form): Form<DrawForm>,
 ) -> axum::response::Response {
     let room = match member_room(&state, &code, &player).await {
         Ok(r) => r,
@@ -408,10 +427,31 @@ pub async fn draw_handler(
         .iter()
         .map(|c| c.rank)
         .collect();
+    // The tapped slot only decides which card leaves the ring; the card
+    // drawn is the next in deck_order, exactly as before. A slot already
+    // gone (a stale phone) is dropped and the ring falls back to its lowest.
+    let slot = match form.slot {
+        Some(s) => {
+            let taken: Vec<Option<i64>> = db::get_draws(&state.pool, game.id)
+                .await
+                .iter()
+                .map(|d| d.ring_slot)
+                .collect();
+            let on_table = crate::card_ring::remaining(&taken);
+            usize::try_from(s)
+                .ok()
+                .filter(|s| on_table.contains(s))
+                .map(|_| s)
+        }
+        None => None,
+    };
     let index = match db::insert_draw(&state.pool, game.id, player.id, &ranks).await {
         Ok(i) => i,
         Err(e) => return e.into_response(),
     };
+    if let Some(slot) = slot {
+        db::set_draw_ring_slot(&state.pool, game.id, index, slot).await;
+    }
     db::touch_room(&state.pool, room.id).await;
     let drawn_rank = ranks[index as usize];
     if index == 51 {
