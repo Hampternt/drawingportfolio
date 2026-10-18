@@ -79,4 +79,5 @@ pub struct RoomMember {
     pub id: i64,
     pub name: String,
     pub joined_at: String,
+    pub sitting_out: bool,
 }

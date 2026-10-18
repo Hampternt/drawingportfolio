@@ -58,6 +58,39 @@ pub async fn run_migrations(pool: &DbPool) {
             .await
             .expect("003 rank");
     }
+    // 004: per-room seat order + sitting out (table view, 2026-10-18).
+    // `seat` replaces join order as the order every game seats players in;
+    // `sitting_out` keeps a member in the room but off every table, turn
+    // and standings. Both are ALTERs, so guarded like 003's.
+    if !column_exists(pool, "room_players", "seat").await {
+        sqlx::query("ALTER TABLE room_players ADD COLUMN seat INTEGER")
+            .execute(pool)
+            .await
+            .expect("004 seat");
+    }
+    if !column_exists(pool, "room_players", "sitting_out").await {
+        sqlx::query("ALTER TABLE room_players ADD COLUMN sitting_out INTEGER NOT NULL DEFAULT 0")
+            .execute(pool)
+            .await
+            .expect("004 sitting_out");
+    }
+    // Seat backfill: existing rooms keep the join order they had. Every
+    // `join_room` since 004 writes a seat, so a NULL only ever means a
+    // pre-004 row, and `WHERE seat IS NULL` makes the rerun a no-op.
+    sqlx::query(
+        "UPDATE room_players SET seat = (
+             SELECT COUNT(*) FROM room_players r2
+             WHERE r2.room_id = room_players.room_id
+               AND (r2.joined_at < room_players.joined_at
+                    OR (r2.joined_at = room_players.joined_at
+                        AND r2.player_id < room_players.player_id))
+         )
+         WHERE seat IS NULL",
+    )
+    .execute(pool)
+    .await
+    .expect("004 seat backfill");
+
     // Rank backfill — WHERE rank IS NULL makes it idempotent.
     let games: Vec<(i64, String)> = sqlx::query_as(
         "SELECT id, deck_order FROM games WHERE deck_order != '' AND id IN
@@ -224,14 +257,20 @@ pub async fn get_room_by_id(pool: &DbPool, room_id: i64) -> Option<Room> {
     .expect("get_room_by_id failed")
 }
 
-/// Idempotent: rejoining is a no-op apart from the activity bump.
+/// Idempotent: rejoining is a no-op apart from the activity bump — a
+/// returning member keeps their seat and their sitting-out flag. A new
+/// member takes the last seat.
 pub async fn join_room(pool: &DbPool, room_id: i64, player_id: i64) {
-    sqlx::query("INSERT OR IGNORE INTO room_players (room_id, player_id) VALUES (?1, ?2)")
-        .bind(room_id)
-        .bind(player_id)
-        .execute(pool)
-        .await
-        .expect("join_room failed");
+    sqlx::query(
+        "INSERT OR IGNORE INTO room_players (room_id, player_id, seat)
+         VALUES (?1, ?2, (SELECT COALESCE(MAX(seat), -1) + 1
+                          FROM room_players WHERE room_id = ?1))",
+    )
+    .bind(room_id)
+    .bind(player_id)
+    .execute(pool)
+    .await
+    .expect("join_room failed");
     touch_room(pool, room_id).await;
 }
 
@@ -324,7 +363,8 @@ pub async fn undo_last_event(pool: &DbPool, room_id: i64, player_id: i64) -> boo
     res.rows_affected() > 0
 }
 
-/// Per-room standings: every member appears (LEFT JOIN), zero rows and all.
+/// Per-room standings: every seated member appears (LEFT JOIN), zero rows
+/// and all. Anyone sitting out is left off until they sit back in.
 /// Sorted by total descending, then name for a stable order.
 pub async fn leaderboard(pool: &DbPool, room_id: i64) -> Vec<LeaderboardRow> {
     sqlx::query_as::<_, LeaderboardRow>(
@@ -337,7 +377,7 @@ pub async fn leaderboard(pool: &DbPool, room_id: i64) -> Vec<LeaderboardRow> {
               ON e.room_id = rp.room_id
              AND e.player_id = rp.player_id
              AND e.undone_at IS NULL
-         WHERE rp.room_id = ?1
+         WHERE rp.room_id = ?1 AND rp.sitting_out = 0
          GROUP BY p.id
          ORDER BY (drinks + shots) DESC, p.name ASC",
     )
@@ -347,19 +387,107 @@ pub async fn leaderboard(pool: &DbPool, room_id: i64) -> Vec<LeaderboardRow> {
     .expect("leaderboard failed")
 }
 
-/// Members of a room in join order — used by games that need seat order
-/// (Shell direction, 3 Man turn rotation).
+/// Every member of a room, sitting out or not, in seat order. For name
+/// lookups and anything that must still reach a sat-out member (the test
+/// switcher); games seat from `seated_members` instead.
 pub async fn room_members(pool: &DbPool, room_id: i64) -> Vec<RoomMember> {
     sqlx::query_as::<_, RoomMember>(
-        "SELECT p.id AS id, p.name, rp.joined_at
+        "SELECT p.id AS id, p.name, rp.joined_at, rp.sitting_out
          FROM room_players rp JOIN players p ON p.id = rp.player_id
          WHERE rp.room_id = ?1
-         ORDER BY rp.joined_at, p.id",
+         ORDER BY rp.seat, p.id",
     )
     .bind(room_id)
     .fetch_all(pool)
     .await
     .expect("room_members failed")
+}
+
+/// The room's seat ring: members not sitting out, in seat order. Every
+/// game that seats people (3 Man, Last Call, Backroom) starts from this.
+pub async fn seated_members(pool: &DbPool, room_id: i64) -> Vec<RoomMember> {
+    room_members(pool, room_id)
+        .await
+        .into_iter()
+        .filter(|m| !m.sitting_out)
+        .collect()
+}
+
+pub async fn is_sitting_out(pool: &DbPool, room_id: i64, player_id: i64) -> bool {
+    let row: Option<(bool,)> = sqlx::query_as(
+        "SELECT sitting_out FROM room_players WHERE room_id = ?1 AND player_id = ?2",
+    )
+    .bind(room_id)
+    .bind(player_id)
+    .fetch_optional(pool)
+    .await
+    .expect("is_sitting_out failed");
+    row.is_some_and(|(out,)| out)
+}
+
+/// Sets a member's sitting-out flag. Returns false when the flag already
+/// had that value (or the player is not a member), so callers can skip a
+/// broadcast that would change nothing.
+pub async fn set_sitting_out(pool: &DbPool, room_id: i64, player_id: i64, out: bool) -> bool {
+    let res = sqlx::query(
+        "UPDATE room_players SET sitting_out = ?3
+         WHERE room_id = ?1 AND player_id = ?2 AND sitting_out != ?3",
+    )
+    .bind(room_id)
+    .bind(player_id)
+    .bind(out)
+    .execute(pool)
+    .await
+    .expect("set_sitting_out failed");
+    res.rows_affected() > 0
+}
+
+/// Moves a seated player to `position` (0-based) in the seat ring, shifting
+/// everyone between. Members sitting out keep their seat numbers, so they
+/// come back roughly where they left. Positions past the end clamp to the
+/// last seat. Returns false when nothing moved.
+///
+/// Takes a position rather than a whole order on purpose: two phones
+/// moving different people at once both still apply, where a full order
+/// sent from a stale list would undo the other move.
+pub async fn move_seat(pool: &DbPool, room_id: i64, player_id: i64, position: usize) -> bool {
+    let mut tx = pool.begin().await.expect("move_seat begin");
+    let rows: Vec<(i64, bool)> = sqlx::query_as(
+        "SELECT player_id, sitting_out FROM room_players
+         WHERE room_id = ?1 ORDER BY seat, player_id",
+    )
+    .bind(room_id)
+    .fetch_all(&mut *tx)
+    .await
+    .expect("move_seat read");
+    let mut seated: Vec<i64> = rows.iter().filter(|r| !r.1).map(|r| r.0).collect();
+    let Some(from) = seated.iter().position(|&p| p == player_id) else {
+        return false;
+    };
+    let to = position.min(seated.len() - 1);
+    if from == to {
+        return false;
+    }
+    let moving = seated.remove(from);
+    seated.insert(to, moving);
+    // Refill the seated slots in their new order; sat-out rows stay put.
+    let mut next_seated = seated.into_iter();
+    for (seat, (pid, out)) in rows.iter().enumerate() {
+        let id = if *out {
+            *pid
+        } else {
+            next_seated.next().expect("one seated id per seated slot")
+        };
+        sqlx::query("UPDATE room_players SET seat = ?3 WHERE room_id = ?1 AND player_id = ?2")
+            .bind(room_id)
+            .bind(id)
+            .bind(seat as i64)
+            .execute(&mut *tx)
+            .await
+            .expect("move_seat write");
+    }
+    tx.commit().await.expect("move_seat commit");
+    true
 }
 
 /// Bulk-inserts n identical events at once — used by games that hand out
@@ -1168,5 +1296,111 @@ mod tests {
             members.iter().map(|m| m.id).collect::<Vec<_>>(),
             vec![alice, bob]
         );
+    }
+
+    fn ids(members: Vec<RoomMember>) -> Vec<i64> {
+        members.into_iter().map(|m| m.id).collect()
+    }
+
+    async fn room_of(pool: &DbPool, names: &[&str]) -> (i64, Vec<i64>) {
+        let room = insert_room(pool, "SEAT").await.unwrap();
+        let mut pids = Vec::new();
+        for n in names {
+            let pid = insert_player(pool, n, "h").await.unwrap();
+            join_room(pool, room, pid).await;
+            pids.push(pid);
+        }
+        (room, pids)
+    }
+
+    #[tokio::test]
+    async fn test_join_takes_the_last_seat_and_rejoin_keeps_it() {
+        let pool = test_pool().await;
+        let (room, p) = room_of(&pool, &["ann", "ben", "cat"]).await;
+        assert!(move_seat(&pool, room, p[2], 0).await);
+        join_room(&pool, room, p[2]).await; // rejoin: seat unchanged
+        assert_eq!(ids(room_members(&pool, room).await), vec![p[2], p[0], p[1]]);
+        let dan = insert_player(&pool, "dan", "h").await.unwrap();
+        join_room(&pool, room, dan).await;
+        assert_eq!(
+            ids(room_members(&pool, room).await),
+            vec![p[2], p[0], p[1], dan]
+        );
+    }
+
+    #[tokio::test]
+    async fn test_move_seat_shifts_the_seats_between() {
+        let pool = test_pool().await;
+        let (room, p) = room_of(&pool, &["ann", "ben", "cat", "dan"]).await;
+        assert!(move_seat(&pool, room, p[0], 2).await);
+        assert_eq!(
+            ids(room_members(&pool, room).await),
+            vec![p[1], p[2], p[0], p[3]]
+        );
+        // Past the end clamps to the last seat; same seat is a no-op.
+        assert!(move_seat(&pool, room, p[1], 99).await);
+        assert_eq!(
+            ids(room_members(&pool, room).await),
+            vec![p[2], p[0], p[3], p[1]]
+        );
+        assert!(!move_seat(&pool, room, p[1], 3).await);
+        // A non-member moves nothing.
+        assert!(!move_seat(&pool, room, 9999, 0).await);
+    }
+
+    #[tokio::test]
+    async fn test_sitting_out_leaves_the_ring_and_standings_but_not_the_room() {
+        let pool = test_pool().await;
+        let (room, p) = room_of(&pool, &["ann", "ben", "cat"]).await;
+        assert!(set_sitting_out(&pool, room, p[1], true).await);
+        assert!(!set_sitting_out(&pool, room, p[1], true).await); // already out
+        assert!(is_sitting_out(&pool, room, p[1]).await);
+        assert!(is_room_member(&pool, room, p[1]).await);
+        assert_eq!(ids(seated_members(&pool, room).await), vec![p[0], p[2]]);
+        assert_eq!(room_members(&pool, room).await.len(), 3);
+        assert!(leaderboard(&pool, room).await.iter().all(|r| r.id != p[1]));
+        // Moving around a sat-out seat leaves it where it was.
+        assert!(move_seat(&pool, room, p[2], 0).await);
+        assert_eq!(ids(room_members(&pool, room).await), vec![p[2], p[1], p[0]]);
+        // Sitting back in returns them to the ring and the standings.
+        assert!(set_sitting_out(&pool, room, p[1], false).await);
+        assert_eq!(
+            ids(seated_members(&pool, room).await),
+            vec![p[2], p[1], p[0]]
+        );
+        assert_eq!(leaderboard(&pool, room).await.len(), 3);
+    }
+
+    #[tokio::test]
+    async fn test_migration_004_backfills_join_order_and_is_idempotent() {
+        let pool = test_pool().await;
+        let (room, p) = room_of(&pool, &["ann", "ben", "cat"]).await;
+        // Simulate pre-004 rows: no seats, join times out of id order.
+        sqlx::query("UPDATE room_players SET seat = NULL")
+            .execute(&pool)
+            .await
+            .unwrap();
+        for (pid, at) in [
+            (p[0], "2026-01-01 10:02"),
+            (p[1], "2026-01-01 10:00"),
+            (p[2], "2026-01-01 10:01"),
+        ] {
+            sqlx::query("UPDATE room_players SET joined_at = ?1 WHERE player_id = ?2")
+                .bind(at)
+                .bind(pid)
+                .execute(&pool)
+                .await
+                .unwrap();
+        }
+        run_migrations(&pool).await;
+        assert_eq!(ids(room_members(&pool, room).await), vec![p[1], p[2], p[0]]);
+        // A rerun keeps a reorder made since: the backfill only fills NULLs.
+        assert!(move_seat(&pool, room, p[0], 0).await);
+        run_migrations(&pool).await;
+        assert_eq!(ids(room_members(&pool, room).await), vec![p[0], p[1], p[2]]);
+        assert!(room_members(&pool, room)
+            .await
+            .iter()
+            .all(|m| !m.sitting_out));
     }
 }

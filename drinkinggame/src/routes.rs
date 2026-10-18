@@ -194,6 +194,9 @@ async fn room_page(
         // — a revisit by an already-seated player mutates nothing, so it
         // must not trigger a broadcast either.
         let mut lc_joined = false;
+        // A member sitting out is in the room but on no table: a reload
+        // must not quietly seat them in the running game.
+        let sitting_out = db::is_sitting_out(&state.pool, room.id, player.id).await;
         if let Some(game) = db::get_active_game(&state.pool, room.id).await {
             if game.kind == "three_man" {
                 let mut st = crate::three_man::ThreeManState::from_json(
@@ -202,7 +205,7 @@ async fn room_page(
                 // Already seated (a revisit, not a fresh join): skip the
                 // rewrite and the extra broadcast — an unchanged order needs
                 // neither.
-                if !st.order.contains(&player.id) {
+                if !sitting_out && !st.order.contains(&player.id) {
                     st.add_player(player.id);
                     db::set_game_state(&state.pool, game.id, &st.to_json()).await;
                     tm_joined = true;
@@ -223,7 +226,8 @@ async fn room_page(
                 // `MAX_SEATS` — the newcomer must still join the room (that
                 // already happened above, via `db::join_room`), just not
                 // this game, so a full table is not an error here.
-                if st.seat_of(player.id).is_none()
+                if !sitting_out
+                    && st.seat_of(player.id).is_none()
                     && st.add_player(player.id, &player.name).is_some()
                 {
                     db::set_game_state(&state.pool, game.id, &st.to_json()).await;

@@ -77,7 +77,7 @@ pub async fn tm_start_handler(
     let lock = state.locks.for_room(room.id);
     let _guard = lock.lock().await;
 
-    let members = db::room_members(&state.pool, room.id).await;
+    let members = db::seated_members(&state.pool, room.id).await;
     if members.len() < 2 {
         return GameError::TooFewPlayers.into_response();
     }

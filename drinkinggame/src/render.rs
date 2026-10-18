@@ -1551,11 +1551,13 @@ mod tests {
                 id: 1,
                 name: "alice".into(),
                 joined_at: "t".into(),
+                sitting_out: false,
             },
             RoomMember {
                 id: 2,
                 name: "bob".into(),
                 joined_at: "t".into(),
+                sitting_out: false,
             },
         ];
         let house_rules: Vec<HouseRule> = vec![];
@@ -1902,16 +1904,19 @@ mod tests {
                 id: 1,
                 name: "alice".into(),
                 joined_at: "t".into(),
+                sitting_out: false,
             },
             RoomMember {
                 id: 2,
                 name: "bob".into(),
                 joined_at: "t".into(),
+                sitting_out: false,
             },
             RoomMember {
                 id: 3,
                 name: "cara".into(),
                 joined_at: "t".into(),
+                sitting_out: false,
             },
         ];
         let house_rules: Vec<HouseRule> = vec![];

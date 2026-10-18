@@ -191,7 +191,7 @@ pub async fn sh_start_handler(
     let lock = state.locks.for_room(room.id);
     let _guard = lock.lock().await;
 
-    let members = db::room_members(&state.pool, room.id).await;
+    let members = db::seated_members(&state.pool, room.id).await;
     if !(MIN_SEATS..=MAX_SEATS).contains(&members.len()) {
         // `GameError::TooFewPlayers` hardcodes "at least 2 players", which is
         // wrong for a 5–10 game, and widening that shared enum for one game
