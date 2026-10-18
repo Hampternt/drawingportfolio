@@ -420,7 +420,7 @@ async fn change_name(
     match auth::rename_player(&state.pool, player.id, &form.name).await {
         Ok(_) => {
             // Names are baked into already-rendered HTML on every connected
-            // phone and big screen (standings, WHO'S HERE, draw log, house
+            // phone and big screen (standings, THE TABLE, draw log, house
             // rules), so a mid-night rename has to push all three surfaces
             // for each open room or the old name lingers until the next
             // unrelated event. No room lock: nothing here mutates game state.
@@ -836,6 +836,13 @@ async fn lc_loop_js() -> impl IntoResponse {
     )
 }
 
+async fn seat_drag_js() -> impl IntoResponse {
+    (
+        [(header::CONTENT_TYPE, "application/javascript")],
+        include_str!("../assets/seat_drag.js"),
+    )
+}
+
 async fn sh_room_js() -> impl IntoResponse {
     (
         [(header::CONTENT_TYPE, "application/javascript")],
@@ -1190,6 +1197,7 @@ pub fn router() -> Router<GameState> {
         .route("/assets/lc_wheel.js", get(lc_wheel_js))
         .route("/assets/lc_loop.js", get(lc_loop_js))
         .route("/assets/sh_room.js", get(sh_room_js))
+        .route("/assets/seat_drag.js", get(seat_drag_js))
         .route("/assets/fonts/{name}", get(font_asset))
         .route("/assets/sounds/{name}", get(sound_asset))
         .route("/lastcall/preview", get(crate::lc_preview::preview_page))

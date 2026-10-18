@@ -91,6 +91,7 @@ async fn test_assets_are_served() {
         ("/assets/lc_wheel.js", "application/javascript"),
         ("/assets/lc_loop.js", "application/javascript"),
         ("/assets/sh_room.js", "application/javascript"),
+        ("/assets/seat_drag.js", "application/javascript"),
     ] {
         let res = app
             .clone()
@@ -5207,7 +5208,7 @@ async fn test_the_last_call_screen_needs_no_session() {
 /// builders themselves, independent of any particular room's state.
 #[test]
 fn test_exactly_one_screen_panel_builder_marks_itself_live() {
-    let idle = drinkinggame::render::screen_panel_idle("QK4M");
+    let idle = drinkinggame::render::screen_panel_idle("QK4M", &[]);
     let active = drinkinggame::render::screen_panel_active(
         &drinkinggame::render::GameView {
             base_path: "",
@@ -9720,4 +9721,43 @@ async fn test_seat_routes_need_a_session() {
         assert_ne!(res.status(), StatusCode::NO_CONTENT, "{path}");
         assert!(res.status().is_redirection() || res.status().is_client_error());
     }
+}
+
+#[tokio::test]
+async fn test_room_tab_has_the_draggable_table_and_seat_dropdowns() {
+    let (app, pool, [alice, bob, _cara], code) = three_seat_room().await;
+    let b = pid(&pool, "bob").await;
+    post_form(&app, &bob, &format!("/room/{code}/sit-out"), "").await;
+    let html = room_page_html(&app, &alice, &code).await;
+    assert!(html.contains("seat_drag.js"));
+    assert!(html.contains(&format!(r#"data-reorder-url="/room/{code}/seats/move""#)));
+    assert_eq!(
+        html.matches(r#"class="felt-seat""#).count(),
+        2,
+        "bob is off the ring"
+    );
+    assert!(html.contains("THE TABLE &middot; 2"));
+    assert_eq!(html.matches(r#"<select class="seat-select""#).count(), 2);
+    assert!(html.contains(r#"<option value="2" selected>Seat 2</option>"#));
+    // bob is listed as sitting out, with his own SIT BACK IN.
+    assert!(html.contains("SITTING OUT &middot; 1"));
+    assert!(html.contains(&format!(r#"class="seat-in-btn" data-show-player="{b}""#)));
+}
+
+#[tokio::test]
+async fn test_idle_screen_shows_the_ring_without_whoever_sits_out() {
+    let (app, _pool, [_alice, bob, _cara], code) = three_seat_room().await;
+    let screen = body_string(get(&app, &format!("/room/{code}/screen")).await).await;
+    assert_eq!(screen.matches(r#"class="felt-seat""#).count(), 3);
+    assert!(screen.contains("felt-screen"));
+    assert!(
+        !screen.contains("data-drag"),
+        "the screen only displays the order"
+    );
+    // As an attribute; screen.html's own script names the marker in text.
+    assert!(!screen.contains(" data-lc-live"));
+    post_form(&app, &bob, &format!("/room/{code}/sit-out"), "").await;
+    let screen = body_string(get(&app, &format!("/room/{code}/screen")).await).await;
+    assert_eq!(screen.matches(r#"class="felt-seat""#).count(), 2);
+    assert!(!screen.contains(">bob<"));
 }

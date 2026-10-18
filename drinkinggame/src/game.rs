@@ -197,7 +197,7 @@ pub async fn current_screen_panel(state: &GameState, room_id: i64, code: &str) -
             crate::sh_render::sh_screen_panel(&view, &names)
         }
         Some(game) => active_screen_panel(state, &game, code).await,
-        None => render::screen_panel_idle(code),
+        None => render::screen_panel_idle(code, &db::seated_members(&state.pool, room_id).await),
     }
 }
 

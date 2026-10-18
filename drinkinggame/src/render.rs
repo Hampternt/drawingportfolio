@@ -112,7 +112,7 @@ pub struct RoomView<'a> {
     /// Active game's `kind` ("ring_of_fire" | "three_man" | ...) or "idle".
     pub mode: &'a str,
     /// Pre-rendered by `tm_seating_html` (Task 11) when a 3 Man game is
-    /// active; `None` for idle/Ring of Fire. Slots between WHO'S HERE and
+    /// active; `None` for idle/Ring of Fire. Slots between THE TABLE and
     /// HOUSE RULES — the seating block replaces nothing.
     pub seating: Option<String>,
 }
@@ -418,9 +418,23 @@ pub fn lc_screen_placeholder(_code: &str) -> String {
         .to_string()
 }
 
-/// Big-screen left pane, no game running.
-pub fn screen_panel_idle(_code: &str) -> String {
-    r#"<div class="screen-panel screen-idle"><div class="screen-hero"><span class="screen-kicker">NO GAME RUNNING</span><h2 class="screen-hero-title">Just drinking.</h2><p class="screen-hero-sub">Somebody start Ring of Fire on their phone and this screen becomes the table.</p></div><div class="screen-footer"><div class="kings-fill" style="height:0%"></div><span class="screen-footer-rules">No house rules yet.</span></div></div>"#.to_string()
+/// Big-screen left pane, no game running: the room's seat ring, with the
+/// "just drinking" line in the middle of the felt. `seated` is the ring in
+/// seat order (sat-out members already left off). Display only — the
+/// screen has no login, so its seats are never draggable.
+pub fn screen_panel_idle(_code: &str, seated: &[RoomMember]) -> String {
+    let ring: Vec<crate::seat_ring::RingSeat> = seated
+        .iter()
+        .map(|m| crate::seat_ring::RingSeat {
+            player_id: m.id,
+            name: &m.name,
+            badge: None,
+            active: false,
+        })
+        .collect();
+    let centre = r#"<span class="screen-kicker">NO GAME RUNNING</span><h2 class="screen-hero-title">Just drinking.</h2><p class="screen-hero-sub">Somebody start a game on their phone.</p>"#;
+    let table = crate::seat_ring::table_html(&ring, centre, crate::seat_ring::Scale::Screen, None);
+    format!(r#"<div class="screen-panel screen-idle">{table}</div>"#)
 }
 
 /// Big-screen left pane, game running: display-scale hero card + rule,
@@ -504,18 +518,108 @@ pub fn screen_panel_over(s: &GameSummary) -> String {
     )
 }
 
+/// The ROOM tab's seat block: the draggable table, the same ring as a list
+/// with a seat dropdown per player, and who is sitting out. Broadcast to
+/// every phone alike, so the SIT OUT / SIT BACK IN buttons are rendered on
+/// every row and `personalize()` shows each viewer only their own.
+fn seat_section(view: &RoomView, seated: &[&RoomMember], out: &[&RoomMember]) -> String {
+    let base_path = view.base_path;
+    let code = view.code;
+    let n = seated.len();
+    let ring: Vec<crate::seat_ring::RingSeat> = seated
+        .iter()
+        .map(|m| crate::seat_ring::RingSeat {
+            player_id: m.id,
+            name: &m.name,
+            badge: None,
+            active: false,
+        })
+        .collect();
+    let move_url = format!("{base_path}/room/{code}/seats/move");
+    let hint = if n > 1 {
+        r#"<span class="felt-hint">DRAG TO MOVE SEATS</span>"#
+    } else {
+        ""
+    };
+    let table =
+        crate::seat_ring::table_html(&ring, hint, crate::seat_ring::Scale::Phone, Some(&move_url));
+    let chip = |m: &RoomMember| {
+        let initial = m
+            .name
+            .chars()
+            .next()
+            .unwrap_or('?')
+            .to_uppercase()
+            .to_string();
+        format!(
+            r#"<span class="member-chip">{}</span>"#,
+            html_escape(&initial)
+        )
+    };
+    let rows: String = seated
+        .iter()
+        .enumerate()
+        .map(|(i, m)| {
+            let options: String = (1..=n)
+                .map(|p| {
+                    let sel = if p == i + 1 { " selected" } else { "" };
+                    format!(r#"<option value="{p}"{sel}>Seat {p}</option>"#)
+                })
+                .collect();
+            format!(
+                r#"<div class="seat-row" data-player-id="{id}">{chip}<span class="member-name">{name}</span><select class="seat-select" name="position" aria-label="Seat for {name}" hx-post="{move_url}" hx-trigger="change" hx-vals='{{"player_id":{id}}}' hx-swap="none">{options}</select><button type="button" class="seat-out-btn" data-show-player="{id}" hidden hx-post="{base_path}/room/{code}/sit-out" hx-swap="none">SIT OUT</button></div>"#,
+                id = m.id,
+                chip = chip(m),
+                name = html_escape(&m.name),
+            )
+        })
+        .collect();
+    let out_block = if out.is_empty() {
+        String::new()
+    } else {
+        let out_rows: String = out
+            .iter()
+            .map(|m| {
+                format!(
+                    r#"<div class="seat-row seat-row-out" data-player-id="{id}">{chip}<span class="member-name">{name}</span><button type="button" class="seat-in-btn" data-show-player="{id}" hidden hx-post="{base_path}/room/{code}/sit-in" hx-swap="none">SIT BACK IN</button></div>"#,
+                    id = m.id,
+                    chip = chip(m),
+                    name = html_escape(&m.name),
+                )
+            })
+            .collect();
+        format!(
+            r#"<div class="sitting-out"><span class="member-section-label">SITTING OUT &middot; {}</span>{out_rows}</div>"#,
+            out.len()
+        )
+    };
+    // Last Call and Backroom seat everyone when they start; a change made
+    // during one shows on this ring now and reaches the game next time.
+    let snapshot_note = if matches!(view.mode, "last_call" | crate::secret_hitler::KIND) {
+        r#"<p class="seat-note">Seat changes apply from the next game.</p>"#
+    } else {
+        ""
+    };
+    format!(
+        r#"<div class="member-section seat-section"><span class="member-section-label">THE TABLE &middot; {n}</span>{table}{snapshot_note}<div class="seat-list">{rows}</div>{out_block}</div>"#
+    )
+}
+
 /// Phone ROOM/TABLE tab: starts with a `<template data-topbar>` the client
-/// copies into the shell's top bar, then the room-code card, WHO'S HERE
+/// copies into the shell's top bar, then the room-code card, THE TABLE
 /// grid, HOUSE RULES list, King's Cup fill, and the end-the-night form.
 /// Root `<div>` carries `data-mode` so the client can rename tab 3
 /// (ROOM ↔ TABLE) per the fragment contract.
 pub fn room_panel(view: &RoomView) -> String {
     let base_path = view.base_path;
     let code = view.code;
-    let n = view.members.len();
+    // The ring is everyone not sitting out, in seat order; the rest are
+    // still in the room and listed under SITTING OUT.
+    let seated: Vec<&RoomMember> = view.members.iter().filter(|m| !m.sitting_out).collect();
+    let out: Vec<&RoomMember> = view.members.iter().filter(|m| m.sitting_out).collect();
+    let n = seated.len();
 
-    let topbar_chips: String = view
-        .members
+    let topbar_chips: String = seated
         .iter()
         .map(|m| {
             let initial = m
@@ -534,8 +638,8 @@ pub fn room_panel(view: &RoomView) -> String {
     // Games that seat people around a table say so; everything else just
     // counts heads. A lookup rather than a chain of `==` comparisons, so a
     // fifth game is one entry and not two more branches to miss.
-    let seated = matches!(view.mode, "three_man" | crate::secret_hitler::KIND);
-    let topbar_count_label = if seated {
+    let seated_game = matches!(view.mode, "three_man" | crate::secret_hitler::KIND);
+    let topbar_count_label = if seated_game {
         format!("{n} at the table")
     } else {
         format!("{n} here")
@@ -556,22 +660,7 @@ pub fn room_panel(view: &RoomView) -> String {
         r#"<div class="room-code-card"><span class="room-code-label">ROOM CODE</span><span class="room-code-value">{code}</span><div class="room-code-actions"><button type="button" class="room-action-btn" data-share>SHARE LINK</button><a class="room-action-btn" href="{base_path}/room/{code}/screen" target="_blank">OPEN BIG SCREEN</a></div></div>"#
     );
 
-    let member_grid: String = view
-        .members
-        .iter()
-        .map(|m| {
-            let initial = m.name.chars().next().unwrap_or('?').to_uppercase().to_string();
-            format!(
-                r#"<div class="member-chip-row"><span class="member-chip">{}</span><span class="member-name">{}</span><span class="member-dot"></span></div>"#,
-                html_escape(&initial),
-                html_escape(&m.name),
-            )
-        })
-        .collect();
-    let member_section = format!(
-        r#"<div class="member-section"><span class="member-section-label">WHO'S HERE &middot; {n}</span><div class="member-grid">{member_grid}</div></div>"#
-    );
-
+    let member_section = seat_section(view, &seated, &out);
     let rules_items: String = view
         .house_rules
         .iter()
@@ -615,7 +704,7 @@ pub fn room_panel(view: &RoomView) -> String {
     );
 
     // Deliberate TABLE-tab deviation from the prototype: seating slots
-    // between WHO'S HERE and HOUSE RULES rather than replacing either, so
+    // between THE TABLE and HOUSE RULES rather than replacing either, so
     // the room-code card and share/big-screen actions stay reachable
     // mid-game.
     let seating_block = view.seating.as_deref().unwrap_or_default();
@@ -1574,7 +1663,7 @@ mod tests {
         assert!(html.starts_with("<template data-topbar>"));
         assert!(html.contains(r#"data-mode="idle""#));
         assert!(!html.contains("tm-chip")); // no 3 MAN badge outside three_man mode
-        assert!(html.contains("WHO"));
+        assert!(html.contains("THE TABLE")); // the seat block
         assert!(html.contains("OPEN BIG SCREEN"));
         assert!(html.contains("kings-fill"));
         assert!(html.contains("1 / 4"));
@@ -1588,7 +1677,7 @@ mod tests {
 
     #[test]
     fn test_screen_panels() {
-        let idle = screen_panel_idle("QK4M");
+        let idle = screen_panel_idle("QK4M", &[]);
         assert!(idle.contains("Just drinking."));
 
         let counts = vec![DrawCount {

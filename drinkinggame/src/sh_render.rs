@@ -461,7 +461,7 @@ pub fn sh_screen_panel(view: &ShPublicView, names: &HashMap<i64, String>) -> Str
     )
 }
 
-/// The ROOM-tab seating fragment, slotted between WHO'S HERE and HOUSE
+/// The ROOM-tab seating fragment, slotted between THE TABLE and HOUSE
 /// RULES exactly as 3 Man's is.
 pub fn sh_seating_html(view: &ShPublicView, names: &HashMap<i64, String>) -> String {
     format!(

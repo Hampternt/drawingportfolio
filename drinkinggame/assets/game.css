@@ -419,6 +419,110 @@ body[data-player-id] { padding-bottom: 90px; }
 
 .end-night-form { display: flex; }
 
+/* seat-ring table (seat_ring.rs) — the felt every game's table shares:
+   players around the edge, a centre slot each game fills. The felt's
+   values are Last Call's #lc-felt (lastcall.css), restated here because
+   room.html and screen.html load only this sheet; Last Call keeps its own
+   copy and its own markup. Seat positions are percentages of the table
+   box, so one layout serves the phone pane and the big screen. */
+.felt-table { position: relative; width: 100%; }
+.felt-phone { height: 340px; }
+.felt-screen { flex: 1; min-height: 0; }
+.felt {
+  position: absolute; inset: 0;
+  border-radius: 280px;
+  border: 11px solid #2a2340;
+  background: radial-gradient(ellipse at 50% 44%, #272038 0%, #191430 52%, #100c1b 100%);
+  box-shadow:
+    inset 0 0 0 2px rgba(242, 238, 248, .14),
+    inset 0 50px 110px rgba(5, 3, 10, .5),
+    0 26px 80px rgba(5, 3, 10, .75);
+}
+.felt::after {
+  content: ""; position: absolute; inset: 56px;
+  border-radius: 280px; border: 1px solid rgba(242, 238, 248, .10);
+  pointer-events: none;
+}
+.felt-phone .felt { border-width: 7px; }
+.felt-phone .felt::after { inset: 30px; }
+.felt-centre {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  width: 56%; display: flex; flex-direction: column; align-items: center; gap: 12px;
+  text-align: center;
+}
+.felt-screen .felt-centre .screen-hero-title { font-size: 60px; }
+.felt-screen .felt-centre .screen-hero-sub { font-size: 22px; }
+.felt-hint { font: 600 10px var(--font-ui); letter-spacing: .12em; color: var(--text-faint); }
+.felt-ring { position: absolute; inset: 0; }
+/* A seat is centred on its own midpoint, so a chip of any width lands
+   with its centre on the ring. */
+.felt-seat {
+  position: absolute; transform: translate(-50%, -50%);
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  max-width: 96px;
+}
+.felt-avatar {
+  width: 34px; height: 34px; border-radius: 50%;
+  display: grid; place-items: center; font: 800 14px var(--font-display);
+  background: var(--chip); border: 2px solid var(--hairline-strong); color: var(--text);
+}
+.felt-name {
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font: 700 12px var(--font-ui); color: var(--text-dim);
+  background: rgba(11, 9, 16, .72); border-radius: 6px; padding: 1px 6px;
+}
+.felt-badge {
+  font: 800 9px var(--font-display); letter-spacing: .06em;
+  color: var(--ink-amber); background: var(--amber); border-radius: 5px; padding: 1px 5px;
+}
+.felt-seat.is-active .felt-avatar { border-color: var(--violet); background: var(--violet-soft); box-shadow: 0 0 0 4px var(--violet-soft); }
+.felt-seat.is-active .felt-name { color: var(--text); }
+/* 9+ seats: smaller chips, so a ring of 12 or more still reads. */
+.felt-crowded .felt-seat { max-width: 68px; gap: 2px; }
+.felt-crowded .felt-avatar { width: 26px; height: 26px; font-size: 11px; }
+.felt-crowded .felt-name { font-size: 10px; padding: 0 4px; }
+.felt-screen .felt-seat { max-width: 200px; gap: 8px; }
+.felt-screen .felt-avatar { width: 72px; height: 72px; font-size: 30px; border-width: 3px; }
+.felt-screen .felt-name { font-size: 24px; padding: 2px 12px; border-radius: 9px; }
+.felt-screen .felt-badge { font-size: 16px; padding: 2px 9px; }
+.felt-screen.felt-crowded .felt-seat { max-width: 150px; }
+.felt-screen.felt-crowded .felt-avatar { width: 54px; height: 54px; font-size: 22px; }
+.felt-screen.felt-crowded .felt-name { font-size: 19px; }
+/* Draggable seats (phone ROOM tab, seat_drag.js): touch-action none, or
+   the phone scrolls the pane instead of moving the chip. */
+.felt-seat[data-drag] { cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none; }
+.felt-seat.is-dragging { opacity: .35; }
+.felt-seat.is-drop-target .felt-avatar { border-color: var(--amber); box-shadow: 0 0 0 4px rgba(255, 181, 112, .25); }
+.felt-ghost {
+  position: fixed; z-index: 60; pointer-events: none; transform: translate(-50%, -50%);
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+}
+
+/* ROOM tab seat list: the ring again as rows, a seat dropdown each, and
+   SIT OUT / SIT BACK IN on the viewer's own row only (personalize()). */
+.seat-section .felt-table { margin: 4px 0 6px; }
+.seat-list, .sitting-out { display: flex; flex-direction: column; gap: 7px; }
+.sitting-out { margin-top: 8px; }
+.seat-row {
+  display: flex; align-items: center; gap: 9px;
+  background: var(--surface); border: 1px solid var(--hairline);
+  border-radius: 11px; padding: 7px 9px 7px 11px; min-height: 44px; box-sizing: border-box;
+}
+.seat-row .member-name { flex: 1; min-width: 0; }
+.seat-row-out { opacity: .7; }
+.seat-select {
+  font: 700 13px var(--font-ui); color: var(--text); background: var(--chip);
+  border: 1px solid var(--hairline-strong); border-radius: 9px; padding: 8px 6px; min-height: 36px;
+}
+.seat-out-btn, .seat-in-btn {
+  font: 800 11px var(--font-display); letter-spacing: .04em; padding: 0 10px;
+  min-height: 36px; border-radius: 9px; background: var(--chip); color: var(--text);
+}
+.seat-in-btn { background: var(--violet); color: var(--ink); }
+/* Same hazard as .handoff-panel[hidden]: a display value beats [hidden]. */
+.seat-out-btn[hidden], .seat-in-btn[hidden] { display: none; }
+.seat-note { margin: 0; font: 400 12px var(--font-ui); color: var(--text-faint); }
+
 /* screen (big-screen left pane — wired into screen.html in Task 8) */
 .screen-panel { display: flex; flex-direction: column; gap: 24px; min-width: 0; }
 .screen-top { display: flex; align-items: center; gap: 12px; }
