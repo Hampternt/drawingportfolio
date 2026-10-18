@@ -34,6 +34,10 @@ pub enum GameError {
     OutOfTurn,
     #[error("that game needs at least 2 players")]
     TooFewPlayers,
+    #[error("you're sitting out — sit back in first")]
+    SittingOut,
+    #[error("seats can't change right now — try again once the dice are given")]
+    NotNow,
     #[error("rule must be 1–200 characters")]
     RuleTooLong,
     #[error("something went wrong, try again")]
@@ -51,6 +55,8 @@ impl IntoResponse for GameError {
             | GameError::WrongGameKind
             | GameError::OutOfTurn
             | GameError::TooFewPlayers
+            | GameError::NotNow
+            | GameError::SittingOut
             | GameError::NameTaken => StatusCode::CONFLICT,
             GameError::CardNotHeld | GameError::NotYourCall => StatusCode::FORBIDDEN,
             GameError::RuleTooLong => StatusCode::UNPROCESSABLE_ENTITY,

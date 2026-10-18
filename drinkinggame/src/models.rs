@@ -55,6 +55,9 @@ pub struct DrawRow {
     pub card_index: i64,
     pub spent_at: Option<String>,
     pub rank: i64,
+    /// The face-down card on the table this draw took (Ring of Fire's card
+    /// ring), if the player tapped one.
+    pub ring_slot: Option<i64>,
 }
 
 #[derive(sqlx::FromRow, Clone, Debug, PartialEq)]
@@ -79,4 +82,7 @@ pub struct RoomMember {
     pub id: i64,
     pub name: String,
     pub joined_at: String,
+    pub sitting_out: bool,
+    /// Rim angle, degrees clockwise from the bottom of the table.
+    pub angle: f64,
 }

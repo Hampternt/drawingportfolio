@@ -419,6 +419,189 @@ body[data-player-id] { padding-bottom: 90px; }
 
 .end-night-form { display: flex; }
 
+/* seat-ring table (seat_ring.rs) — the felt every game's table shares:
+   players around the edge, a centre slot each game fills. The felt's
+   values are Last Call's #lc-felt (lastcall.css), restated here because
+   room.html and screen.html load only this sheet; Last Call keeps its own
+   copy and its own markup. Seat positions are percentages of the table
+   box, so one layout serves the phone pane and the big screen. */
+.felt-table { position: relative; width: 100%; }
+.felt-phone { height: 340px; }
+.felt-screen { flex: 1; min-height: 0; }
+.felt {
+  position: absolute; inset: 0;
+  border-radius: 280px;
+  border: 11px solid #2a2340;
+  background: radial-gradient(ellipse at 50% 44%, #272038 0%, #191430 52%, #100c1b 100%);
+  box-shadow:
+    inset 0 0 0 2px rgba(242, 238, 248, .14),
+    inset 0 50px 110px rgba(5, 3, 10, .5),
+    0 26px 80px rgba(5, 3, 10, .75);
+}
+.felt::after {
+  content: ""; position: absolute; inset: 56px;
+  border-radius: 280px; border: 1px solid rgba(242, 238, 248, .10);
+  pointer-events: none;
+}
+.felt-phone .felt { border-width: 7px; }
+.felt-phone .felt::after { inset: 30px; }
+.felt-centre {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  width: 56%; display: flex; flex-direction: column; align-items: center; gap: 12px;
+  text-align: center;
+}
+.felt-screen .felt-centre .screen-hero-title { font-size: 60px; }
+.felt-screen .felt-centre .screen-hero-sub { font-size: 22px; }
+.felt-hint { font: 600 10px var(--font-ui); letter-spacing: .12em; color: var(--text-faint); }
+.felt-ring { position: absolute; inset: 0; }
+/* A seat is centred on its own midpoint, so a chip of any width lands
+   with its centre on the ring. */
+.felt-seat {
+  position: absolute; transform: translate(-50%, -50%);
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  max-width: 96px;
+}
+.felt-avatar {
+  width: 34px; height: 34px; border-radius: 50%;
+  display: grid; place-items: center; font: 800 14px var(--font-display);
+  background: var(--chip); border: 2px solid var(--hairline-strong); color: var(--text);
+}
+.felt-name {
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font: 700 12px var(--font-ui); color: var(--text-dim);
+  background: rgba(11, 9, 16, .72); border-radius: 6px; padding: 1px 6px;
+}
+.felt-badge {
+  font: 800 9px var(--font-display); letter-spacing: .06em;
+  color: var(--ink-amber); background: var(--amber); border-radius: 5px; padding: 1px 5px;
+}
+.felt-seat.is-active .felt-avatar { border-color: var(--violet); background: var(--violet-soft); box-shadow: 0 0 0 4px var(--violet-soft); }
+.felt-seat.is-active .felt-name { color: var(--text); }
+/* 9+ seats: smaller chips, so a ring of 12 or more still reads. */
+.felt-crowded .felt-seat { max-width: 68px; gap: 2px; }
+.felt-crowded .felt-avatar { width: 26px; height: 26px; font-size: 11px; }
+.felt-crowded .felt-name { font-size: 10px; padding: 0 4px; }
+.felt-screen .felt-seat { max-width: 200px; gap: 8px; }
+.felt-screen .felt-avatar { width: 72px; height: 72px; font-size: 30px; border-width: 3px; }
+.felt-screen .felt-name { font-size: 24px; padding: 2px 12px; border-radius: 9px; }
+.felt-screen .felt-badge { font-size: 16px; padding: 2px 9px; }
+.felt-screen.felt-crowded .felt-seat { max-width: 150px; }
+.felt-screen.felt-crowded .felt-avatar { width: 54px; height: 54px; font-size: 22px; }
+.felt-screen.felt-crowded .felt-name { font-size: 19px; }
+/* Each token carries its seat number, counted clockwise from the start
+   marker; the marker sits just outside the tokens, on the felt's edge. */
+.felt-avatar { position: relative; }
+.felt-num {
+  position: absolute; right: -7px; top: -7px; min-width: 16px; height: 16px;
+  border-radius: 8px; padding: 0 3px; box-sizing: border-box;
+  display: grid; place-items: center;
+  font: 800 10px var(--font-display); color: var(--ink); background: var(--violet);
+}
+.felt-screen .felt-num { right: -12px; top: -12px; min-width: 30px; height: 30px; border-radius: 15px; font-size: 17px; }
+.felt-crowded .felt-num { right: -6px; top: -6px; min-width: 14px; height: 14px; font-size: 9px; }
+.felt-marker {
+  position: absolute; transform: translate(-50%, -50%); z-index: 1;
+  font: 800 9px var(--font-display); letter-spacing: .06em; white-space: nowrap;
+  color: var(--ink-amber); background: var(--amber); border-radius: 6px; padding: 2px 6px;
+  box-shadow: 0 2px 8px rgba(5, 3, 10, .6);
+}
+.felt-screen .felt-marker { font-size: 16px; padding: 4px 11px; border-radius: 9px; }
+/* Draggable tokens and marker (phone ROOM tab, seat_drag.js): touch-action
+   none, or the phone scrolls the pane instead of moving the token. */
+.felt-seat[data-drag], .felt-marker[data-drag] { cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none; }
+.felt-marker[data-drag] { padding: 6px 9px; }
+.felt-seat.is-dragging, .felt-marker.is-dragging { z-index: 2; cursor: grabbing; }
+.felt-seat.is-dragging .felt-avatar { border-color: var(--amber); box-shadow: 0 0 0 4px rgba(255, 181, 112, .25); }
+
+/* 3 Man on the felt (render.rs tm_table_html / tm_dice_overlay): the
+   dice sit inside the felt on the roller's side, the roller's token lit,
+   the 3 Man badged. Sized to read from across the room on the screen. */
+.felt-dice {
+  position: absolute; transform: translate(-50%, -50%); z-index: 1;
+  display: flex; gap: 8px; pointer-events: none;
+  transition: left .45s ease, top .45s ease;
+}
+.felt-dice .die { width: 34px; height: 34px; border-radius: 8px; padding: 4px; box-shadow: 0 8px 20px rgba(0, 0, 0, .5); }
+.die-blank { background: rgba(247, 243, 234, .22); box-shadow: none; }
+.screen-panel.screen-tm .felt-dice { gap: 16px; }
+.screen-panel.screen-tm .felt-dice .die { width: 96px; height: 96px; border-radius: 18px; padding: 10px; }
+.felt-seat.is-active .felt-avatar { border-width: 3px; }
+.felt-screen .felt-seat.is-active .felt-avatar { border-width: 5px; box-shadow: 0 0 0 10px var(--violet-soft), 0 0 40px rgba(180, 142, 247, .55); }
+.felt-screen .felt-seat.is-active .felt-name { background: var(--violet); color: var(--ink); }
+.screen-panel.screen-tm .felt-centre .dice-sum { margin: 0; align-items: center; }
+.screen-panel.screen-tm .felt-centre .screen-waiting { height: auto; align-items: center; }
+.screen-panel.screen-tm .felt-centre .screen-hero-title { font-size: 60px; }
+.screen-panel.screen-tm .felt-centre .screen-hero-sub { font-size: 20px; }
+.dice-sum.stale { opacity: .55; }
+.screen-panel.screen-tm { height: 100%; }
+.tm-screen-below { display: flex; flex-direction: column; gap: 14px; flex: none; max-height: 38%; overflow: hidden; }
+.tm-screen-below:empty { display: none; }
+.tm-screen-below .verdict-card { padding: 12px; }
+.seat-row-badge {
+  font: 800 10px var(--font-display); letter-spacing: .06em;
+  color: var(--ink-amber); background: var(--amber); border-radius: 6px; padding: 3px 7px;
+}
+.seat-3man-btn {
+  font: 700 10px var(--font-ui); padding: 0 9px; min-height: 36px; border-radius: 9px;
+  background: transparent; border: 1px solid rgba(255, 181, 112, .4); color: var(--amber);
+}
+
+/* Ring of Fire on the felt (card_ring.rs): the face-down deck in a loose
+   ring, the last card drawn face up in the middle. The ring box spans the
+   table so the percentages match the seats'; only the cards take taps. */
+.card-ring { position: absolute; inset: 0; pointer-events: none; }
+.ring-card {
+  position: absolute; width: 16px; height: 24px; border-radius: 3px;
+  background: repeating-linear-gradient(45deg, #3a2f58 0 3px, #2a2340 3px 6px);
+  border: 1px solid rgba(242, 238, 248, .35);
+  box-shadow: 0 2px 5px rgba(5, 3, 10, .6);
+  pointer-events: auto;
+}
+.card-ring[data-draw-url] .ring-card { cursor: pointer; }
+.ring-card.is-taken { visibility: hidden; }
+.felt-screen .ring-card { width: 44px; height: 64px; border-radius: 6px; border-width: 2px; }
+.felt-card .card-big { width: 64px; height: 92px; border-radius: 8px; box-shadow: 0 10px 28px rgba(0, 0, 0, .6); }
+.felt-card .card-rank-tl { top: 5px; left: 7px; font-size: 15px; }
+.felt-card .card-suit-tl { top: 21px; left: 7px; font-size: 11px; }
+.felt-card .card-pip { font-size: 34px; }
+.felt-card .card-rank-br { bottom: 5px; right: 7px; font-size: 15px; }
+.felt-screen .felt-card .card-big { width: 168px; height: 240px; border-radius: 16px; }
+.felt-screen .felt-card .card-rank-tl { top: 12px; left: 16px; font-size: 34px; }
+.felt-screen .felt-card .card-suit-tl { top: 48px; left: 17px; font-size: 24px; }
+.felt-screen .felt-card .card-pip { font-size: 92px; }
+.felt-screen .felt-card .card-rank-br { bottom: 12px; right: 16px; font-size: 34px; }
+/* Fill the pane like .screen-tm does: the felt is flex: 1 with a 0 basis,
+   so a content-sized panel leaves it zero pixels tall. */
+.screen-panel.screen-active { height: 100%; }
+.screen-active .felt-screen { min-height: 0; }
+.screen-active .screen-hero-felt .rule-title { font-size: 44px; }
+.screen-active .screen-hero-felt .rule-text { font-size: 22px; }
+
+/* ROOM tab seat list: the ring again as rows, a seat dropdown each, and
+   SIT OUT / SIT BACK IN on the viewer's own row only (personalize()). */
+.seat-section .felt-table { margin: 4px 0 6px; }
+.seat-list, .sitting-out { display: flex; flex-direction: column; gap: 7px; }
+.sitting-out { margin-top: 8px; }
+.seat-row {
+  display: flex; align-items: center; gap: 9px;
+  background: var(--surface); border: 1px solid var(--hairline);
+  border-radius: 11px; padding: 7px 9px 7px 11px; min-height: 44px; box-sizing: border-box;
+}
+.seat-row .member-name { flex: 1; min-width: 0; }
+.seat-row-out { opacity: .7; }
+.seat-select {
+  font: 700 13px var(--font-ui); color: var(--text); background: var(--chip);
+  border: 1px solid var(--hairline-strong); border-radius: 9px; padding: 8px 6px; min-height: 36px;
+}
+.seat-out-btn, .seat-in-btn {
+  font: 800 11px var(--font-display); letter-spacing: .04em; padding: 0 10px;
+  min-height: 36px; border-radius: 9px; background: var(--chip); color: var(--text);
+}
+.seat-in-btn { background: var(--violet); color: var(--ink); }
+/* Same hazard as .handoff-panel[hidden]: a display value beats [hidden]. */
+.seat-out-btn[hidden], .seat-in-btn[hidden] { display: none; }
+.seat-note { margin: 0; font: 400 12px var(--font-ui); color: var(--text-faint); }
+
 /* screen (big-screen left pane — wired into screen.html in Task 8) */
 .screen-panel { display: flex; flex-direction: column; gap: 24px; min-width: 0; }
 .screen-top { display: flex; align-items: center; gap: 12px; }
@@ -487,7 +670,7 @@ body[data-player-id] { padding-bottom: 90px; }
    right join+standings pane), as opposed to the .screen-panel fragment
    classes above which style whatever gets swapped into #screen-panel. */
 .screen-grid {
-  display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr auto;
+  display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr;
   height: 100vh;
 }
 .screen-left, .screen-right {
@@ -498,12 +681,6 @@ body[data-player-id] { padding-bottom: 90px; }
 .screen-right {
   position: relative; padding: 36px 40px; gap: 16px; background: var(--bg-elevated);
 }
-/* Row 2, spanning both columns — 3 Man's full-width bottom seat strip
-   (tm_screen_panel's second sibling root; screen.html's swapPanel() moves
-   it here out of #screen-panel). Empty and collapsed for every other panel
-   kind, so RoF/idle screens are unaffected. */
-.screen-strip { grid-column: 1 / -1; padding: 0 40px 28px; }
-.screen-strip:empty { display: none; }
 
 .screen-emote-layer {
   position: absolute; left: 40px; right: 40px; bottom: 120px; height: 0;
@@ -575,10 +752,6 @@ body[data-player-id] { padding-bottom: 90px; }
 .seat-rolling .seat-avatar { border-color: var(--violet); color: var(--text); }
 .seat-left7 .seat-avatar, .seat-right9 .seat-avatar, .seat-3man .seat-avatar { border-color: var(--amber); color: var(--text); }
 .seat-name { font: 600 9px var(--font-ui); color: var(--text-faint); width: 44px; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.seat-strip-screen .seat-strip-row { justify-content: center; }
-.seat-strip-screen .seat { width: 96px; }
-.seat-strip-screen .seat-avatar { width: 62px; height: 62px; font-size: 20px; }
-.seat-strip-screen .seat-name { width: 96px; font-size: 15px; color: var(--text); }
 
 .verdict-card {
   display: flex; flex-direction: column; gap: 12px;
@@ -736,27 +909,7 @@ body[data-player-id] { padding-bottom: 90px; }
 .screen-panel.screen-tm .gift-value { font-size: 46px; }
 .screen-panel.screen-tm .payback-banner { padding: 18px 24px; font-size: 32px; }
 
-/* TABLE tab: seating list + rules reference */
-.seating-list { display: flex; flex-direction: column; gap: 7px; }
-.seating-caption { font: 600 10px var(--font-ui); letter-spacing: .12em; color: var(--text-faint); }
-.seating-sub { margin: 0; font: 400 12px/1.5 var(--font-ui); color: var(--text-faint); }
-.seat-move {
-  display: flex; align-items: center; gap: 10px;
-  background: var(--surface); border: 1px solid var(--hairline); border-radius: 12px; padding: 9px 10px;
-}
-.seat-pos { width: 18px; font: 900 13px var(--font-display); color: var(--text-faint); font-variant-numeric: tabular-nums; }
-.seat-info { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
-.seat-name-line { font: 700 14px/1 var(--font-ui); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.seat-tag-line { font: 600 9px var(--font-display); letter-spacing: .08em; color: var(--amber); }
-.seat-actions { margin-left: auto; display: flex; gap: 5px; }
-.seat-btn {
-  width: 32px; height: 32px; display: grid; place-items: center; border-radius: 9px;
-  background: var(--chip); border: none; color: var(--text-dim); font: 700 13px var(--font-ui);
-}
-.seat-btn-three {
-  width: auto; height: 32px; padding: 0 10px; background: transparent;
-  border: 1px solid rgba(255, 181, 112, .4); color: var(--amber); font: 700 10px var(--font-ui);
-}
+/* TABLE tab: rules reference */
 .rules-ref { display: flex; flex-direction: column; gap: 8px; }
 .rules-ref-caption { font: 600 10px var(--font-ui); letter-spacing: .12em; color: var(--text-faint); }
 .rules-ref-card {

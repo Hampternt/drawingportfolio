@@ -91,6 +91,8 @@ async fn test_assets_are_served() {
         ("/assets/lc_wheel.js", "application/javascript"),
         ("/assets/lc_loop.js", "application/javascript"),
         ("/assets/sh_room.js", "application/javascript"),
+        ("/assets/seat_drag.js", "application/javascript"),
+        ("/assets/card_ring.js", "application/javascript"),
     ] {
         let res = app
             .clone()
@@ -2480,6 +2482,15 @@ async fn test_tm_seat_and_table_reassign_any_member() {
 
     // Fresh game: Ready phase, alice is roller/3 Man, bob is neither — yet
     // bob (any member) can move seats and reassign the 3 Man outside HandOff.
+    // Seats move on the room's table now; the ↑/↓ route is gone.
+    let res = post_form(
+        &app,
+        &bob,
+        &format!("/room/{code}/seats/move"),
+        &format!("player_id={alice_id}&position=2"),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
     let res = post_form(
         &app,
         &bob,
@@ -2487,7 +2498,7 @@ async fn test_tm_seat_and_table_reassign_any_member() {
         &format!("target={alice_id}&dir=1"),
     )
     .await;
-    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+    assert_eq!(res.status(), StatusCode::NOT_FOUND);
 
     let res2 = post_form(
         &app,
@@ -5207,7 +5218,7 @@ async fn test_the_last_call_screen_needs_no_session() {
 /// builders themselves, independent of any particular room's state.
 #[test]
 fn test_exactly_one_screen_panel_builder_marks_itself_live() {
-    let idle = drinkinggame::render::screen_panel_idle("QK4M");
+    let idle = drinkinggame::render::screen_panel_idle("QK4M", &[], 0.0);
     let active = drinkinggame::render::screen_panel_active(
         &drinkinggame::render::GameView {
             base_path: "",
@@ -5218,6 +5229,7 @@ fn test_exactly_one_screen_panel_builder_marks_itself_live() {
             counts: &[],
             announcement: None,
             anim_key: String::new(),
+            table: None,
         },
         &[],
         0,
@@ -9491,4 +9503,487 @@ async fn test_sh_private_slot_is_a_sibling_of_the_game_panel() {
         between.contains("</section>"),
         "the slot's own section closes before #game-panel opens"
     );
+}
+
+// ---------------------------------------------------------------------
+// Table view, midpoint 1 (2026-10-18): the code-only big screen, sitting
+// out, and the room's seat order.
+// ---------------------------------------------------------------------
+
+async fn pid(pool: &sqlx::SqlitePool, name: &str) -> i64 {
+    drinkinggame::db::get_player_by_name(pool, name)
+        .await
+        .unwrap()
+        .id
+}
+
+async fn seat_ids(pool: &sqlx::SqlitePool, code: &str) -> Vec<i64> {
+    let room = drinkinggame::db::get_open_room(pool, code).await.unwrap();
+    drinkinggame::db::seated_members(pool, room.id)
+        .await
+        .iter()
+        .map(|m| m.id)
+        .collect()
+}
+
+/// A room with alice (creator), bob and cara, in that join order.
+async fn three_seat_room() -> (Router, sqlx::SqlitePool, [String; 3], String) {
+    let (app, pool) = test_app_with_pool().await;
+    let alice = login(&app, "alice", "1234").await;
+    let bob = login(&app, "bob", "5678").await;
+    let cara = login(&app, "cara", "9012").await;
+    let code = create_room(&app, &alice).await;
+    room_page_html(&app, &bob, &code).await;
+    room_page_html(&app, &cara, &code).await;
+    (app, pool, [alice, bob, cara], code)
+}
+
+#[tokio::test]
+async fn test_open_screen_needs_only_the_code_and_joins_nobody() {
+    let (app, pool) = test_app_with_pool().await;
+    let alice = login(&app, "alice", "1234").await;
+    let code = create_room(&app, &alice).await;
+
+    // No cookie at all; a lowercase code is fine.
+    let res = get(&app, &format!("/screen?room={}", code.to_lowercase())).await;
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+    assert_eq!(
+        res.headers()[header::LOCATION].to_str().unwrap(),
+        format!("/room/{code}/screen")
+    );
+    let res = get(&app, &format!("/room/{code}/screen")).await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let room = drinkinggame::db::get_open_room(&pool, &code).await.unwrap();
+    assert_eq!(
+        drinkinggame::db::room_members(&pool, room.id).await.len(),
+        1,
+        "opening the screen must not add a member"
+    );
+
+    // Unknown, malformed and missing codes get the friendly page.
+    for q in ["/screen?room=ZZZZ", "/screen?room=../x", "/screen"] {
+        let res = get(&app, q).await;
+        assert_eq!(res.status(), StatusCode::NOT_FOUND, "{q}");
+    }
+}
+
+#[tokio::test]
+async fn test_landing_offers_open_big_screen_signed_in_or_not() {
+    let app = test_app().await;
+    let html = body_string(get(&app, "/").await).await;
+    assert!(html.contains(r#"action="/screen""#));
+    let alice = login(&app, "alice", "1234").await;
+    let res = app
+        .clone()
+        .oneshot(
+            Request::get("/")
+                .header(header::COOKIE, &alice)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert!(body_string(res).await.contains(r#"action="/screen""#));
+}
+
+#[tokio::test]
+async fn test_sit_out_leaves_ring_and_standings_and_sit_in_returns() {
+    let (app, pool, [_alice, bob, _cara], code) = three_seat_room().await;
+    let (a, b, c) = (
+        pid(&pool, "alice").await,
+        pid(&pool, "bob").await,
+        pid(&pool, "cara").await,
+    );
+    let res = post_form(&app, &bob, &format!("/room/{code}/sit-out"), "").await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+    assert_eq!(seat_ids(&pool, &code).await, vec![a, c]);
+    let room = drinkinggame::db::get_open_room(&pool, &code).await.unwrap();
+    let standings = drinkinggame::db::leaderboard(&pool, room.id).await;
+    assert!(standings.iter().all(|r| r.id != b));
+    // Still in the room: a reload works and doesn't sit them back in.
+    let html = room_page_html(&app, &bob, &code).await;
+    assert!(html.contains("+1 DRINK"));
+    assert_eq!(seat_ids(&pool, &code).await, vec![a, c]);
+
+    let res = post_form(&app, &bob, &format!("/room/{code}/sit-in"), "").await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+    assert_eq!(
+        seat_ids(&pool, &code).await,
+        vec![a, b, c],
+        "same seat as before"
+    );
+}
+
+#[tokio::test]
+async fn test_any_member_moves_any_seat_and_the_next_game_reads_it() {
+    let (app, pool, [alice, bob, _cara], code) = three_seat_room().await;
+    let (a, b, c) = (
+        pid(&pool, "alice").await,
+        pid(&pool, "bob").await,
+        pid(&pool, "cara").await,
+    );
+    // bob moves cara to seat 1.
+    let res = post_form(
+        &app,
+        &bob,
+        &format!("/room/{code}/seats/move"),
+        &format!("player_id={c}&position=1"),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+    assert_eq!(seat_ids(&pool, &code).await, vec![c, a, b]);
+
+    // 3 Man starts from the ring (rotated so the starter rolls first).
+    post_form(&app, &alice, &format!("/room/{code}/tm/start"), "").await;
+    assert_eq!(tm_state(&pool, &code).await.order, vec![a, b, c]);
+
+    // A non-member can't reorder.
+    let dan = login(&app, "dan", "3456").await;
+    let res = post_form(
+        &app,
+        &dan,
+        &format!("/room/{code}/seats/move"),
+        &format!("player_id={a}&position=3"),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn test_reorder_mid_three_man_keeps_roller_and_three_man() {
+    let (app, pool, [alice, bob, _cara], code) = three_seat_room().await;
+    let (a, b, c) = (
+        pid(&pool, "alice").await,
+        pid(&pool, "bob").await,
+        pid(&pool, "cara").await,
+    );
+    post_form(&app, &bob, &format!("/room/{code}/tm/start"), "").await;
+    let before = tm_state(&pool, &code).await;
+    assert_eq!((before.roller(), before.three_man), (b, b));
+    post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/seats/move"),
+        &format!("player_id={a}&position=2"),
+    )
+    .await;
+    let after = tm_state(&pool, &code).await;
+    assert_eq!(after.order, vec![b, a, c]);
+    assert_eq!((after.roller(), after.three_man), (b, b));
+    assert_eq!(after.seq, before.seq + 1);
+    assert_eq!(seat_ids(&pool, &code).await, vec![b, a, c]);
+}
+
+#[tokio::test]
+async fn test_sit_out_mid_three_man_passes_the_turn() {
+    let (app, pool, [alice, _bob, cara], code) = three_seat_room().await;
+    let (a, b, c) = (
+        pid(&pool, "alice").await,
+        pid(&pool, "bob").await,
+        pid(&pool, "cara").await,
+    );
+    post_form(&app, &alice, &format!("/room/{code}/tm/start"), "").await;
+    let res = post_form(&app, &alice, &format!("/room/{code}/sit-out"), "").await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+    let st = tm_state(&pool, &code).await;
+    assert_eq!(st.order, vec![b, c]);
+    assert_eq!((st.roller(), st.three_man), (b, b));
+    // Reloading doesn't re-seat a sat-out player in the running game.
+    room_page_html(&app, &alice, &code).await;
+    assert_eq!(tm_state(&pool, &code).await.order, vec![b, c]);
+
+    // Two left: nobody else can sit out of this game, and nothing changes.
+    let res = post_form(&app, &cara, &format!("/room/{code}/sit-out"), "").await;
+    assert_eq!(res.status(), StatusCode::CONFLICT);
+    assert_eq!(seat_ids(&pool, &code).await, vec![b, c]);
+
+    // Sitting back in takes the old seat in the game too.
+    post_form(&app, &alice, &format!("/room/{code}/sit-in"), "").await;
+    assert_eq!(tm_state(&pool, &code).await.order, vec![a, b, c]);
+    assert_eq!(tm_state(&pool, &code).await.roller(), b);
+}
+
+#[tokio::test]
+async fn test_seat_routes_need_a_session() {
+    let (app, _pool, _cookies, code) = three_seat_room().await;
+    for path in ["sit-out", "sit-in", "seats/move"] {
+        let res = app
+            .clone()
+            .oneshot(
+                Request::post(format!("/room/{code}/{path}"))
+                    .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                    .body(Body::from("player_id=1&position=1"))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_ne!(res.status(), StatusCode::NO_CONTENT, "{path}");
+        assert!(res.status().is_redirection() || res.status().is_client_error());
+    }
+}
+
+#[tokio::test]
+async fn test_room_tab_has_the_draggable_table_and_seat_dropdowns() {
+    let (app, pool, [alice, bob, _cara], code) = three_seat_room().await;
+    let b = pid(&pool, "bob").await;
+    post_form(&app, &bob, &format!("/room/{code}/sit-out"), "").await;
+    let html = room_page_html(&app, &alice, &code).await;
+    assert!(html.contains("seat_drag.js"));
+    assert!(html.contains(&format!(r#"data-seat-url="/room/{code}/seats/angle""#)));
+    assert!(html.contains(&format!(r#"data-start-url="/room/{code}/seats/start""#)));
+    assert!(html.contains(r#"<span class="felt-num">2</span>"#));
+    assert_eq!(
+        html.matches(r#"class="felt-seat""#).count(),
+        2,
+        "bob is off the ring"
+    );
+    assert!(html.contains("THE TABLE &middot; 2"));
+    assert_eq!(html.matches(r#"<select class="seat-select""#).count(), 2);
+    assert!(html.contains(r#"<option value="2" selected>Seat 2</option>"#));
+    // bob is listed as sitting out, with his own SIT BACK IN.
+    assert!(html.contains("SITTING OUT &middot; 1"));
+    assert!(html.contains(&format!(r#"class="seat-in-btn" data-show-player="{b}""#)));
+}
+
+#[tokio::test]
+async fn test_idle_screen_shows_the_ring_without_whoever_sits_out() {
+    let (app, _pool, [_alice, bob, _cara], code) = three_seat_room().await;
+    let screen = body_string(get(&app, &format!("/room/{code}/screen")).await).await;
+    assert_eq!(screen.matches(r#"class="felt-seat""#).count(), 3);
+    assert!(screen.contains("felt-screen"));
+    assert!(
+        !screen.contains("data-drag"),
+        "the screen only displays the order"
+    );
+    // As an attribute; screen.html's own script names the marker in text.
+    assert!(!screen.contains(" data-lc-live"));
+    post_form(&app, &bob, &format!("/room/{code}/sit-out"), "").await;
+    let screen = body_string(get(&app, &format!("/room/{code}/screen")).await).await;
+    assert_eq!(screen.matches(r#"class="felt-seat""#).count(), 2);
+    assert!(!screen.contains(">bob<"));
+}
+
+#[tokio::test]
+async fn test_a_sat_out_starter_hands_three_man_to_seat_one() {
+    let (app, pool, [alice, _bob, _cara], code) = three_seat_room().await;
+    let (b, c) = (pid(&pool, "bob").await, pid(&pool, "cara").await);
+    post_form(&app, &alice, &format!("/room/{code}/sit-out"), "").await;
+    let res = post_form(&app, &alice, &format!("/room/{code}/tm/start"), "").await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+    let st = tm_state(&pool, &code).await;
+    assert_eq!(st.order, vec![b, c]);
+    assert_eq!(
+        (st.roller(), st.three_man),
+        (b, b),
+        "the title is on the table"
+    );
+}
+
+#[tokio::test]
+async fn test_a_sat_out_player_cannot_draw_in_ring_of_fire() {
+    let (app, _pool, [alice, bob, _cara], code) = three_seat_room().await;
+    post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/game/start"),
+        "preset_id=1",
+    )
+    .await;
+    post_form(&app, &bob, &format!("/room/{code}/sit-out"), "").await;
+    let res = post_form(&app, &bob, &format!("/room/{code}/game/draw"), "").await;
+    assert_eq!(res.status(), StatusCode::CONFLICT);
+    assert!(body_string(res).await.contains("sit back in"));
+    let res = post_form(&app, &alice, &format!("/room/{code}/game/draw"), "").await;
+    assert!(res.status().is_success(), "seated players still draw");
+}
+
+#[tokio::test]
+async fn test_a_drop_sends_one_angle_and_the_marker_moves_the_count() {
+    let (app, pool, [alice, bob, _cara], code) = three_seat_room().await;
+    let (a, b, c) = (
+        pid(&pool, "alice").await,
+        pid(&pool, "bob").await,
+        pid(&pool, "cara").await,
+    );
+    // Joins sit evenly at 60, 180, 300 from a marker at 0. bob drops alice at 250.
+    let res = post_form(
+        &app,
+        &bob,
+        &format!("/room/{code}/seats/angle"),
+        &format!("player_id={a}&angle=250"),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+    assert_eq!(seat_ids(&pool, &code).await, vec![b, a, c]);
+    // The marker moved to 290: cara (300) is now seat 1, bob (180) second.
+    let res = post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/seats/start"),
+        "angle=290",
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+    assert_eq!(seat_ids(&pool, &code).await, vec![c, b, a]);
+    // Junk angles are refused; a non-member can't drag.
+    let res = post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/seats/start"),
+        "angle=NaN",
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    let res = post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/seats/angle"),
+        "angle=10",
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    let dan = login(&app, "dan", "3456").await;
+    let res = post_form(&app, &dan, &format!("/room/{code}/seats/start"), "angle=10").await;
+    assert_eq!(res.status(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn test_a_drag_mid_three_man_keeps_the_roller() {
+    let (app, pool, [alice, bob, _cara], code) = three_seat_room().await;
+    let (a, b, c) = (
+        pid(&pool, "alice").await,
+        pid(&pool, "bob").await,
+        pid(&pool, "cara").await,
+    );
+    post_form(&app, &bob, &format!("/room/{code}/tm/start"), "").await;
+    post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/seats/angle"),
+        &format!("player_id={c}&angle=10"),
+    )
+    .await;
+    let st = tm_state(&pool, &code).await;
+    assert_eq!(st.order, vec![c, a, b]);
+    assert_eq!((st.roller(), st.three_man), (b, b));
+}
+
+#[tokio::test]
+async fn test_a_mid_three_man_join_sits_where_the_ring_puts_them() {
+    let (app, pool, [_alice, bob, _cara], code) = three_seat_room().await;
+    let (a, b, c) = (
+        pid(&pool, "alice").await,
+        pid(&pool, "bob").await,
+        pid(&pool, "cara").await,
+    );
+    post_form(&app, &bob, &format!("/room/{code}/tm/start"), "").await;
+    assert_eq!(tm_state(&pool, &code).await.order, vec![b, c, a]);
+    let dan = login(&app, "dan", "3456").await;
+    room_page_html(&app, &dan, &code).await;
+    let d = pid(&pool, "dan").await;
+    // The ring is a, b, c, d: dan sits between cara and alice.
+    assert_eq!(seat_ids(&pool, &code).await, vec![a, b, c, d]);
+    let st = tm_state(&pool, &code).await;
+    let at = |id| st.order.iter().position(|&p| p == id).unwrap();
+    assert_eq!(st.left_of(at(c)), d);
+    assert_eq!(st.left_of(at(d)), a);
+    assert_eq!((st.roller(), st.three_man), (b, b));
+}
+
+#[tokio::test]
+async fn test_three_man_screen_and_table_tab_are_the_felt_table() {
+    let (app, pool, [alice, _bob, _cara], code) = three_seat_room().await;
+    let a = pid(&pool, "alice").await;
+    post_form(&app, &alice, &format!("/room/{code}/tm/start"), "").await;
+    let screen = body_string(get(&app, &format!("/room/{code}/screen")).await).await;
+    assert!(screen.contains("felt-screen"));
+    assert_eq!(screen.matches(r#"class="felt-seat"#).count(), 3);
+    assert!(screen.contains(&format!(r#"class="felt-dice""#)));
+    assert!(screen.contains(&format!(r#"data-roller="{a}""#)));
+    assert!(screen.contains(r#"<span class="felt-badge">3 MAN</span>"#));
+    assert!(!screen.contains(" data-lc-live"));
+    assert!(!screen.contains("seat-strip"));
+    // The TABLE tab: the same table, draggable, and one seat list only.
+    let html = room_page_html(&app, &alice, &code).await;
+    assert!(html.contains("felt-phone"));
+    assert!(html.contains(r#"class="felt-dice""#));
+    assert!(!html.contains("SEATING ORDER"));
+    assert!(!html.contains("/tm/seat"));
+}
+
+#[tokio::test]
+async fn test_ring_of_fire_taps_a_card_off_the_ring_but_deals_the_deck_in_order() {
+    let (app, pool, [alice, bob, _cara], code) = three_seat_room().await;
+    post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/game/start"),
+        "preset_id=1",
+    )
+    .await;
+    let screen = body_string(get(&app, &format!("/room/{code}/screen")).await).await;
+    assert!(screen.contains("felt-screen"));
+    assert_eq!(screen.matches(r#"class="ring-card""#).count(), 52);
+    assert!(!screen.contains("data-draw-url"), "the screen can't draw");
+    assert!(!screen.contains(" data-lc-live"));
+    let phone = room_page_html(&app, &bob, &code).await;
+    assert!(phone.contains("card_ring.js"));
+    assert!(phone.contains(&format!(r#"data-draw-url="/room/{code}/game/draw""#)));
+
+    // bob taps slot 5: that card leaves the ring, the first card is dealt.
+    let res = post_form(&app, &bob, &format!("/room/{code}/game/draw"), "slot=5").await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+    let room = drinkinggame::db::get_open_room(&pool, &code).await.unwrap();
+    let game = drinkinggame::db::get_active_game(&pool, room.id)
+        .await
+        .unwrap();
+    let draws = drinkinggame::db::get_draws(&pool, game.id).await;
+    assert_eq!((draws[0].card_index, draws[0].ring_slot), (0, Some(5)));
+    let screen = body_string(get(&app, &format!("/room/{code}/screen")).await).await;
+    assert_eq!(screen.matches(r#"class="ring-card""#).count(), 51);
+    assert!(!screen.contains(r#"data-slot="5""#));
+    assert!(screen.contains(r#"<div class="felt-card" data-anim="flip">"#));
+    assert!(screen.contains(r#"<span class="felt-badge">DREW</span>"#));
+    let phone = room_page_html(&app, &alice, &code).await;
+    assert!(!phone.contains(r#"data-slot="5""#));
+
+    // A stale phone taps 5 again: still a draw, the next card, and the ring
+    // still shrinks by one. The DRAW button (no slot) works as before.
+    post_form(&app, &alice, &format!("/room/{code}/game/draw"), "slot=5").await;
+    post_form(&app, &alice, &format!("/room/{code}/game/draw"), "").await;
+    let draws = drinkinggame::db::get_draws(&pool, game.id).await;
+    let idx: Vec<i64> = draws.iter().map(|d| d.card_index).collect();
+    assert_eq!(idx, vec![0, 1, 2]);
+    assert_eq!(draws[1].ring_slot, None, "a gone slot isn't recorded");
+    let screen = body_string(get(&app, &format!("/room/{code}/screen")).await).await;
+    assert_eq!(screen.matches(r#"class="ring-card""#).count(), 49);
+}
+
+#[tokio::test]
+async fn test_ring_of_fire_layout_survives_a_reload() {
+    let (app, _pool, [alice, _bob, _cara], code) = three_seat_room().await;
+    post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/game/start"),
+        "preset_id=1",
+    )
+    .await;
+    let ring = |html: String| {
+        let a = html.find(r#"<div class="card-ring""#).unwrap();
+        let b = html[a..].find("</div></div>").unwrap();
+        html[a..a + b].to_string()
+    };
+    let one = ring(body_string(get(&app, &format!("/room/{code}/screen")).await).await);
+    let two = ring(body_string(get(&app, &format!("/room/{code}/screen")).await).await);
+    assert_eq!(one, two);
+    // The phone draws the same cards in the same places.
+    let phone = room_page_html(&app, &alice, &code).await;
+    let first = one.find(r#"<div class="ring-card""#).unwrap();
+    let card = &one[first..first + one[first..].find("</div>").unwrap()];
+    let card = card.replace(r#" data-sound="card-draw""#, "");
+    let phone_card_start = phone.find(r#"<div class="ring-card""#).unwrap();
+    let phone_card = &phone
+        [phone_card_start..phone_card_start + phone[phone_card_start..].find("</div>").unwrap()];
+    assert_eq!(phone_card.replace(r#" data-sound="card-draw""#, ""), card);
 }

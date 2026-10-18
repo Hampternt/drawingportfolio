@@ -2,6 +2,7 @@
 //! portfolio server or served standalone via the bin target.
 
 pub mod auth;
+pub mod card_ring;
 pub mod cards;
 pub mod db;
 pub mod error;
@@ -22,6 +23,8 @@ pub mod render;
 pub mod rooms;
 pub mod routes;
 pub mod rules;
+pub mod seat_ring;
+pub mod seats;
 pub mod secret_hitler;
 pub mod sh_render;
 pub mod sh_routes;

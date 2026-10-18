@@ -1,7 +1,8 @@
 //! 3 Man route handlers. `/tm/start` and `/tm/end` land here (Task 12); the
 //! in-game action routes (`/tm/roll`, `/tm/pass`, `/tm/three-man`,
-//! `/tm/mode`, `/tm/target`, `/tm/clear-slot`, `/tm/send`, `/tm/gift-roll`,
-//! `/tm/seat`) are Task 13. SQL stays in db.rs; HTML fragments stay in
+//! `/tm/mode`, `/tm/target`, `/tm/clear-slot`, `/tm/send`, `/tm/gift-roll`)
+//! are Task 13. `/tm/seat` (the ↑/↓ list) is gone: seats move on the room's
+//! table now (`seats.rs`). SQL stays in db.rs; HTML fragments stay in
 //! render.rs.
 
 use axum::extract::{Form, Path, State};
@@ -77,12 +78,19 @@ pub async fn tm_start_handler(
     let lock = state.locks.for_room(room.id);
     let _guard = lock.lock().await;
 
-    let members = db::room_members(&state.pool, room.id).await;
+    let members = db::seated_members(&state.pool, room.id).await;
     if members.len() < 2 {
         return GameError::TooFewPlayers.into_response();
     }
     let member_ids: Vec<i64> = members.iter().map(|m| m.id).collect();
-    let st = ThreeManState::new(member_ids, player.id);
+    // The starter rolls first and is the first 3 Man — unless they are
+    // sitting out and starting it for the table, when seat 1 is.
+    let starter = if member_ids.contains(&player.id) {
+        player.id
+    } else {
+        member_ids[0]
+    };
+    let st = ThreeManState::new(member_ids, starter);
     // deck_order/rules_json are Ring of Fire concepts — 3 Man leaves both
     // empty; GameAlreadyActive races are handled by the games table's
     // partial unique index (one active game per room).
@@ -478,34 +486,6 @@ pub async fn tm_pass_handler(
         Err(r) => return r,
     };
     if let Err(e) = ctx.st.pass() {
-        return map_tm(e).into_response();
-    }
-    persist_and_broadcast(&state, &ctx).await;
-    StatusCode::NO_CONTENT.into_response()
-}
-
-#[derive(Deserialize)]
-pub struct SeatForm {
-    pub target: i64,
-    pub dir: i64,
-}
-
-pub async fn tm_seat_handler(
-    State(state): State<GameState>,
-    PlayerSession(player): PlayerSession,
-    Path(code): Path<String>,
-    Form(form): Form<SeatForm>,
-) -> axum::response::Response {
-    let lock = match tm_lock(&state, &code).await {
-        Ok(l) => l,
-        Err(r) => return r,
-    };
-    let _guard = lock.lock().await;
-    let mut ctx = match load_tm(&state, &code, &player).await {
-        Ok(c) => c,
-        Err(r) => return r,
-    };
-    if let Err(e) = ctx.st.move_seat(form.target, form.dir) {
         return map_tm(e).into_response();
     }
     persist_and_broadcast(&state, &ctx).await;

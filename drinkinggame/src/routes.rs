@@ -156,6 +156,29 @@ async fn join_room_handler(
     }
 }
 
+#[derive(Deserialize)]
+struct ScreenForm {
+    /// "room", not "code" — the same phone-keyboard reason as `JoinForm`.
+    #[serde(default)]
+    room: String,
+}
+
+/// `GET /screen?room=CODE` — the landing page's "Open big screen". Needs no
+/// session and joins nobody: a TV is in the room without being a player.
+/// The code is checked against the alphabet before it becomes part of a
+/// redirect path.
+async fn open_screen(
+    State(state): State<GameState>,
+    axum::extract::Query(form): axum::extract::Query<ScreenForm>,
+) -> axum::response::Response {
+    let code = form.room.trim().to_uppercase();
+    let well_formed = code.len() == 4 && code.bytes().all(|b| rooms::CODE_ALPHABET.contains(&b));
+    if well_formed && db::get_open_room(&state.pool, &code).await.is_some() {
+        return Redirect::to(&format!("{}/room/{code}/screen", state.base_path)).into_response();
+    }
+    error_page(&state, StatusCode::NOT_FOUND, "No open room with that code")
+}
+
 async fn room_page(
     State(state): State<GameState>,
     PlayerSession(player): PlayerSession,
@@ -169,8 +192,6 @@ async fn room_page(
             "Room not found or already ended",
         );
     };
-    // Visiting a room joins it: room URLs double as invite links.
-    db::join_room(&state.pool, room.id, player.id).await;
 
     // Mid-game join: a running 3 Man round tracks seating in its own
     // `order` field (not just room_players), so a newcomer needs appending
@@ -182,6 +203,10 @@ async fn room_page(
     {
         let lock = state.locks.for_room(room.id);
         let _guard = lock.lock().await;
+        // Visiting a room joins it: room URLs double as invite links. Under
+        // the lock, because a join writes a seat number and seat moves
+        // renumber the room's seats in one transaction.
+        let new_member = db::join_room(&state.pool, room.id, player.id).await;
         let mut tm_joined = false;
         // Hoisted out of the `if game.kind == "last_call"` arm below, and
         // doubling as the "was this a Last Call game" flag (`Some` iff the
@@ -194,6 +219,9 @@ async fn room_page(
         // — a revisit by an already-seated player mutates nothing, so it
         // must not trigger a broadcast either.
         let mut lc_joined = false;
+        // A member sitting out is in the room but on no table: a reload
+        // must not quietly seat them in the running game.
+        let sitting_out = db::is_sitting_out(&state.pool, room.id, player.id).await;
         if let Some(game) = db::get_active_game(&state.pool, room.id).await {
             if game.kind == "three_man" {
                 let mut st = crate::three_man::ThreeManState::from_json(
@@ -202,8 +230,18 @@ async fn room_page(
                 // Already seated (a revisit, not a fresh join): skip the
                 // rewrite and the extra broadcast — an unchanged order needs
                 // neither.
-                if !st.order.contains(&player.id) {
-                    st.add_player(player.id);
+                if !sitting_out && !st.order.contains(&player.id) {
+                    // Seated where the room ring put them (mid-gap before the
+                    // marker), not appended after the starter's rotation, or
+                    // 7s and 9s would hit the wrong neighbours.
+                    let seated: Vec<i64> = db::seated_members(&state.pool, room.id)
+                        .await
+                        .iter()
+                        .map(|m| m.id)
+                        .collect();
+                    if crate::seats::sync_three_man(&mut st, &seated).is_err() {
+                        st.add_player(player.id);
+                    }
                     db::set_game_state(&state.pool, game.id, &st.to_json()).await;
                     tm_joined = true;
                 }
@@ -223,7 +261,8 @@ async fn room_page(
                 // `MAX_SEATS` — the newcomer must still join the room (that
                 // already happened above, via `db::join_room`), just not
                 // this game, so a full table is not an error here.
-                if st.seat_of(player.id).is_none()
+                if !sitting_out
+                    && st.seat_of(player.id).is_none()
                     && st.add_player(player.id, &player.name).is_some()
                 {
                     db::set_game_state(&state.pool, game.id, &st.to_json()).await;
@@ -233,8 +272,11 @@ async fn room_page(
             }
         }
         // New members appear on everyone's ROOM tab without waiting for the
-        // next unrelated event.
+        // next unrelated event — and on the idle big screen's ring.
         crate::game::broadcast_room(&state, room.id, &code).await;
+        if new_member {
+            crate::seats::publish_idle_screen(&state, &room).await;
+        }
         if tm_joined {
             crate::game::broadcast_game(&state, room.id, &code, None).await;
         }
@@ -393,7 +435,7 @@ async fn change_name(
     match auth::rename_player(&state.pool, player.id, &form.name).await {
         Ok(_) => {
             // Names are baked into already-rendered HTML on every connected
-            // phone and big screen (standings, WHO'S HERE, draw log, house
+            // phone and big screen (standings, THE TABLE, draw log, house
             // rules), so a mid-night rename has to push all three surfaces
             // for each open room or the old name lingers until the next
             // unrelated event. No room lock: nothing here mutates game state.
@@ -809,6 +851,20 @@ async fn lc_loop_js() -> impl IntoResponse {
     )
 }
 
+async fn seat_drag_js() -> impl IntoResponse {
+    (
+        [(header::CONTENT_TYPE, "application/javascript")],
+        include_str!("../assets/seat_drag.js"),
+    )
+}
+
+async fn card_ring_js() -> impl IntoResponse {
+    (
+        [(header::CONTENT_TYPE, "application/javascript")],
+        include_str!("../assets/card_ring.js"),
+    )
+}
+
 async fn sh_room_js() -> impl IntoResponse {
     (
         [(header::CONTENT_TYPE, "application/javascript")],
@@ -903,8 +959,13 @@ async fn test_spawn(
         if members.iter().any(|m| m.id == fake.id) {
             continue; // this fake is already at the table — next
         }
-        db::join_room(&state.pool, room.id, fake.id).await;
-        crate::game::broadcast_room(&state, room.id, &room.code).await;
+        {
+            let lock = state.locks.for_room(room.id);
+            let _guard = lock.lock().await;
+            db::join_room(&state.pool, room.id, fake.id).await;
+            crate::game::broadcast_room(&state, room.id, &room.code).await;
+            crate::seats::publish_idle_screen(&state, &room).await;
+        }
         return Redirect::to(&format!("{}/room/{code}", state.base_path)).into_response();
     }
     StatusCode::CONFLICT.into_response() // 16 fakes seated — enough table
@@ -956,9 +1017,21 @@ pub fn router() -> Router<GameState> {
         .route("/account/pin", post(change_pin))
         .route("/rooms", post(create_room))
         .route("/join", post(join_room_handler))
+        .route("/screen", get(open_screen))
         .route("/room/{code}", get(room_page))
         .route("/room/{code}/test/spawn", post(test_spawn))
         .route("/room/{code}/test/act-as", post(test_act_as))
+        .route("/room/{code}/seats/move", post(crate::seats::move_handler))
+        .route(
+            "/room/{code}/seats/angle",
+            post(crate::seats::angle_handler),
+        )
+        .route(
+            "/room/{code}/seats/start",
+            post(crate::seats::start_handler),
+        )
+        .route("/room/{code}/sit-out", post(crate::seats::sit_out_handler))
+        .route("/room/{code}/sit-in", post(crate::seats::sit_in_handler))
         .route("/room/{code}/event", post(log_event))
         .route("/room/{code}/undo", post(undo_event))
         .route("/room/{code}/end", post(end_room_handler))
@@ -1009,10 +1082,6 @@ pub fn router() -> Router<GameState> {
         .route(
             "/room/{code}/tm/pass",
             post(crate::tm_routes::tm_pass_handler),
-        )
-        .route(
-            "/room/{code}/tm/seat",
-            post(crate::tm_routes::tm_seat_handler),
         )
         .route(
             "/room/{code}/lastcall/start",
@@ -1159,6 +1228,8 @@ pub fn router() -> Router<GameState> {
         .route("/assets/lc_wheel.js", get(lc_wheel_js))
         .route("/assets/lc_loop.js", get(lc_loop_js))
         .route("/assets/sh_room.js", get(sh_room_js))
+        .route("/assets/seat_drag.js", get(seat_drag_js))
+        .route("/assets/card_ring.js", get(card_ring_js))
         .route("/assets/fonts/{name}", get(font_asset))
         .route("/assets/sounds/{name}", get(sound_asset))
         .route("/lastcall/preview", get(crate::lc_preview::preview_page))

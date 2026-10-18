@@ -351,25 +351,6 @@ impl ThreeManState {
         Ok(())
     }
 
-    /// Moves `player`'s seat by `delta` (wrapping circularly, seat 0 ↔ last —
-    /// a deliberate deviation from the prototype's clamp behaviour). The
-    /// roller keeps rolling: `roller_idx` is recomputed after the swap.
-    pub fn move_seat(&mut self, player: i64, delta: i64) -> Result<(), TmError> {
-        let len = self.order.len();
-        let Some(idx) = self.order.iter().position(|&p| p == player) else {
-            return Err(TmError::BadTarget);
-        };
-        let j = (idx as i64 + delta).rem_euclid(len as i64) as usize;
-        let roller_id = self.roller();
-        self.order.swap(idx, j);
-        self.roller_idx = self
-            .order
-            .iter()
-            .position(|&p| p == roller_id)
-            .expect("roller is always present in order");
-        Ok(())
-    }
-
     /// Table-tab reassign — works in any phase. During HandOff it resolves
     /// the hand-off exactly like `give_three_man` (an engine-level
     /// tolerance; route gating elsewhere still restricts who may call this
@@ -397,6 +378,74 @@ impl ThreeManState {
         if !self.order.contains(&player) {
             self.order.push(player);
         }
+    }
+
+    /// Room reorder (seat order lives on the room since 2026-10-18).
+    /// `new_order` must hold exactly the seated players; the roller and
+    /// the 3 Man stay the same people, so only `roller_idx` — the one
+    /// positional field — is recomputed. Allowed in every phase: every
+    /// in-flight reference (calls, the double's owner, slots, gifts) is a
+    /// player id, not a seat. One `seq` bump, and none for a no-op.
+    pub fn reorder(&mut self, new_order: &[i64]) -> Result<(), TmError> {
+        let mut want = new_order.to_vec();
+        let mut have = self.order.clone();
+        want.sort_unstable();
+        have.sort_unstable();
+        if want != have {
+            return Err(TmError::BadTarget);
+        }
+        if self.order == new_order {
+            return Ok(());
+        }
+        let roller_id = self.roller();
+        self.order = new_order.to_vec();
+        self.roller_idx = self
+            .order
+            .iter()
+            .position(|&p| p == roller_id)
+            .expect("same players, so the roller is still seated");
+        self.seq += 1;
+        Ok(())
+    }
+
+    /// Sitting out mid-game: removes `player`'s seat. A leaving roller
+    /// hands the turn to the next seat, which starts fresh at `Ready`; a
+    /// leaving 3 Man hands the title to the next seat. Refused while a
+    /// double is being given (Assign/Gifts), where the leaver may be the
+    /// owner, a target or a pending gift, and refused if it would leave
+    /// fewer than two at the table.
+    pub fn remove_player(&mut self, player: i64) -> Result<(), TmError> {
+        let Some(idx) = self.order.iter().position(|&p| p == player) else {
+            return Err(TmError::BadTarget);
+        };
+        if self.order.len() <= 2 {
+            return Err(TmError::TooFewPlayers);
+        }
+        if matches!(self.phase, Phase::Assign | Phase::Gifts) {
+            return Err(TmError::WrongPhase);
+        }
+        let was_roller = idx == self.roller_idx;
+        self.order.remove(idx);
+        let len = self.order.len();
+        // The seat after `idx` slid into `idx`, so `idx % len` is "next".
+        let next = self.order[idx % len];
+        if self.three_man == player {
+            self.three_man = next;
+        }
+        if was_roller {
+            self.roller_idx = idx % len;
+            self.phase = Phase::Ready;
+            self.dice = None;
+            self.calls.clear();
+            self.double = None;
+            self.pending_double = false;
+            self.handoff_from = None;
+            self.stale = true;
+        } else if idx < self.roller_idx {
+            self.roller_idx -= 1;
+        }
+        self.seq += 1;
+        Ok(())
     }
 
     pub fn to_json(&self) -> String {
@@ -650,16 +699,6 @@ mod tests {
     }
 
     #[test]
-    fn test_move_seat_preserves_roller_and_wraps() {
-        let mut s = st3();
-        s.roll(2, 4).unwrap();
-        s.pass().unwrap(); // roller is now player 2
-        s.move_seat(2, -1).unwrap(); // swaps 2 to front
-        assert_eq!(s.roller(), 2); // same player still rolling
-        s.move_seat(1, -1).unwrap(); // wrap: index 0 - 1 swaps with last
-    }
-
-    #[test]
     fn test_table_reassign_any_time_resolves_handoff() {
         let mut s = st3();
         s.roll(3, 3).unwrap(); // HandOff + pending double
@@ -667,6 +706,107 @@ mod tests {
         s.set_three_man(3).unwrap();
         assert_eq!(s.phase, Phase::Assign); // handoff resolved by the table pick
         assert_eq!(s.set_three_man(99), Err(TmError::BadTarget));
+    }
+
+    #[test]
+    fn test_reorder_keeps_roller_and_three_man_and_bumps_seq_once() {
+        let mut st = ThreeManState::new(vec![1, 2, 3, 4], 1);
+        st.roll(2, 4).unwrap();
+        st.pass().unwrap(); // 2 is rolling
+        st.set_three_man(3).unwrap();
+        let seq = st.seq;
+        st.reorder(&[4, 3, 2, 1]).unwrap();
+        assert_eq!(st.order, vec![4, 3, 2, 1]);
+        assert_eq!(st.roller(), 2);
+        assert_eq!(st.three_man, 3);
+        assert_eq!(st.seq, seq + 1);
+        // Same order again is a no-op, without a seq bump.
+        st.reorder(&[4, 3, 2, 1]).unwrap();
+        assert_eq!(st.seq, seq + 1);
+    }
+
+    #[test]
+    fn test_reorder_rejects_a_different_set_of_players() {
+        let mut st = ThreeManState::new(vec![1, 2, 3], 1);
+        assert_eq!(st.reorder(&[1, 2]), Err(TmError::BadTarget));
+        assert_eq!(st.reorder(&[1, 2, 4]), Err(TmError::BadTarget));
+        assert_eq!(st.reorder(&[1, 2, 3, 3]), Err(TmError::BadTarget));
+        assert_eq!(st.order, vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn test_reorder_mid_double_keeps_the_double() {
+        let mut st = ThreeManState::new(vec![1, 2, 3], 1);
+        st.roll(2, 2).unwrap(); // a double: Assign
+        st.reorder(&[3, 1, 2]).unwrap();
+        assert_eq!(st.phase, Phase::Assign);
+        assert_eq!(st.roller(), 1);
+        assert_eq!(st.double.as_ref().unwrap().owner, 1);
+    }
+
+    #[test]
+    fn test_remove_roller_passes_the_turn_to_the_next_seat() {
+        let mut st = ThreeManState::new(vec![1, 2, 3, 4], 1);
+        st.roll(2, 4).unwrap(); // 1 rolled a 6: Rolled
+        let seq = st.seq;
+        st.remove_player(1).unwrap();
+        assert_eq!(st.order, vec![2, 3, 4]);
+        assert_eq!(st.roller(), 2);
+        assert_eq!(st.phase, Phase::Ready);
+        assert!(st.dice.is_none() && st.calls.is_empty());
+        // 1 was also the 3 Man: the title goes to the next seat too.
+        assert_eq!(st.three_man, 2);
+        assert_eq!(st.seq, seq + 1);
+    }
+
+    #[test]
+    fn test_remove_last_seat_roller_wraps_to_seat_zero() {
+        let mut st = ThreeManState::new(vec![1, 2, 3], 1);
+        for _ in 0..2 {
+            st.roll(2, 4).unwrap();
+            st.pass().unwrap();
+        }
+        assert_eq!(st.roller(), 3);
+        st.remove_player(3).unwrap();
+        assert_eq!(st.roller(), 1);
+        assert_eq!(st.three_man, 1);
+    }
+
+    #[test]
+    fn test_remove_earlier_seat_keeps_the_roller() {
+        let mut st = ThreeManState::new(vec![1, 2, 3, 4], 1);
+        for _ in 0..2 {
+            st.roll(2, 4).unwrap();
+            st.pass().unwrap();
+        }
+        assert_eq!(st.roller(), 3);
+        st.roll(2, 4).unwrap();
+        st.remove_player(2).unwrap();
+        assert_eq!(st.roller(), 3);
+        assert_eq!(st.phase, Phase::Rolled, "the roller's turn is untouched");
+        // A later seat leaving does not move the turn either.
+        st.remove_player(4).unwrap();
+        assert_eq!(st.order, vec![1, 3]);
+        assert_eq!(st.roller(), 3);
+    }
+
+    #[test]
+    fn test_remove_three_man_who_is_not_rolling() {
+        let mut st = ThreeManState::new(vec![1, 2, 3, 4], 1);
+        st.set_three_man(3).unwrap();
+        st.remove_player(3).unwrap();
+        assert_eq!(st.three_man, 4);
+        assert_eq!(st.roller(), 1);
+    }
+
+    #[test]
+    fn test_remove_refused_mid_double_and_below_two() {
+        let mut st = ThreeManState::new(vec![1, 2, 3], 1);
+        st.roll(2, 2).unwrap(); // Assign
+        assert_eq!(st.remove_player(2), Err(TmError::WrongPhase));
+        let mut st = ThreeManState::new(vec![1, 2], 1);
+        assert_eq!(st.remove_player(2), Err(TmError::TooFewPlayers));
+        assert_eq!(st.remove_player(9), Err(TmError::BadTarget));
     }
 
     #[test]

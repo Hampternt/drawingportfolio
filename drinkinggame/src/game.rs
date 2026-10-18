@@ -86,6 +86,7 @@ struct ActiveGameData {
     counts: Vec<DrawCount>,
     house_rules: Vec<HouseRule>,
     kings: i64,
+    table: render::RofTable,
 }
 
 async fn load_active_game_data(state: &GameState, game: &Game) -> ActiveGameData {
@@ -131,7 +132,14 @@ async fn load_active_game_data(state: &GameState, game: &Game) -> ActiveGameData
         })
         .collect();
 
+    let table = render::RofTable {
+        game_id: game.id,
+        seats: db::seated_members(&state.pool, game.room_id).await,
+        start: db::start_angle(&state.pool, game.room_id).await,
+        draw_slots: draws.iter().map(|d| d.ring_slot).collect(),
+    };
     ActiveGameData {
+        table,
         current,
         held,
         remaining: 52 - draws.len() as i64,
@@ -158,6 +166,7 @@ async fn active_panel(
         counts: &data.counts,
         announcement,
         anim_key: data.anim_key,
+        table: Some(data.table),
     };
     render::game_active_panel(&view)
 }
@@ -173,6 +182,7 @@ async fn active_screen_panel(state: &GameState, game: &Game, code: &str) -> Stri
         counts: &data.counts,
         announcement: None,
         anim_key: data.anim_key,
+        table: Some(data.table),
     };
     render::screen_panel_active(&view, &data.house_rules, data.kings)
 }
@@ -189,7 +199,11 @@ pub async fn current_screen_panel(state: &GameState, room_id: i64, code: &str) -
                 st: &st,
                 names: &names,
             };
-            render::tm_screen_panel(&view)
+            let layout = render::TableLayout::new(
+                &db::room_members(&state.pool, room_id).await,
+                db::start_angle(&state.pool, room_id).await,
+            );
+            render::tm_screen_panel(&view, &layout)
         }
         Some(game) if game.kind == "last_call" => render::lc_screen_placeholder(code),
         Some(game) if game.kind == crate::secret_hitler::KIND => {
@@ -197,7 +211,11 @@ pub async fn current_screen_panel(state: &GameState, room_id: i64, code: &str) -
             crate::sh_render::sh_screen_panel(&view, &names)
         }
         Some(game) => active_screen_panel(state, &game, code).await,
-        None => render::screen_panel_idle(code),
+        None => render::screen_panel_idle(
+            code,
+            &db::seated_members(&state.pool, room_id).await,
+            db::start_angle(&state.pool, room_id).await,
+        ),
     }
 }
 
@@ -206,49 +224,55 @@ pub async fn current_screen_panel(state: &GameState, room_id: i64, code: &str) -
 /// this into broadcasts; Task 7 wires it into the room shell.
 pub async fn current_room_panel(state: &GameState, room_id: i64, code: &str) -> String {
     let members = db::room_members(&state.pool, room_id).await;
-    let (house_rules, kings, mode, seating) = match db::get_active_game(&state.pool, room_id).await
-    {
-        Some(game) if game.kind == "three_man" => {
-            let st = crate::three_man::ThreeManState::from_json(
-                game.state_json.as_deref().unwrap_or_default(),
-            );
-            let names: std::collections::HashMap<i64, String> =
-                members.iter().map(|m| (m.id, m.name.clone())).collect();
-            let view = render::TmView {
-                base_path: &state.base_path,
-                code,
-                st: &st,
-                names: &names,
-            };
-            (
-                Vec::new(),
-                0,
+    let start_angle = db::start_angle(&state.pool, room_id).await;
+    let (house_rules, kings, mode, seating, marks) =
+        match db::get_active_game(&state.pool, room_id).await {
+            Some(game) if game.kind == "three_man" => {
+                let st = crate::three_man::ThreeManState::from_json(
+                    game.state_json.as_deref().unwrap_or_default(),
+                );
+                let names: std::collections::HashMap<i64, String> =
+                    members.iter().map(|m| (m.id, m.name.clone())).collect();
+                let view = render::TmView {
+                    base_path: &state.base_path,
+                    code,
+                    st: &st,
+                    names: &names,
+                };
+                let layout = render::TableLayout::new(&members, start_angle);
+                (
+                    Vec::new(),
+                    0,
+                    game.kind,
+                    Some(render::tm_seating_html(&view)),
+                    Some(render::tm_table_marks(&view, &layout)),
+                )
+            }
+            Some(game) if game.kind == "last_call" => (Vec::new(), 0, game.kind, None, None),
+            Some(game) if game.kind == crate::secret_hitler::KIND => {
+                let (view, names) = crate::sh_routes::sh_view_data(state, &game).await;
+                let seating = crate::sh_render::sh_seating_html(&view, &names);
+                (Vec::new(), 0, game.kind, Some(seating), None)
+            }
+            Some(game) => (
+                db::house_rules(&state.pool, game.id).await,
+                db::king_count(&state.pool, game.id).await,
                 game.kind,
-                Some(render::tm_seating_html(&view)),
-            )
-        }
-        Some(game) if game.kind == "last_call" => (Vec::new(), 0, game.kind, None),
-        Some(game) if game.kind == crate::secret_hitler::KIND => {
-            let (view, names) = crate::sh_routes::sh_view_data(state, &game).await;
-            let seating = crate::sh_render::sh_seating_html(&view, &names);
-            (Vec::new(), 0, game.kind, Some(seating))
-        }
-        Some(game) => (
-            db::house_rules(&state.pool, game.id).await,
-            db::king_count(&state.pool, game.id).await,
-            game.kind,
-            None,
-        ),
-        None => (Vec::new(), 0, "idle".to_string(), None),
-    };
+                None,
+                None,
+            ),
+            None => (Vec::new(), 0, "idle".to_string(), None, None),
+        };
     let view = render::RoomView {
         base_path: &state.base_path,
         code,
         members: &members,
+        start_angle,
         house_rules: &house_rules,
         kings,
         mode: &mode,
         seating,
+        marks,
     };
     render::room_panel(&view)
 }
@@ -371,10 +395,19 @@ pub async fn start_game_handler(
     StatusCode::NO_CONTENT.into_response()
 }
 
+#[derive(Deserialize)]
+pub struct DrawForm {
+    /// The face-down card tapped on the phone's table, if one was; the
+    /// DRAW button sends none.
+    #[serde(default)]
+    pub slot: Option<i64>,
+}
+
 pub async fn draw_handler(
     State(state): State<GameState>,
     PlayerSession(player): PlayerSession,
     Path(code): Path<String>,
+    Form(form): Form<DrawForm>,
 ) -> axum::response::Response {
     let room = match member_room(&state, &code, &player).await {
         Ok(r) => r,
@@ -386,14 +419,39 @@ pub async fn draw_handler(
     if game.kind != "ring_of_fire" {
         return GameError::WrongGameKind.into_response();
     }
+    // Sitting out means out of the game, not just off the ring.
+    if db::is_sitting_out(&state.pool, room.id, player.id).await {
+        return GameError::SittingOut.into_response();
+    }
     let ranks: Vec<u8> = cards::parse_deck(&game.deck_order)
         .iter()
         .map(|c| c.rank)
         .collect();
+    // The tapped slot only decides which card leaves the ring; the card
+    // drawn is the next in deck_order, exactly as before. A slot already
+    // gone (a stale phone) is dropped and the ring falls back to its lowest.
+    let slot = match form.slot {
+        Some(s) => {
+            let taken: Vec<Option<i64>> = db::get_draws(&state.pool, game.id)
+                .await
+                .iter()
+                .map(|d| d.ring_slot)
+                .collect();
+            let on_table = crate::card_ring::remaining(&taken);
+            usize::try_from(s)
+                .ok()
+                .filter(|s| on_table.contains(s))
+                .map(|_| s)
+        }
+        None => None,
+    };
     let index = match db::insert_draw(&state.pool, game.id, player.id, &ranks).await {
         Ok(i) => i,
         Err(e) => return e.into_response(),
     };
+    if let Some(slot) = slot {
+        db::set_draw_ring_slot(&state.pool, game.id, index, slot).await;
+    }
     db::touch_room(&state.pool, room.id).await;
     let drawn_rank = ranks[index as usize];
     if index == 51 {

@@ -1,4 +1,4 @@
-//! Last Call — seat-ring geometry.
+//! Last Call — seat-ring geometry, clamped to Last Call's table size.
 //!
 //! Pure functions from a seat count to a table of box-relative percentage
 //! constants. No I/O, no async, no globals: this module is geometry in,
@@ -7,85 +7,17 @@
 
 use crate::last_call::MAX_SEATS;
 
-/// A seat's centre, as percentages of the ring box: (left%, top%).
-pub type SeatPos = (f32, f32);
-
-/// Indexed by `n - 2`. Seat 0 is bottom-centre; the list runs clockwise.
-///
-/// The n == 7 row is transcribed from the design bundle rather than
-/// generated: its angles are authored so that top-centre stays empty, and
-/// the bottom seat is pulled inward to r ~= 0.85 (D.2, "the local player is
-/// always nearest the viewer"). Six of its seven seats sit within 4% of the
-/// felt's inner hairline ellipse, which is what makes the generated rows
-/// consistent with it.
-const RING: [&[SeatPos]; 7] = [
-    // n = 2
-    &[(50.0, 91.1), (50.0, 8.9)],
-    // n = 3
-    &[(50.0, 91.1), (12.8, 29.4), (87.2, 29.4)],
-    // n = 4
-    &[(50.0, 91.1), (7.0, 50.0), (50.0, 8.9), (93.0, 50.0)],
-    // n = 5
-    &[
-        (50.0, 91.1),
-        (9.1, 62.7),
-        (24.7, 16.7),
-        (75.3, 16.7),
-        (90.9, 62.7),
-    ],
-    // n = 6
-    &[
-        (50.0, 91.1),
-        (12.8, 70.5),
-        (12.8, 29.4),
-        (50.0, 8.9),
-        (87.2, 29.4),
-        (87.2, 70.5),
-    ],
-    // n = 7 — authored, from the bundle
-    &[
-        (50.0, 84.9),
-        (20.3, 80.4),
-        (8.9, 47.6),
-        (26.4, 15.3),
-        (74.2, 15.1),
-        (91.1, 47.6),
-        (79.7, 80.4),
-    ],
-    // n = 8 — D.2's "8 compresses the two bottom positions"
-    &[
-        (50.0, 91.1),
-        (19.6, 79.1),
-        (7.0, 50.0),
-        (19.6, 20.9),
-        (50.0, 8.9),
-        (80.4, 20.9),
-        (93.0, 50.0),
-        (80.4, 79.1),
-    ],
-];
+// The geometry itself — the authored rows and the viewer rotation — moved
+// to `seat_ring` when Ring of Fire and 3 Man got tables of their own
+// (2026-10-18). Last Call keeps this clamped view of the authored rows: its
+// tables stop at `MAX_SEATS`, and it takes only the room's seat order, never
+// the free-form angles the other tables are drawn at.
+pub use crate::seat_ring::{view_index, SeatPos};
 
 /// Seat placements for a table of `n`, seat 0 first, clockwise.
 /// Returns `&[]` for n == 0. Clamps n > MAX_SEATS to the MAX_SEATS row.
 pub fn seat_positions(n: usize) -> &'static [SeatPos] {
-    match n {
-        0 => &[],
-        1 => &RING[0][..1],
-        _ => RING[n.min(MAX_SEATS) - 2],
-    }
-}
-
-/// Which ring slot a seat occupies for a given viewer. `me` is the
-/// viewer's own seat; `None` (a spectator, or a member who is not seated)
-/// is identity. An out-of-range `me` (`me >= n`, e.g. a stale seat index
-/// left over after the table shrank) is also treated as identity, same
-/// as `None`. Rotates so the viewer always lands on slot 0 —
-/// bottom-centre.
-pub fn view_index(seat: usize, me: Option<usize>, n: usize) -> usize {
-    match me {
-        Some(me) if n > 0 && me < n => (seat + n - me) % n,
-        _ => seat,
-    }
+    crate::seat_ring::authored(n.min(MAX_SEATS))
 }
 
 #[cfg(test)]
