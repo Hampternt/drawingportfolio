@@ -1,6 +1,6 @@
 # Drinks — the table view for Ring of Fire and 3 Man
 
-**Status:** built 2026-10-18 — on `feat/drinks-table-view` (worktree `~/projects/drawingportfolio.worktrees/drinks-table-view`, from `dev`), awaiting the owner's test and merge.
+**Status:** merged into `dev` 2026-10-18, after the owner's test. Branch `feat/drinks-table-view`.
 
 ## Goal
 
