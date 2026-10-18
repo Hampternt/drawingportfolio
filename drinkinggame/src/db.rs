@@ -83,7 +83,7 @@ pub async fn run_migrations(pool: &DbPool) {
              WHERE r2.room_id = room_players.room_id
                AND (r2.joined_at < room_players.joined_at
                     OR (r2.joined_at = room_players.joined_at
-                        AND r2.player_id < room_players.player_id))
+                        AND r2.rowid < room_players.rowid))
          )
          WHERE seat IS NULL",
     )
@@ -583,7 +583,7 @@ pub async fn set_sitting_out(pool: &DbPool, room_id: i64, player_id: i64, out: b
         } else if !out {
             let rel = crate::seat_ring::rel_angle(table.members[i].1, table.start);
             let rel = crate::seat_ring::nudge(rel, &table.seated_rel(Some(player_id)));
-            table.members[i].1 = table.start + rel;
+            table.members[i].1 = crate::seat_ring::normalize(table.start + rel);
         }
         true
     })
@@ -701,7 +701,7 @@ async fn rearrange(
     .await
     .expect("rearrange read members");
     let join_order: Vec<(i64,)> = sqlx::query_as(
-        "SELECT player_id FROM room_players WHERE room_id = ?1 ORDER BY joined_at, player_id",
+        "SELECT player_id FROM room_players WHERE room_id = ?1 ORDER BY joined_at, rowid",
     )
     .bind(room_id)
     .fetch_all(&mut *tx)
@@ -1723,6 +1723,27 @@ mod tests {
         assert!(set_sitting_out(&pool, room, p[2], false).await);
         assert_eq!(ids(seated_members(&pool, room).await), p);
         assert_eq!(room_members(&pool, room).await[2].angle, 150.0);
+    }
+
+    #[tokio::test]
+    async fn test_same_second_joins_keep_the_order_they_joined_in() {
+        // `joined_at` has one-second resolution, so friends scanning the QR
+        // together tie on it. The tie must break by who joined first, not by
+        // player id, or the next re-space swaps them with nobody touching.
+        let pool = test_pool().await;
+        let room = insert_room(&pool, "SEAT").await.unwrap();
+        let low = insert_player(&pool, "low", "h").await.unwrap();
+        let high = insert_player(&pool, "high", "h").await.unwrap();
+        join_room(&pool, room, high).await;
+        join_room(&pool, room, low).await;
+        sqlx::query("UPDATE room_players SET joined_at = '2026-01-01 10:00' WHERE room_id = ?1")
+            .bind(room)
+            .execute(&pool)
+            .await
+            .unwrap();
+        let cat = insert_player(&pool, "cat", "h").await.unwrap();
+        join_room(&pool, room, cat).await; // re-spaces the unarranged ring
+        assert_eq!(ids(seated_members(&pool, room).await), vec![high, low, cat]);
     }
 
     #[tokio::test]

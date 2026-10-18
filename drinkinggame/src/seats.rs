@@ -201,7 +201,8 @@ pub(crate) async fn swap_with_neighbour(
         return Err(GameError::NotNow);
     };
     let len = seated.len() as i64;
-    let j = (i as i64 + dir).rem_euclid(len) as usize;
+    // `dir` comes from the form; only its sign means anything.
+    let j = (i as i64 + dir.signum()).rem_euclid(len) as usize;
     if i == j {
         return Ok(());
     }
