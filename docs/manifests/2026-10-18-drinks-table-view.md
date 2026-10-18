@@ -123,8 +123,8 @@ and the Backroom SSE warning), `docs/design.md` §Drinking game,
   `ORDER BY seat` reader stays correct. A drop sends only the dragged
   player's new angle, never a whole order, so two phones dragging at once
   both land. The dropdown's "Seat N" places the player mid-gap at that
-  slot. 3 Man's ↑/↓ swaps two angles. A newcomer lands mid-gap just before
-  the start marker, at the end of the count. Two tokens at the same angle
+  slot. 3 Man's ↑/↓ swaps two angles. Newcomer placement is in
+  Decisions (even ring until arranged, then the widest gap). Two tokens at the same angle
   are ordered by player id. Nudge a drop so tokens don't sit exactly on top
   of each other.
 - **Where the angle is used.** Ring of Fire, 3 Man, the idle screen and the
