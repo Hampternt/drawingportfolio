@@ -351,25 +351,6 @@ impl ThreeManState {
         Ok(())
     }
 
-    /// Moves `player`'s seat by `delta` (wrapping circularly, seat 0 ↔ last —
-    /// a deliberate deviation from the prototype's clamp behaviour). The
-    /// roller keeps rolling: `roller_idx` is recomputed after the swap.
-    pub fn move_seat(&mut self, player: i64, delta: i64) -> Result<(), TmError> {
-        let len = self.order.len();
-        let Some(idx) = self.order.iter().position(|&p| p == player) else {
-            return Err(TmError::BadTarget);
-        };
-        let j = (idx as i64 + delta).rem_euclid(len as i64) as usize;
-        let roller_id = self.roller();
-        self.order.swap(idx, j);
-        self.roller_idx = self
-            .order
-            .iter()
-            .position(|&p| p == roller_id)
-            .expect("roller is always present in order");
-        Ok(())
-    }
-
     /// Table-tab reassign — works in any phase. During HandOff it resolves
     /// the hand-off exactly like `give_three_man` (an engine-level
     /// tolerance; route gating elsewhere still restricts who may call this
@@ -715,16 +696,6 @@ mod tests {
         assert_eq!(s.gift_roll(0, vec![1]), Err(TmError::WrongPhase));
         s.roll(2, 4).unwrap();
         assert_eq!(s.roll(2, 4), Err(TmError::WrongPhase)); // roll from Rolled
-    }
-
-    #[test]
-    fn test_move_seat_preserves_roller_and_wraps() {
-        let mut s = st3();
-        s.roll(2, 4).unwrap();
-        s.pass().unwrap(); // roller is now player 2
-        s.move_seat(2, -1).unwrap(); // swaps 2 to front
-        assert_eq!(s.roller(), 2); // same player still rolling
-        s.move_seat(1, -1).unwrap(); // wrap: index 0 - 1 swaps with last
     }
 
     #[test]
