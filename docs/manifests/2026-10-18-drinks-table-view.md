@@ -48,8 +48,17 @@ the way Last Call's big screen already does:
 - **Ring of Fire keeps its free-for-all draw (no turn order)**, as today. The
   seat ring still shows who drew last. The owner didn't raise turn order;
   recorded here as the default.
-- **Players who join mid-game take the last seat.** Default; anyone can move
-  them afterwards.
+- **Where a newcomer sits** (decided 2026-10-18 after the free-form build,
+  replacing "players who join mid-game take the last seat"). Until anyone
+  has arranged the room (dropped a token, moved the start marker, or used
+  the dropdown or ↑/↓), the ring stays evenly spaced in join order with the
+  newcomer last in the count, re-spaced on every join, sit-out and sit-in.
+  Once the room is arranged, a newcomer lands mid-gap in the widest gap and
+  nobody else moves; sitting back in returns a player to their old angle.
+  Anyone can move them afterwards. Not chosen: mid-gap just before the
+  start marker (it halves the last gap on every join and piles later
+  joiners onto the marker), and a minimum spacing on join (it still crowds
+  once the gaps run out).
 - **Dragging is free-form, and a token stays where you drop it** (chosen
   2026-10-18, after testing midpoint 1). Each player's token sits on the
   table's rim at the angle where it was last dropped, on both the phone and
