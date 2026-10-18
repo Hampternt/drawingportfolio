@@ -231,7 +231,17 @@ async fn room_page(
                 // rewrite and the extra broadcast — an unchanged order needs
                 // neither.
                 if !sitting_out && !st.order.contains(&player.id) {
-                    st.add_player(player.id);
+                    // Seated where the room ring put them (mid-gap before the
+                    // marker), not appended after the starter's rotation, or
+                    // 7s and 9s would hit the wrong neighbours.
+                    let seated: Vec<i64> = db::seated_members(&state.pool, room.id)
+                        .await
+                        .iter()
+                        .map(|m| m.id)
+                        .collect();
+                    if crate::seats::sync_three_man(&mut st, &seated).is_err() {
+                        st.add_player(player.id);
+                    }
                     db::set_game_state(&state.pool, game.id, &st.to_json()).await;
                     tm_joined = true;
                 }

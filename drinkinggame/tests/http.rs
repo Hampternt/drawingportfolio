@@ -9868,3 +9868,25 @@ async fn test_a_drag_mid_three_man_keeps_the_roller() {
     assert_eq!(st.order, vec![c, a, b]);
     assert_eq!((st.roller(), st.three_man), (b, b));
 }
+
+#[tokio::test]
+async fn test_a_mid_three_man_join_sits_where_the_ring_puts_them() {
+    let (app, pool, [_alice, bob, _cara], code) = three_seat_room().await;
+    let (a, b, c) = (
+        pid(&pool, "alice").await,
+        pid(&pool, "bob").await,
+        pid(&pool, "cara").await,
+    );
+    post_form(&app, &bob, &format!("/room/{code}/tm/start"), "").await;
+    assert_eq!(tm_state(&pool, &code).await.order, vec![b, c, a]);
+    let dan = login(&app, "dan", "3456").await;
+    room_page_html(&app, &dan, &code).await;
+    let d = pid(&pool, "dan").await;
+    // The ring is a, b, c, d: dan sits between cara and alice.
+    assert_eq!(seat_ids(&pool, &code).await, vec![a, b, c, d]);
+    let st = tm_state(&pool, &code).await;
+    let at = |id| st.order.iter().position(|&p| p == id).unwrap();
+    assert_eq!(st.left_of(at(c)), d);
+    assert_eq!(st.left_of(at(d)), a);
+    assert_eq!((st.roller(), st.three_man), (b, b));
+}
