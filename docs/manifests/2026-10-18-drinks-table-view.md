@@ -379,7 +379,22 @@ back in.
   now moves seats through `/seats/move` and checks that `/tm/seat` returns
   404. Smaller test assertions changed to fit the new markup: WHO'S HERE
   became THE TABLE, and the idle-panel signatures changed.
-- **For review:** migrations 004 and 005 and their backfills over live
-  rooms; `db::rearrange` and every seat write in it; the seat routes; the
-  two new 3 Man transitions.
+- **Reviewed (targeted, 2026-10-18):** migrations 004 and 005 and their
+  backfills over live rooms, `db::rearrange` and every seat write, the
+  seat routes, and the two new 3 Man transitions. Two fixes came out of it:
+  - ee60102: seat writes use `BEGIN IMMEDIATE`. A deferred transaction
+    panicked on `SQLITE_BUSY_SNAPSHOT` when a drink tap committed between
+    its read and its write.
+  - 2586b5b: join-order ties break by `rowid`, so friends who join in the
+    same second don't swap seats at the next re-space.
+
+  `game_draws.ring_slot` was checked by hand: nullable and visual only, and
+  duplicate taps resolve to the lowest slot still on the table.
+
+### After handover
+
+- **9d242ad:** the smoke load caught Ring of Fire's big-screen felt
+  rendering zero pixels tall (the panel was content-sized). It now fills
+  the pane like 3 Man's. Full gate re-run on 9d242ad: exit 0, VERIFY OK,
+  1160 tests.
 
