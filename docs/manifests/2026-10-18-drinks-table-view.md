@@ -1,6 +1,6 @@
 # Drinks — the table view for Ring of Fire and 3 Man
 
-**Status:** approved 2026-10-18 — building on `feat/drinks-table-view` (worktree `~/projects/drawingportfolio.worktrees/drinks-table-view`, from `dev`).
+**Status:** built 2026-10-18 — on `feat/drinks-table-view` (worktree `~/projects/drawingportfolio.worktrees/drinks-table-view`, from `dev`), awaiting the owner's test and merge.
 
 ## Goal
 
@@ -197,4 +197,189 @@ from the test panel.
 
 ## Built
 
-_Written at handover._
+Built 2026-10-18 on `feat/drinks-table-view`, from 9658dba to the Built
+commit. Only the `drinkinggame` crate and the docs changed.
+
+### What changed
+
+**Seat order and sitting out (storage).**
+- **Migration 004:** `room_players.seat` (backfilled from join order) and
+  `room_players.sitting_out`.
+- **Migration 005:** `room_players.angle`, `rooms.start_angle`,
+  `rooms.arranged` and `game_draws.ring_slot`.
+- Both are `column_exists`-guarded ALTERs in `db::run_migrations`, and both
+  backfills only fill NULLs.
+- `seat` is now the order derived from the angles, clockwise from the start
+  marker. Every seat write goes through `db::rearrange`, one
+  `BEGIN IMMEDIATE` transaction that rewrites the angles, `seat` and the
+  arranged flag together. That covers drops, marker moves, the dropdown,
+  joins, sit-out and sit-in.
+- `room_members` returns everyone in seat order, because name lookups
+  still need sat-out players. `seated_members` is the ring that 3 Man,
+  Last Call (start and rematch) and Backroom seat from.
+- The standings leave out anyone sitting out.
+
+**Routes (`seats.rs`, `routes.rs`).**
+- `GET /screen?room=CODE` comes from a new "Open big screen" form on the
+  landing page. It works signed in or not and joins nobody.
+- `POST /room/{code}/seats/move` takes `player_id` and a 1-based
+  `position`, and backs the dropdown. The player lands mid-gap at that
+  slot.
+- `POST /room/{code}/seats/angle` takes `player_id` and `angle`, and is a
+  token drop. `POST /room/{code}/seats/start` takes `angle`, and is a
+  marker drop.
+- `POST /room/{code}/sit-out` and `/sit-in` act on yourself only.
+- All of these hold the room lock. Each change broadcasts the ROOM tab, the
+  standings, and the game frame. With no game running it sends the screen
+  frame instead, so a game-over summary on the phones survives.
+- A sat-out player can't draw in Ring of Fire, and a reload doesn't seat
+  them in a running 3 Man or Last Call game.
+- `room_page`'s and `test_spawn`'s joins now run under the room lock.
+
+**3 Man engine.** Two new transitions, both followed through
+`seats::sync_running_game`:
+- `reorder`: any phase. The roller and the 3 Man stay the same people, and
+  `seq` goes up once.
+- `remove_player`: a leaving roller or 3 Man passes the role to the next
+  seat. It is refused mid-double, and refused if it would leave fewer than
+  two players.
+
+A mid-game join now sits where the room ring puts the newcomer.
+
+**The table (`seat_ring.rs`).**
+- Geometry:
+  - Last Call's authored 2–8-seat rows moved here, and `lc_layout`
+    re-exports them clamped.
+  - Every other table puts each token at its stored rim angle, with its
+    seat number.
+  - The start marker sits on the felt's edge.
+- `table_html` takes a centre slot, an overlay for game pieces, a scale
+  (phone or screen) and optional drag URLs. It never emits `data-lc-live`.
+- `assets/seat_drag.js` drags tokens and the marker along the rim with
+  pointer events. A room frame that arrives mid-drag is parked until the
+  drag ends.
+
+**ROOM / TABLE tab.**
+- WHO'S HERE became THE TABLE: the draggable felt, the same ring as rows
+  with a "Seat N" dropdown, SIT OUT on your own row, and a SITTING OUT list
+  with SIT BACK IN.
+- During 3 Man the felt carries the roller highlight, the 3 MAN badge and
+  the dice. Each row gets a 3 MAN button, and the holder's row shows a
+  badge.
+
+**Idle big screen.** The ring on the felt, display only.
+
+**3 Man.**
+- The big screen is the felt: tokens at their angles, the roller lit, the
+  3 Man badged.
+- The dice sit inside the felt on the roller's side. They show the roll
+  during the turn and go blank once it passes, so they move with the
+  roller.
+- The sum or WAITING ON line is in the centre; the calls and the
+  hand-off / double panels sit beneath the table.
+
+**Ring of Fire (`card_ring.rs`, `assets/card_ring.js`).**
+- The big screen and the phone GAME tab show the felt with the face-down
+  cards in a loose ring. The last drawn card is face up in the centre, the
+  rule text stays beside the table, and whoever drew last is lit with a
+  DREW badge.
+- The scatter is a fixed SplitMix64 seeded from the game id.
+- A tap posts the draw with `slot=N`, stored in `game_draws.ring_slot`
+  after `insert_draw`.
+
+### Full gate
+
+`./scripts/verify.sh`, exit 0:
+
+```
+=== cargo fmt --check
+=== cargo clippy
+=== cargo test
+test result: ok. 341 passed; 0 failed
+test result: ok. 8 passed; 0 failed
+test result: ok. 559 passed; 0 failed
+test result: ok. 0 passed; 0 failed
+test result: ok. 252 passed; 0 failed
+test result: ok. 0 passed; 0 failed
+=== node --check (static JS)
+=== node (the board suites)
+ok   docs/design/sorting-live/src/model.test.js — passed 265/265 checks
+ok   docs/design/sorting-live/src/board.test.js — passed 193/193 checks
+VERIFY OK — fmt, clippy, tests, JS syntax, board suites all clean.
+```
+
+That is 1160 workspace tests plus the board's 458 checks. Clippy shows no
+`drinkinggame` warnings.
+
+### Test data
+
+Nothing to seed. Run `DRINKS_TEST_MODE=1 cargo run -p drinkinggame`, log
+in with any made-up name, start a night, and press **+ FAKE** on the TEST
+bar. That spawns `test-1`, `test-2` and so on, all with PIN 0000. The TEST
+bar still lists sat-out fakes, which is how you switch into one to sit it
+back in.
+
+### Done differently from the plan, and why
+
+- **Seat geometry: angles instead of generated rows.** Seats past 8 were
+  first generated rows on Last Call's ellipse. The free-form decision
+  replaced them with stored angles. Last Call shares only the authored rows
+  and keeps its own `#lc-felt` markup and CSS: its flight anchors, ids and
+  tests key on them. The shared felt restates Last Call's colour values in
+  `game.css`, because the room and screen pages load only that sheet.
+- **Newcomers.** In an unarranged room every join, sit-out and sit-in
+  re-spaces the ring evenly in join order, at (i+0.5)·360/n from the
+  marker. Once anyone has arranged the room, a newcomer lands mid-gap in
+  the widest gap; that gap can span the marker, so the newcomer may become
+  seat 1. A room with no seats yet seats its first player opposite the
+  marker.
+- **Drops.** A drop is nudged 4° off any token it lands on, and never
+  across the marker. Sitting back in an arranged room returns the player
+  to their old angle, nudged.
+- **Marker label.** It reads "SEAT 1", not "START", because the idle panel's
+  test pins `>START<` to exactly four game cards.
+- **3 Man engine work came forward to midpoint 1** (`reorder` and
+  `remove_player`). Without it, sitting out or reordering during 3 Man
+  would have left two orders disagreeing. Moving the marker mid-game
+  rotates the game's order: neighbours, the roller and the 3 Man stay the
+  same, but `seq` goes up.
+- **3 Man's ↑/↓ SEATING ORDER list, `/tm/seat`, the swap helpers and the
+  screen's bottom seat strip are gone.** THE TABLE, the dropdown and drag
+  replace them, and the 3 MAN reassign buttons moved onto THE TABLE's rows.
+  The phone GAME tab keeps its small seat strip because the "a 7 is yours"
+  line reads it.
+- **Last Call and Backroom take the ring when they start.** A seat change
+  or sit-out during one applies from the next game, and the ROOM tab says
+  so. Taking a seat out of a running Backroom game would break the engine
+  and reveal roles.
+- **Sat-out players.**
+  - Starting 3 Man while sat out hands seat 1 the first roll and the title.
+  - A sat-out player can't draw in Ring of Fire (409), but can still tap
+    +1 DRINK; those drinks stay hidden from the standings until they sit
+    back in.
+- **Big screen refreshes.** A rename doesn't refresh the idle screen's
+  ring: that path avoids overwriting a game-over summary on purpose. Joins
+  and seat changes do repaint the idle screen, so after a game they replace
+  the summary on the screen; phones are left alone.
+- **Ring of Fire draw path.**
+  - A tap picks the card nearest the finger. 52 overlapping cards are too
+    small to aim at one by one on a phone.
+  - A tapped slot that is already gone, or no slot at all, falls back to the
+    lowest card still on the table, so the ring always holds 52 minus the
+    number of draws.
+  - The TAP TO DRAW button stays as a fallback and sends the same request
+    with no slot.
+  - Recording the slot is a separate UPDATE after `insert_draw`, so drawing,
+    `card_index` and the conflict retry are untouched.
+- **No `?v=` on the new scripts.** The drinks crate has no cache-busting
+  mechanism and serves its JS without long caching, like the `lc_*.js`
+  files.
+- **Smaller changes.** New integration tests live at the end of
+  `tests/http.rs`. Two 3 Man tests changed: one lost its ↑/↓ steps, and one
+  now moves seats through `/seats/move` and checks that `/tm/seat` returns
+  404. Smaller test assertions changed to fit the new markup: WHO'S HERE
+  became THE TABLE, and the idle-panel signatures changed.
+- **For review:** migrations 004 and 005 and their backfills over live
+  rooms; `db::rearrange` and every seat write in it; the seat routes; the
+  two new 3 Man transitions.
+
