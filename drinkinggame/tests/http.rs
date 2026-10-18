@@ -9972,9 +9972,7 @@ async fn test_ring_of_fire_layout_survives_a_reload() {
     let ring = |html: String| {
         let a = html.find(r#"<div class="card-ring""#).unwrap();
         let b = html[a..].find("</div></div>").unwrap();
-        html[a..a + b]
-            .replace(r#" data-draw-url="/room/"#, "")
-            .to_string()
+        html[a..a + b].to_string()
     };
     let one = ring(body_string(get(&app, &format!("/room/{code}/screen")).await).await);
     let two = ring(body_string(get(&app, &format!("/room/{code}/screen")).await).await);
