@@ -14,6 +14,9 @@ from this file on 2026-08-12; `git log docs/WORKTREES.md` recovers them.
 - **`dev` is the staging branch** (decision 2026-08-13): it tracks `master`
   and is where changes accumulate before merging into `master`. Merge
   `dev → master` locally to release; `dev` is never deleted after a merge.
+  **Exception:** the Hub/Admin/CV/docs container (`feat/portfolio-review`)
+  merges straight into `master` (its ruling D11, 2026-10-05), as #20 and #24
+  did.
 - **Branch names say what the work is**: `feat/<stream>` for feature streams,
   `fix/<thing>` for single fixes.
 - **The worktree directory is named after the branch** minus the `feat/`
@@ -26,10 +29,12 @@ from this file on 2026-08-12; `git log docs/WORKTREES.md` recovers them.
 
 - **`feat/portfolio-review`** (worktree
   `~/projects/drawingportfolio.worktrees/portfolio-review`; merges → `master`):
-  the live continuation of `feat/hub-admin-cv-docs` — Pack 2b (the hub
-  follow-up) plus rulings 2–4, working from the review mapped in
-  `docs/handoffs/2026-09-27-portfolio-review.md`. No PR yet. Ledger:
-  `docs/manifests/2026-09-08-hub-admin-cv-docs.md`.
+  the live continuation of `feat/hub-admin-cv-docs`, working from the review
+  mapped in `docs/handoffs/2026-09-27-portfolio-review.md`. Steps 1–2 —
+  rulings 2–4 recorded and Pack 2b (the hub follow-up) — **LANDED** via
+  Hampternt/drawingportfolio#24 (2026-10-04). Pack 7 (`/docs` and the README)
+  **LANDED** via #26 (2026-10-05). The stream stays open for the
+  handoff's later steps. Ledger: `docs/manifests/2026-09-08-hub-admin-cv-docs.md`.
 - **`feat/hub-admin-cv-docs`** — Packs 1 (shared shell), 2 (Hub) and 6 (CV)
   **LANDED** via Hampternt/drawingportfolio#20 (squashed). Packs 3, 4, 5 and 7
   not started; the work continues on `feat/portfolio-review` above. The

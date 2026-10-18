@@ -140,6 +140,7 @@ async fn main() {
     let app = Router::new()
         .merge(routes::hub::router()) // GET /
         .merge(routes::cv::router()) // GET /cv
+        .merge(routes::docs::router()) // GET /docs
         .merge(routes::feed::router()) // GET /artportfolio (and HTMX/JSON sub-routes)
         .merge(routes::admin::router()) // GET /admin, POST/DELETE /api/admin/posts
         .merge(routes::auth::router()) // POST /api/auth/... (WebAuthn ceremonies)

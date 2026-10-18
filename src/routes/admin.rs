@@ -1017,8 +1017,9 @@ mod tests {
             let method = req.method().clone();
             let uri = req.uri().clone();
             let resp = app.clone().oneshot(req).await.unwrap();
-            // `AuthSession`'s rejection is always `Redirect::to("/admin/login")`,
-            // i.e. 303 See Other — assert that exact status, not merely
+            // With no session and no `HX-Request`, the rejection is always
+            // `Redirect::to("/admin/login")`, i.e. 303 See Other (see
+            // `middleware::to_login`) — assert that exact status, not merely
             // "not 200". `create_collection_route` succeeds with 201, and
             // `assert_ne!(status, OK)` cannot tell a missing `_session`
             // extractor (which would 201 straight through) from a present one.

@@ -1,7 +1,7 @@
 // Sorting & Loading Assistant — the live board, wired to the route it is loading.
 //
 // The board itself is sorting-model.js and sorting-board.js: the same files the
-// demo and the design document run, and the same 432 checks cover all three.
+// demo and the design document run, and the same 458 checks cover all three.
 // Nothing about the loading rules is in here. What is in here is everything the
 // board does not know about — which route it is loading, where the driver's van
 // settings live, and how a tap survives a tablet with no signal.

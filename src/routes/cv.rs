@@ -72,11 +72,23 @@ mod tests {
     }
 
     #[test]
-    fn test_cv_links_nowhere_that_does_not_exist_yet() {
-        // The how-it-works page is Pack 7; until its route exists the rail's
-        // link card to it stays out, same rule as the hub footer.
+    fn test_cv_content_links_nowhere_on_this_site() {
+        // Ruled 2026-09-28: the CV's own content links nowhere on this site, so
+        // the rail's how-it-works card is dropped for good. Only <main> is
+        // checked — the header nav on /cv is site chrome and gains /docs later.
         let html = render();
-        assert!(!html.contains(r#"href="/docs""#));
-        assert!(!html.contains(r#"href="/how-it-works""#));
+        // Positive control: the header does carry site links, so the needle
+        // below would match if <main> ever did.
+        assert!(html.contains(r#"href="/"#));
+        let main = &html[html.find("<main>").unwrap()..html.find("</main>").unwrap()];
+        assert!(
+            main.contains("mailto:jl@dblo.net"),
+            "<main> lost the contact row"
+        );
+        assert!(!main.contains(r#"href="/"#), "the CV links into the site");
+        assert!(
+            !main.contains("portfolio.dblo.net"),
+            "the CV names the site"
+        );
     }
 }

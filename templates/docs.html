@@ -1,0 +1,237 @@
+{% extends "base.html" %}
+
+{% block title %}How this site works{% endblock %}
+
+{% block nav_active %}docs{% endblock %}
+
+{% block body_class %}site-dark{% endblock %}
+
+{% block content %}
+<div class="site-page docs-page">
+<section class="docs-head hm-grid-bg">
+  <div class="docs-head__inner">
+    <span class="hm-eyebrow">documentation · written for a reader who does not code</span>
+    <h1 class="docs-head__title">How this site works<span class="site-title__dot">.</span></h1>
+    <p class="docs-head__lede">I run everything you see here: six sections, one program, one server. This page explains what that program does, the decisions behind it, and how I know it still works after a change.</p>
+    <div class="docs-stats">
+      <span class="docs-stat"><span class="docs-stat__label">program</span><span class="docs-stat__value">1</span></span>
+      <span class="docs-stat"><span class="docs-stat__label">sections</span><span class="docs-stat__value">{{ crate::routes::docs::SECTIONS.len() }}</span></span>
+      <span class="docs-stat"><span class="docs-stat__label">migrations</span><span class="docs-stat__value">{{ crate::routes::docs::MIGRATIONS }}</span></span>
+      <span class="docs-stat"><span class="docs-stat__label">tests · as of {{ crate::routes::docs::MEASURED_ON }}</span><span class="docs-stat__value docs-stat__value--ok">{{ crate::routes::docs::WORKSPACE_TESTS }}</span></span>
+    </div>
+  </div>
+</section>
+
+<div class="docs-body">
+
+<section class="docs-section">
+  <h2>What it is</h2>
+  <p class="docs-text">The site is one program written in Rust. A visitor asks for a page, the program reads what it needs from a small database, fills in an HTML template and sends back a finished page. There is no app to install, no front-end framework to keep up with, and no front-end build step: the browser gets the page as the server wrote it.</p>
+  <p class="docs-text">That choice keeps a page light on a phone on mobile data, and keeps the whole thing small enough for one person to run. Everything below follows from it.</p>
+  <details class="docs-aside">
+    <summary>For a technical reader</summary>
+    <p>Rust and Axum, SQLite through sqlx, Askama templates, and HTMX with <code>hx-boost</code> for navigation. Images live in S3-compatible object storage. Sign-in is a WebAuthn passkey or a name and PIN. Five of the six sections share one header and one stylesheet; the drinks games carry their own. {{ crate::routes::docs::MIGRATIONS }} database migrations run automatically at startup: {{ crate::routes::docs::SITE_MIGRATIONS }} for the site's database and {{ crate::routes::docs::DRINKS_MIGRATIONS }} for the drinks games' own.</p>
+  </details>
+</section>
+
+<section class="docs-section">
+  <div class="docs-section__head">
+    <h2>What happens when you open a page</h2>
+    <p class="docs-section__sub">Four steps on one server; the drawings themselves come from object storage.</p>
+  </div>
+  <ol class="docs-path">
+    <li class="docs-step">
+      <span class="docs-step__label">step 1</span>
+      <span class="docs-step__title">The front door</span>
+      <span class="docs-step__text">nginx handles the encrypted connection, limits how fast anyone can try to sign in, and tells browsers to keep the site's static files for a year.</span>
+    </li>
+    <li class="docs-step">
+      <span class="docs-step__label"><span class="docs-step__arrow" aria-hidden="true">→</span> step 2</span>
+      <span class="docs-step__title">The program</span>
+      <span class="docs-step__text">One Rust binary matches the address to a section and checks whether you are allowed to see it.</span>
+    </li>
+    <li class="docs-step">
+      <span class="docs-step__label"><span class="docs-step__arrow" aria-hidden="true">→</span> step 3</span>
+      <span class="docs-step__title">The data</span>
+      <span class="docs-step__text">Text and numbers come from SQLite on the same machine; drawings come from object storage.</span>
+    </li>
+    <li class="docs-step docs-step--last">
+      <span class="docs-step__label"><span class="docs-step__arrow" aria-hidden="true">→</span> step 4</span>
+      <span class="docs-step__title">The page</span>
+      <span class="docs-step__text">A template is filled in and sent as finished HTML. The one exception is the sorting board, which the browser draws from the day's plan.</span>
+    </li>
+  </ol>
+</section>
+
+<section class="docs-section">
+  <div class="docs-section__head">
+    <h2>The six sections</h2>
+    <p class="docs-section__sub">Five of them share the site's header and stylesheet. Drinks is a separate part of the same program, with its own templates, database and sign-in.</p>
+  </div>
+  <div class="docs-table-wrap">
+    <table class="docs-table">
+      <thead>
+        <tr><th scope="col">Section</th><th scope="col">What it does</th><th scope="col">Who can use it</th></tr>
+      </thead>
+      <tbody>
+        {% for s in crate::routes::docs::SECTIONS %}
+        <tr>
+          <th scope="row"><span class="docs-table__name">{{ s.name }}</span><span class="docs-table__route">{{ s.route }}</span></th>
+          <td class="docs-table__what">{{ s.what }}</td>
+          <td class="docs-table__who">{{ s.who }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="docs-section">
+  <div class="docs-section__head">
+    <h2>A worked example: uploading a drawing</h2>
+    <p class="docs-section__sub">Uploading used to take 39 seconds. Nothing was removed — the slow work was moved out of the wait.</p>
+  </div>
+  <ol class="docs-timeline">
+    <li class="docs-timeline__row">
+      <span class="docs-timeline__when">in the browser</span>
+      <span class="docs-timeline__what">On the admin form, the picture is converted to WebP before it leaves the device, so the server never converts what the browser already can.</span>
+    </li>
+    <li class="docs-timeline__row">
+      <span class="docs-timeline__when docs-timeline__when--ok">during the upload</span>
+      <span class="docs-timeline__what">The file is stored, the row is written, and the finished card comes back. At this point I can close the tab.</span>
+    </li>
+    <li class="docs-timeline__row">
+      <span class="docs-timeline__when docs-timeline__when--warm">nobody waits</span>
+      <span class="docs-timeline__what">A second format, AVIF, is slower to produce, so it is made in the background and used from the next page load. If it fails, the page still works.</span>
+    </li>
+  </ol>
+  <p class="docs-text">The rule I took from it: if a step does not change what the person sees next, it does not belong in the wait. The same rule shapes the rest of the site — images reserve their space before they load, so the page does not jump as they arrive, and the first image on a feed is given priority while the rest load as you scroll.</p>
+</section>
+
+<section class="docs-section">
+  <div class="docs-section__head">
+    <h2>Who can see what</h2>
+    <p class="docs-section__sub">Sections like the food log hold personal data, so who may see what is decided in one place, and every page behind a sign-in names the rule it uses.</p>
+  </div>
+  <div class="docs-roles">
+    <div class="docs-role">
+      <span class="hm-badge hm-badge--neutral">visitor</span>
+      <p>Sees the public drawings, the practice board, the CV and this page, and can join the drinks games with a name and PIN. A page behind the site's sign-in sends them to sign in.</p>
+    </div>
+    <div class="docs-role">
+      <span class="hm-badge hm-badge--info">member</span>
+      <p>Signs in with a name and PIN on an account the owner created, and gets their own food log and their own sorting plans. A member cannot see anyone else's.</p>
+    </div>
+    <div class="docs-role">
+      <span class="hm-badge hm-badge--accent">admin</span>
+      <p>Manages drawings and the practice board: admins upload, caption, tag and set visibility. Being signed in is not enough on its own.</p>
+    </div>
+    <div class="docs-role docs-role--owner">
+      <span class="hm-badge hm-badge--warning">owner</span>
+      <p>One account. Creates accounts, resets PINs, grants admin. An admin cannot do any of those, so nothing granted can be turned back on the owner.</p>
+    </div>
+  </div>
+  <details class="docs-aside">
+    <summary>For a technical reader</summary>
+    <p>Four session extractors, one per rule — <code>OptionalAdmin</code> never refuses, <code>AuthSession</code> wants any account, <code>RequireAdmin</code> an admin, <code>RequireOwner</code> the owner — so picking the wrong one is visible in the handler's signature. A visitor without a session is sent to sign in. A signed-in account that lacks the rule gets a 404 rather than a 403, since a 403 would confirm the page exists. Every function that reads a post takes a required viewer argument, so forgetting it is a compile error rather than a leak. A site account's PIN attempts are counted in the database: {{ crate::pin::MAX_PIN_ATTEMPTS }} wrong ones lock that account for {{ crate::pin::LOCKOUT_MINUTES }} minutes, and a restart does not clear the count.</p>
+  </details>
+</section>
+
+<section class="docs-section">
+  <h2>How I build it</h2>
+  <p class="docs-text docs-statement">{{ crate::routes::docs::AI_STATEMENT|safe }}</p>
+  <p class="docs-text">More about me: <a href="/cv">CV</a> (in Norwegian).</p>
+</section>
+
+<section class="docs-section">
+  <div class="docs-section__head">
+    <h2>How I know it still works</h2>
+    <p class="docs-section__sub">A hobby project is where habits are cheap to build. These are the same ones I would bring to a team.</p>
+  </div>
+  <div class="docs-cards">
+    <div class="docs-card">
+      <span class="docs-card__figure docs-card__figure--ok">{{ crate::routes::docs::WORKSPACE_TESTS }} + {{ crate::routes::docs::BOARD_CHECKS }}</span>
+      <span class="docs-card__title">Automated checks</span>
+      <span class="docs-card__text">Tests covering sign-in, the database layer, the calorie maths and every game, plus {{ crate::routes::docs::BOARD_CHECKS }} checks on the loading rules of the van board. Counted on {{ crate::routes::docs::MEASURED_ON }}.</span>
+    </div>
+    <div class="docs-card">
+      <span class="docs-card__figure">2 gates</span>
+      <span class="docs-card__title">Fast check, full check</span>
+      <span class="docs-card__text">A check of a few seconds after every small piece of work, and one full run — formatting, linting, the whole test suite — before anything is called done.</span>
+    </div>
+    <div class="docs-card">
+      <span class="docs-card__figure">tried in a browser</span>
+      <span class="docs-card__title">Before it counts as finished</span>
+      <span class="docs-card__text">A passing test proves the code runs, not that the screen is right. Anything a person touches gets opened and used first.</span>
+    </div>
+  </div>
+</section>
+
+<section class="docs-section">
+  <div class="docs-section__head">
+    <h2>Decisions I would defend</h2>
+    <p class="docs-section__sub">Each one costs something. Knowing what it costs is the point.</p>
+  </div>
+  <div class="docs-rows">
+    <div class="docs-row">
+      <span class="docs-row__title">Server-rendered HTML instead of a front-end framework</span>
+      <span class="docs-row__text">Less fashionable, and some interactions take more care to build. In return there is no front-end build step, less dependency churn, and a page arrives complete on a slow connection.</span>
+    </div>
+    <div class="docs-row">
+      <span class="docs-row__title">An unlisted drawing is not a secret one</span>
+      <span class="docs-row__text">Post addresses are sequential, so someone determined could guess an unlisted one. Unlisted means "not in the feed"; anything that must not be seen is hidden instead, and that returns a plain 404.</span>
+    </div>
+    <div class="docs-row">
+      <span class="docs-row__title">The day boundary is UTC, not local time</span>
+      <span class="docs-row__text">Food logged in the first hour or two after midnight lands on the previous day. Accepted knowingly, written down, and cheap to change if it ever matters to someone else.</span>
+    </div>
+    <div class="docs-row">
+      <span class="docs-row__title">Static files are cached in the browser for a year</span>
+      <span class="docs-row__text">A returning visitor does not download an unchanged stylesheet again, but a deploy has to change the address of every file it replaces. For the stylesheet and scripts that happens automatically, and a test fails if a page forgets.</span>
+    </div>
+    <div class="docs-row">
+      <span class="docs-row__title">One theme, no light/dark toggle</span>
+      <span class="docs-row__text">A toggle doubles every visual decision, so one theme gets the care instead. The few screens still on the old light look are listed below.</span>
+    </div>
+  </div>
+</section>
+
+<section class="docs-section">
+  <h2>What I would change</h2>
+  <div class="docs-rows">
+    <div class="docs-row">
+      <span class="docs-row__title">Split the largest modules</span>
+      <span class="docs-row__text">A few files have grown past what one person reads comfortably in a sitting. They want splitting along the seams the code already has.</span>
+    </div>
+    <div class="docs-row">
+      <span class="docs-row__title">Bring the last light screens over</span>
+      <span class="docs-row__text"><code>/tasks</code> and the sign-in page still wear the site's original light look.</span>
+    </div>
+    <div class="docs-row">
+      <span class="docs-row__title">Finish the admin redesign</span>
+      <span class="docs-row__text"><code>/admin</code> and its accounts page are still the old light pages, and their redesign is planned.</span>
+    </div>
+  </div>
+</section>
+
+<section class="docs-callout hm-grid-bg">
+  <div class="docs-callout__text">
+    <h2>The site by keyboard</h2>
+    <p>From any of the site's own pages, every section is one shortcut away: press the two keys, type a few letters, and press Enter.</p>
+  </div>
+  <button type="button" class="docs-callout__keys" aria-label="Open command palette"
+          onclick="document.dispatchEvent(new KeyboardEvent('keydown',{key:'k',ctrlKey:true,bubbles:true}))">
+    <span class="hm-kbd-group"><kbd class="hm-kbd">Ctrl</kbd><kbd class="hm-kbd">K</kbd></span>
+    <span class="docs-callout__hint">try it</span>
+  </button>
+</section>
+
+<footer class="docs-foot">
+  <span class="docs-foot__mark">hampter<span class="site-title__dot">.</span></span>
+  <span>source on <a href="https://github.com/Hampternt/drawingportfolio">github</a></span>
+  <a href="/cv" class="docs-foot__cv">cv</a>
+</footer>
+
+</div>
+</div>
+{% endblock %}

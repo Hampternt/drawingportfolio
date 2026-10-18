@@ -379,6 +379,15 @@ async fn logout(State(state): State<Arc<AppState>>, headers: HeaderMap) -> impl 
             .parse()
             .unwrap(),
     );
+    // Both sign-out forms sit in boosted pages, so their POST arrives as an
+    // htmx request. A 303 would be followed inside the XHR and swap the
+    // standalone login page in without its <head> — the same failure
+    // `middleware::to_login` exists for, answered the same way (with a 200,
+    // since signing out is a success rather than a rejection).
+    if headers.contains_key("hx-request") {
+        resp_headers.insert("hx-redirect", "/admin/login".parse().unwrap());
+        return (StatusCode::OK, resp_headers).into_response();
+    }
     resp_headers.insert(
         axum::http::header::LOCATION,
         "/admin/login".parse().unwrap(),
@@ -396,4 +405,73 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/api/auth/logout", post(logout))
         .route("/api/auth/register/start", post(register_start))
         .route("/api/auth/register/finish", post(register_finish))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::body::Body;
+    use axum::http::Request;
+    use sqlx::sqlite::SqlitePoolOptions;
+    use tower::ServiceExt;
+
+    async fn app_with_pool() -> (Router, crate::db::DbPool) {
+        let pool = SqlitePoolOptions::new()
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        crate::db::run_migrations(&pool).await;
+        let storage = crate::storage::ObjectStorage::from_env().await;
+        let rp_origin = url::Url::parse("http://localhost:3000").unwrap();
+        let webauthn = WebauthnBuilder::new("localhost", &rp_origin)
+            .unwrap()
+            .build()
+            .unwrap();
+        let state = Arc::new(AppState {
+            pool: pool.clone(),
+            storage,
+            webauthn,
+        });
+        (router().with_state(state), pool)
+    }
+
+    async fn logout_req(pool: &crate::db::DbPool, sess: &str, htmx: bool) -> Request<Body> {
+        let id = crate::db::get_owner_user_id(pool).await.unwrap();
+        crate::db::create_session(pool, sess, "2099-01-01 00:00:00", id).await;
+        let mut b = Request::builder()
+            .method("POST")
+            .uri("/api/auth/logout")
+            .header("cookie", format!("session={sess}"));
+        if htmx {
+            b = b.header("HX-Request", "true");
+        }
+        b.body(Body::empty()).unwrap()
+    }
+
+    /// Both answers end the session and clear the cookie; only the way to the
+    /// login page differs. A boosted sign-out form sends `HX-Request`, and a
+    /// `Location` there would be followed inside the XHR.
+    #[tokio::test]
+    async fn test_logout_answers_a_page_and_an_htmx_request_differently() {
+        let (app, pool) = app_with_pool().await;
+        for (sess, htmx) in [("plain-sess", false), ("htmx-sess", true)] {
+            let resp = app
+                .clone()
+                .oneshot(logout_req(&pool, sess, htmx).await)
+                .await
+                .unwrap();
+            let h = resp.headers();
+            assert!(h["set-cookie"].to_str().unwrap().contains("Max-Age=0"));
+            assert!(crate::db::get_session(&pool, sess).await.is_none());
+            if htmx {
+                assert_eq!(resp.status(), StatusCode::OK);
+                assert_eq!(h["hx-redirect"], "/admin/login");
+                assert!(!h.contains_key("location"));
+            } else {
+                assert_eq!(resp.status(), StatusCode::SEE_OTHER);
+                assert_eq!(h["location"], "/admin/login");
+                assert!(!h.contains_key("hx-redirect"));
+            }
+        }
+    }
 }

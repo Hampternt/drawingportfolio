@@ -14,7 +14,7 @@
 #   4. node --check static/*.js drinkinggame/assets/*.js — JS syntax (a nested
 #                                   palette entry broke palette.js once,
 #                                   c72d614; nothing else catches it)
-#   5. the board suites                — 432 checks over the loading rules and
+#   5. the board suites                — 458 checks over the loading rules and
 #                                   the picture they draw, in plain node. They
 #                                   live beside the demo they were written for
 #                                   but the code they run is the served
