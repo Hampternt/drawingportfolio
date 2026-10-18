@@ -452,7 +452,56 @@ pub async fn set_sitting_out(pool: &DbPool, room_id: i64, player_id: i64, out: b
 /// moving different people at once both still apply, where a full order
 /// sent from a stale list would undo the other move.
 pub async fn move_seat(pool: &DbPool, room_id: i64, player_id: i64, position: usize) -> bool {
-    let mut tx = pool.begin().await.expect("move_seat begin");
+    reseat(pool, room_id, |seated| {
+        let Some(from) = seated.iter().position(|&p| p == player_id) else {
+            return false;
+        };
+        let to = position.min(seated.len() - 1);
+        if from == to {
+            return false;
+        }
+        let moving = seated.remove(from);
+        seated.insert(to, moving);
+        true
+    })
+    .await
+}
+
+/// Swaps two seated players' seats in one transaction — 3 Man's ↑/↓. Two
+/// `move_seat` calls would commit separately, and a failure between them
+/// would leave the ring half-swapped. Returns false when either player is
+/// not seated in the room, or they are the same player.
+pub async fn swap_seats(pool: &DbPool, room_id: i64, a: i64, b: i64) -> bool {
+    reseat(pool, room_id, |seated| {
+        let (Some(i), Some(j)) = (
+            seated.iter().position(|&p| p == a),
+            seated.iter().position(|&p| p == b),
+        ) else {
+            return false;
+        };
+        if i == j {
+            return false;
+        }
+        seated.swap(i, j);
+        true
+    })
+    .await
+}
+
+/// Reads the room's seated order, lets `change` rearrange it, and writes the
+/// new seats back — all in one transaction. `change` returns false to leave
+/// everything as it was.
+///
+/// `BEGIN IMMEDIATE`, not the default deferred `BEGIN`: a deferred
+/// transaction that reads first and writes second fails with
+/// `SQLITE_BUSY_SNAPSHOT` (and `busy_timeout` does not retry it) when any
+/// other connection commits in between — a drink tap, which does not take
+/// the room lock. Taking the write lock up front makes that a plain wait.
+async fn reseat(pool: &DbPool, room_id: i64, change: impl FnOnce(&mut Vec<i64>) -> bool) -> bool {
+    let mut tx = pool
+        .begin_with("BEGIN IMMEDIATE")
+        .await
+        .expect("reseat begin");
     let rows: Vec<(i64, bool)> = sqlx::query_as(
         "SELECT player_id, sitting_out FROM room_players
          WHERE room_id = ?1 ORDER BY seat, player_id",
@@ -460,17 +509,11 @@ pub async fn move_seat(pool: &DbPool, room_id: i64, player_id: i64, position: us
     .bind(room_id)
     .fetch_all(&mut *tx)
     .await
-    .expect("move_seat read");
+    .expect("reseat read");
     let mut seated: Vec<i64> = rows.iter().filter(|r| !r.1).map(|r| r.0).collect();
-    let Some(from) = seated.iter().position(|&p| p == player_id) else {
-        return false;
-    };
-    let to = position.min(seated.len() - 1);
-    if from == to {
+    if !change(&mut seated) {
         return false;
     }
-    let moving = seated.remove(from);
-    seated.insert(to, moving);
     // Refill the seated slots in their new order; sat-out rows stay put.
     let mut next_seated = seated.into_iter();
     for (seat, (pid, out)) in rows.iter().enumerate() {
@@ -485,9 +528,9 @@ pub async fn move_seat(pool: &DbPool, room_id: i64, player_id: i64, position: us
             .bind(seat as i64)
             .execute(&mut *tx)
             .await
-            .expect("move_seat write");
+            .expect("reseat write");
     }
-    tx.commit().await.expect("move_seat commit");
+    tx.commit().await.expect("reseat commit");
     true
 }
 
@@ -1347,6 +1390,24 @@ mod tests {
         assert!(!move_seat(&pool, room, p[1], 3).await);
         // A non-member moves nothing.
         assert!(!move_seat(&pool, room, 9999, 0).await);
+    }
+
+    #[tokio::test]
+    async fn test_swap_seats_swaps_in_one_step() {
+        let pool = test_pool().await;
+        let (room, p) = room_of(&pool, &["ann", "ben", "cat", "dan"]).await;
+        assert!(swap_seats(&pool, room, p[0], p[3]).await);
+        assert_eq!(
+            ids(room_members(&pool, room).await),
+            vec![p[3], p[1], p[2], p[0]]
+        );
+        // Same player, or anyone not seated, swaps nothing.
+        assert!(!swap_seats(&pool, room, p[1], p[1]).await);
+        assert!(!swap_seats(&pool, room, p[1], 9999).await);
+        assert_eq!(
+            ids(room_members(&pool, room).await),
+            vec![p[3], p[1], p[2], p[0]]
+        );
     }
 
     #[tokio::test]

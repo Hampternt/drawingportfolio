@@ -147,8 +147,7 @@ pub(crate) async fn swap_with_neighbour(
         return Ok(());
     }
     let other = seated[j];
-    db::move_seat(&state.pool, room.id, target, j).await;
-    db::move_seat(&state.pool, room.id, other, i).await;
+    db::swap_seats(&state.pool, room.id, target, other).await;
     apply_and_broadcast(state, room).await;
     Ok(())
 }
