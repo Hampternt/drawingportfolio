@@ -570,6 +570,9 @@ body[data-player-id] { padding-bottom: 90px; }
 .felt-screen .felt-card .card-suit-tl { top: 48px; left: 17px; font-size: 24px; }
 .felt-screen .felt-card .card-pip { font-size: 92px; }
 .felt-screen .felt-card .card-rank-br { bottom: 12px; right: 16px; font-size: 34px; }
+/* Fill the pane like .screen-tm does: the felt is flex: 1 with a 0 basis,
+   so a content-sized panel leaves it zero pixels tall. */
+.screen-panel.screen-active { height: 100%; }
 .screen-active .felt-screen { min-height: 0; }
 .screen-active .screen-hero-felt .rule-title { font-size: 44px; }
 .screen-active .screen-hero-felt .rule-text { font-size: 22px; }
