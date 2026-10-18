@@ -50,6 +50,17 @@ the way Last Call's big screen already does:
   recorded here as the default.
 - **Players who join mid-game take the last seat.** Default; anyone can move
   them afterwards.
+- **Dragging is free-form, and a token stays where you drop it** (chosen
+  2026-10-18, after testing midpoint 1). Each player's token sits on the
+  table's rim at the angle where it was last dropped, on both the phone and
+  the big screen, so spacing can be uneven, the way real people bunch up.
+  Seat order is the clockwise order of those angles around the table's
+  centre, and each token shows its current number. Not chosen: snapping
+  back into an even ring on release, or free x/y anywhere on the table,
+  which would collide with the dice and the card ring.
+- **Counting starts at a draggable start marker** (chosen 2026-10-18). A
+  small marker on the rim says where seat 1 begins, and any player can drag
+  it like a token. Not chosen: always counting from 12 o'clock.
 
 ## Guidelines
 
@@ -94,8 +105,22 @@ and the Backroom SSE warning), `docs/design.md` §Drinking game,
   since the ask was loose here, so show it to the owner at the midpoint.
 - **Reorder UI.** The dropdown list goes in the ROOM tab. Dragging works on
   the phone's table view with touch (pointer events, not HTML5
-  drag-and-drop, which phones don't support). Both send the same reorder
-  request.
+  drag-and-drop, which phones don't support).
+- **Storing the angle.** A per-player rim angle, plus a per-room start-marker
+  angle, is a second drinkinggame migration. Backfill it evenly from the
+  current seat order, with the same `column_exists` guard. Keep
+  `room_players.seat` as the derived order, rewritten in the same
+  `BEGIN IMMEDIATE` transaction as every angle change, so every existing
+  `ORDER BY seat` reader stays correct. A drop sends only the dragged
+  player's new angle, never a whole order, so two phones dragging at once
+  both land. The dropdown's "Seat N" places the player mid-gap at that
+  slot. 3 Man's ↑/↓ swaps two angles. A newcomer lands mid-gap just before
+  the start marker, at the end of the count. Two tokens at the same angle
+  are ordered by player id. Nudge a drop so tokens don't sit exactly on top
+  of each other.
+- **Where the angle is used.** Ring of Fire, 3 Man, the idle screen and the
+  phone's table read the stored angles. Last Call keeps its authored
+  `RING` positions; it gets the order only.
 - **SSE.** A reorder or sit-out publishes to the room like any visible
   change. Nothing secret is involved, since seat order is public. The
   Backroom rules on what may ride the stream still apply.
@@ -110,9 +135,11 @@ and the Backroom SSE warning), `docs/design.md` §Drinking game,
   joining.
 - A player can sit out and sit back in. While sitting out, they are on no
   table, in no turn and in no standings.
-- In any room, a player can reorder seats from the ROOM tab list or by
-  dragging on the phone's table. The phone and the big screen update live,
-  and the order is still there for the next game.
+- In any room, a player can reorder seats from the ROOM tab list, or drag
+  any token freely round the phone's table, where it stays where it lands.
+  Each token shows its number, counted clockwise from the start marker,
+  which can be dragged too. The phone and the big screen update live, and
+  the layout is still there for the next game.
 - The 3 Man big screen is a table: players around the edge, dice at the
   roller's highlighted seat, the 3 Man badged. Reordering mid-game keeps
   the right person rolling.
@@ -138,8 +165,10 @@ from the test panel.
    the code. The screen loads, and nobody new joins the room.
 2. As one fake player, sit out. They drop off the seat list everywhere. Sit
    back in.
-3. Reorder from the ROOM tab dropdown, then by dragging on the phone's
-   table. The big screen follows each change.
+3. Reorder from the ROOM tab dropdown. Then drag a token part-way round
+   the phone's table and let go. It stays there, and the numbers update
+   clockwise. Drag the start marker and watch the numbering follow it. The
+   big screen follows each change.
 
 **Midpoint 2: 3 Man.**
 
