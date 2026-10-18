@@ -197,7 +197,11 @@ pub async fn current_screen_panel(state: &GameState, room_id: i64, code: &str) -
             crate::sh_render::sh_screen_panel(&view, &names)
         }
         Some(game) => active_screen_panel(state, &game, code).await,
-        None => render::screen_panel_idle(code, &db::seated_members(&state.pool, room_id).await),
+        None => render::screen_panel_idle(
+            code,
+            &db::seated_members(&state.pool, room_id).await,
+            db::start_angle(&state.pool, room_id).await,
+        ),
     }
 }
 
@@ -245,6 +249,7 @@ pub async fn current_room_panel(state: &GameState, room_id: i64, code: &str) -> 
         base_path: &state.base_path,
         code,
         members: &members,
+        start_angle: db::start_angle(&state.pool, room_id).await,
         house_rules: &house_rules,
         kings,
         mode: &mode,

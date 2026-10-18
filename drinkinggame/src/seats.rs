@@ -102,8 +102,8 @@ pub struct MoveForm {
     pub position: usize,
 }
 
-/// `POST /room/{code}/seats/move` — the ROOM tab dropdown and the table
-/// drag both send this. Any member may move anyone seated.
+/// `POST /room/{code}/seats/move` — the ROOM tab dropdown's "Seat N": the
+/// player lands mid-gap at that slot. Any member may move anyone seated.
 pub async fn move_handler(
     State(state): State<GameState>,
     PlayerSession(player): PlayerSession,
@@ -124,9 +124,68 @@ pub async fn move_handler(
     StatusCode::NO_CONTENT.into_response()
 }
 
-/// 3 Man's TABLE-tab ↑/↓: swaps `target` with its neighbour in the room's
-/// ring, wrapping between first and last. A swap rather than a move, so
-/// the wrap changes neighbours instead of rotating the whole ring.
+#[derive(Deserialize)]
+pub struct AngleForm {
+    /// Present for a token drop; absent for the start marker.
+    pub player_id: Option<i64>,
+    /// Degrees clockwise from the bottom of the table.
+    pub angle: f64,
+}
+
+/// `POST /room/{code}/seats/angle` — a token dropped on the phone's table.
+/// Sends just that player's new angle, never an order, so two phones
+/// dragging at once both land. Any member may move anyone seated.
+pub async fn angle_handler(
+    State(state): State<GameState>,
+    PlayerSession(player): PlayerSession,
+    Path(code): Path<String>,
+    Form(form): Form<AngleForm>,
+) -> axum::response::Response {
+    let Some(target) = form.player_id else {
+        return StatusCode::UNPROCESSABLE_ENTITY.into_response();
+    };
+    place(&state, &player, &code, form.angle, Some(target)).await
+}
+
+/// `POST /room/{code}/seats/start` — the start marker dropped somewhere
+/// else. Nobody moves; the count starts from the new spot.
+pub async fn start_handler(
+    State(state): State<GameState>,
+    PlayerSession(player): PlayerSession,
+    Path(code): Path<String>,
+    Form(form): Form<AngleForm>,
+) -> axum::response::Response {
+    place(&state, &player, &code, form.angle, None).await
+}
+
+async fn place(
+    state: &GameState,
+    player: &crate::models::Player,
+    code: &str,
+    angle: f64,
+    target: Option<i64>,
+) -> axum::response::Response {
+    if !angle.is_finite() {
+        return StatusCode::UNPROCESSABLE_ENTITY.into_response();
+    }
+    let room = match crate::game::member_room(state, code, player).await {
+        Ok(r) => r,
+        Err(resp) => return resp,
+    };
+    let lock = state.locks.for_room(room.id);
+    let _guard = lock.lock().await;
+    let moved = match target {
+        Some(id) => db::set_seat_angle(&state.pool, room.id, id, angle).await,
+        None => db::set_start_angle(&state.pool, room.id, angle).await,
+    };
+    if moved {
+        apply_and_broadcast(state, &room).await;
+    }
+    StatusCode::NO_CONTENT.into_response()
+}
+
+/// 3 Man's TABLE-tab ↑/↓: swaps `target`'s angle with its neighbour's in
+/// the room's ring, wrapping between first and last.
 pub(crate) async fn swap_with_neighbour(
     state: &GameState,
     room: &Room,

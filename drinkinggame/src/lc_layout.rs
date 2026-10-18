@@ -9,9 +9,9 @@ use crate::last_call::MAX_SEATS;
 
 // The geometry itself — the authored rows and the viewer rotation — moved
 // to `seat_ring` when Ring of Fire and 3 Man got tables of their own
-// (2026-10-18). Last Call keeps this clamped view of it: its tables stop at
-// `MAX_SEATS`, and a stale oversized state must still render short rather
-// than switch to the generated rows the other games use past 8.
+// (2026-10-18). Last Call keeps this clamped view of the authored rows: its
+// tables stop at `MAX_SEATS`, and it takes only the room's seat order, never
+// the free-form angles the other tables are drawn at.
 pub use crate::seat_ring::{view_index, SeatPos};
 
 /// Seat placements for a table of `n`, seat 0 first, clockwise.

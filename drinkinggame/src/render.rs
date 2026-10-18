@@ -107,6 +107,9 @@ pub struct RoomView<'a> {
     pub base_path: &'a str,
     pub code: &'a str,
     pub members: &'a [RoomMember],
+    /// The room's start-marker angle: seat 1 is the first token clockwise
+    /// from it.
+    pub start_angle: f64,
     pub house_rules: &'a [HouseRule],
     pub kings: i64,
     /// Active game's `kind` ("ring_of_fire" | "three_man" | ...) or "idle".
@@ -420,20 +423,14 @@ pub fn lc_screen_placeholder(_code: &str) -> String {
 
 /// Big-screen left pane, no game running: the room's seat ring, with the
 /// "just drinking" line in the middle of the felt. `seated` is the ring in
-/// seat order (sat-out members already left off). Display only — the
-/// screen has no login, so its seats are never draggable.
-pub fn screen_panel_idle(_code: &str, seated: &[RoomMember]) -> String {
-    let ring: Vec<crate::seat_ring::RingSeat> = seated
-        .iter()
-        .map(|m| crate::seat_ring::RingSeat {
-            player_id: m.id,
-            name: &m.name,
-            badge: None,
-            active: false,
-        })
-        .collect();
+/// seat order (sat-out members already left off), each at its own angle,
+/// counted from the start marker at `start`. Display only — the screen has
+/// no login, so its seats are never draggable.
+pub fn screen_panel_idle(_code: &str, seated: &[RoomMember], start: f64) -> String {
+    let ring = ring_seats(seated.iter());
     let centre = r#"<span class="screen-kicker">NO GAME RUNNING</span><h2 class="screen-hero-title">Just drinking.</h2><p class="screen-hero-sub">Somebody start a game on their phone.</p>"#;
-    let table = crate::seat_ring::table_html(&ring, centre, crate::seat_ring::Scale::Screen, None);
+    let table =
+        crate::seat_ring::table_html(&ring, start, centre, crate::seat_ring::Scale::Screen, None);
     format!(r#"<div class="screen-panel screen-idle">{table}</div>"#)
 }
 
@@ -518,6 +515,22 @@ pub fn screen_panel_over(s: &GameSummary) -> String {
     )
 }
 
+/// Plain ring tokens (no badge, no highlight) for members already in seat
+/// order, each at its stored angle.
+fn ring_seats<'a>(
+    members: impl Iterator<Item = &'a RoomMember>,
+) -> Vec<crate::seat_ring::RingSeat<'a>> {
+    members
+        .map(|m| crate::seat_ring::RingSeat {
+            player_id: m.id,
+            name: &m.name,
+            badge: None,
+            active: false,
+            angle: m.angle,
+        })
+        .collect()
+}
+
 /// The ROOM tab's seat block: the draggable table, the same ring as a list
 /// with a seat dropdown per player, and who is sitting out. Broadcast to
 /// every phone alike, so the SIT OUT / SIT BACK IN buttons are rendered on
@@ -526,23 +539,25 @@ fn seat_section(view: &RoomView, seated: &[&RoomMember], out: &[&RoomMember]) ->
     let base_path = view.base_path;
     let code = view.code;
     let n = seated.len();
-    let ring: Vec<crate::seat_ring::RingSeat> = seated
-        .iter()
-        .map(|m| crate::seat_ring::RingSeat {
-            player_id: m.id,
-            name: &m.name,
-            badge: None,
-            active: false,
-        })
-        .collect();
+    let ring = ring_seats(seated.iter().copied());
     let move_url = format!("{base_path}/room/{code}/seats/move");
+    let seat_url = format!("{base_path}/room/{code}/seats/angle");
+    let start_url = format!("{base_path}/room/{code}/seats/start");
     let hint = if n > 1 {
-        r#"<span class="felt-hint">DRAG TO MOVE SEATS</span>"#
+        r#"<span class="felt-hint">DRAG ANYONE ROUND THE TABLE &middot; OR THE START MARKER</span>"#
     } else {
         ""
     };
-    let table =
-        crate::seat_ring::table_html(&ring, hint, crate::seat_ring::Scale::Phone, Some(&move_url));
+    let table = crate::seat_ring::table_html(
+        &ring,
+        view.start_angle,
+        hint,
+        crate::seat_ring::Scale::Phone,
+        Some(&crate::seat_ring::DragUrls {
+            seat: &seat_url,
+            start: &start_url,
+        }),
+    );
     let chip = |m: &RoomMember| {
         let initial = m
             .name
@@ -1641,12 +1656,14 @@ mod tests {
                 name: "alice".into(),
                 joined_at: "t".into(),
                 sitting_out: false,
+                angle: 0.0,
             },
             RoomMember {
                 id: 2,
                 name: "bob".into(),
                 joined_at: "t".into(),
                 sitting_out: false,
+                angle: 0.0,
             },
         ];
         let house_rules: Vec<HouseRule> = vec![];
@@ -1654,6 +1671,7 @@ mod tests {
             base_path: "/drinks",
             code: "QK4M",
             members: &members,
+            start_angle: 0.0,
             house_rules: &house_rules,
             kings: 1,
             mode: "idle",
@@ -1677,7 +1695,7 @@ mod tests {
 
     #[test]
     fn test_screen_panels() {
-        let idle = screen_panel_idle("QK4M", &[]);
+        let idle = screen_panel_idle("QK4M", &[], 0.0);
         assert!(idle.contains("Just drinking."));
 
         let counts = vec![DrawCount {
@@ -1994,18 +2012,21 @@ mod tests {
                 name: "alice".into(),
                 joined_at: "t".into(),
                 sitting_out: false,
+                angle: 0.0,
             },
             RoomMember {
                 id: 2,
                 name: "bob".into(),
                 joined_at: "t".into(),
                 sitting_out: false,
+                angle: 0.0,
             },
             RoomMember {
                 id: 3,
                 name: "cara".into(),
                 joined_at: "t".into(),
                 sitting_out: false,
+                angle: 0.0,
             },
         ];
         let house_rules: Vec<HouseRule> = vec![];
@@ -2013,6 +2034,7 @@ mod tests {
             base_path: "/drinks",
             code: "QK4M",
             members: &members,
+            start_angle: 0.0,
             house_rules: &house_rules,
             kings: 0,
             mode: "three_man",

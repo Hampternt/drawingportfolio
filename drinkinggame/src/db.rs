@@ -91,6 +91,52 @@ pub async fn run_migrations(pool: &DbPool) {
     .await
     .expect("004 seat backfill");
 
+    // 005: free-form seats (2026-10-18, after midpoint 1). Each member has
+    // a rim angle and each room a start-marker angle; `seat` stays, as the
+    // order derived from them, so every `ORDER BY seat` reader is unchanged.
+    if !column_exists(pool, "room_players", "angle").await {
+        sqlx::query("ALTER TABLE room_players ADD COLUMN angle REAL")
+            .execute(pool)
+            .await
+            .expect("005 angle");
+    }
+    if !column_exists(pool, "rooms", "start_angle").await {
+        sqlx::query("ALTER TABLE rooms ADD COLUMN start_angle REAL NOT NULL DEFAULT 0")
+            .execute(pool)
+            .await
+            .expect("005 start_angle");
+    }
+    // Angle backfill: evenly round the rim in the room's current seat
+    // order. A join since 005 always writes an angle, so a NULL only ever
+    // means a pre-005 room, and the rerun finds nothing to do.
+    let rooms: Vec<(i64,)> =
+        sqlx::query_as("SELECT DISTINCT room_id FROM room_players WHERE angle IS NULL")
+            .fetch_all(pool)
+            .await
+            .expect("005 backfill scan");
+    for (room_id,) in rooms {
+        let ids: Vec<(i64,)> = sqlx::query_as(
+            "SELECT player_id FROM room_players WHERE room_id = ?1 ORDER BY seat, player_id",
+        )
+        .bind(room_id)
+        .fetch_all(pool)
+        .await
+        .expect("005 backfill read");
+        let even = crate::seat_ring::even_angles(ids.len());
+        for ((pid,), angle) in ids.iter().zip(even) {
+            sqlx::query(
+                "UPDATE room_players SET angle = ?3
+                 WHERE room_id = ?1 AND player_id = ?2 AND angle IS NULL",
+            )
+            .bind(room_id)
+            .bind(pid)
+            .bind(angle)
+            .execute(pool)
+            .await
+            .expect("005 backfill write");
+        }
+    }
+
     // Rank backfill — WHERE rank IS NULL makes it idempotent.
     let games: Vec<(i64, String)> = sqlx::query_as(
         "SELECT id, deck_order FROM games WHERE deck_order != '' AND id IN
@@ -259,20 +305,21 @@ pub async fn get_room_by_id(pool: &DbPool, room_id: i64) -> Option<Room> {
 
 /// Idempotent: rejoining is a no-op apart from the activity bump — a
 /// returning member keeps their seat and their sitting-out flag. A new
-/// member takes the last seat. Returns true when the player is new here.
+/// member lands mid-gap just before the start marker, at the end of the
+/// count. Returns true when the player is new here.
 pub async fn join_room(pool: &DbPool, room_id: i64, player_id: i64) -> bool {
-    let res = sqlx::query(
-        "INSERT OR IGNORE INTO room_players (room_id, player_id, seat)
-         VALUES (?1, ?2, (SELECT COALESCE(MAX(seat), -1) + 1
-                          FROM room_players WHERE room_id = ?1))",
-    )
-    .bind(room_id)
-    .bind(player_id)
-    .execute(pool)
-    .await
-    .expect("join_room failed");
+    let joined = rearrange(pool, room_id, |table| {
+        if table.members.iter().any(|m| m.0 == player_id) {
+            return false;
+        }
+        let rel = crate::seat_ring::slot_angle(&table.seated_rel(None), usize::MAX);
+        let angle = crate::seat_ring::normalize(table.start + rel);
+        table.members.push((player_id, angle, false));
+        true
+    })
+    .await;
     touch_room(pool, room_id).await;
-    res.rows_affected() > 0
+    joined
 }
 
 pub async fn is_room_member(pool: &DbPool, room_id: i64, player_id: i64) -> bool {
@@ -393,7 +440,8 @@ pub async fn leaderboard(pool: &DbPool, room_id: i64) -> Vec<LeaderboardRow> {
 /// switcher); games seat from `seated_members` instead.
 pub async fn room_members(pool: &DbPool, room_id: i64) -> Vec<RoomMember> {
     sqlx::query_as::<_, RoomMember>(
-        "SELECT p.id AS id, p.name, rp.joined_at, rp.sitting_out
+        "SELECT p.id AS id, p.name, rp.joined_at, rp.sitting_out,
+                COALESCE(rp.angle, 0) AS angle
          FROM room_players rp JOIN players p ON p.id = rp.player_id
          WHERE rp.room_id = ?1
          ORDER BY rp.seat, p.id",
@@ -426,112 +474,223 @@ pub async fn is_sitting_out(pool: &DbPool, room_id: i64, player_id: i64) -> bool
     row.is_some_and(|(out,)| out)
 }
 
-/// Sets a member's sitting-out flag. Returns false when the flag already
-/// had that value (or the player is not a member), so callers can skip a
-/// broadcast that would change nothing.
-pub async fn set_sitting_out(pool: &DbPool, room_id: i64, player_id: i64, out: bool) -> bool {
-    let res = sqlx::query(
-        "UPDATE room_players SET sitting_out = ?3
-         WHERE room_id = ?1 AND player_id = ?2 AND sitting_out != ?3",
-    )
-    .bind(room_id)
-    .bind(player_id)
-    .bind(out)
-    .execute(pool)
-    .await
-    .expect("set_sitting_out failed");
-    res.rows_affected() > 0
-}
-
-/// Moves a seated player to `position` (0-based) in the seat ring, shifting
-/// everyone between. Members sitting out keep their seat numbers, so they
-/// come back roughly where they left. Positions past the end clamp to the
-/// last seat. Returns false when nothing moved.
+/// Moves a seated player to `position` (0-based) in the seat ring — the
+/// ROOM tab dropdown. They land mid-gap at that slot, between whoever
+/// would then sit either side of them; nobody else moves. Positions past
+/// the end clamp to the last slot. Returns false when nothing moved.
 ///
 /// Takes a position rather than a whole order on purpose: two phones
 /// moving different people at once both still apply, where a full order
 /// sent from a stale list would undo the other move.
 pub async fn move_seat(pool: &DbPool, room_id: i64, player_id: i64, position: usize) -> bool {
-    reseat(pool, room_id, |seated| {
-        let Some(from) = seated.iter().position(|&p| p == player_id) else {
+    rearrange(pool, room_id, |table| {
+        let others = table.seated_rel(Some(player_id));
+        let Some(current) = table.seated_index(player_id) else {
             return false;
         };
-        let to = position.min(seated.len() - 1);
-        if from == to {
+        if current == position.min(others.len()) {
             return false;
         }
-        let moving = seated.remove(from);
-        seated.insert(to, moving);
+        let rel = crate::seat_ring::slot_angle(&others, position);
+        table.set(player_id, table.start + rel)
+    })
+    .await
+}
+
+/// Puts a player's token where it was dropped on the rim — the table
+/// drag. Nudged off any token it would land exactly on. Sat-out members
+/// can't be dragged (they have no token). Returns false when nothing moved.
+pub async fn set_seat_angle(pool: &DbPool, room_id: i64, player_id: i64, angle: f64) -> bool {
+    rearrange(pool, room_id, |table| {
+        if table.seated_index(player_id).is_none() {
+            return false;
+        }
+        let rel = crate::seat_ring::rel_angle(angle, table.start);
+        let rel = crate::seat_ring::nudge(rel, &table.seated_rel(Some(player_id)));
+        table.set(player_id, table.start + rel)
+    })
+    .await
+}
+
+/// Moves the start marker. Nobody's token moves; the count re-starts from
+/// the marker, so the numbers change. Returns false when nothing moved.
+pub async fn set_start_angle(pool: &DbPool, room_id: i64, angle: f64) -> bool {
+    rearrange(pool, room_id, |table| {
+        let angle = crate::seat_ring::normalize(angle);
+        if (angle - table.start).abs() < 1e-9 {
+            return false;
+        }
+        table.start = angle;
         true
     })
     .await
 }
 
-/// Swaps two seated players' seats in one transaction — 3 Man's ↑/↓. Two
-/// `move_seat` calls would commit separately, and a failure between them
-/// would leave the ring half-swapped. Returns false when either player is
-/// not seated in the room, or they are the same player.
+/// Swaps two seated players' angles in one transaction — 3 Man's ↑/↓.
+/// Returns false when either player is not seated in the room, or they
+/// are the same player.
 pub async fn swap_seats(pool: &DbPool, room_id: i64, a: i64, b: i64) -> bool {
-    reseat(pool, room_id, |seated| {
-        let (Some(i), Some(j)) = (
-            seated.iter().position(|&p| p == a),
-            seated.iter().position(|&p| p == b),
-        ) else {
-            return false;
-        };
-        if i == j {
+    rearrange(pool, room_id, |table| {
+        if a == b || table.seated_index(a).is_none() || table.seated_index(b).is_none() {
             return false;
         }
-        seated.swap(i, j);
+        let angle_of = |t: &RoomTable, id| t.members.iter().find(|m| m.0 == id).unwrap().1;
+        let (aa, ab) = (angle_of(table, a), angle_of(table, b));
+        table.set(a, ab);
+        table.set(b, aa);
         true
     })
     .await
 }
 
-/// Reads the room's seated order, lets `change` rearrange it, and writes the
-/// new seats back — all in one transaction. `change` returns false to leave
-/// everything as it was.
+/// Sets a member's sitting-out flag. Returns false when the flag already
+/// had that value (or the player is not a member), so callers can skip a
+/// broadcast that would change nothing. Sitting back in returns the token
+/// to its old angle, nudged off anyone who has taken that spot since.
+pub async fn set_sitting_out(pool: &DbPool, room_id: i64, player_id: i64, out: bool) -> bool {
+    rearrange(pool, room_id, |table| {
+        let Some(i) = table.members.iter().position(|m| m.0 == player_id) else {
+            return false;
+        };
+        if table.members[i].2 == out {
+            return false;
+        }
+        table.members[i].2 = out;
+        if !out {
+            let rel = crate::seat_ring::rel_angle(table.members[i].1, table.start);
+            let rel = crate::seat_ring::nudge(rel, &table.seated_rel(Some(player_id)));
+            table.members[i].1 = table.start + rel;
+        }
+        true
+    })
+    .await
+}
+
+/// A room's seating as `rearrange` hands it to a change: the start marker
+/// and every member's (player_id, rim angle, sitting_out).
+struct RoomTable {
+    start: f64,
+    members: Vec<(i64, f64, bool)>,
+}
+
+impl RoomTable {
+    /// Seated members' angles relative to the marker, sorted, leaving out
+    /// `except` — the gaps a token can be placed in.
+    fn seated_rel(&self, except: Option<i64>) -> Vec<f64> {
+        let mut rel: Vec<f64> = self
+            .members
+            .iter()
+            .filter(|m| !m.2 && Some(m.0) != except)
+            .map(|m| crate::seat_ring::rel_angle(m.1, self.start))
+            .collect();
+        rel.sort_by(f64::total_cmp);
+        rel
+    }
+
+    /// Clockwise order from the marker, ties by player id.
+    fn ordered(&self) -> Vec<(i64, f64, bool)> {
+        let mut all = self.members.clone();
+        all.sort_by(|a, b| {
+            crate::seat_ring::rel_angle(a.1, self.start)
+                .total_cmp(&crate::seat_ring::rel_angle(b.1, self.start))
+                .then(a.0.cmp(&b.0))
+        });
+        all
+    }
+
+    fn seated_index(&self, player_id: i64) -> Option<usize> {
+        self.ordered()
+            .iter()
+            .filter(|m| !m.2)
+            .position(|m| m.0 == player_id)
+    }
+
+    fn set(&mut self, player_id: i64, angle: f64) -> bool {
+        let angle = crate::seat_ring::normalize(angle);
+        match self.members.iter_mut().find(|m| m.0 == player_id) {
+            Some(m) if (m.1 - angle).abs() > 1e-9 => {
+                m.1 = angle;
+                true
+            }
+            _ => false,
+        }
+    }
+}
+
+/// Reads the room's seating, lets `change` rearrange it, and writes every
+/// angle back with `seat` re-derived from them — all in one transaction.
+/// `change` returns false to leave everything as it was. A member `change`
+/// adds is inserted (that is how `join_room` seats a newcomer).
 ///
 /// `BEGIN IMMEDIATE`, not the default deferred `BEGIN`: a deferred
 /// transaction that reads first and writes second fails with
 /// `SQLITE_BUSY_SNAPSHOT` (and `busy_timeout` does not retry it) when any
 /// other connection commits in between — a drink tap, which does not take
 /// the room lock. Taking the write lock up front makes that a plain wait.
-async fn reseat(pool: &DbPool, room_id: i64, change: impl FnOnce(&mut Vec<i64>) -> bool) -> bool {
+async fn rearrange(
+    pool: &DbPool,
+    room_id: i64,
+    change: impl FnOnce(&mut RoomTable) -> bool,
+) -> bool {
     let mut tx = pool
         .begin_with("BEGIN IMMEDIATE")
         .await
-        .expect("reseat begin");
-    let rows: Vec<(i64, bool)> = sqlx::query_as(
-        "SELECT player_id, sitting_out FROM room_players
+        .expect("rearrange begin");
+    let (start,): (f64,) = sqlx::query_as("SELECT start_angle FROM rooms WHERE id = ?1")
+        .bind(room_id)
+        .fetch_optional(&mut *tx)
+        .await
+        .expect("rearrange read room")
+        .unwrap_or((0.0,));
+    let members: Vec<(i64, f64, bool)> = sqlx::query_as(
+        "SELECT player_id, COALESCE(angle, 0), sitting_out FROM room_players
          WHERE room_id = ?1 ORDER BY seat, player_id",
     )
     .bind(room_id)
     .fetch_all(&mut *tx)
     .await
-    .expect("reseat read");
-    let mut seated: Vec<i64> = rows.iter().filter(|r| !r.1).map(|r| r.0).collect();
-    if !change(&mut seated) {
+    .expect("rearrange read members");
+    let known: Vec<i64> = members.iter().map(|m| m.0).collect();
+    let mut table = RoomTable { start, members };
+    if !change(&mut table) {
         return false;
     }
-    // Refill the seated slots in their new order; sat-out rows stay put.
-    let mut next_seated = seated.into_iter();
-    for (seat, (pid, out)) in rows.iter().enumerate() {
-        let id = if *out {
-            *pid
+    sqlx::query("UPDATE rooms SET start_angle = ?2 WHERE id = ?1")
+        .bind(room_id)
+        .bind(table.start)
+        .execute(&mut *tx)
+        .await
+        .expect("rearrange write room");
+    for (seat, (pid, angle, out)) in table.ordered().into_iter().enumerate() {
+        let sql = if known.contains(&pid) {
+            "UPDATE room_players SET seat = ?3, angle = ?4, sitting_out = ?5
+             WHERE room_id = ?1 AND player_id = ?2"
         } else {
-            next_seated.next().expect("one seated id per seated slot")
+            "INSERT INTO room_players (room_id, player_id, seat, angle, sitting_out)
+             VALUES (?1, ?2, ?3, ?4, ?5)"
         };
-        sqlx::query("UPDATE room_players SET seat = ?3 WHERE room_id = ?1 AND player_id = ?2")
+        sqlx::query(sql)
             .bind(room_id)
-            .bind(id)
+            .bind(pid)
             .bind(seat as i64)
+            .bind(angle)
+            .bind(out)
             .execute(&mut *tx)
             .await
-            .expect("reseat write");
+            .expect("rearrange write member");
     }
-    tx.commit().await.expect("reseat commit");
+    tx.commit().await.expect("rearrange commit");
     true
+}
+
+/// The room's start-marker angle (degrees clockwise from the bottom).
+pub async fn start_angle(pool: &DbPool, room_id: i64) -> f64 {
+    let row: Option<(f64,)> = sqlx::query_as("SELECT start_angle FROM rooms WHERE id = ?1")
+        .bind(room_id)
+        .fetch_optional(pool)
+        .await
+        .expect("start_angle failed");
+    row.map_or(0.0, |(a,)| a)
 }
 
 /// Bulk-inserts n identical events at once — used by games that hand out
@@ -1421,14 +1580,18 @@ mod tests {
         assert_eq!(ids(seated_members(&pool, room).await), vec![p[0], p[2]]);
         assert_eq!(room_members(&pool, room).await.len(), 3);
         assert!(leaderboard(&pool, room).await.iter().all(|r| r.id != p[1]));
-        // Moving around a sat-out seat leaves it where it was.
+        // A sat-out token keeps its angle while others move round it: cat
+        // takes seat 1, mid-gap between the marker and ann.
+        let ben_angle = room_members(&pool, room).await[1].angle;
         assert!(move_seat(&pool, room, p[2], 0).await);
-        assert_eq!(ids(room_members(&pool, room).await), vec![p[2], p[1], p[0]]);
-        // Sitting back in returns them to the ring and the standings.
+        assert_eq!(ids(seated_members(&pool, room).await), vec![p[2], p[0]]);
+        assert_eq!(room_members(&pool, room).await[2].angle, ben_angle);
+        // Sitting back in returns them to their spot, the ring and the
+        // standings.
         assert!(set_sitting_out(&pool, room, p[1], false).await);
         assert_eq!(
             ids(seated_members(&pool, room).await),
-            vec![p[2], p[1], p[0]]
+            vec![p[2], p[0], p[1]]
         );
         assert_eq!(leaderboard(&pool, room).await.len(), 3);
     }
@@ -1437,8 +1600,9 @@ mod tests {
     async fn test_migration_004_backfills_join_order_and_is_idempotent() {
         let pool = test_pool().await;
         let (room, p) = room_of(&pool, &["ann", "ben", "cat"]).await;
-        // Simulate pre-004 rows: no seats, join times out of id order.
-        sqlx::query("UPDATE room_players SET seat = NULL")
+        // Simulate pre-004 rows: no seats or angles, join times out of id
+        // order.
+        sqlx::query("UPDATE room_players SET seat = NULL, angle = NULL")
             .execute(&pool)
             .await
             .unwrap();
@@ -1456,6 +1620,14 @@ mod tests {
         }
         run_migrations(&pool).await;
         assert_eq!(ids(room_members(&pool, room).await), vec![p[1], p[2], p[0]]);
+        // 005 spreads them evenly round the rim in that order.
+        let angles: Vec<f64> = room_members(&pool, room)
+            .await
+            .iter()
+            .map(|m| m.angle)
+            .collect();
+        assert_eq!(angles, vec![60.0, 180.0, 300.0]);
+        assert_eq!(start_angle(&pool, room).await, 0.0);
         // A rerun keeps a reorder made since: the backfill only fills NULLs.
         assert!(move_seat(&pool, room, p[0], 0).await);
         run_migrations(&pool).await;
@@ -1464,5 +1636,73 @@ mod tests {
             .await
             .iter()
             .all(|m| !m.sitting_out));
+    }
+
+    #[tokio::test]
+    async fn test_a_dropped_token_stays_where_it_lands_and_sets_the_order() {
+        let pool = test_pool().await;
+        let (room, p) = room_of(&pool, &["ann", "ben", "cat"]).await;
+        // Joins: ann alone opposite the marker, then each mid-gap before it.
+        let angles: Vec<f64> = room_members(&pool, room)
+            .await
+            .iter()
+            .map(|m| m.angle)
+            .collect();
+        assert_eq!(angles, vec![180.0, 270.0, 315.0]);
+        // ben dropped at 100: before ann now, and exactly there.
+        assert!(set_seat_angle(&pool, room, p[1], 100.0).await);
+        assert_eq!(
+            ids(seated_members(&pool, room).await),
+            vec![p[1], p[0], p[2]]
+        );
+        assert_eq!(room_members(&pool, room).await[0].angle, 100.0);
+        // A drop on top of someone is nudged off them, on the drop's side.
+        assert!(set_seat_angle(&pool, room, p[2], 181.0).await);
+        let cat = room_members(&pool, room)
+            .await
+            .into_iter()
+            .find(|m| m.id == p[2])
+            .unwrap();
+        assert_eq!(cat.angle, 184.0);
+        // The same drop again moves nothing.
+        assert!(!set_seat_angle(&pool, room, p[2], 181.0).await);
+    }
+
+    #[tokio::test]
+    async fn test_the_start_marker_restarts_the_count_without_moving_anyone() {
+        let pool = test_pool().await;
+        let (room, p) = room_of(&pool, &["ann", "ben", "cat"]).await; // 180, 270, 315
+        assert!(set_start_angle(&pool, room, 280.0).await);
+        assert_eq!(
+            ids(seated_members(&pool, room).await),
+            vec![p[2], p[0], p[1]]
+        );
+        let angles: Vec<f64> = room_members(&pool, room)
+            .await
+            .iter()
+            .map(|m| m.angle)
+            .collect();
+        assert_eq!(angles, vec![315.0, 180.0, 270.0], "tokens stay put");
+        assert!(set_start_angle(&pool, room, -10.0).await);
+        assert_eq!(start_angle(&pool, room).await, 350.0);
+        // A newcomer lands mid-gap just before the marker: last of the count.
+        let dan = insert_player(&pool, "dan", "h").await.unwrap();
+        join_room(&pool, room, dan).await;
+        let members = room_members(&pool, room).await;
+        assert_eq!(members.last().unwrap().id, dan);
+        assert_eq!(members.last().unwrap().angle, 332.5);
+    }
+
+    #[tokio::test]
+    async fn test_swap_seats_swaps_angles() {
+        let pool = test_pool().await;
+        let (room, p) = room_of(&pool, &["ann", "ben", "cat"]).await;
+        assert!(swap_seats(&pool, room, p[0], p[2]).await);
+        assert_eq!(
+            ids(seated_members(&pool, room).await),
+            vec![p[2], p[1], p[0]]
+        );
+        assert_eq!(room_members(&pool, room).await[0].angle, 180.0);
+        assert!(!swap_seats(&pool, room, p[0], p[0]).await);
     }
 }

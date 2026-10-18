@@ -1005,6 +1005,14 @@ pub fn router() -> Router<GameState> {
         .route("/room/{code}/test/spawn", post(test_spawn))
         .route("/room/{code}/test/act-as", post(test_act_as))
         .route("/room/{code}/seats/move", post(crate::seats::move_handler))
+        .route(
+            "/room/{code}/seats/angle",
+            post(crate::seats::angle_handler),
+        )
+        .route(
+            "/room/{code}/seats/start",
+            post(crate::seats::start_handler),
+        )
         .route("/room/{code}/sit-out", post(crate::seats::sit_out_handler))
         .route("/room/{code}/sit-in", post(crate::seats::sit_in_handler))
         .route("/room/{code}/event", post(log_event))

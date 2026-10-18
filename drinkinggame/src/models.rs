@@ -80,4 +80,6 @@ pub struct RoomMember {
     pub name: String,
     pub joined_at: String,
     pub sitting_out: bool,
+    /// Rim angle, degrees clockwise from the bottom of the table.
+    pub angle: f64,
 }

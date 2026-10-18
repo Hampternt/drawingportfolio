@@ -5208,7 +5208,7 @@ async fn test_the_last_call_screen_needs_no_session() {
 /// builders themselves, independent of any particular room's state.
 #[test]
 fn test_exactly_one_screen_panel_builder_marks_itself_live() {
-    let idle = drinkinggame::render::screen_panel_idle("QK4M", &[]);
+    let idle = drinkinggame::render::screen_panel_idle("QK4M", &[], 0.0);
     let active = drinkinggame::render::screen_panel_active(
         &drinkinggame::render::GameView {
             base_path: "",
@@ -9730,7 +9730,9 @@ async fn test_room_tab_has_the_draggable_table_and_seat_dropdowns() {
     post_form(&app, &bob, &format!("/room/{code}/sit-out"), "").await;
     let html = room_page_html(&app, &alice, &code).await;
     assert!(html.contains("seat_drag.js"));
-    assert!(html.contains(&format!(r#"data-reorder-url="/room/{code}/seats/move""#)));
+    assert!(html.contains(&format!(r#"data-seat-url="/room/{code}/seats/angle""#)));
+    assert!(html.contains(&format!(r#"data-start-url="/room/{code}/seats/start""#)));
+    assert!(html.contains(r#"<span class="felt-num">2</span>"#));
     assert_eq!(
         html.matches(r#"class="felt-seat""#).count(),
         2,
@@ -9794,4 +9796,75 @@ async fn test_a_sat_out_player_cannot_draw_in_ring_of_fire() {
     assert!(body_string(res).await.contains("sit back in"));
     let res = post_form(&app, &alice, &format!("/room/{code}/game/draw"), "").await;
     assert!(res.status().is_success(), "seated players still draw");
+}
+
+#[tokio::test]
+async fn test_a_drop_sends_one_angle_and_the_marker_moves_the_count() {
+    let (app, pool, [alice, bob, _cara], code) = three_seat_room().await;
+    let (a, b, c) = (
+        pid(&pool, "alice").await,
+        pid(&pool, "bob").await,
+        pid(&pool, "cara").await,
+    );
+    // Joins land at 180, 270, 315 from a marker at 0. bob drops alice at 300.
+    let res = post_form(
+        &app,
+        &bob,
+        &format!("/room/{code}/seats/angle"),
+        &format!("player_id={a}&angle=300"),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+    assert_eq!(seat_ids(&pool, &code).await, vec![b, a, c]);
+    // The marker moved to 290: alice (300) is now seat 1, bob (270) last.
+    let res = post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/seats/start"),
+        "angle=290",
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+    assert_eq!(seat_ids(&pool, &code).await, vec![a, c, b]);
+    // Junk angles are refused; a non-member can't drag.
+    let res = post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/seats/start"),
+        "angle=NaN",
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    let res = post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/seats/angle"),
+        "angle=10",
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    let dan = login(&app, "dan", "3456").await;
+    let res = post_form(&app, &dan, &format!("/room/{code}/seats/start"), "angle=10").await;
+    assert_eq!(res.status(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn test_a_drag_mid_three_man_keeps_the_roller() {
+    let (app, pool, [alice, bob, _cara], code) = three_seat_room().await;
+    let (a, b, c) = (
+        pid(&pool, "alice").await,
+        pid(&pool, "bob").await,
+        pid(&pool, "cara").await,
+    );
+    post_form(&app, &bob, &format!("/room/{code}/tm/start"), "").await;
+    post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/seats/angle"),
+        &format!("player_id={c}&angle=10"),
+    )
+    .await;
+    let st = tm_state(&pool, &code).await;
+    assert_eq!(st.order, vec![c, a, b]);
+    assert_eq!((st.roller(), st.three_man), (b, b));
 }

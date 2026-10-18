@@ -488,15 +488,30 @@ body[data-player-id] { padding-bottom: 90px; }
 .felt-screen.felt-crowded .felt-seat { max-width: 150px; }
 .felt-screen.felt-crowded .felt-avatar { width: 54px; height: 54px; font-size: 22px; }
 .felt-screen.felt-crowded .felt-name { font-size: 19px; }
-/* Draggable seats (phone ROOM tab, seat_drag.js): touch-action none, or
-   the phone scrolls the pane instead of moving the chip. */
-.felt-seat[data-drag] { cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none; }
-.felt-seat.is-dragging { opacity: .35; }
-.felt-seat.is-drop-target .felt-avatar { border-color: var(--amber); box-shadow: 0 0 0 4px rgba(255, 181, 112, .25); }
-.felt-ghost {
-  position: fixed; z-index: 60; pointer-events: none; transform: translate(-50%, -50%);
-  display: flex; flex-direction: column; align-items: center; gap: 4px;
+/* Each token carries its seat number, counted clockwise from the start
+   marker; the marker sits just outside the tokens, on the felt's edge. */
+.felt-avatar { position: relative; }
+.felt-num {
+  position: absolute; right: -7px; top: -7px; min-width: 16px; height: 16px;
+  border-radius: 8px; padding: 0 3px; box-sizing: border-box;
+  display: grid; place-items: center;
+  font: 800 10px var(--font-display); color: var(--ink); background: var(--violet);
 }
+.felt-screen .felt-num { right: -12px; top: -12px; min-width: 30px; height: 30px; border-radius: 15px; font-size: 17px; }
+.felt-crowded .felt-num { right: -6px; top: -6px; min-width: 14px; height: 14px; font-size: 9px; }
+.felt-marker {
+  position: absolute; transform: translate(-50%, -50%); z-index: 1;
+  font: 800 9px var(--font-display); letter-spacing: .06em; white-space: nowrap;
+  color: var(--ink-amber); background: var(--amber); border-radius: 6px; padding: 2px 6px;
+  box-shadow: 0 2px 8px rgba(5, 3, 10, .6);
+}
+.felt-screen .felt-marker { font-size: 16px; padding: 4px 11px; border-radius: 9px; }
+/* Draggable tokens and marker (phone ROOM tab, seat_drag.js): touch-action
+   none, or the phone scrolls the pane instead of moving the token. */
+.felt-seat[data-drag], .felt-marker[data-drag] { cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none; }
+.felt-marker[data-drag] { padding: 6px 9px; }
+.felt-seat.is-dragging, .felt-marker.is-dragging { z-index: 2; cursor: grabbing; }
+.felt-seat.is-dragging .felt-avatar { border-color: var(--amber); box-shadow: 0 0 0 4px rgba(255, 181, 112, .25); }
 
 /* ROOM tab seat list: the ring again as rows, a seat dropdown each, and
    SIT OUT / SIT BACK IN on the viewer's own row only (personalize()). */
