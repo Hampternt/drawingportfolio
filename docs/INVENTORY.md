@@ -128,6 +128,11 @@ A party platform for phone-based drinking games in shared rooms.
 - 🚧 Challenge cards — real-life party challenges as Last Call cards
   (duels judged by table vote, solo dares, social penalties).
   Container: `docs/manifests/2026-08-14-lc-challenge-cards.md`
+- 🚧 Table view for Ring of Fire and 3 Man — a felt table with seats
+  round the edge on the big screen and phone, dice at the 3 Man roller,
+  a tappable card ring for Ring of Fire; per-room seat order editable from
+  the phone; sit-out and a code-only big-screen entry.
+  Plan: `docs/manifests/2026-10-18-drinks-table-view.md`
 
 ## CV — `/cv`
 
