@@ -82,7 +82,14 @@ pub async fn tm_start_handler(
         return GameError::TooFewPlayers.into_response();
     }
     let member_ids: Vec<i64> = members.iter().map(|m| m.id).collect();
-    let st = ThreeManState::new(member_ids, player.id);
+    // The starter rolls first and is the first 3 Man — unless they are
+    // sitting out and starting it for the table, when seat 1 is.
+    let starter = if member_ids.contains(&player.id) {
+        player.id
+    } else {
+        member_ids[0]
+    };
+    let st = ThreeManState::new(member_ids, starter);
     // deck_order/rules_json are Ring of Fire concepts — 3 Man leaves both
     // empty; GameAlreadyActive races are handled by the games table's
     // partial unique index (one active game per room).

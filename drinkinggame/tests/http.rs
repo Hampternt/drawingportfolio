@@ -9761,3 +9761,37 @@ async fn test_idle_screen_shows_the_ring_without_whoever_sits_out() {
     assert_eq!(screen.matches(r#"class="felt-seat""#).count(), 2);
     assert!(!screen.contains(">bob<"));
 }
+
+#[tokio::test]
+async fn test_a_sat_out_starter_hands_three_man_to_seat_one() {
+    let (app, pool, [alice, _bob, _cara], code) = three_seat_room().await;
+    let (b, c) = (pid(&pool, "bob").await, pid(&pool, "cara").await);
+    post_form(&app, &alice, &format!("/room/{code}/sit-out"), "").await;
+    let res = post_form(&app, &alice, &format!("/room/{code}/tm/start"), "").await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+    let st = tm_state(&pool, &code).await;
+    assert_eq!(st.order, vec![b, c]);
+    assert_eq!(
+        (st.roller(), st.three_man),
+        (b, b),
+        "the title is on the table"
+    );
+}
+
+#[tokio::test]
+async fn test_a_sat_out_player_cannot_draw_in_ring_of_fire() {
+    let (app, _pool, [alice, bob, _cara], code) = three_seat_room().await;
+    post_form(
+        &app,
+        &alice,
+        &format!("/room/{code}/game/start"),
+        "preset_id=1",
+    )
+    .await;
+    post_form(&app, &bob, &format!("/room/{code}/sit-out"), "").await;
+    let res = post_form(&app, &bob, &format!("/room/{code}/game/draw"), "").await;
+    assert_eq!(res.status(), StatusCode::CONFLICT);
+    assert!(body_string(res).await.contains("sit back in"));
+    let res = post_form(&app, &alice, &format!("/room/{code}/game/draw"), "").await;
+    assert!(res.status().is_success(), "seated players still draw");
+}

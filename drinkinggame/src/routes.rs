@@ -192,8 +192,6 @@ async fn room_page(
             "Room not found or already ended",
         );
     };
-    // Visiting a room joins it: room URLs double as invite links.
-    db::join_room(&state.pool, room.id, player.id).await;
 
     // Mid-game join: a running 3 Man round tracks seating in its own
     // `order` field (not just room_players), so a newcomer needs appending
@@ -205,6 +203,10 @@ async fn room_page(
     {
         let lock = state.locks.for_room(room.id);
         let _guard = lock.lock().await;
+        // Visiting a room joins it: room URLs double as invite links. Under
+        // the lock, because a join writes a seat number and seat moves
+        // renumber the room's seats in one transaction.
+        let new_member = db::join_room(&state.pool, room.id, player.id).await;
         let mut tm_joined = false;
         // Hoisted out of the `if game.kind == "last_call"` arm below, and
         // doubling as the "was this a Last Call game" flag (`Some` iff the
@@ -260,8 +262,11 @@ async fn room_page(
             }
         }
         // New members appear on everyone's ROOM tab without waiting for the
-        // next unrelated event.
+        // next unrelated event — and on the idle big screen's ring.
         crate::game::broadcast_room(&state, room.id, &code).await;
+        if new_member {
+            crate::seats::publish_idle_screen(&state, &room).await;
+        }
         if tm_joined {
             crate::game::broadcast_game(&state, room.id, &code, None).await;
         }
@@ -937,8 +942,13 @@ async fn test_spawn(
         if members.iter().any(|m| m.id == fake.id) {
             continue; // this fake is already at the table — next
         }
-        db::join_room(&state.pool, room.id, fake.id).await;
-        crate::game::broadcast_room(&state, room.id, &room.code).await;
+        {
+            let lock = state.locks.for_room(room.id);
+            let _guard = lock.lock().await;
+            db::join_room(&state.pool, room.id, fake.id).await;
+            crate::game::broadcast_room(&state, room.id, &room.code).await;
+            crate::seats::publish_idle_screen(&state, &room).await;
+        }
         return Redirect::to(&format!("{}/room/{code}", state.base_path)).into_response();
     }
     StatusCode::CONFLICT.into_response() // 16 fakes seated — enough table

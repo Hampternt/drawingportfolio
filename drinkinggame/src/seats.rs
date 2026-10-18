@@ -74,9 +74,18 @@ pub(crate) async fn broadcast_seats(state: &GameState, room: &Room) {
     if db::get_active_game(&state.pool, room.id).await.is_some() {
         crate::game::broadcast_game(state, room.id, &room.code, None).await;
     } else {
-        let screen = crate::game::current_screen_panel(state, room.id, &room.code).await;
-        state.hub.publish(room.id, RoomMessage::Screen(screen));
+        publish_idle_screen(state, room).await;
     }
+}
+
+/// With no game running, repaints the big screen's ring (a join, a seat
+/// change). A no-op mid-game: each game's own broadcast owns the screen.
+pub(crate) async fn publish_idle_screen(state: &GameState, room: &Room) {
+    if db::get_active_game(&state.pool, room.id).await.is_some() {
+        return;
+    }
+    let screen = crate::game::current_screen_panel(state, room.id, &room.code).await;
+    state.hub.publish(room.id, RoomMessage::Screen(screen));
 }
 
 fn map_seat_error(e: TmError) -> GameError {

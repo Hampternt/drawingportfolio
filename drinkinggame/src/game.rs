@@ -386,6 +386,10 @@ pub async fn draw_handler(
     if game.kind != "ring_of_fire" {
         return GameError::WrongGameKind.into_response();
     }
+    // Sitting out means out of the game, not just off the ring.
+    if db::is_sitting_out(&state.pool, room.id, player.id).await {
+        return GameError::SittingOut.into_response();
+    }
     let ranks: Vec<u8> = cards::parse_deck(&game.deck_order)
         .iter()
         .map(|c| c.rank)

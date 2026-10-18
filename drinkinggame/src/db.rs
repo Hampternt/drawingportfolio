@@ -259,9 +259,9 @@ pub async fn get_room_by_id(pool: &DbPool, room_id: i64) -> Option<Room> {
 
 /// Idempotent: rejoining is a no-op apart from the activity bump — a
 /// returning member keeps their seat and their sitting-out flag. A new
-/// member takes the last seat.
-pub async fn join_room(pool: &DbPool, room_id: i64, player_id: i64) {
-    sqlx::query(
+/// member takes the last seat. Returns true when the player is new here.
+pub async fn join_room(pool: &DbPool, room_id: i64, player_id: i64) -> bool {
+    let res = sqlx::query(
         "INSERT OR IGNORE INTO room_players (room_id, player_id, seat)
          VALUES (?1, ?2, (SELECT COALESCE(MAX(seat), -1) + 1
                           FROM room_players WHERE room_id = ?1))",
@@ -272,6 +272,7 @@ pub async fn join_room(pool: &DbPool, room_id: i64, player_id: i64) {
     .await
     .expect("join_room failed");
     touch_room(pool, room_id).await;
+    res.rows_affected() > 0
 }
 
 pub async fn is_room_member(pool: &DbPool, room_id: i64, player_id: i64) -> bool {
