@@ -9806,17 +9806,17 @@ async fn test_a_drop_sends_one_angle_and_the_marker_moves_the_count() {
         pid(&pool, "bob").await,
         pid(&pool, "cara").await,
     );
-    // Joins land at 180, 270, 315 from a marker at 0. bob drops alice at 300.
+    // Joins sit evenly at 60, 180, 300 from a marker at 0. bob drops alice at 250.
     let res = post_form(
         &app,
         &bob,
         &format!("/room/{code}/seats/angle"),
-        &format!("player_id={a}&angle=300"),
+        &format!("player_id={a}&angle=250"),
     )
     .await;
     assert_eq!(res.status(), StatusCode::NO_CONTENT);
     assert_eq!(seat_ids(&pool, &code).await, vec![b, a, c]);
-    // The marker moved to 290: alice (300) is now seat 1, bob (270) last.
+    // The marker moved to 290: cara (300) is now seat 1, bob (180) second.
     let res = post_form(
         &app,
         &alice,
@@ -9825,7 +9825,7 @@ async fn test_a_drop_sends_one_angle_and_the_marker_moves_the_count() {
     )
     .await;
     assert_eq!(res.status(), StatusCode::NO_CONTENT);
-    assert_eq!(seat_ids(&pool, &code).await, vec![a, c, b]);
+    assert_eq!(seat_ids(&pool, &code).await, vec![c, b, a]);
     // Junk angles are refused; a non-member can't drag.
     let res = post_form(
         &app,

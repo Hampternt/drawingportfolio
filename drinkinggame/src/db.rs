@@ -106,6 +106,14 @@ pub async fn run_migrations(pool: &DbPool) {
             .await
             .expect("005 start_angle");
     }
+    // Until anyone arranges the room by hand, joins and sit-outs re-space
+    // the ring evenly; existing rooms start out unarranged.
+    if !column_exists(pool, "rooms", "arranged").await {
+        sqlx::query("ALTER TABLE rooms ADD COLUMN arranged INTEGER NOT NULL DEFAULT 0")
+            .execute(pool)
+            .await
+            .expect("005 arranged");
+    }
     // Angle backfill: evenly round the rim in the room's current seat
     // order. A join since 005 always writes an angle, so a NULL only ever
     // means a pre-005 room, and the rerun finds nothing to do.
@@ -304,17 +312,22 @@ pub async fn get_room_by_id(pool: &DbPool, room_id: i64) -> Option<Room> {
 }
 
 /// Idempotent: rejoining is a no-op apart from the activity bump — a
-/// returning member keeps their seat and their sitting-out flag. A new
-/// member lands mid-gap just before the start marker, at the end of the
-/// count. Returns true when the player is new here.
+/// returning member keeps their seat and their sitting-out flag. In a room
+/// nobody has arranged yet, the ring is re-spaced evenly in join order with
+/// the newcomer last; once someone has, the newcomer lands mid-gap in the
+/// widest gap and nobody else moves. Returns true when the player is new.
 pub async fn join_room(pool: &DbPool, room_id: i64, player_id: i64) -> bool {
     let joined = rearrange(pool, room_id, |table| {
         if table.members.iter().any(|m| m.0 == player_id) {
             return false;
         }
-        let rel = crate::seat_ring::slot_angle(&table.seated_rel(None), usize::MAX);
+        let rel = crate::seat_ring::widest_gap_angle(&table.seated_rel(None));
         let angle = crate::seat_ring::normalize(table.start + rel);
         table.members.push((player_id, angle, false));
+        table.join_order.push(player_id);
+        if !table.arranged {
+            table.respace();
+        }
         true
     })
     .await;
@@ -492,6 +505,7 @@ pub async fn move_seat(pool: &DbPool, room_id: i64, player_id: i64, position: us
             return false;
         }
         let rel = crate::seat_ring::slot_angle(&others, position);
+        table.arrange();
         table.set(player_id, table.start + rel)
     })
     .await
@@ -507,7 +521,11 @@ pub async fn set_seat_angle(pool: &DbPool, room_id: i64, player_id: i64, angle: 
         }
         let rel = crate::seat_ring::rel_angle(angle, table.start);
         let rel = crate::seat_ring::nudge(rel, &table.seated_rel(Some(player_id)));
-        table.set(player_id, table.start + rel)
+        let moved = table.set(player_id, table.start + rel);
+        if moved {
+            table.arrange();
+        }
+        moved
     })
     .await
 }
@@ -521,6 +539,7 @@ pub async fn set_start_angle(pool: &DbPool, room_id: i64, angle: f64) -> bool {
             return false;
         }
         table.start = angle;
+        table.arrange();
         true
     })
     .await
@@ -538,6 +557,7 @@ pub async fn swap_seats(pool: &DbPool, room_id: i64, a: i64, b: i64) -> bool {
         let (aa, ab) = (angle_of(table, a), angle_of(table, b));
         table.set(a, ab);
         table.set(b, aa);
+        table.arrange();
         true
     })
     .await
@@ -545,8 +565,10 @@ pub async fn swap_seats(pool: &DbPool, room_id: i64, a: i64, b: i64) -> bool {
 
 /// Sets a member's sitting-out flag. Returns false when the flag already
 /// had that value (or the player is not a member), so callers can skip a
-/// broadcast that would change nothing. Sitting back in returns the token
-/// to its old angle, nudged off anyone who has taken that spot since.
+/// broadcast that would change nothing. In an unarranged room the ring is
+/// re-spaced evenly in join order; in an arranged one, sitting back in
+/// returns the token to its old angle, nudged off anyone who has taken
+/// that spot since.
 pub async fn set_sitting_out(pool: &DbPool, room_id: i64, player_id: i64, out: bool) -> bool {
     rearrange(pool, room_id, |table| {
         let Some(i) = table.members.iter().position(|m| m.0 == player_id) else {
@@ -556,7 +578,9 @@ pub async fn set_sitting_out(pool: &DbPool, room_id: i64, player_id: i64, out: b
             return false;
         }
         table.members[i].2 = out;
-        if !out {
+        if !table.arranged {
+            table.respace();
+        } else if !out {
             let rel = crate::seat_ring::rel_angle(table.members[i].1, table.start);
             let rel = crate::seat_ring::nudge(rel, &table.seated_rel(Some(player_id)));
             table.members[i].1 = table.start + rel;
@@ -566,14 +590,39 @@ pub async fn set_sitting_out(pool: &DbPool, room_id: i64, player_id: i64, out: b
     .await
 }
 
-/// A room's seating as `rearrange` hands it to a change: the start marker
-/// and every member's (player_id, rim angle, sitting_out).
+/// A room's seating as `rearrange` hands it to a change: the start marker,
+/// whether anyone has arranged the room by hand, every member's
+/// (player_id, rim angle, sitting_out), and the members in join order.
 struct RoomTable {
     start: f64,
+    arranged: bool,
     members: Vec<(i64, f64, bool)>,
+    join_order: Vec<i64>,
 }
 
 impl RoomTable {
+    /// A drop, a marker move, the dropdown or ↑/↓: from now on joins and
+    /// sit-outs leave everyone where they are.
+    fn arrange(&mut self) {
+        self.arranged = true;
+    }
+
+    /// Spaces the seated members evenly round the rim in join order,
+    /// half a gap past the marker — the same layout the 005 backfill uses.
+    fn respace(&mut self) {
+        let seated: Vec<i64> = self
+            .join_order
+            .iter()
+            .copied()
+            .filter(|id| self.members.iter().any(|m| m.0 == *id && !m.2))
+            .collect();
+        let even = crate::seat_ring::even_angles(seated.len());
+        for (id, rel) in seated.into_iter().zip(even) {
+            let angle = self.start + rel;
+            self.set(id, angle);
+        }
+    }
+
     /// Seated members' angles relative to the marker, sorted, leaving out
     /// `except` — the gaps a token can be placed in.
     fn seated_rel(&self, except: Option<i64>) -> Vec<f64> {
@@ -636,12 +685,13 @@ async fn rearrange(
         .begin_with("BEGIN IMMEDIATE")
         .await
         .expect("rearrange begin");
-    let (start,): (f64,) = sqlx::query_as("SELECT start_angle FROM rooms WHERE id = ?1")
-        .bind(room_id)
-        .fetch_optional(&mut *tx)
-        .await
-        .expect("rearrange read room")
-        .unwrap_or((0.0,));
+    let (start, arranged): (f64, bool) =
+        sqlx::query_as("SELECT start_angle, arranged FROM rooms WHERE id = ?1")
+            .bind(room_id)
+            .fetch_optional(&mut *tx)
+            .await
+            .expect("rearrange read room")
+            .unwrap_or((0.0, false));
     let members: Vec<(i64, f64, bool)> = sqlx::query_as(
         "SELECT player_id, COALESCE(angle, 0), sitting_out FROM room_players
          WHERE room_id = ?1 ORDER BY seat, player_id",
@@ -650,14 +700,27 @@ async fn rearrange(
     .fetch_all(&mut *tx)
     .await
     .expect("rearrange read members");
+    let join_order: Vec<(i64,)> = sqlx::query_as(
+        "SELECT player_id FROM room_players WHERE room_id = ?1 ORDER BY joined_at, player_id",
+    )
+    .bind(room_id)
+    .fetch_all(&mut *tx)
+    .await
+    .expect("rearrange read join order");
     let known: Vec<i64> = members.iter().map(|m| m.0).collect();
-    let mut table = RoomTable { start, members };
+    let mut table = RoomTable {
+        start,
+        arranged,
+        members,
+        join_order: join_order.into_iter().map(|(id,)| id).collect(),
+    };
     if !change(&mut table) {
         return false;
     }
-    sqlx::query("UPDATE rooms SET start_angle = ?2 WHERE id = ?1")
+    sqlx::query("UPDATE rooms SET start_angle = ?2, arranged = ?3 WHERE id = ?1")
         .bind(room_id)
         .bind(table.start)
+        .bind(table.arranged)
         .execute(&mut *tx)
         .await
         .expect("rearrange write room");
@@ -1638,59 +1701,92 @@ mod tests {
             .all(|m| !m.sitting_out));
     }
 
+    fn angles(members: Vec<RoomMember>) -> Vec<f64> {
+        members.into_iter().map(|m| m.angle).collect()
+    }
+
+    #[tokio::test]
+    async fn test_joins_in_an_unarranged_room_stay_evenly_spaced_in_join_order() {
+        let pool = test_pool().await;
+        let (room, p) = room_of(&pool, &["ann", "ben", "cat", "dan", "eve", "fay"]).await;
+        assert_eq!(ids(seated_members(&pool, room).await), p);
+        assert_eq!(
+            angles(room_members(&pool, room).await),
+            vec![30.0, 90.0, 150.0, 210.0, 270.0, 330.0]
+        );
+        // Sitting out and back in re-spaces too, and keeps join order.
+        assert!(set_sitting_out(&pool, room, p[2], true).await);
+        assert_eq!(
+            angles(seated_members(&pool, room).await),
+            vec![36.0, 108.0, 180.0, 252.0, 324.0]
+        );
+        assert!(set_sitting_out(&pool, room, p[2], false).await);
+        assert_eq!(ids(seated_members(&pool, room).await), p);
+        assert_eq!(room_members(&pool, room).await[2].angle, 150.0);
+    }
+
+    #[tokio::test]
+    async fn test_a_join_after_a_drop_takes_the_widest_gap() {
+        let pool = test_pool().await;
+        let (room, p) = room_of(&pool, &["ann", "ben", "cat"]).await; // 60, 180, 300
+        assert!(set_seat_angle(&pool, room, p[1], 80.0).await); // arranged now
+                                                                // Gaps: 60-80, 80-300 (the widest), 300-60 across the marker.
+        let dan = insert_player(&pool, "dan", "h").await.unwrap();
+        join_room(&pool, room, dan).await;
+        let members = room_members(&pool, room).await;
+        assert_eq!(ids(members.clone()), vec![p[0], p[1], dan, p[2]]);
+        assert_eq!(
+            angles(members),
+            vec![60.0, 80.0, 190.0, 300.0],
+            "nobody else moved"
+        );
+        // Sitting out no longer re-spaces either.
+        assert!(set_sitting_out(&pool, room, p[0], true).await);
+        assert_eq!(
+            angles(seated_members(&pool, room).await),
+            vec![80.0, 190.0, 300.0]
+        );
+    }
+
     #[tokio::test]
     async fn test_a_dropped_token_stays_where_it_lands_and_sets_the_order() {
         let pool = test_pool().await;
-        let (room, p) = room_of(&pool, &["ann", "ben", "cat"]).await;
-        // Joins: ann alone opposite the marker, then each mid-gap before it.
-        let angles: Vec<f64> = room_members(&pool, room)
-            .await
-            .iter()
-            .map(|m| m.angle)
-            .collect();
-        assert_eq!(angles, vec![180.0, 270.0, 315.0]);
-        // ben dropped at 100: before ann now, and exactly there.
-        assert!(set_seat_angle(&pool, room, p[1], 100.0).await);
+        let (room, p) = room_of(&pool, &["ann", "ben", "cat"]).await; // 60, 180, 300
+                                                                      // ben dropped at 30: before ann now, and exactly there.
+        assert!(set_seat_angle(&pool, room, p[1], 30.0).await);
         assert_eq!(
             ids(seated_members(&pool, room).await),
             vec![p[1], p[0], p[2]]
         );
-        assert_eq!(room_members(&pool, room).await[0].angle, 100.0);
+        assert_eq!(room_members(&pool, room).await[0].angle, 30.0);
         // A drop on top of someone is nudged off them, on the drop's side.
-        assert!(set_seat_angle(&pool, room, p[2], 181.0).await);
+        assert!(set_seat_angle(&pool, room, p[2], 61.0).await);
         let cat = room_members(&pool, room)
             .await
             .into_iter()
             .find(|m| m.id == p[2])
             .unwrap();
-        assert_eq!(cat.angle, 184.0);
+        assert_eq!(cat.angle, 64.0);
         // The same drop again moves nothing.
-        assert!(!set_seat_angle(&pool, room, p[2], 181.0).await);
+        assert!(!set_seat_angle(&pool, room, p[2], 61.0).await);
     }
 
     #[tokio::test]
     async fn test_the_start_marker_restarts_the_count_without_moving_anyone() {
         let pool = test_pool().await;
-        let (room, p) = room_of(&pool, &["ann", "ben", "cat"]).await; // 180, 270, 315
+        let (room, p) = room_of(&pool, &["ann", "ben", "cat"]).await; // 60, 180, 300
         assert!(set_start_angle(&pool, room, 280.0).await);
         assert_eq!(
             ids(seated_members(&pool, room).await),
             vec![p[2], p[0], p[1]]
         );
-        let angles: Vec<f64> = room_members(&pool, room)
-            .await
-            .iter()
-            .map(|m| m.angle)
-            .collect();
-        assert_eq!(angles, vec![315.0, 180.0, 270.0], "tokens stay put");
+        assert_eq!(
+            angles(room_members(&pool, room).await),
+            vec![300.0, 60.0, 180.0],
+            "tokens stay put"
+        );
         assert!(set_start_angle(&pool, room, -10.0).await);
         assert_eq!(start_angle(&pool, room).await, 350.0);
-        // A newcomer lands mid-gap just before the marker: last of the count.
-        let dan = insert_player(&pool, "dan", "h").await.unwrap();
-        join_room(&pool, room, dan).await;
-        let members = room_members(&pool, room).await;
-        assert_eq!(members.last().unwrap().id, dan);
-        assert_eq!(members.last().unwrap().angle, 332.5);
     }
 
     #[tokio::test]
@@ -1702,7 +1798,7 @@ mod tests {
             ids(seated_members(&pool, room).await),
             vec![p[2], p[1], p[0]]
         );
-        assert_eq!(room_members(&pool, room).await[0].angle, 180.0);
+        assert_eq!(room_members(&pool, room).await[0].angle, 60.0);
         assert!(!swap_seats(&pool, room, p[0], p[0]).await);
     }
 }

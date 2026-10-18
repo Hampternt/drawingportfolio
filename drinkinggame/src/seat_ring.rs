@@ -145,6 +145,24 @@ pub fn slot_angle(others: &[f64], pos: usize) -> f64 {
     (before + after) / 2.0
 }
 
+/// The marker-relative angle in the middle of the widest gap between
+/// seated tokens (`others`: sorted marker-relative angles), going round
+/// the whole table — the gap across the marker is one gap. Alone at the
+/// table: opposite the marker. Ties go to the gap met first clockwise.
+pub fn widest_gap_angle(others: &[f64]) -> f64 {
+    let Some(&first) = others.first() else {
+        return 180.0;
+    };
+    let mut best = (0.0_f64, 0.0_f64); // (width, mid)
+    for (i, &a) in others.iter().enumerate() {
+        let b = others.get(i + 1).copied().unwrap_or(first + 360.0);
+        if b - a > best.0 {
+            best = (b - a, (a + b) / 2.0);
+        }
+    }
+    normalize(best.1)
+}
+
 /// Moves a marker-relative drop off any token it would land on (closer
 /// than `MIN_SEPARATION`), on the side it was dropped, without crossing
 /// the marker. A drop that can't clear every token in its gap stays at
@@ -311,6 +329,17 @@ mod tests {
         assert_eq!(slot_angle(&others, 3), 330.0); // before the marker
         assert_eq!(slot_angle(&others, 99), 330.0);
         assert_eq!(slot_angle(&[], 0), 180.0); // alone: opposite the marker
+    }
+
+    #[test]
+    fn test_widest_gap_angle_goes_round_the_whole_table() {
+        assert_eq!(widest_gap_angle(&[]), 180.0);
+        assert_eq!(widest_gap_angle(&[90.0]), 270.0);
+        assert_eq!(widest_gap_angle(&[10.0, 40.0, 250.0]), 145.0);
+        // The widest gap spans the marker: 260 -> 360+20, mid 320.
+        assert_eq!(widest_gap_angle(&[20.0, 100.0, 180.0, 260.0]), 320.0);
+        // ... and its middle can fall past the marker: 300 -> 360+100, mid 20.
+        assert_eq!(widest_gap_angle(&[100.0, 150.0, 200.0, 300.0]), 20.0);
     }
 
     #[test]
