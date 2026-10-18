@@ -184,34 +184,6 @@ async fn place(
     StatusCode::NO_CONTENT.into_response()
 }
 
-/// 3 Man's TABLE-tab ↑/↓: swaps `target`'s angle with its neighbour's in
-/// the room's ring, wrapping between first and last.
-pub(crate) async fn swap_with_neighbour(
-    state: &GameState,
-    room: &Room,
-    target: i64,
-    dir: i64,
-) -> Result<(), GameError> {
-    let seated: Vec<i64> = db::seated_members(&state.pool, room.id)
-        .await
-        .iter()
-        .map(|m| m.id)
-        .collect();
-    let Some(i) = seated.iter().position(|&p| p == target) else {
-        return Err(GameError::NotNow);
-    };
-    let len = seated.len() as i64;
-    // `dir` comes from the form; only its sign means anything.
-    let j = (i as i64 + dir.signum()).rem_euclid(len) as usize;
-    if i == j {
-        return Ok(());
-    }
-    let other = seated[j];
-    db::swap_seats(&state.pool, room.id, target, other).await;
-    apply_and_broadcast(state, room).await;
-    Ok(())
-}
-
 /// After a ring change that cannot fail the engine (a reorder, a join):
 /// follow it in a running 3 Man game, then broadcast.
 async fn apply_and_broadcast(state: &GameState, room: &Room) {

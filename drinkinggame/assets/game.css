@@ -513,6 +513,39 @@ body[data-player-id] { padding-bottom: 90px; }
 .felt-seat.is-dragging, .felt-marker.is-dragging { z-index: 2; cursor: grabbing; }
 .felt-seat.is-dragging .felt-avatar { border-color: var(--amber); box-shadow: 0 0 0 4px rgba(255, 181, 112, .25); }
 
+/* 3 Man on the felt (render.rs tm_table_html / tm_dice_overlay): the
+   dice sit inside the felt on the roller's side, the roller's token lit,
+   the 3 Man badged. Sized to read from across the room on the screen. */
+.felt-dice {
+  position: absolute; transform: translate(-50%, -50%); z-index: 1;
+  display: flex; gap: 8px; pointer-events: none;
+  transition: left .45s ease, top .45s ease;
+}
+.felt-dice .die { width: 34px; height: 34px; border-radius: 8px; padding: 4px; box-shadow: 0 8px 20px rgba(0, 0, 0, .5); }
+.die-blank { background: rgba(247, 243, 234, .22); box-shadow: none; }
+.screen-panel.screen-tm .felt-dice { gap: 16px; }
+.screen-panel.screen-tm .felt-dice .die { width: 96px; height: 96px; border-radius: 18px; padding: 10px; }
+.felt-seat.is-active .felt-avatar { border-width: 3px; }
+.felt-screen .felt-seat.is-active .felt-avatar { border-width: 5px; box-shadow: 0 0 0 10px var(--violet-soft), 0 0 40px rgba(180, 142, 247, .55); }
+.felt-screen .felt-seat.is-active .felt-name { background: var(--violet); color: var(--ink); }
+.screen-panel.screen-tm .felt-centre .dice-sum { margin: 0; align-items: center; }
+.screen-panel.screen-tm .felt-centre .screen-waiting { height: auto; align-items: center; }
+.screen-panel.screen-tm .felt-centre .screen-hero-title { font-size: 60px; }
+.screen-panel.screen-tm .felt-centre .screen-hero-sub { font-size: 20px; }
+.dice-sum.stale { opacity: .55; }
+.screen-panel.screen-tm { height: 100%; }
+.tm-screen-below { display: flex; flex-direction: column; gap: 14px; flex: none; max-height: 38%; overflow: hidden; }
+.tm-screen-below:empty { display: none; }
+.tm-screen-below .verdict-card { padding: 12px; }
+.seat-row-badge {
+  font: 800 10px var(--font-display); letter-spacing: .06em;
+  color: var(--ink-amber); background: var(--amber); border-radius: 6px; padding: 3px 7px;
+}
+.seat-3man-btn {
+  font: 700 10px var(--font-ui); padding: 0 9px; min-height: 36px; border-radius: 9px;
+  background: transparent; border: 1px solid rgba(255, 181, 112, .4); color: var(--amber);
+}
+
 /* ROOM tab seat list: the ring again as rows, a seat dropdown each, and
    SIT OUT / SIT BACK IN on the viewer's own row only (personalize()). */
 .seat-section .felt-table { margin: 4px 0 6px; }
@@ -606,7 +639,7 @@ body[data-player-id] { padding-bottom: 90px; }
    right join+standings pane), as opposed to the .screen-panel fragment
    classes above which style whatever gets swapped into #screen-panel. */
 .screen-grid {
-  display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr auto;
+  display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr;
   height: 100vh;
 }
 .screen-left, .screen-right {
@@ -617,12 +650,6 @@ body[data-player-id] { padding-bottom: 90px; }
 .screen-right {
   position: relative; padding: 36px 40px; gap: 16px; background: var(--bg-elevated);
 }
-/* Row 2, spanning both columns — 3 Man's full-width bottom seat strip
-   (tm_screen_panel's second sibling root; screen.html's swapPanel() moves
-   it here out of #screen-panel). Empty and collapsed for every other panel
-   kind, so RoF/idle screens are unaffected. */
-.screen-strip { grid-column: 1 / -1; padding: 0 40px 28px; }
-.screen-strip:empty { display: none; }
 
 .screen-emote-layer {
   position: absolute; left: 40px; right: 40px; bottom: 120px; height: 0;
@@ -694,10 +721,6 @@ body[data-player-id] { padding-bottom: 90px; }
 .seat-rolling .seat-avatar { border-color: var(--violet); color: var(--text); }
 .seat-left7 .seat-avatar, .seat-right9 .seat-avatar, .seat-3man .seat-avatar { border-color: var(--amber); color: var(--text); }
 .seat-name { font: 600 9px var(--font-ui); color: var(--text-faint); width: 44px; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.seat-strip-screen .seat-strip-row { justify-content: center; }
-.seat-strip-screen .seat { width: 96px; }
-.seat-strip-screen .seat-avatar { width: 62px; height: 62px; font-size: 20px; }
-.seat-strip-screen .seat-name { width: 96px; font-size: 15px; color: var(--text); }
 
 .verdict-card {
   display: flex; flex-direction: column; gap: 12px;
@@ -855,27 +878,7 @@ body[data-player-id] { padding-bottom: 90px; }
 .screen-panel.screen-tm .gift-value { font-size: 46px; }
 .screen-panel.screen-tm .payback-banner { padding: 18px 24px; font-size: 32px; }
 
-/* TABLE tab: seating list + rules reference */
-.seating-list { display: flex; flex-direction: column; gap: 7px; }
-.seating-caption { font: 600 10px var(--font-ui); letter-spacing: .12em; color: var(--text-faint); }
-.seating-sub { margin: 0; font: 400 12px/1.5 var(--font-ui); color: var(--text-faint); }
-.seat-move {
-  display: flex; align-items: center; gap: 10px;
-  background: var(--surface); border: 1px solid var(--hairline); border-radius: 12px; padding: 9px 10px;
-}
-.seat-pos { width: 18px; font: 900 13px var(--font-display); color: var(--text-faint); font-variant-numeric: tabular-nums; }
-.seat-info { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
-.seat-name-line { font: 700 14px/1 var(--font-ui); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.seat-tag-line { font: 600 9px var(--font-display); letter-spacing: .08em; color: var(--amber); }
-.seat-actions { margin-left: auto; display: flex; gap: 5px; }
-.seat-btn {
-  width: 32px; height: 32px; display: grid; place-items: center; border-radius: 9px;
-  background: var(--chip); border: none; color: var(--text-dim); font: 700 13px var(--font-ui);
-}
-.seat-btn-three {
-  width: auto; height: 32px; padding: 0 10px; background: transparent;
-  border: 1px solid rgba(255, 181, 112, .4); color: var(--amber); font: 700 10px var(--font-ui);
-}
+/* TABLE tab: rules reference */
 .rules-ref { display: flex; flex-direction: column; gap: 8px; }
 .rules-ref-caption { font: 600 10px var(--font-ui); letter-spacing: .12em; color: var(--text-faint); }
 .rules-ref-card {

@@ -1,7 +1,8 @@
 //! 3 Man route handlers. `/tm/start` and `/tm/end` land here (Task 12); the
 //! in-game action routes (`/tm/roll`, `/tm/pass`, `/tm/three-man`,
-//! `/tm/mode`, `/tm/target`, `/tm/clear-slot`, `/tm/send`, `/tm/gift-roll`,
-//! `/tm/seat`) are Task 13. SQL stays in db.rs; HTML fragments stay in
+//! `/tm/mode`, `/tm/target`, `/tm/clear-slot`, `/tm/send`, `/tm/gift-roll`)
+//! are Task 13. `/tm/seat` (the ↑/↓ list) is gone: seats move on the room's
+//! table now (`seats.rs`). SQL stays in db.rs; HTML fragments stay in
 //! render.rs.
 
 use axum::extract::{Form, Path, State};
@@ -488,36 +489,5 @@ pub async fn tm_pass_handler(
         return map_tm(e).into_response();
     }
     persist_and_broadcast(&state, &ctx).await;
-    StatusCode::NO_CONTENT.into_response()
-}
-
-#[derive(Deserialize)]
-pub struct SeatForm {
-    pub target: i64,
-    pub dir: i64,
-}
-
-pub async fn tm_seat_handler(
-    State(state): State<GameState>,
-    PlayerSession(player): PlayerSession,
-    Path(code): Path<String>,
-    Form(form): Form<SeatForm>,
-) -> axum::response::Response {
-    let lock = match tm_lock(&state, &code).await {
-        Ok(l) => l,
-        Err(r) => return r,
-    };
-    let _guard = lock.lock().await;
-    let ctx = match load_tm(&state, &code, &player).await {
-        Ok(c) => c,
-        Err(r) => return r,
-    };
-    // Seat order lives on the room now: ↑/↓ moves the room's ring, and the
-    // running game follows it, so the two orders can never disagree.
-    if let Err(e) =
-        crate::seats::swap_with_neighbour(&state, &ctx.room, form.target, form.dir).await
-    {
-        return e.into_response();
-    }
     StatusCode::NO_CONTENT.into_response()
 }

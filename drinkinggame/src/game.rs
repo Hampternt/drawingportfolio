@@ -189,7 +189,11 @@ pub async fn current_screen_panel(state: &GameState, room_id: i64, code: &str) -
                 st: &st,
                 names: &names,
             };
-            render::tm_screen_panel(&view)
+            let layout = render::TableLayout::new(
+                &db::room_members(&state.pool, room_id).await,
+                db::start_angle(&state.pool, room_id).await,
+            );
+            render::tm_screen_panel(&view, &layout)
         }
         Some(game) if game.kind == "last_call" => render::lc_screen_placeholder(code),
         Some(game) if game.kind == crate::secret_hitler::KIND => {
@@ -210,50 +214,55 @@ pub async fn current_screen_panel(state: &GameState, room_id: i64, code: &str) -
 /// this into broadcasts; Task 7 wires it into the room shell.
 pub async fn current_room_panel(state: &GameState, room_id: i64, code: &str) -> String {
     let members = db::room_members(&state.pool, room_id).await;
-    let (house_rules, kings, mode, seating) = match db::get_active_game(&state.pool, room_id).await
-    {
-        Some(game) if game.kind == "three_man" => {
-            let st = crate::three_man::ThreeManState::from_json(
-                game.state_json.as_deref().unwrap_or_default(),
-            );
-            let names: std::collections::HashMap<i64, String> =
-                members.iter().map(|m| (m.id, m.name.clone())).collect();
-            let view = render::TmView {
-                base_path: &state.base_path,
-                code,
-                st: &st,
-                names: &names,
-            };
-            (
-                Vec::new(),
-                0,
+    let start_angle = db::start_angle(&state.pool, room_id).await;
+    let (house_rules, kings, mode, seating, marks) =
+        match db::get_active_game(&state.pool, room_id).await {
+            Some(game) if game.kind == "three_man" => {
+                let st = crate::three_man::ThreeManState::from_json(
+                    game.state_json.as_deref().unwrap_or_default(),
+                );
+                let names: std::collections::HashMap<i64, String> =
+                    members.iter().map(|m| (m.id, m.name.clone())).collect();
+                let view = render::TmView {
+                    base_path: &state.base_path,
+                    code,
+                    st: &st,
+                    names: &names,
+                };
+                let layout = render::TableLayout::new(&members, start_angle);
+                (
+                    Vec::new(),
+                    0,
+                    game.kind,
+                    Some(render::tm_seating_html(&view)),
+                    Some(render::tm_table_marks(&view, &layout)),
+                )
+            }
+            Some(game) if game.kind == "last_call" => (Vec::new(), 0, game.kind, None, None),
+            Some(game) if game.kind == crate::secret_hitler::KIND => {
+                let (view, names) = crate::sh_routes::sh_view_data(state, &game).await;
+                let seating = crate::sh_render::sh_seating_html(&view, &names);
+                (Vec::new(), 0, game.kind, Some(seating), None)
+            }
+            Some(game) => (
+                db::house_rules(&state.pool, game.id).await,
+                db::king_count(&state.pool, game.id).await,
                 game.kind,
-                Some(render::tm_seating_html(&view)),
-            )
-        }
-        Some(game) if game.kind == "last_call" => (Vec::new(), 0, game.kind, None),
-        Some(game) if game.kind == crate::secret_hitler::KIND => {
-            let (view, names) = crate::sh_routes::sh_view_data(state, &game).await;
-            let seating = crate::sh_render::sh_seating_html(&view, &names);
-            (Vec::new(), 0, game.kind, Some(seating))
-        }
-        Some(game) => (
-            db::house_rules(&state.pool, game.id).await,
-            db::king_count(&state.pool, game.id).await,
-            game.kind,
-            None,
-        ),
-        None => (Vec::new(), 0, "idle".to_string(), None),
-    };
+                None,
+                None,
+            ),
+            None => (Vec::new(), 0, "idle".to_string(), None, None),
+        };
     let view = render::RoomView {
         base_path: &state.base_path,
         code,
         members: &members,
-        start_angle: db::start_angle(&state.pool, room_id).await,
+        start_angle,
         house_rules: &house_rules,
         kings,
         mode: &mode,
         seating,
+        marks,
     };
     render::room_panel(&view)
 }

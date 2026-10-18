@@ -114,10 +114,55 @@ pub struct RoomView<'a> {
     pub kings: i64,
     /// Active game's `kind` ("ring_of_fire" | "three_man" | ...) or "idle".
     pub mode: &'a str,
-    /// Pre-rendered by `tm_seating_html` (Task 11) when a 3 Man game is
-    /// active; `None` for idle/Ring of Fire. Slots between THE TABLE and
-    /// HOUSE RULES — the seating block replaces nothing.
+    /// Pre-rendered by `tm_seating_html` (the 3 Man rules reference) or
+    /// Backroom's seating when one of those games is active; `None`
+    /// otherwise. Slots between THE TABLE and HOUSE RULES.
     pub seating: Option<String>,
+    /// A running game's marks on THE TABLE (3 Man: roller, 3 Man, dice);
+    /// `None` draws the plain ring.
+    pub marks: Option<TableMarks>,
+}
+
+/// What a running game draws on the ROOM tab's table: whose seat is lit,
+/// who wears the badge, and any piece on the felt.
+pub struct TableMarks {
+    pub active: i64,
+    pub badge_holder: i64,
+    pub badge: &'static str,
+    /// Pre-rendered `table_html` overlay.
+    pub overlay: String,
+}
+
+/// Where a room's players sit round the table, for renderers that start
+/// from a game's own order: each player's rim angle and the start marker.
+pub struct TableLayout {
+    pub angles: std::collections::HashMap<i64, f64>,
+    pub start: f64,
+}
+
+impl TableLayout {
+    pub fn new(members: &[RoomMember], start: f64) -> Self {
+        TableLayout {
+            angles: members.iter().map(|m| (m.id, m.angle)).collect(),
+            start,
+        }
+    }
+
+    fn angle(&self, id: i64) -> f64 {
+        self.angles.get(&id).copied().unwrap_or(0.0)
+    }
+
+    /// `ids` in seat order: clockwise from the start marker, ties by id —
+    /// the same order the room's seat numbers count.
+    fn in_seat_order(&self, ids: &[i64]) -> Vec<i64> {
+        let mut ids = ids.to_vec();
+        ids.sort_by(|a, b| {
+            crate::seat_ring::rel_angle(self.angle(*a), self.start)
+                .total_cmp(&crate::seat_ring::rel_angle(self.angle(*b), self.start))
+                .then(a.cmp(b))
+        });
+        ids
+    }
 }
 
 /// A card face in pure HTML/CSS — rank top-left, suit glyph under it, a
@@ -429,8 +474,14 @@ pub fn lc_screen_placeholder(_code: &str) -> String {
 pub fn screen_panel_idle(_code: &str, seated: &[RoomMember], start: f64) -> String {
     let ring = ring_seats(seated.iter());
     let centre = r#"<span class="screen-kicker">NO GAME RUNNING</span><h2 class="screen-hero-title">Just drinking.</h2><p class="screen-hero-sub">Somebody start a game on their phone.</p>"#;
-    let table =
-        crate::seat_ring::table_html(&ring, start, centre, crate::seat_ring::Scale::Screen, None);
+    let table = crate::seat_ring::table_html(
+        &ring,
+        start,
+        centre,
+        "",
+        crate::seat_ring::Scale::Screen,
+        None,
+    );
     format!(r#"<div class="screen-panel screen-idle">{table}</div>"#)
 }
 
@@ -539,7 +590,16 @@ fn seat_section(view: &RoomView, seated: &[&RoomMember], out: &[&RoomMember]) ->
     let base_path = view.base_path;
     let code = view.code;
     let n = seated.len();
-    let ring = ring_seats(seated.iter().copied());
+    let mut ring = ring_seats(seated.iter().copied());
+    if let Some(marks) = &view.marks {
+        for seat in &mut ring {
+            seat.active = seat.player_id == marks.active;
+            if seat.player_id == marks.badge_holder {
+                seat.badge = Some(marks.badge);
+            }
+        }
+    }
+    let overlay = view.marks.as_ref().map_or("", |m| m.overlay.as_str());
     let move_url = format!("{base_path}/room/{code}/seats/move");
     let seat_url = format!("{base_path}/room/{code}/seats/angle");
     let start_url = format!("{base_path}/room/{code}/seats/start");
@@ -552,6 +612,7 @@ fn seat_section(view: &RoomView, seated: &[&RoomMember], out: &[&RoomMember]) ->
         &ring,
         view.start_angle,
         hint,
+        overlay,
         crate::seat_ring::Scale::Phone,
         Some(&crate::seat_ring::DragUrls {
             seat: &seat_url,
@@ -581,8 +642,20 @@ fn seat_section(view: &RoomView, seated: &[&RoomMember], out: &[&RoomMember]) ->
                     format!(r#"<option value="{p}"{sel}>Seat {p}</option>"#)
                 })
                 .collect();
+            // 3 Man: hand anyone the title from their row (any member may,
+            // as on the old SEATING ORDER list); the holder's row says so.
+            let three_man = match &view.marks {
+                Some(marks) if view.mode == "three_man" && marks.badge_holder == m.id => {
+                    r#"<span class="seat-row-badge">3 MAN</span>"#.to_string()
+                }
+                Some(_) if view.mode == "three_man" => format!(
+                    r#"<button type="button" class="seat-3man-btn" hx-post="{base_path}/room/{code}/tm/three-man" hx-vals='{{"target":{id}}}' hx-swap="none">3 MAN</button>"#,
+                    id = m.id,
+                ),
+                _ => String::new(),
+            };
             format!(
-                r#"<div class="seat-row" data-player-id="{id}">{chip}<span class="member-name">{name}</span><select class="seat-select" name="position" aria-label="Seat for {name}" hx-post="{move_url}" hx-trigger="change" hx-vals='{{"player_id":{id}}}' hx-swap="none">{options}</select><button type="button" class="seat-out-btn" data-show-player="{id}" hidden hx-post="{base_path}/room/{code}/sit-out" hx-swap="none">SIT OUT</button></div>"#,
+                r#"<div class="seat-row" data-player-id="{id}">{chip}<span class="member-name">{name}</span>{three_man}<select class="seat-select" name="position" aria-label="Seat for {name}" hx-post="{move_url}" hx-trigger="change" hx-vals='{{"player_id":{id}}}' hx-swap="none">{options}</select><button type="button" class="seat-out-btn" data-show-player="{id}" hidden hx-post="{base_path}/room/{code}/sit-out" hx-swap="none">SIT OUT</button></div>"#,
                 id = m.id,
                 chip = chip(m),
                 name = html_escape(&m.name),
@@ -1126,21 +1199,82 @@ pub fn tm_phone_panel(v: &TmView) -> String {
     )
 }
 
-/// Big-screen left pane + full-width bottom seat strip. The "WAITING ON"
-/// full-pane state only appears before the first roll of the game
+/// How far out from the centre the dice sit, as a fraction of the rim:
+/// inside the felt, clear of the seat tokens, on the roller's side.
+const DICE_FRACTION: f64 = 0.6;
+
+/// The dice beside the roller's seat. The last roll's faces while it is
+/// still the roller's turn; blank dice once the turn has passed, so the
+/// dice move to the next roller without carrying the old numbers.
+fn tm_dice_overlay(st: &crate::three_man::ThreeManState, layout: &TableLayout) -> String {
+    let (left, top) = crate::seat_ring::toward_centre(layout.angle(st.roller()), DICE_FRACTION);
+    let dice = match st.dice {
+        Some((d1, d2)) if !st.stale => dice_html(d1, d2),
+        _ => r#"<div class="die die-blank"></div><div class="die die-blank"></div>"#.to_string(),
+    };
+    format!(
+        r#"<div class="felt-dice" style="left:{left}%;top:{top}%" data-roller="{roller}">{dice}</div>"#,
+        roller = st.roller(),
+    )
+}
+
+/// 3 Man's marks on the ROOM tab's table: the roller lit, the 3 Man
+/// badged, the dice at the roller's seat.
+pub fn tm_table_marks(v: &TmView, layout: &TableLayout) -> TableMarks {
+    TableMarks {
+        active: v.st.roller(),
+        badge_holder: v.st.three_man,
+        badge: "3 MAN",
+        overlay: tm_dice_overlay(v.st, layout),
+    }
+}
+
+/// The 3 Man table at screen scale: the game's players at their rim
+/// angles, numbered in seat order, the roller lit, the 3 Man badged, and
+/// the dice beside the roller. `centre` goes in the middle of the felt.
+fn tm_table_html(v: &TmView, layout: &TableLayout, centre: &str) -> String {
+    let st = v.st;
+    let order = layout.in_seat_order(&st.order);
+    let seats: Vec<crate::seat_ring::RingSeat> = order
+        .iter()
+        .map(|&id| crate::seat_ring::RingSeat {
+            player_id: id,
+            name: v.names.get(&id).map(String::as_str).unwrap_or("?"),
+            badge: (id == st.three_man).then_some("3 MAN"),
+            active: id == st.roller(),
+            angle: layout.angle(id),
+        })
+        .collect();
+    crate::seat_ring::table_html(
+        &seats,
+        layout.start,
+        centre,
+        &tm_dice_overlay(st, layout),
+        crate::seat_ring::Scale::Screen,
+        None,
+    )
+}
+
+/// Big-screen left pane: the felt table (see `tm_table_html`) with the
+/// roll's sum in the middle, and the roll's calls beneath it. The "WAITING
+/// ON" centre only appears before the first roll of the game
 /// (`st.dice.is_none()`) — between rolls the dimmed stale verdict stays.
-pub fn tm_screen_panel(v: &TmView) -> String {
+/// Never carries `data-lc-live`: that handoff marker is Last Call's alone.
+pub fn tm_screen_panel(v: &TmView, layout: &TableLayout) -> String {
     let st = v.st;
     let three_man_name = tm_name(v, st.three_man);
     let header = format!(
         r#"<div class="screen-top"><span class="live-dot"></span><span class="screen-kicker">3 MAN</span><span class="tm-chip">{three_man_name}</span></div>"#
     );
 
-    let body = match st.dice {
+    let (centre, below) = match st.dice {
         None => {
             let roller_name = tm_name(v, st.roller());
-            format!(
-                r#"<div class="screen-waiting"><span class="screen-kicker">WAITING ON</span><h2 class="screen-hero-title">{roller_name}</h2><p class="screen-hero-sub">Two dice. Three, seven, nine, eleven &mdash; or a double.</p></div>"#
+            (
+                format!(
+                    r#"<div class="screen-waiting"><span class="screen-kicker">WAITING ON</span><h2 class="screen-hero-title">{roller_name}</h2><p class="screen-hero-sub">Two dice. Three, seven, nine, eleven &mdash; or a double.</p></div>"#
+                ),
+                String::new(),
             )
         }
         Some((d1, d2)) => {
@@ -1238,53 +1372,26 @@ pub fn tm_screen_panel(v: &TmView) -> String {
                 },
                 Phase::Ready | Phase::Rolled => String::new(),
             };
-            let dice = dice_html(d1, d2);
-            format!(
-                r#"<div class="verdict-card{dimmed}"><div class="dice-row">{dice}<div class="dice-sum"><span class="dice-sum-value">{sum}</span><span class="dice-sum-caption">{caption}</span><span class="dice-sum-headline">{headline}</span></div></div>{calls_html}</div>{phase_banner}"#
+            (
+                format!(
+                    r#"<div class="dice-sum{dimmed}"><span class="dice-sum-value">{sum}</span><span class="dice-sum-caption">{caption}</span><span class="dice-sum-headline">{headline}</span></div>"#
+                ),
+                format!(r#"<div class="verdict-card{dimmed}">{calls_html}</div>{phase_banner}"#),
             )
         }
     };
 
-    let seat_strip = tm_seat_strip_html(
-        v,
-        " seat-strip-screen",
-        "THE TABLE &middot; CLOCKWISE",
-        "7 hits the left &middot; 9 hits the right &middot; 11 hits the roller",
-    );
+    let table = tm_table_html(v, layout, &centre);
     let seq = st.seq;
     format!(
-        r#"<div class="screen-panel screen-tm" data-anim-key="{seq}">{header}{body}</div>{seat_strip}"#
+        r#"<div class="screen-panel screen-tm" data-anim-key="{seq}">{header}{table}<div class="tm-screen-below">{below}</div></div>"#
     )
 }
 
-/// TABLE-tab seating list (↑/↓ move, per-row 3 MAN assign) + a static
-/// rules-reference card set. `room_panel` embeds the result verbatim.
-pub fn tm_seating_html(v: &TmView) -> String {
-    let st = v.st;
-    let base = v.base_path;
-    let code = v.code;
-    let roller = st.roller();
-    let rows: String = st
-        .order
-        .iter()
-        .enumerate()
-        .map(|(idx, &id)| {
-            let pos = idx + 1;
-            let tag = if id == roller {
-                "ROLLING"
-            } else if id == st.three_man {
-                "3 MAN"
-            } else {
-                ""
-            };
-            let initial = tm_initial(v, id);
-            let name = tm_name(v, id);
-            format!(
-                r#"<div class="seat-move"><span class="seat-pos">{pos}</span><span class="seat-avatar">{initial}</span><div class="seat-info"><span class="seat-name-line">{name}</span><span class="seat-tag-line">{tag}</span></div><div class="seat-actions"><button class="seat-btn" hx-post="{base}/room/{code}/tm/seat" hx-vals='{{"target":{id},"dir":-1}}' hx-swap="none">&uarr;</button><button class="seat-btn" hx-post="{base}/room/{code}/tm/seat" hx-vals='{{"target":{id},"dir":1}}' hx-swap="none">&darr;</button><button class="seat-btn seat-btn-three" hx-post="{base}/room/{code}/tm/three-man" hx-vals='{{"target":{id}}}' hx-swap="none">3 MAN</button></div></div>"#
-            )
-        })
-        .collect();
-
+/// TABLE-tab rules reference card set. `room_panel` embeds the result
+/// verbatim. The ↑/↓ SEATING ORDER list it used to carry is gone: THE
+/// TABLE above it (drag, dropdown, per-row 3 MAN) does that job now.
+pub fn tm_seating_html(_v: &TmView) -> String {
     let rule_cards = [
         ("3", "Three", "Every 3 (and a total of 3) hits the 3 Man &mdash; unless they rolled it, then the crown moves instead."),
         ("7", "Seven", "Left of the roller drinks."),
@@ -1302,7 +1409,7 @@ pub fn tm_seating_html(v: &TmView) -> String {
         .collect();
 
     format!(
-        r#"<div class="seating-list"><span class="seating-caption">SEATING ORDER</span><p class="seating-sub">7 and 9 hit the roller's neighbours, so this list has to match the actual room.</p>{rows}</div><div class="rules-ref"><span class="rules-ref-caption">THE RULES</span>{cards}</div>"#
+        r#"<div class="rules-ref"><span class="rules-ref-caption">THE RULES</span>{cards}</div>"#
     )
 }
 
@@ -1676,6 +1783,7 @@ mod tests {
             kings: 1,
             mode: "idle",
             seating: None,
+            marks: None,
         };
         let html = room_panel(&view);
         assert!(html.starts_with("<template data-topbar>"));
@@ -1766,6 +1874,59 @@ mod tests {
 
     /// 3 players alice(1)/bob(2)/cara(3), starter alice, three_man
     /// reassigned to bob — order [1,2,3], roller_idx 0 (alice), Ready.
+    /// alice, bob, cara at 60, 180, 300 from a marker at 0 — what three
+    /// joins into an unarranged room give.
+    fn fixture_layout() -> TableLayout {
+        TableLayout {
+            angles: HashMap::from([(1, 60.0), (2, 180.0), (3, 300.0)]),
+            start: 0.0,
+        }
+    }
+
+    #[test]
+    fn test_tm_screen_is_the_felt_with_dice_at_the_roller() {
+        let (mut st, names) = tm_view_fixture(); // alice rolls, bob is 3 Man
+        let layout = fixture_layout();
+        st.roll(2, 4).unwrap();
+        let v = TmView {
+            base_path: "/drinks",
+            code: "QK4M",
+            st: &st,
+            names: &names,
+        };
+        let html = tm_screen_panel(&v, &layout);
+        assert!(html.contains("felt-screen"));
+        assert_eq!(html.matches(r#"class="felt-seat"#).count(), 3);
+        assert_eq!(html.matches("is-active").count(), 1);
+        assert!(html.contains(
+            r#"class="felt-seat is-active" style="left:12.8%;top:70.6%" data-player-id="1""#
+        ));
+        assert!(html.contains(r#"<span class="felt-badge">3 MAN</span>"#));
+        // Dice by alice's seat (60°), 0.6 of the way out, showing the roll.
+        let (l, t) = crate::seat_ring::toward_centre(60.0, DICE_FRACTION);
+        assert!(html.contains(&format!(
+            r#"class="felt-dice" style="left:{l}%;top:{t}%" data-roller="1""#
+        )));
+        assert!(html.contains("die-pip"), "the faces are drawn");
+        assert!(!html.contains(" data-lc-live"));
+        assert!(!html.contains("seat-strip"), "the bottom strip is gone");
+
+        // The turn passes: the dice move to bob, blank.
+        st.pass().unwrap();
+        let v = TmView {
+            base_path: "/drinks",
+            code: "QK4M",
+            st: &st,
+            names: &names,
+        };
+        let html = tm_screen_panel(&v, &layout);
+        let (l, t) = crate::seat_ring::toward_centre(180.0, DICE_FRACTION);
+        assert!(html.contains(&format!(
+            r#"class="felt-dice" style="left:{l}%;top:{t}%" data-roller="2""#
+        )));
+        assert!(html.contains("die-blank"));
+    }
+
     fn tm_view_fixture() -> (ThreeManState, HashMap<i64, String>) {
         let mut st = ThreeManState::new(vec![1, 2, 3], 1);
         st.set_three_man(2).unwrap();
@@ -1965,7 +2126,8 @@ mod tests {
             st: &st,
             names: &names,
         };
-        let html = tm_screen_panel(&v);
+        let layout = fixture_layout();
+        let html = tm_screen_panel(&v, &layout);
         assert!(html.contains("WAITING ON"));
         // Scoped to the waiting headline — the seat strip also renders
         // "alice", so an unscoped `contains("alice")` would pass regardless.
@@ -1981,7 +2143,7 @@ mod tests {
             st: &st2,
             names: &names,
         };
-        let html2 = tm_screen_panel(&v2);
+        let html2 = tm_screen_panel(&v2, &layout);
         assert!(html2.contains("verdict-card stale"));
         assert!(!html2.contains("WAITING ON"));
     }
@@ -1996,15 +2158,10 @@ mod tests {
             names: &names,
         };
         let seating = tm_seating_html(&v);
-        assert!(seating.contains("/drinks/room/QK4M/tm/seat"));
-        // /tm/seat posts {"target":ID,"dir":±1} per the plan's Task 13
-        // route table (not "player"/"delta").
-        assert!(seating.contains(r#"hx-vals='{"target":1,"dir":-1}'"#));
-        assert!(seating.contains(r#"hx-vals='{"target":1,"dir":1}'"#));
-        assert!(!seating.contains(r#""player":"#));
-        assert!(!seating.contains(r#""delta":"#));
-        assert!(seating.contains("/drinks/room/QK4M/tm/three-man"));
+        // The rules reference only: the ↑/↓ list is gone (THE TABLE moves
+        // seats now), so nothing here posts to /tm/seat.
         assert!(seating.contains("rules-ref"));
+        assert!(!seating.contains("/tm/seat"));
 
         let members = vec![
             RoomMember {
@@ -2039,8 +2196,19 @@ mod tests {
             kings: 0,
             mode: "three_man",
             seating: Some(seating),
+            marks: Some(tm_table_marks(&v, &TableLayout::new(&members, 0.0))),
         };
         let html = room_panel(&room_view);
+        // THE TABLE carries 3 Man's marks: alice rolls, bob is 3 Man, the
+        // dice sit by alice; every other row can be handed the title.
+        assert!(html.contains(
+            r#"class="felt-seat is-active" style="left:50%;top:91.1%" data-player-id="1""#
+        ));
+        assert!(html.contains(r#"<span class="felt-badge">3 MAN</span>"#));
+        assert!(html.contains(r#"class="felt-dice""#));
+        assert_eq!(html.matches("/drinks/room/QK4M/tm/three-man").count(), 2);
+        assert!(html.contains(r#"hx-vals='{"target":1}'"#));
+        assert!(html.contains(r#"<span class="seat-row-badge">3 MAN</span>"#));
         // Scoped to the <template data-topbar> half of the fragment — the
         // seating block's per-row 3 MAN assign buttons also contain the
         // literal text "3 MAN", so an unscoped `html.contains` would pass

@@ -2481,6 +2481,15 @@ async fn test_tm_seat_and_table_reassign_any_member() {
 
     // Fresh game: Ready phase, alice is roller/3 Man, bob is neither — yet
     // bob (any member) can move seats and reassign the 3 Man outside HandOff.
+    // Seats move on the room's table now; the ↑/↓ route is gone.
+    let res = post_form(
+        &app,
+        &bob,
+        &format!("/room/{code}/seats/move"),
+        &format!("player_id={alice_id}&position=2"),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::NO_CONTENT);
     let res = post_form(
         &app,
         &bob,
@@ -2488,7 +2497,7 @@ async fn test_tm_seat_and_table_reassign_any_member() {
         &format!("target={alice_id}&dir=1"),
     )
     .await;
-    assert_eq!(res.status(), StatusCode::NO_CONTENT);
+    assert_eq!(res.status(), StatusCode::NOT_FOUND);
 
     let res2 = post_form(
         &app,
@@ -9661,18 +9670,6 @@ async fn test_reorder_mid_three_man_keeps_roller_and_three_man() {
     assert_eq!((after.roller(), after.three_man), (b, b));
     assert_eq!(after.seq, before.seq + 1);
     assert_eq!(seat_ids(&pool, &code).await, vec![b, a, c]);
-
-    // The TABLE tab's arrows move the same ring.
-    post_form(
-        &app,
-        &alice,
-        &format!("/room/{code}/tm/seat"),
-        &format!("target={a}&dir=-1"),
-    )
-    .await;
-    assert_eq!(seat_ids(&pool, &code).await, vec![a, b, c]);
-    assert_eq!(tm_state(&pool, &code).await.order, vec![a, b, c]);
-    assert_eq!(tm_state(&pool, &code).await.roller(), b);
 }
 
 #[tokio::test]
@@ -9889,4 +9886,25 @@ async fn test_a_mid_three_man_join_sits_where_the_ring_puts_them() {
     assert_eq!(st.left_of(at(c)), d);
     assert_eq!(st.left_of(at(d)), a);
     assert_eq!((st.roller(), st.three_man), (b, b));
+}
+
+#[tokio::test]
+async fn test_three_man_screen_and_table_tab_are_the_felt_table() {
+    let (app, pool, [alice, _bob, _cara], code) = three_seat_room().await;
+    let a = pid(&pool, "alice").await;
+    post_form(&app, &alice, &format!("/room/{code}/tm/start"), "").await;
+    let screen = body_string(get(&app, &format!("/room/{code}/screen")).await).await;
+    assert!(screen.contains("felt-screen"));
+    assert_eq!(screen.matches(r#"class="felt-seat"#).count(), 3);
+    assert!(screen.contains(&format!(r#"class="felt-dice""#)));
+    assert!(screen.contains(&format!(r#"data-roller="{a}""#)));
+    assert!(screen.contains(r#"<span class="felt-badge">3 MAN</span>"#));
+    assert!(!screen.contains(" data-lc-live"));
+    assert!(!screen.contains("seat-strip"));
+    // The TABLE tab: the same table, draggable, and one seat list only.
+    let html = room_page_html(&app, &alice, &code).await;
+    assert!(html.contains("felt-phone"));
+    assert!(html.contains(r#"class="felt-dice""#));
+    assert!(!html.contains("SEATING ORDER"));
+    assert!(!html.contains("/tm/seat"));
 }

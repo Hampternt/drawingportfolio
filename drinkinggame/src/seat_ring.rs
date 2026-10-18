@@ -127,6 +127,13 @@ pub fn rim_point(deg: f64) -> SeatPos {
     on_ellipse(deg, RIM)
 }
 
+/// A point on the way from the rim at `deg` to the table's centre, `frac`
+/// of the rim's distance out — where a game puts things beside a seat
+/// (3 Man's dice).
+pub fn toward_centre(deg: f64, frac: f64) -> SeatPos {
+    on_ellipse(deg, (RIM.0 * frac, RIM.1 * frac))
+}
+
 /// `n` angles evenly round the rim, half a gap clockwise of the marker at
 /// 0 — the migration's backfill from a plain seat order.
 pub fn even_angles(n: usize) -> Vec<f64> {
@@ -226,7 +233,9 @@ pub struct DragUrls<'a> {
 }
 
 /// The table: felt, centre slot (pre-rendered by the game), the start
-/// marker at `start`, and the seats at their own angles. `seats` comes in
+/// marker at `start`, the seats at their own angles, and `overlay` — any
+/// game piece positioned on the felt in the ring box's percentages (3 Man's
+/// dice beside the roller). `seats` comes in
 /// seat order, and each token shows its number in it. `drag` makes the
 /// tokens and the marker draggable (phone only; `assets/seat_drag.js`
 /// posts the drop there) — the big screen has no login, so it never gets
@@ -235,6 +244,7 @@ pub fn table_html(
     seats: &[RingSeat],
     start: f64,
     centre: &str,
+    overlay: &str,
     scale: Scale,
     drag: Option<&DragUrls>,
 ) -> String {
@@ -285,7 +295,7 @@ pub fn table_html(
         })
         .unwrap_or_default();
     format!(
-        r#"<div class="felt-table {scale_class}{crowded}" data-seat-table data-count="{n}"{urls}><div class="felt"></div><div class="felt-centre">{centre}</div><div class="felt-ring">{marker}{seats_html}</div></div>"#
+        r#"<div class="felt-table {scale_class}{crowded}" data-seat-table data-count="{n}"{urls}><div class="felt"></div><div class="felt-centre">{centre}</div><div class="felt-ring">{marker}{seats_html}{overlay}</div></div>"#
     )
 }
 
@@ -369,7 +379,7 @@ mod tests {
     fn test_table_html_places_every_seat_at_its_angle_and_numbers_it() {
         let mut seats = [seat(7, "ann"), seat(3, "<b>ob")];
         seats[1].angle = 90.0;
-        let html = table_html(&seats, 0.0, "<i>c</i>", Scale::Screen, None);
+        let html = table_html(&seats, 0.0, "<i>c</i>", "", Scale::Screen, None);
         assert_eq!(html.matches(r#"class="felt-seat""#).count(), 2);
         assert!(html.contains(r#"style="left:50%;top:91.1%" data-player-id="7" data-position="1""#));
         assert!(html.contains(r#"style="left:7%;top:50%" data-player-id="3" data-position="2""#));
@@ -391,7 +401,7 @@ mod tests {
             seat: "/room/QKAM/seats/angle",
             start: "/room/QKAM/seats/start",
         };
-        let html = table_html(&seats, 180.0, "", Scale::Phone, Some(&urls));
+        let html = table_html(&seats, 180.0, "", "", Scale::Phone, Some(&urls));
         assert!(html.contains(r#"data-seat-url="/room/QKAM/seats/angle""#));
         assert!(html.contains(r#"data-start-url="/room/QKAM/seats/start""#));
         assert_eq!(html.matches(" data-drag>").count(), 2);
@@ -405,11 +415,11 @@ mod tests {
         let mut seats: Vec<RingSeat> = (1..=12).map(|i| seat(i, "p")).collect();
         seats[2].active = true;
         seats[4].badge = Some("3 MAN");
-        let html = table_html(&seats, 0.0, "", Scale::Phone, None);
+        let html = table_html(&seats, 0.0, "", "", Scale::Phone, None);
         assert!(html.contains("felt-crowded"));
         assert_eq!(html.matches("is-active").count(), 1);
         assert!(html.contains(r#"<span class="felt-badge">3 MAN</span>"#));
-        let small = table_html(&seats[..8], 0.0, "", Scale::Phone, None);
+        let small = table_html(&seats[..8], 0.0, "", "", Scale::Phone, None);
         assert!(!small.contains("felt-crowded"));
     }
 }

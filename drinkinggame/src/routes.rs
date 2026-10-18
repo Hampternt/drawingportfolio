@@ -1077,10 +1077,6 @@ pub fn router() -> Router<GameState> {
             post(crate::tm_routes::tm_pass_handler),
         )
         .route(
-            "/room/{code}/tm/seat",
-            post(crate::tm_routes::tm_seat_handler),
-        )
-        .route(
             "/room/{code}/lastcall/start",
             post(crate::lc_routes::lc_start_handler),
         )

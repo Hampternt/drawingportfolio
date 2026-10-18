@@ -545,24 +545,6 @@ pub async fn set_start_angle(pool: &DbPool, room_id: i64, angle: f64) -> bool {
     .await
 }
 
-/// Swaps two seated players' angles in one transaction — 3 Man's ↑/↓.
-/// Returns false when either player is not seated in the room, or they
-/// are the same player.
-pub async fn swap_seats(pool: &DbPool, room_id: i64, a: i64, b: i64) -> bool {
-    rearrange(pool, room_id, |table| {
-        if a == b || table.seated_index(a).is_none() || table.seated_index(b).is_none() {
-            return false;
-        }
-        let angle_of = |t: &RoomTable, id| t.members.iter().find(|m| m.0 == id).unwrap().1;
-        let (aa, ab) = (angle_of(table, a), angle_of(table, b));
-        table.set(a, ab);
-        table.set(b, aa);
-        table.arrange();
-        true
-    })
-    .await
-}
-
 /// Sets a member's sitting-out flag. Returns false when the flag already
 /// had that value (or the player is not a member), so callers can skip a
 /// broadcast that would change nothing. In an unarranged room the ring is
@@ -1615,24 +1597,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_swap_seats_swaps_in_one_step() {
-        let pool = test_pool().await;
-        let (room, p) = room_of(&pool, &["ann", "ben", "cat", "dan"]).await;
-        assert!(swap_seats(&pool, room, p[0], p[3]).await);
-        assert_eq!(
-            ids(room_members(&pool, room).await),
-            vec![p[3], p[1], p[2], p[0]]
-        );
-        // Same player, or anyone not seated, swaps nothing.
-        assert!(!swap_seats(&pool, room, p[1], p[1]).await);
-        assert!(!swap_seats(&pool, room, p[1], 9999).await);
-        assert_eq!(
-            ids(room_members(&pool, room).await),
-            vec![p[3], p[1], p[2], p[0]]
-        );
-    }
-
-    #[tokio::test]
     async fn test_sitting_out_leaves_the_ring_and_standings_but_not_the_room() {
         let pool = test_pool().await;
         let (room, p) = room_of(&pool, &["ann", "ben", "cat"]).await;
@@ -1808,18 +1772,5 @@ mod tests {
         );
         assert!(set_start_angle(&pool, room, -10.0).await);
         assert_eq!(start_angle(&pool, room).await, 350.0);
-    }
-
-    #[tokio::test]
-    async fn test_swap_seats_swaps_angles() {
-        let pool = test_pool().await;
-        let (room, p) = room_of(&pool, &["ann", "ben", "cat"]).await;
-        assert!(swap_seats(&pool, room, p[0], p[2]).await);
-        assert_eq!(
-            ids(seated_members(&pool, room).await),
-            vec![p[2], p[1], p[0]]
-        );
-        assert_eq!(room_members(&pool, room).await[0].angle, 60.0);
-        assert!(!swap_seats(&pool, room, p[0], p[0]).await);
     }
 }
