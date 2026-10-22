@@ -253,7 +253,13 @@ fn board_html(
         DIFFICULTIES.iter().map(|d| d.to_string()).collect(),
         |d| difficulty_label(d).to_string(),
     );
-    let types = facet_chips(all, f, Facet::TaskType, distinct(all, Facet::TaskType), as_is);
+    let types = facet_chips(
+        all,
+        f,
+        Facet::TaskType,
+        distinct(all, Facet::TaskType),
+        as_is,
+    );
 
     let current_sort = if f.sort.is_empty() { "newest" } else { &f.sort };
     let sorts = SORTS
@@ -273,7 +279,7 @@ fn board_html(
 
     let total = all.len();
     let done = all.iter().filter(|t| t.completed).count();
-    let done_percent = if total == 0 { 0 } else { done * 100 / total };
+    let done_percent = (done * 100).checked_div(total).unwrap_or(0);
     let any_filter = !(f.subject.is_empty() && f.difficulty.is_empty() && f.task_type.is_empty());
     let shown_label = match (any_filter, tasks.len()) {
         (false, 1) => "1 task".to_string(),
@@ -650,14 +656,21 @@ mod tests {
         let all = sample();
         // Under difficulty=easy, "figure" would show one task, not two.
         let f = filters("", "easy", "", "newest");
-        let chips = facet_chips(&all, &f, Facet::Subject, distinct(&all, Facet::Subject), |s| {
-            s.to_string()
-        });
+        let chips = facet_chips(
+            &all,
+            &f,
+            Facet::Subject,
+            distinct(&all, Facet::Subject),
+            |s| s.to_string(),
+        );
         let figure = chips.iter().find(|c| c.label == "figure").unwrap();
         assert_eq!(figure.count, Some(1));
         assert!(!figure.active);
         // Its link adds the subject and keeps the difficulty.
-        assert_eq!(figure.link.page_url, "/tasks?subject=figure&difficulty=easy");
+        assert_eq!(
+            figure.link.page_url,
+            "/tasks?subject=figure&difficulty=easy"
+        );
         assert_eq!(
             figure.link.board_url,
             "/tasks/htmx/board?subject=figure&difficulty=easy"
@@ -668,9 +681,13 @@ mod tests {
     fn test_the_active_chip_clears_its_own_facet() {
         let all = sample();
         let f = filters("figure", "easy", "", "oldest");
-        let chips = facet_chips(&all, &f, Facet::Subject, distinct(&all, Facet::Subject), |s| {
-            s.to_string()
-        });
+        let chips = facet_chips(
+            &all,
+            &f,
+            Facet::Subject,
+            distinct(&all, Facet::Subject),
+            |s| s.to_string(),
+        );
         let figure = chips.iter().find(|c| c.label == "figure").unwrap();
         assert!(figure.active);
         assert_eq!(figure.link.page_url, "/tasks?difficulty=easy&sort=oldest");
@@ -680,9 +697,13 @@ mod tests {
     fn test_an_active_value_no_task_carries_still_renders_so_it_can_be_cleared() {
         let all = sample();
         let f = filters("portrait", "", "", "newest");
-        let chips = facet_chips(&all, &f, Facet::Subject, distinct(&all, Facet::Subject), |s| {
-            s.to_string()
-        });
+        let chips = facet_chips(
+            &all,
+            &f,
+            Facet::Subject,
+            distinct(&all, Facet::Subject),
+            |s| s.to_string(),
+        );
         let gone = chips.iter().find(|c| c.label == "portrait").unwrap();
         assert!(gone.active);
         assert_eq!(gone.count, Some(0));
@@ -708,7 +729,12 @@ mod tests {
         t.title = "<script>alert(1)</script>".into();
         t.prompt = "a & b".into();
         let f = filters("", "", "", "newest");
-        let html = board_html(std::slice::from_ref(&t), std::slice::from_ref(&t), &f, false);
+        let html = board_html(
+            std::slice::from_ref(&t),
+            std::slice::from_ref(&t),
+            &f,
+            false,
+        );
         // Positive control: the text is there, only its markup is not.
         // (Askama escapes to numeric entities, so match the text alone.)
         assert!(html.contains("alert(1)"));

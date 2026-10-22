@@ -1,6 +1,6 @@
 # Drawing Tasks — dark face lift
 
-**Status:** approved 2026-10-22; building on `feat/tasks-facelift`.
+**Status:** built 2026-10-22 on `feat/tasks-facelift`, awaiting the owner's test.
 
 ## Goal
 
@@ -89,4 +89,51 @@ nicer to browse:
 
 ## Built
 
-_Written at handover._
+**What changed**
+
+- `src/routes/tasks.rs` — the format-string builders are gone. View models
+  (`RailChip`, `FilterLink`, `TaskCard`) feed `BoardTemplate` and
+  `AdminTemplate`. Chip counts are faceted: each counts the tasks its click
+  would show under the other active filters. An active value no task
+  carries any more is still shown, at zero, so it can be cleared. `GET /tasks`
+  now honours the filter query, so a pushed URL reloads to the same board.
+- `templates/tasks/feed.html` plus `partials/{board,chip,card,admin}.html` —
+  the page is on `site-dark`. The rail lives inside `#task-board`, so every
+  swap rebuilds it. A hidden `#task-filters` form carries the current state
+  for the Done/Delete buttons and the `refresh-board` re-fetch.
+- `static/style.css` — the old light `Drawing Tasks` block is replaced by a
+  token-only one, moved to after the design system so it wins ties against
+  `.hm-btn`.
+- `scripts/seed-tasks.sql` — 4 made-up reference images (inline SVG) and 11
+  tasks.
+- `/docs`: the "last light screens" row now names only the sign-in page.
+  The `/docs` test total is now 1183, measured 2026-10-22. `CLAUDE.md` and
+  `INVENTORY.md` are updated.
+- 8 new tests in `tasks.rs`.
+
+**Done differently from the plan**
+
+- `#task-board` sets `hx-disinherit="hx-include"`. Without it, the chips
+  inherit the board's `hx-include="#task-filters"`, and htmx appends the
+  current state after the chip's own query, so a toggle would fight itself.
+- Chips with zero matches are dimmed but still clickable.
+- Done no longer fades the whole card. It shows a green stamp on a muted
+  image, so the text stays readable.
+
+**Checked in the browser** (local, seeded): visitor and admin views; chip
+toggles push `/tasks?subject=…&difficulty=…` and reload to the same board;
+Mark done and Add task keep the active filters; a boosted round trip
+hub/art/tasks keeps the right body class; Back restores the filtered board;
+375px has no horizontal scroll; no console errors.
+
+**Full gate** (`./scripts/verify.sh`, exit 0):
+
+```
+test result: ok. 364 passed; 0 failed   (drawingportfolio)
+test result: ok. 8 passed; 0 failed     (tests/static_assets.rs)
+test result: ok. 559 passed; 0 failed   (drinkinggame unit)
+test result: ok. 252 passed; 0 failed   (drinkinggame/tests/http.rs)
+ok   docs/design/sorting-live/src/model.test.js — passed 265/265 checks
+ok   docs/design/sorting-live/src/board.test.js — passed 193/193 checks
+VERIFY OK — fmt, clippy, tests, JS syntax, board suites all clean.
+```
