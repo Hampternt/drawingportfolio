@@ -78,6 +78,8 @@ nicer to browse:
    (or `sqlite3 portfolio.db < scripts/seed-tasks.sql` if the CLI is installed).
 2. `cargo run`, open `http://localhost:3000/tasks` logged out — dark page,
    grid of cards, no admin controls.
+   Clicking a seeded image does nothing: browsers refuse to open a `data:`
+   URL as a page. A real upload opens full size in a new tab.
 3. Tap a subject chip, then a difficulty chip — the grid narrows, counts
    update, both chips stay active. Tap again to clear.
 4. Change sort — order changes, chips keep their state.
