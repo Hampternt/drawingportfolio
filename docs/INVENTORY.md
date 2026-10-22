@@ -51,6 +51,9 @@ The public showcase of drawings.
 - ✅ A LeetCode-style practice board for drawing: reference images carrying any
   number of task prompts, filterable by subject, difficulty, and task type.
   Public to browse; admins manage images and tasks in place.
+- ✅ Dark face lift — the site's dark theme, a filter rail of one-tap chips
+  with counts beside a grid of image-led cards, and Askama templates in place
+  of the format strings. Plan: `docs/manifests/2026-10-22-tasks-facelift.md`.
 
 ## Fitness — `/fitness` (private, multi-user)
 

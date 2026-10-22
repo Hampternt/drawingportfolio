@@ -2232,9 +2232,13 @@ pub async fn delete_drawing_task(pool: &DbPool, id: i64) {
         .ok();
 }
 
-pub async fn toggle_task_completed(pool: &DbPool, id: i64) {
+/// Sets a task's done state outright rather than flipping it: a click on a
+/// card rendered before the last change (a second tab, a restored history
+/// snapshot) must not invert what the user meant.
+pub async fn set_task_completed(pool: &DbPool, id: i64, completed: bool) {
     sqlx::query!(
-        "UPDATE drawing_tasks SET completed = 1 - completed WHERE id = ?",
+        "UPDATE drawing_tasks SET completed = ? WHERE id = ?",
+        completed,
         id
     )
     .execute(pool)
@@ -4047,15 +4051,18 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_toggle_task_completed() {
+    async fn test_set_task_completed_is_idempotent() {
         let pool = test_pool().await;
         let img_id = seed_image(&pool).await;
-        insert_drawing_task(&pool, img_id, "toggle me", "", "", "medium", "").await;
+        insert_drawing_task(&pool, img_id, "finish me", "", "", "medium", "").await;
         let id = get_tasks_filtered(&pool, &no_filters()).await[0].id;
 
-        toggle_task_completed(&pool, id).await;
+        set_task_completed(&pool, id, true).await;
         assert!(get_tasks_filtered(&pool, &no_filters()).await[0].completed);
-        toggle_task_completed(&pool, id).await;
+        // A second "done" from a stale card must not undo it.
+        set_task_completed(&pool, id, true).await;
+        assert!(get_tasks_filtered(&pool, &no_filters()).await[0].completed);
+        set_task_completed(&pool, id, false).await;
         assert!(!get_tasks_filtered(&pool, &no_filters()).await[0].completed);
     }
 

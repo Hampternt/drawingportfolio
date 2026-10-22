@@ -1,0 +1,87 @@
+{#
+  The admin panel: upload a reference image, attach a task to one, and
+  delete images. Rendered by `AdminTemplate`, swapped into #task-admin by
+  every admin mutation; each of those also sends `HX-Trigger: refresh-board`
+  so the board above picks up the change under its current filters.
+#}
+<section class="tasks-admin">
+  <div class="tasks-admin__head">
+    <h2>Manage tasks</h2>
+    <span class="hm-badge hm-badge--accent">admin</span>
+  </div>
+
+  <div class="tasks-admin__forms">
+    <form class="hm-card tasks-form" hx-post="/api/tasks/images" hx-target="#task-admin"
+          hx-swap="innerHTML" hx-encoding="multipart/form-data">
+      <h3>New reference image</h3>
+      <label class="hm-field">
+        <span class="hm-field__label">Title</span>
+        <span class="hm-input-wrap"><input class="hm-input" type="text" name="title" placeholder="e.g. Hands on a railing" required></span>
+      </label>
+      <label class="hm-field">
+        <span class="hm-field__label">Image · jpeg, png or webp</span>
+        <input class="tasks-file" type="file" name="image" accept="image/jpeg,image/png,image/webp" required>
+      </label>
+      <button type="submit" class="hm-btn hm-btn--primary hm-btn--md">Upload image</button>
+    </form>
+
+    <form class="hm-card tasks-form" hx-post="/api/tasks" hx-target="#task-admin" hx-swap="innerHTML">
+      <h3>New task</h3>
+      <label class="hm-field">
+        <span class="hm-field__label">Reference image</span>
+        <select class="tasks-select" name="image_id" required>
+          <option value="">— pick one —</option>
+          {% for i in images %}<option value="{{ i.id }}">{{ i.title }}</option>{% endfor %}
+        </select>
+      </label>
+      <label class="hm-field">
+        <span class="hm-field__label">Title</span>
+        <span class="hm-input-wrap"><input class="hm-input" type="text" name="title" placeholder="e.g. Only the hands" required></span>
+      </label>
+      <label class="hm-field">
+        <span class="hm-field__label">Prompt</span>
+        <textarea class="hm-textarea" name="prompt" placeholder="What to draw, which part to focus on, what style, what to change…"></textarea>
+      </label>
+      <div class="tasks-form__row">
+        <label class="hm-field">
+          <span class="hm-field__label">Subject</span>
+          <span class="hm-input-wrap"><input class="hm-input" type="text" name="subject" list="subject-options" placeholder="anatomy, portrait…"></span>
+        </label>
+        <label class="hm-field">
+          <span class="hm-field__label">Type</span>
+          <span class="hm-input-wrap"><input class="hm-input" type="text" name="task_type" list="type-options" placeholder="focus study, style study…"></span>
+        </label>
+        <label class="hm-field">
+          <span class="hm-field__label">Difficulty</span>
+          <select class="tasks-select" name="difficulty">
+            <option value="easy">Easy</option>
+            <option value="medium" selected>Medium</option>
+            <option value="hard">Hard</option>
+          </select>
+        </label>
+      </div>
+      <datalist id="subject-options">{% for s in subjects %}<option value="{{ s }}"></option>{% endfor %}</datalist>
+      <datalist id="type-options">{% for s in types %}<option value="{{ s }}"></option>{% endfor %}</datalist>
+      <button type="submit" class="hm-btn hm-btn--primary hm-btn--md">Add task</button>
+    </form>
+  </div>
+
+  <div class="tasks-admin__images">
+    <span class="tasks-rail__label">Reference images · {{ images.len() }}</span>
+    {% if images.is_empty() %}
+    <div class="tasks-empty">&gt; no reference images yet.</div>
+    {% else %}
+    <ul class="tasks-images">
+      {% for i in images %}
+      <li class="tasks-image">
+        <img src="{{ i.image_url }}" alt="" loading="lazy">
+        <span class="tasks-image__title">{{ i.title }}</span>
+        <button type="button" class="hm-btn hm-btn--danger hm-btn--sm"
+                hx-delete="/api/tasks/images/{{ i.id }}" hx-target="#task-admin" hx-swap="innerHTML"
+                hx-confirm="Delete this image and ALL tasks attached to it?">Delete</button>
+      </li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+  </div>
+</section>

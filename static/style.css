@@ -1492,162 +1492,6 @@ body.fitness-dark .meal-cal { color: var(--noc-muted); font-size: 12px; }
   body.fitness-dark #add-sheet { max-width: 560px; border-radius: var(--noc-radius-lg); inset: 40px auto auto 50%; transform: translateX(-50%); max-height: calc(100vh - 80px); box-shadow: var(--noc-shadow-pop); }
 }
 
-/* ── Drawing Tasks ───────────────────────────────────── */
-.tasks-page { max-width: 640px; margin: 0 auto; padding: 1rem; }
-
-.tasks-intro { margin-bottom: 1.5rem; }
-.tasks-intro h1 { margin: 0 0 0.4rem; }
-.tasks-intro p { margin: 0; color: #666; font-size: 0.9rem; }
-
-.task-filters {
-  display: flex;
-  gap: 0.5rem;
-  align-items: center;
-  flex-wrap: wrap;
-  margin-bottom: 1rem;
-}
-.task-filters select {
-  padding: 0.4rem 0.6rem;
-  border: 1px solid #ddd;
-  border-radius: 4px;
-  font-size: 0.85rem;
-  background: #fff;
-}
-.task-count { margin-left: auto; color: #888; font-size: 0.8rem; white-space: nowrap; }
-
-.task-list { list-style: none; padding: 0; margin: 0; }
-
-.task-card {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.75rem;
-  background: #fff;
-  border: 1px solid #ddd;
-  border-radius: 8px;
-  padding: 0.75rem;
-  margin-bottom: 0.75rem;
-}
-.task-card.task-done { opacity: 0.65; }
-
-.task-thumb-link { flex-shrink: 0; }
-.task-thumb {
-  width: 72px;
-  height: 72px;
-  object-fit: cover;
-  border-radius: 6px;
-  display: block;
-  background: #eee;
-}
-
-.task-body { flex: 1; min-width: 0; }
-
-.task-title-row {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  flex-wrap: wrap;
-}
-.task-title-row strong { font-size: 0.95rem; }
-.task-check { color: #2e8b57; font-weight: bold; }
-
-.task-diff {
-  font-size: 0.7rem;
-  font-weight: 600;
-  padding: 0.1rem 0.5rem;
-  border-radius: 10px;
-  white-space: nowrap;
-}
-.task-diff-easy   { background: #e3f4e8; color: #2e8b57; }
-.task-diff-medium { background: #fdf3dd; color: #b8860b; }
-.task-diff-hard   { background: #fbe4e4; color: #c0392b; }
-
-.task-prompt {
-  margin: 0.35rem 0 0;
-  color: #555;
-  font-size: 0.85rem;
-  white-space: pre-line;
-}
-
-.task-tags {
-  display: flex;
-  gap: 0.4rem;
-  align-items: center;
-  flex-wrap: wrap;
-  margin-top: 0.45rem;
-}
-.task-tag {
-  font-size: 0.7rem;
-  color: #555;
-  background: #f0f0f0;
-  border-radius: 10px;
-  padding: 0.1rem 0.5rem;
-}
-.task-img-label { font-size: 0.7rem; color: #999; }
-
-.task-admin-btns {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-  align-items: flex-end;
-  flex-shrink: 0;
-}
-.task-toggle-btn {
-  background: none;
-  border: 1px solid #ddd;
-  border-radius: 4px;
-  cursor: pointer;
-  color: #555;
-  font-size: 0.75rem;
-  padding: 0.15rem 0.4rem;
-}
-.task-toggle-btn:hover { border-color: #888; color: #333; }
-.task-delete-btn {
-  background: none;
-  border: none;
-  cursor: pointer;
-  color: #aaa;
-  font-size: 1.1rem;
-  padding: 0 0.25rem;
-}
-.task-delete-btn:hover { color: #c00; }
-
-.task-admin { margin-top: 2.5rem; border-top: 1px solid #ddd; padding-top: 1.5rem; }
-.task-admin h2 { margin: 0 0 0.75rem; font-size: 1.1rem; }
-.task-admin-forms { display: flex; flex-direction: column; gap: 1rem; }
-
-.task-form {
-  background: #f9f9f9;
-  border: 1px solid #ddd;
-  border-radius: 6px;
-  padding: 1rem;
-}
-.task-form h3 { margin: 0 0 0.6rem; font-size: 0.95rem; }
-.task-form input[type="text"],
-.task-form select,
-.task-form textarea {
-  display: block;
-  width: 100%;
-  box-sizing: border-box;
-  margin-bottom: 0.5rem;
-  padding: 0.4rem 0.6rem;
-  border: 1px solid #ddd;
-  border-radius: 4px;
-  font: inherit;
-  background: #fff;
-}
-.task-form textarea { min-height: 60px; resize: vertical; }
-
-.task-image-list { list-style: none; padding: 0; margin: 1rem 0 0; }
-.task-image-row {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  padding: 0.5rem 0;
-  border-bottom: 1px solid #eee;
-}
-.task-image-row .task-thumb { width: 40px; height: 40px; }
-.task-image-title { flex: 1; font-size: 0.9rem; }
-
 /* ── Hampter Design System ──────────────────────────────────────────────────
    Shared by /artportfolio and /fitness. Lifted from
    docs/design/artportfolio-redesign/_ds/hampter-design-system-.../ with one
@@ -4114,6 +3958,336 @@ body.site-dark .docs-role p { color: var(--text-body); font-size: var(--text-15)
 @media (max-width: 899px) {
   body.site-dark .docs-head { padding: var(--space-10) var(--gutter) var(--space-9); }
   body.site-dark .docs-body { padding: var(--space-9) var(--gutter) var(--space-12); }
+}
+
+/* ── Drawing Tasks ───────────────────────────────────────────────────────────
+   /tasks on the site's own dark scope: the page wrapper carries .site-page, so
+   base.html sets body.site-dark and every design-system primitive applies.
+   The arrangement is /artportfolio's — a grid-textured head, then a sticky
+   filter rail beside the main column — rebuilt here rather than borrowed,
+   because the art rules are scoped to body.art-page and bring the feed's
+   layout with them.
+
+   Every rule carries body.site-dark: a bare .tasks-x is (0,1,0) and loses to
+   the design system's `a` and `button` resets at (0,1,2) — see the
+   specificity note in CLAUDE.md under the nutrition tracker.
+
+   Breakpoints follow the art feed: the rail is a column at >= 900px and
+   stacks above the grid below that; the grid is auto-fill, so it drops to
+   one column on a phone without a rule of its own. */
+body.site-dark .tasks-head {
+  padding: var(--space-11) var(--gutter) var(--space-9);
+  border-bottom: var(--border-width) solid var(--border-subtle);
+}
+body.site-dark .tasks-head__inner { max-width: var(--page-max); margin: 0 auto; }
+body.site-dark .tasks-head .hm-eyebrow { margin-bottom: var(--space-4); }
+body.site-dark .tasks-head h1 { font: var(--type-h1); letter-spacing: var(--tracking-tight); color: var(--text-strong); }
+body.site-dark .tasks-head__intro {
+  margin-top: var(--space-5);
+  max-width: var(--prose-max);
+  font: var(--type-body);
+  color: var(--text-muted);
+}
+
+body.site-dark .tasks-body {
+  max-width: var(--page-max);
+  margin: 0 auto;
+  padding: var(--space-9) var(--gutter) var(--space-11);
+  display: flex;
+  gap: var(--space-9);
+  align-items: flex-start;
+}
+/* min-width: 0 keeps the grid from sizing the row to its own content. */
+body.site-dark .tasks-main { flex: 1; min-width: 0; }
+
+/* The rail */
+body.site-dark .tasks-rail {
+  flex: 0 0 var(--rail-width);
+  position: sticky;
+  top: 80px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-8);
+}
+body.site-dark .tasks-rail__section { display: flex; flex-direction: column; gap: 10px; }
+body.site-dark .tasks-rail__head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-4); }
+body.site-dark .tasks-rail__label {
+  font: var(--type-label);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+body.site-dark .tasks-progress { display: flex; flex-direction: column; gap: var(--space-4); }
+body.site-dark .tasks-progress__count { font: var(--type-mono); font-size: var(--text-12); color: var(--text-muted); }
+body.site-dark .tasks-progress__track {
+  height: 6px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-chip);
+  overflow: hidden;
+}
+body.site-dark .tasks-progress__fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--status-success);
+}
+
+body.site-dark .tasks-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+/* min-height, not height: a long subject wraps inside a taller pill instead
+   of spilling onto the row below. */
+body.site-dark .tasks-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 28px;
+  max-width: 100%;
+  padding: var(--space-2) var(--space-5);
+  border-radius: var(--radius-pill);
+  border: var(--border-width) solid var(--border-default);
+  background: var(--surface-chip);
+  color: var(--text-body);
+  font-size: var(--text-13);
+  text-decoration: none;
+  transition: var(--transition-control);
+}
+body.site-dark .tasks-chip:hover { border-color: var(--border-strong); color: var(--text-strong); text-decoration: none; }
+body.site-dark .tasks-chip.is-active {
+  background: var(--accent-tint);
+  border-color: var(--border-accent);
+  color: var(--text-accent);
+}
+/* Zero matches under the other filters: still a link, so it can be picked
+   or cleared, just quieter. */
+body.site-dark .tasks-chip.is-empty:not(.is-active) { opacity: .45; }
+body.site-dark .tasks-chip__label { min-width: 0; overflow-wrap: anywhere; text-transform: lowercase; }
+body.site-dark .tasks-chips--sort .tasks-chip__label { text-transform: none; }
+body.site-dark .tasks-chip__count { font: var(--type-label); color: var(--text-faint); }
+body.site-dark .tasks-chip.is-active .tasks-chip__count { color: var(--violet-200); }
+
+/* The main column */
+body.site-dark .tasks-main__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-5);
+  min-height: var(--control-height-sm);
+  margin-bottom: var(--space-6);
+}
+body.site-dark .tasks-empty {
+  padding: var(--space-9) 0;
+  font: var(--type-mono);
+  color: var(--text-faint);
+}
+
+body.site-dark .tasks-grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: var(--space-6);
+}
+
+/* A card */
+body.site-dark .task-card {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--surface-card);
+  border: var(--border-width) solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  transition: var(--transition-surface);
+}
+body.site-dark .task-card:hover { border-color: var(--border-strong); }
+body.site-dark .task-card__media {
+  position: relative;
+  display: block;
+  aspect-ratio: 4 / 3;
+  background: var(--surface-inset);
+  border-bottom: var(--border-width) solid var(--border-subtle);
+}
+body.site-dark .task-card__media img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+body.site-dark .task-card__stamp {
+  position: absolute;
+  top: var(--space-4);
+  right: var(--space-4);
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-xs);
+  background: var(--surface-overlay);
+  border: var(--border-width) solid var(--status-success-dim);
+  color: var(--status-success);
+  font: var(--type-label);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+}
+/* The card clips its image to its radius, which would clip the image link's
+   focus ring too — so the ring moves to the card itself. */
+body.site-dark .task-card__media:focus-visible { box-shadow: none; }
+body.site-dark .task-card:has(.task-card__media:focus-visible) { box-shadow: var(--focus-ring); }
+/* Done is said by the stamp and a quieter image, never by fading the text. */
+body.site-dark .task-card.is-done .task-card__media img { filter: grayscale(.7) brightness(.7); }
+
+body.site-dark .task-card__body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-6);
+}
+body.site-dark .task-card__meta { display: flex; align-items: center; gap: var(--space-4); flex-wrap: wrap; }
+body.site-dark .task-card__type {
+  font: var(--type-label);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+body.site-dark .task-card__title { font: var(--type-h3); color: var(--text-strong); }
+body.site-dark .task-card__prompt {
+  font: var(--type-body-sm);
+  color: var(--text-muted);
+  white-space: pre-line;
+}
+body.site-dark .task-card__foot {
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+body.site-dark .task-card__ref {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: var(--type-mono);
+  font-size: var(--text-11);
+  color: var(--text-faint);
+}
+body.site-dark .task-card__admin {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-5) var(--space-6);
+  border-top: var(--border-width) solid var(--border-subtle);
+}
+body.site-dark .task-card__delete:hover { color: var(--status-danger); }
+
+/* The admin panel */
+body.site-dark .tasks-admin-wrap {
+  max-width: var(--page-max);
+  margin: 0 auto;
+  padding: 0 var(--gutter) var(--space-12);
+}
+body.site-dark .tasks-admin {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-8);
+  padding-top: var(--space-9);
+  border-top: var(--border-width) solid var(--border-subtle);
+}
+body.site-dark .tasks-admin__head { display: flex; align-items: center; gap: var(--space-5); }
+body.site-dark .tasks-admin__head h2 { font: var(--type-h2); color: var(--text-strong); }
+body.site-dark .tasks-admin__forms {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+  gap: var(--space-6);
+  align-items: start;
+}
+body.site-dark .tasks-form { gap: var(--space-6); padding: var(--space-7); }
+body.site-dark .tasks-form h3 { font: var(--type-h3); color: var(--text-strong); }
+body.site-dark .tasks-form .hm-btn { align-self: flex-start; }
+body.site-dark .tasks-form__row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-5);
+}
+/* A native select dressed as .hm-input-wrap — the design system has no
+   select of its own, and wrapping one would put its arrow inside a box it
+   cannot see. */
+body.site-dark .tasks-select {
+  width: 100%;
+  height: var(--control-height-md);
+  padding: 0 var(--space-5);
+  background: var(--surface-inset);
+  border: var(--border-width) solid var(--border-default);
+  border-radius: var(--radius-sm);
+  color: var(--text-strong);
+  font-size: var(--text-14);
+  color-scheme: dark;
+  transition: var(--transition-control);
+}
+body.site-dark .tasks-select:hover { border-color: var(--border-strong); }
+body.site-dark .tasks-select:focus { outline: none; border-color: var(--border-focus); box-shadow: 0 0 0 3px var(--violet-a14); }
+body.site-dark .tasks-file {
+  color: var(--text-muted);
+  font-size: var(--text-13);
+  color-scheme: dark;
+}
+body.site-dark .tasks-file::file-selector-button {
+  margin-right: var(--space-5);
+  height: var(--control-height-sm);
+  padding: 0 var(--space-5);
+  border: var(--border-width) solid var(--border-default);
+  border-radius: var(--radius-sm);
+  background: var(--ink-800);
+  color: var(--text-strong);
+  font: inherit;
+  cursor: pointer;
+}
+
+body.site-dark .tasks-admin__images { display: flex; flex-direction: column; gap: var(--space-5); }
+body.site-dark .tasks-images {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: var(--space-4);
+}
+body.site-dark .tasks-image {
+  display: flex;
+  align-items: center;
+  gap: var(--space-5);
+  padding: var(--space-4);
+  background: var(--surface-card);
+  border: var(--border-width) solid var(--border-subtle);
+  border-radius: var(--radius-md);
+}
+body.site-dark .tasks-image img {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  object-fit: cover;
+  border-radius: var(--radius-sm);
+  background: var(--surface-inset);
+}
+body.site-dark .tasks-image__title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-14);
+  color: var(--text-body);
+}
+
+@media (max-width: 899px) {
+  body.site-dark .tasks-body { display: block; }
+  body.site-dark .tasks-rail { position: static; margin-bottom: var(--space-8); gap: var(--space-6); }
+  body.site-dark .tasks-admin__forms { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 779px) {
+  body.site-dark .tasks-head { padding: var(--space-9) var(--space-6) var(--space-8); }
+  body.site-dark .tasks-head h1 { font-size: var(--text-32); }
+  body.site-dark .tasks-body { padding: var(--space-8) var(--space-6) var(--space-11); }
+  body.site-dark .tasks-admin-wrap { padding: 0 var(--space-6) var(--space-11); }
+  body.site-dark .tasks-form__row { grid-template-columns: minmax(0, 1fr); }
 }
 
 /* ── Sorting: crate sort and van load ────────────────────────────────────────

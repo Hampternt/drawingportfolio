@@ -1,0 +1,8 @@
+{#- One rail chip, `c` a `RailChip` from the including loop. #}
+<a class="tasks-chip{% if c.active %} is-active{% endif %}{% if c.count == Some(0) %} is-empty{% endif %}"
+   href="{{ c.link.page_url }}"
+   hx-get="{{ c.link.board_url }}" hx-target="#task-board" hx-swap="innerHTML"
+   hx-push-url="{{ c.link.page_url }}"{% if c.active %} aria-current="true"{% endif %}>
+  <span class="tasks-chip__label">{{ c.label }}</span>
+  {%- if let Some(n) = c.count %}<span class="tasks-chip__count">{{ n }}</span>{% endif %}
+</a>
