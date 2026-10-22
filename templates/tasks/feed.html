@@ -7,8 +7,14 @@
 {% block content %}
 {#- .site-page must stay the outermost element in this block: base.html's
     theme script keys off `main .site-page` to re-apply site-dark after a
-    boosted navigation, which drops body attributes. -#}
-<div class="site-page tasks-page">
+    boosted navigation, which drops body attributes.
+
+    hx-history="false": the chips push a URL per filter, but Done, Delete and
+    the admin forms swap the board without pushing, so a saved snapshot of
+    an earlier URL goes stale under them and Back would restore cards that
+    no longer match the database. With no snapshot, Back is a history miss
+    and refreshOnHistoryMiss reloads the URL, which /tasks honours. -#}
+<div class="site-page tasks-page" hx-history="false">
 
   <div class="tasks-head hm-grid-bg">
     <div class="tasks-head__inner">

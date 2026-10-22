@@ -23,7 +23,8 @@
   <div class="task-card__admin">
     <button type="button" class="hm-btn {% if t.completed %}hm-btn--secondary{% else %}hm-btn--primary{% endif %} hm-btn--sm"
             hx-post="/api/tasks/{{ t.id }}/toggle" hx-target="#task-board" hx-swap="innerHTML"
-            hx-include="#task-filters">{% if t.completed %}Undo{% else %}Mark done{% endif %}</button>
+            hx-include="#task-filters"
+            hx-vals='{"completed": "{% if t.completed %}0{% else %}1{% endif %}"}'>{% if t.completed %}Undo{% else %}Mark done{% endif %}</button>
     <button type="button" class="hm-btn hm-btn--ghost hm-btn--sm task-card__delete"
             hx-delete="/api/tasks/{{ t.id }}" hx-target="#task-board" hx-swap="innerHTML"
             hx-include="#task-filters" hx-confirm="Delete this task?">Delete</button>

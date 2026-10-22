@@ -342,15 +342,26 @@ fn admin_html(images: &[TaskImage], subjects: &[String], types: &[String]) -> St
     .unwrap()
 }
 
+/// Difficulty and sort are closed sets, so anything outside them — a
+/// hand-typed `?difficulty=Hard`, a stale `?sort=` — is normalised here
+/// rather than carried into every chip link: difficulty is lowercased and
+/// dropped if unknown, sort falls back to newest.
 fn filters_from_params(params: &HashMap<String, String>) -> TaskFilters {
+    let difficulty = params
+        .get("difficulty")
+        .map(|d| d.trim().to_lowercase())
+        .filter(|d| DIFFICULTIES.contains(&d.as_str()))
+        .unwrap_or_default();
+    let sort = params
+        .get("sort")
+        .filter(|s| SORTS.iter().any(|(key, _)| key == s))
+        .cloned()
+        .unwrap_or_else(|| "newest".to_string());
     TaskFilters {
         subject: params.get("subject").cloned().unwrap_or_default(),
-        difficulty: params.get("difficulty").cloned().unwrap_or_default(),
+        difficulty,
         task_type: params.get("task_type").cloned().unwrap_or_default(),
-        sort: params
-            .get("sort")
-            .cloned()
-            .unwrap_or_else(|| "newest".to_string()),
+        sort,
     }
 }
 
@@ -581,6 +592,9 @@ async fn delete_task_handler(
     Html(render_board(&state, &f, true).await)
 }
 
+/// Mark done / Undo. The card sends the state it wants (`completed=1` or
+/// `0`) rather than asking for a flip, so a click on a stale card — Back
+/// into an old snapshot, a second tab — cannot undo what it meant to do.
 async fn toggle_task_handler(
     _: RequireAdmin,
     State(state): State<Arc<AppState>>,
@@ -588,9 +602,20 @@ async fn toggle_task_handler(
     // htmx 2.x sends hx-include'd params in the body for POST requests
     axum::Form(params): axum::Form<HashMap<String, String>>,
 ) -> impl IntoResponse {
-    crate::db::toggle_task_completed(&state.pool, id).await;
+    let completed = match params.get("completed").map(String::as_str) {
+        Some("1") => true,
+        Some("0") => false,
+        _ => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Html("<p>completed must be 1 or 0</p>".to_string()),
+            )
+                .into_response()
+        }
+    };
+    crate::db::set_task_completed(&state.pool, id, completed).await;
     let f = filters_from_params(&params);
-    Html(render_board(&state, &f, true).await)
+    Html(render_board(&state, &f, true).await).into_response()
 }
 
 pub fn router() -> Router<Arc<AppState>> {
@@ -711,6 +736,39 @@ mod tests {
     }
 
     #[test]
+    fn test_filters_normalise_difficulty_and_sort() {
+        let params = |pairs: &[(&str, &str)]| -> HashMap<String, String> {
+            pairs
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect()
+        };
+        let f = filters_from_params(&params(&[("difficulty", "Hard"), ("sort", "oldest")]));
+        assert_eq!(f.difficulty, "hard");
+        assert_eq!(f.sort, "oldest");
+        let f = filters_from_params(&params(&[("difficulty", "x"), ("sort", "bogus")]));
+        assert_eq!(f.difficulty, "");
+        assert_eq!(f.sort, "newest");
+        // So no unknown value reaches a chip link or the hidden form.
+        assert_eq!(filter_query(&f), "");
+    }
+
+    #[test]
+    fn test_the_done_button_sends_the_state_it_wants() {
+        let mut all = sample();
+        all[1].completed = true;
+        let f = filters("", "", "", "newest");
+        let html = board_html(&all, &all, &f, true);
+        let card = |id: i64| {
+            let start = html.find(&format!("id=\"task-{id}\"")).unwrap();
+            let end = html[start..].find("</li>").unwrap() + start;
+            html[start..end].to_string()
+        };
+        assert!(card(1).contains(r#"hx-vals='{"completed": "1"}'"#));
+        assert!(card(2).contains(r#"hx-vals='{"completed": "0"}'"#));
+    }
+
+    #[test]
     fn test_a_visitor_sees_no_admin_controls() {
         let all = sample();
         let f = filters("", "", "", "newest");
@@ -768,9 +826,12 @@ mod tests {
         let main = &html[html.find("<main").expect("a <main>")..];
         let first_div = &main[main.find("<div").unwrap()..];
         assert!(
-            first_div.starts_with("<div class=\"site-page tasks-page\">"),
+            first_div.starts_with("<div class=\"site-page tasks-page\""),
             "the .site-page marker must be the outermost element in the content block"
         );
+        // No history snapshots: Done and Delete swap the board without
+        // pushing, so a cached snapshot of an earlier filter URL goes stale.
+        assert!(first_div.starts_with("<div class=\"site-page tasks-page\" hx-history=\"false\">"));
         assert!(!html.contains("id=\"task-admin\""));
     }
 }

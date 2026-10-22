@@ -4034,12 +4034,15 @@ body.site-dark .tasks-progress__fill {
 }
 
 body.site-dark .tasks-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+/* min-height, not height: a long subject wraps inside a taller pill instead
+   of spilling onto the row below. */
 body.site-dark .tasks-chip {
   display: inline-flex;
   align-items: center;
   gap: var(--space-3);
-  height: 28px;
-  padding: 0 var(--space-5);
+  min-height: 28px;
+  max-width: 100%;
+  padding: var(--space-2) var(--space-5);
   border-radius: var(--radius-pill);
   border: var(--border-width) solid var(--border-default);
   background: var(--surface-chip);
@@ -4057,7 +4060,7 @@ body.site-dark .tasks-chip.is-active {
 /* Zero matches under the other filters: still a link, so it can be picked
    or cleared, just quieter. */
 body.site-dark .tasks-chip.is-empty:not(.is-active) { opacity: .45; }
-body.site-dark .tasks-chip__label { text-transform: lowercase; }
+body.site-dark .tasks-chip__label { min-width: 0; overflow-wrap: anywhere; text-transform: lowercase; }
 body.site-dark .tasks-chips--sort .tasks-chip__label { text-transform: none; }
 body.site-dark .tasks-chip__count { font: var(--type-label); color: var(--text-faint); }
 body.site-dark .tasks-chip.is-active .tasks-chip__count { color: var(--violet-200); }
@@ -4123,6 +4126,10 @@ body.site-dark .task-card__stamp {
   letter-spacing: var(--tracking-caps);
   text-transform: uppercase;
 }
+/* The card clips its image to its radius, which would clip the image link's
+   focus ring too — so the ring moves to the card itself. */
+body.site-dark .task-card__media:focus-visible { box-shadow: none; }
+body.site-dark .task-card:has(.task-card__media:focus-visible) { box-shadow: var(--focus-ring); }
 /* Done is said by the stamp and a quieter image, never by fading the text. */
 body.site-dark .task-card.is-done .task-card__media img { filter: grayscale(.7) brightness(.7); }
 
