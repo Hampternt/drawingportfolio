@@ -1,0 +1,32 @@
+{#- One task, `card` a `TaskCard` from the including loop. The image opens
+    full size in a new tab — a reference is for looking at closely. #}
+{%- let t = card.task %}
+<li class="task-card{% if t.completed %} is-done{% endif %}" id="task-{{ t.id }}">
+  <a class="task-card__media" href="{{ t.image_url }}" target="_blank" rel="noopener"
+     hx-boost="false" title="Open the reference image">
+    <img src="{{ t.image_url }}" alt="{{ t.image_title }}" loading="lazy">
+    {% if t.completed %}<span class="task-card__stamp">✓ Done</span>{% endif %}
+  </a>
+  <div class="task-card__body">
+    <div class="task-card__meta">
+      <span class="hm-badge hm-badge--{{ card.difficulty_tone }}">{{ card.difficulty_label }}</span>
+      {% if !t.task_type.is_empty() %}<span class="task-card__type">{{ t.task_type }}</span>{% endif %}
+    </div>
+    <h3 class="task-card__title">{{ t.title }}</h3>
+    {% if !t.prompt.is_empty() %}<p class="task-card__prompt">{{ t.prompt }}</p>{% endif %}
+    <div class="task-card__foot">
+      {% if !t.subject.is_empty() %}<span class="hm-tag">{{ t.subject }}</span>{% endif %}
+      <span class="task-card__ref">ref · {{ t.image_title }}</span>
+    </div>
+  </div>
+  {% if is_admin %}
+  <div class="task-card__admin">
+    <button type="button" class="hm-btn {% if t.completed %}hm-btn--secondary{% else %}hm-btn--primary{% endif %} hm-btn--sm"
+            hx-post="/api/tasks/{{ t.id }}/toggle" hx-target="#task-board" hx-swap="innerHTML"
+            hx-include="#task-filters">{% if t.completed %}Undo{% else %}Mark done{% endif %}</button>
+    <button type="button" class="hm-btn hm-btn--ghost hm-btn--sm task-card__delete"
+            hx-delete="/api/tasks/{{ t.id }}" hx-target="#task-board" hx-swap="innerHTML"
+            hx-include="#task-filters" hx-confirm="Delete this task?">Delete</button>
+  </div>
+  {% endif %}
+</li>

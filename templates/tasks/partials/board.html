@@ -1,0 +1,87 @@
+{#
+  Rail + grid — everything `#task-board` holds, rendered by `BoardTemplate`
+  for the full page and for every board swap (filters, Done, Delete, the
+  admin panel's `refresh-board`). The rail lives in here rather than beside
+  the board so its active chips and counts are rebuilt with every swap.
+
+  Every chip carries the full next filter state, built in Rust
+  (`FilterLink`): `href` is the page, for the address bar and a no-JS click;
+  `hx-get` is the fragment.
+#}
+
+{#- The current filter state as form fields. The card buttons and the
+    board's own `refresh-board` re-fetch `hx-include` it, so a Done toggle or
+    an upload keeps the filters it was made under. #}
+<form id="task-filters" hidden>
+  <input type="hidden" name="subject" value="{{ f.subject }}">
+  <input type="hidden" name="difficulty" value="{{ f.difficulty }}">
+  <input type="hidden" name="task_type" value="{{ f.task_type }}">
+  <input type="hidden" name="sort" value="{{ f.sort }}">
+</form>
+
+<aside class="tasks-rail" aria-label="Filter tasks">
+  <div class="tasks-progress">
+    <div class="tasks-rail__head">
+      <span class="tasks-rail__label">Progress</span>
+      <span class="tasks-progress__count">{{ done }} / {{ total }} done</span>
+    </div>
+    <div class="tasks-progress__track" aria-hidden="true">
+      <span class="tasks-progress__fill" style="width: {{ done_percent }}%"></span>
+    </div>
+  </div>
+
+  {% if !subjects.is_empty() %}
+  <div class="tasks-rail__section">
+    <span class="tasks-rail__label">Subject</span>
+    <div class="tasks-chips">
+      {% for c in subjects %}{% include "tasks/partials/chip.html" %}{% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="tasks-rail__section">
+    <span class="tasks-rail__label">Difficulty</span>
+    <div class="tasks-chips">
+      {% for c in difficulties %}{% include "tasks/partials/chip.html" %}{% endfor %}
+    </div>
+  </div>
+
+  {% if !types.is_empty() %}
+  <div class="tasks-rail__section">
+    <span class="tasks-rail__label">Type</span>
+    <div class="tasks-chips">
+      {% for c in types %}{% include "tasks/partials/chip.html" %}{% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="tasks-rail__section">
+    <span class="tasks-rail__label">Sort</span>
+    <div class="tasks-chips tasks-chips--sort">
+      {% for c in sorts %}{% include "tasks/partials/chip.html" %}{% endfor %}
+    </div>
+  </div>
+</aside>
+
+<div class="tasks-main">
+  <div class="tasks-main__head">
+    <span class="hm-eyebrow">{{ shown_label }}</span>
+    {% if let Some(c) = clear %}
+    <a class="hm-btn hm-btn--ghost hm-btn--sm" href="{{ c.page_url }}"
+       hx-get="{{ c.board_url }}" hx-target="#task-board" hx-swap="innerHTML"
+       hx-push-url="{{ c.page_url }}">Clear filters</a>
+    {% endif %}
+  </div>
+
+  {% if cards.is_empty() %}
+    {% if total == 0 %}
+  <div class="tasks-empty">&gt; no tasks yet.</div>
+    {% else %}
+  <div class="tasks-empty">&gt; no tasks match these filters.</div>
+    {% endif %}
+  {% else %}
+  <ul class="tasks-grid">
+    {% for card in cards %}{% include "tasks/partials/card.html" %}{% endfor %}
+  </ul>
+  {% endif %}
+</div>
