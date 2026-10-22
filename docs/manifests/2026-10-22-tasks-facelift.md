@@ -1,6 +1,6 @@
 # Drawing Tasks — dark face lift
 
-**Status:** built 2026-10-22 on `feat/tasks-facelift`, awaiting the owner's test.
+**Status:** merged into `dev` 2026-10-22, after the owner's test. Branch `feat/tasks-facelift`.
 
 ## Goal
 
@@ -109,9 +109,9 @@ nicer to browse:
 - `scripts/seed-tasks.sql` — 4 made-up reference images (inline SVG) and 11
   tasks.
 - `/docs`: the "last light screens" row now names only the sign-in page.
-  The `/docs` test total is now 1183, measured 2026-10-22. `CLAUDE.md` and
+  The `/docs` test total is now 1185, measured 2026-10-22. `CLAUDE.md` and
   `INVENTORY.md` are updated.
-- 8 new tests in `tasks.rs`.
+- 10 new tests in `tasks.rs`; the db toggle test became an idempotence test.
 
 **Done differently from the plan**
 
@@ -128,10 +128,38 @@ Mark done and Add task keep the active filters; a boosted round trip
 hub/art/tasks keeps the right body class; Back restores the filtered board;
 375px has no horizontal scroll; no console errors.
 
-**Full gate** (`./scripts/verify.sh`, exit 0):
+**Pre-merge review** (after the owner's test; ultracode workflow, four
+reviewers — htmx flow, security, CSS, docs/tests — each finding then checked
+by a skeptic told to refute it). Security and docs/tests found nothing. Five
+findings were confirmed, none refuted, and all five are fixed:
+
+- **Medium — Back restored a stale board, and Done flipped.** The chips
+  push URLs, but Done and Delete swap without pushing. Back therefore
+  restored htmx's snapshot from before those clicks, and "Mark done" on that
+  stale card flipped a finished task back to undone. Fixed twice over: the
+  page sets `hx-history="false"`, so Back is a history miss and reloads the
+  URL; and `…/toggle` now *sets* the state the card sends (`completed=1|0`,
+  `db::set_task_completed`) instead of flipping. That changes the behaviour
+  of an existing endpoint, which was otherwise out of scope; the `.sqlx`
+  cache is regenerated to match.
+- **Low — `?difficulty=Hard` or another unknown value showed a phantom
+  active "Medium" chip.** The parser now lowercases difficulty and drops
+  unknown values.
+- **Low — an unknown `?sort=` left no sort chip active and was carried into
+  every link.** It now falls back to newest.
+- **Low — a long subject overflowed its 28px chip.** Chips use
+  `min-height` and wrap inside the rail.
+- **Low — the image link's focus ring was clipped by the card.** The ring
+  now shows on the card.
+
+Rechecked in the browser: filter, Mark done, then Back reloads with the task
+still done; a 47-character chip label wraps to 49px inside the rail; no
+console errors.
+
+**Full gate** after the fixes (`./scripts/verify.sh`, exit 0):
 
 ```
-test result: ok. 364 passed; 0 failed   (drawingportfolio)
+test result: ok. 366 passed; 0 failed   (drawingportfolio)
 test result: ok. 8 passed; 0 failed     (tests/static_assets.rs)
 test result: ok. 559 passed; 0 failed   (drinkinggame unit)
 test result: ok. 252 passed; 0 failed   (drinkinggame/tests/http.rs)
