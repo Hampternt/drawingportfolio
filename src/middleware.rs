@@ -225,6 +225,11 @@ pub fn extract_session_cookie(parts: &Parts) -> Option<String> {
 }
 
 /// Extractor: only allows requests from localhost (raw socket address).
+///
+/// nginx connects from 127.0.0.1 too, so a loopback peer alone proves nothing:
+/// a request that came through the proxy carries X-Real-IP / X-Forwarded-For
+/// (nginx always sets X-Real-IP) and is refused. A direct local request, e.g.
+/// over an SSH tunnel to 127.0.0.1:3000, carries neither.
 pub struct LocalhostOnly;
 
 impl<S: Send + Sync> FromRequestParts<S> for LocalhostOnly {
@@ -236,8 +241,11 @@ impl<S: Send + Sync> FromRequestParts<S> for LocalhostOnly {
             .get::<ConnectInfo<SocketAddr>>()
             .map(|ci| ci.0);
 
+        let proxied = parts.headers.contains_key("x-real-ip")
+            || parts.headers.contains_key("x-forwarded-for");
+
         match addr {
-            Some(addr) if addr.ip().is_loopback() => Ok(LocalhostOnly),
+            Some(addr) if addr.ip().is_loopback() && !proxied => Ok(LocalhostOnly),
             _ => Err(StatusCode::FORBIDDEN),
         }
     }
@@ -277,6 +285,7 @@ mod tests {
             .route("/session", get(|_: AuthSession| async { "ok" }))
             .route("/admin", get(|_: RequireAdmin| async { "ok" }))
             .route("/owner", get(|_: RequireOwner| async { "ok" }))
+            .route("/local", get(|_: LocalhostOnly| async { "ok" }))
             .with_state(state)
     }
 
@@ -328,6 +337,43 @@ mod tests {
         ] {
             assert!(shell
                 .contains(r#"<meta name="htmx-config" content='{"refreshOnHistoryMiss":true}'>"#));
+        }
+    }
+
+    fn local_req(peer: &str, header: Option<(&str, &str)>) -> Request<Body> {
+        let mut b = Request::builder().method("GET").uri("/local");
+        if let Some((k, v)) = header {
+            b = b.header(k, v);
+        }
+        let mut req = b.body(Body::empty()).unwrap();
+        req.extensions_mut()
+            .insert(ConnectInfo::<SocketAddr>(peer.parse().unwrap()));
+        req
+    }
+
+    /// nginx connects from loopback, so the proxy headers are what tell a
+    /// tunnelled local request from a public one that came through nginx.
+    #[tokio::test]
+    async fn test_localhost_only() {
+        let app = app().await;
+        let cases = [
+            ("127.0.0.1:5000", None, StatusCode::OK),
+            ("[::1]:5000", None, StatusCode::OK),
+            (
+                "127.0.0.1:5000",
+                Some(("X-Real-IP", "203.0.113.7")),
+                StatusCode::FORBIDDEN,
+            ),
+            (
+                "127.0.0.1:5000",
+                Some(("X-Forwarded-For", "203.0.113.7")),
+                StatusCode::FORBIDDEN,
+            ),
+            ("203.0.113.7:5000", None, StatusCode::FORBIDDEN),
+        ];
+        for (peer, header, want) in cases {
+            let resp = app.clone().oneshot(local_req(peer, header)).await.unwrap();
+            assert_eq!(resp.status(), want, "{peer} {header:?}");
         }
     }
 }

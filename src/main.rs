@@ -160,9 +160,11 @@ async fn main() {
         // If no route matched, return a plain 404.
         .fallback(handler_404);
 
-    // Bind to all network interfaces on port 3000.
-    // nginx sits in front and forwards traffic here (only from localhost).
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
+    // Loopback only: nginx sits in front and forwards traffic here from
+    // 127.0.0.1, so nothing outside the box can reach the app directly.
+    // BIND_ADDR overrides it (e.g. 0.0.0.0:3000 inside a container).
+    let bind_addr = std::env::var("BIND_ADDR").unwrap_or_else(|_| "127.0.0.1:3000".to_string());
+    let listener = tokio::net::TcpListener::bind(&bind_addr).await.unwrap();
     tracing::info!("listening on {}", listener.local_addr().unwrap());
 
     // `into_make_service_with_connect_info` makes the client's socket address
