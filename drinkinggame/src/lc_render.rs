@@ -727,7 +727,7 @@ pub fn player_plaque(seat: &PublicSeat) -> String {
         .filter_map(|r| crate::lc_cards::rule_text(&r.card_id).map(|t| (r, t)))
         .map(|(r, text)| {
             format!(
-                r#"<span class="lc-rule" data-rule="{id}" title="{text}">{text}</span>"#,
+                r#"<span class="lc-standing-rule" data-rule="{id}" title="{text}">{text}</span>"#,
                 id = html_escape(&r.card_id),
                 text = html_escape(text),
             )
@@ -736,7 +736,7 @@ pub fn player_plaque(seat: &PublicSeat) -> String {
     let rules = if rules.is_empty() {
         String::new()
     } else {
-        format!(r#"<div class="lc-rules">{rules}</div>"#)
+        format!(r#"<div class="lc-standing-rules">{rules}</div>"#)
     };
 
     format!(
@@ -4862,15 +4862,23 @@ mod tests {
             expires_round: 4,
         }];
         let html = player_plaque(&view.seats[0]);
-        assert!(html.contains("lc-rules"), "the badge renders");
+        assert!(html.contains("lc-standing-rules"), "the badge renders");
         assert!(
             html.contains("Refer to them without a compliment and you drink."),
             "with the catalog's wording, not the blob's"
         );
         assert!(html.contains(r#"data-rule="wine-12""#));
+        // `.lc-rule` is the plaque's deck-colour stripe (`deck_rule`). The
+        // badge once shared that class, and its pill styling repainted every
+        // seat's stripe grey — so only the stripe may carry it.
+        assert_eq!(
+            html.matches(r#"class="lc-rule"#).count(),
+            1,
+            "only the deck stripe carries .lc-rule"
+        );
 
         // A seat with no rule grows no empty badge.
-        assert!(!player_plaque(&view.seats[1]).contains("lc-rules"));
+        assert!(!player_plaque(&view.seats[1]).contains("lc-standing-rules"));
     }
 
     /// An id the catalog no longer recognises renders nothing rather than an
@@ -4883,6 +4891,6 @@ mod tests {
             card_id: "removed-by-a-deploy".into(),
             expires_round: 4,
         }];
-        assert!(!player_plaque(&view.seats[0]).contains("lc-rules"));
+        assert!(!player_plaque(&view.seats[0]).contains("lc-standing-rules"));
     }
 }

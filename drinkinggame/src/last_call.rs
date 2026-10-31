@@ -1820,6 +1820,7 @@ impl LastCallState {
     /// 0): an attack on an already-dead seat, or one blunted to zero by a
     /// Reduce before it ever reached a shield. A receipt line reading "0
     /// damage, 0 absorbed" tells its reader less than its absence does.
+    #[allow(clippy::too_many_arguments)]
     fn damage_reported(
         &mut self,
         blows: &mut Vec<crate::lc_report::Blow>,
@@ -8223,11 +8224,11 @@ mod tests {
         let id = st.players[seat].hand[0].id.clone();
 
         assert_eq!(
-            st.pour_discard(99, key, &[id.clone()]),
+            st.pour_discard(99, key, std::slice::from_ref(&id)),
             Err(LcError::NotSeated)
         );
         assert_eq!(
-            st.pour_discard(1, key + 7, &[id.clone()]),
+            st.pour_discard(1, key + 7, std::slice::from_ref(&id)),
             Err(LcError::WrongBeat),
             "a stale screen's key must not land"
         );
@@ -8269,7 +8270,8 @@ mod tests {
             .shoe(card.deck)
             .map(|sh| sh.discarded())
             .unwrap_or(0);
-        st.pour_discard(2, key, &[card.id.clone()]).unwrap();
+        st.pour_discard(2, key, std::slice::from_ref(&card.id))
+            .unwrap();
         assert_eq!(st.players[seat].cards_discarded, before + 1);
         assert_eq!(
             st.table.shoe(card.deck).map(|sh| sh.discarded()),

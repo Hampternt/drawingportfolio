@@ -10230,7 +10230,7 @@ async fn test_three_man_screen_and_table_tab_are_the_felt_table() {
     let screen = body_string(get(&app, &format!("/room/{code}/screen")).await).await;
     assert!(screen.contains("felt-screen"));
     assert_eq!(screen.matches(r#"class="felt-seat"#).count(), 3);
-    assert!(screen.contains(&format!(r#"class="felt-dice""#)));
+    assert!(screen.contains(r#"class="felt-dice""#));
     assert!(screen.contains(&format!(r#"data-roller="{a}""#)));
     assert!(screen.contains(r#"<span class="felt-badge">3 MAN</span>"#));
     assert!(!screen.contains(" data-lc-live"));
