@@ -1,7 +1,8 @@
 # Last Call engine overhaul — real decks, five effect systems, the round report
 
-**Status:** built — waiting on the owner's test; merges as
-Hampternt/drawingportfolio#13 → `master` (a push to `master` deploys).
+**Status:** merged via Hampternt/drawingportfolio#13 (2026-10-31) — **the
+owner's walkthrough is still to do**: run *Test it yourself* below against
+the deployed build or a local one.
 
 **Stream:** `claude/last-call-game-overhaul-2laeqa`, from `master`,
 2026-08-23. Built 2026-08-23 → 2026-08-30, idle until 2026-10-31, when it
@@ -41,6 +42,10 @@ Make Last Call's engine trustworthy enough to build new kinds of cards on:
 - **Every new card ships at `copies: 0`.** Reveal, pour, swap and rule cards
   have no picker UI yet, and pours and swaps park the round — so no live
   game can draw one. `test/grant` puts them in a hand for testing.
+- **Merged before the owner's walkthrough** (owner's call, 2026-10-31): the
+  test is kept as a to-do rather than a gate. Not chosen: holding the merge
+  until it ran. What stood in for it is the full gate and the browser
+  smoke under *Built*.
 - **Old saves are rebuilt from their own seed**: hands, HP, effects, pacts
   and log survive; draw order and discard piles reset.
 

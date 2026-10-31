@@ -138,7 +138,8 @@ A party platform for phone-based drinking games in shared rooms.
   for how much, including blocked hits — and the table waits until everyone
   who was hit taps GOT IT. Standing rules show as a badge on the player's
   plaque. Cards that reveal hands, pour, swap or pin a rule are built but
-  not in any deck yet. Plan: `docs/manifests/2026-08-23-last-call-engine-overhaul.md`
+  not in any deck yet. Merged 2026-10-31 ahead of the owner's walkthrough,
+  which is still to do. Plan: `docs/manifests/2026-08-23-last-call-engine-overhaul.md`
 - ✅ Challenge-card engine — a played challenge pauses the round for a table
   vote that settles it. No challenge card is in the deck yet, so no live game
   draws one.

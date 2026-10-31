@@ -43,7 +43,8 @@ from this file on 2026-08-12; `git log docs/WORKTREES.md` recovers them.
   re-published scrubbed history once).
 - **`claude/last-call-game-overhaul-2laeqa`** — Last Call engine overhaul
   (real decks, five non-numeric effect systems, the round resolution report)
-  **LANDED** via Hampternt/drawingportfolio#13. Manifest:
+  **LANDED** via Hampternt/drawingportfolio#13 (2026-10-31), ahead of the
+  owner's walkthrough — its *Test it yourself* section is the to-do. Manifest:
   `docs/manifests/2026-08-23-last-call-engine-overhaul.md`. The new cards
   stay at `copies: 0` until their pickers exist — `drinkinggame/ENGINE.md`
   lists what is left.
