@@ -41,10 +41,13 @@ from this file on 2026-08-12; `git log docs/WORKTREES.md` recovers them.
   pre-squash history is kept in the **local-only** tag
   `archive/hub-admin-cv-docs` — never push it (public repo; a pushed tag
   re-published scrubbed history once).
-- **`claude/last-call-game-overhaul-2laeqa`** (remote only, no worktree):
-  Last Call engine overhaul — five non-numeric effect systems and the round
-  resolution report. Draft PR Hampternt/drawingportfolio#13 → `master`,
-  idle since 2026-09-06.
+- **`claude/last-call-game-overhaul-2laeqa`** — Last Call engine overhaul
+  (real decks, five non-numeric effect systems, the round resolution report)
+  **LANDED** via Hampternt/drawingportfolio#13 (2026-10-31), ahead of the
+  owner's walkthrough — its *Test it yourself* section is the to-do. Manifest:
+  `docs/manifests/2026-08-23-last-call-engine-overhaul.md`. The new cards
+  stay at `copies: 0` until their pickers exist — `drinkinggame/ENGINE.md`
+  lists what is left.
 - **Backroom** (`claude/secret-hitler-game-jg8xqs`) — **LANDED** via
   Hampternt/drawingportfolio#15. Manifest: `docs/manifests/2026-09-07-backroom.md`.
   The drinking variant ("Secret Sippler") remains a later mode, constrained by

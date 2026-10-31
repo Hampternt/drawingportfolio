@@ -265,6 +265,69 @@ that are already public or uniform across living seats. **v1 pours nothing**
 the other three games that is convenience, here it is a one-POST role dump.
 The flag is off by default and off on the live server.
 
+### Last Call engine
+
+The engine (`last_call.rs`) is a pure state machine — no I/O, no SQL, and no
+*ambient* randomness. Player-facing rules live in `drinkinggame/RULES.md`.
+Five modules carry the pieces that used to be implicit:
+
+- **`lc_deck`** — real card decks. Each opened deck is a `Shoe` with a
+  `draw_pile` and a `discard_pile`; `LcTable` owns them. This replaced
+  `deck_counts: Vec<(Deck, u16)>`, which counted how many cards a deck had
+  left without tracking *which* — identity was sampled in the route layer
+  *with replacement*, so a 40-card shoe could deal 40 copies of one card and
+  `copies` set probability rather than scarcity. Cards are now conserved:
+  the total across piles, hands, armed slots and locked plays never changes.
+  `PublicView::deck_counts`/`discard_counts` still project the old shapes, so
+  the render layer never saw this change.
+- **`lc_rng`** — SplitMix64, seeded from and stored in the state blob. Every
+  shuffle and deal runs through it, so a game is reproducible from its seed
+  and a snapshot resumes the stream exactly. The engine keeps its purity
+  claim: it has no ambient randomness, it has a counter it advances. The one
+  `rand::thread_rng()` left in the crate is the room-creation seed in
+  `lc_routes` — the entropy boundary, and the right place for it.
+- **`lc_phase`** — `Phase` (Lobby/Playing/Challenge/Finished) and `SeatPhase`
+  (Acting/Ready/Locked/Waiting/Ghost/Done), both derived, never stored.
+  `SeatPhase` is the anti-desync piece: "is the table waiting on this seat?"
+  is computed once on the server and read off `PublicSeat::phase`, rather
+  than each client recombining `locked`/`ready`/`drawing`/`status` and the
+  beat for itself. Each arm mirrors what actually *advances* that beat —
+  note Diplomacy is lock-gated, not ready-gated (`set_ready` accepts only
+  Draw and Reveal), which two comments in the tree used to get wrong.
+- **`lc_triggers`** — card-triggered table events, as distinct from
+  `lc_events`'s one scheduled round event. A trigger fires the moment a card
+  is drawn, played or discarded. The queue records, projects and clears
+  triggers, but is **inert**: no route calls `ack_trigger` and no advance
+  predicate consults it, so nothing halts the game yet. Harmless only because
+  the one worked example (`salute-the-leader`) points at a card id that is
+  not in the catalog — wiring a real trigger needs that gate built first.
+- **`lc_report`** — the round report. `resolve()` builds a `Resolution`, an
+  ordered `Vec<Blow>` naming the card, player, subject and number behind
+  everything that landed — including what the log omits, such as a fully
+  shielded hit. It parks the round until the seats a blow landed on confirm;
+  a round that lands nothing does not park. A record beside the log, not a
+  log filter (CLAUDE.md §Last Call's engine has the rules).
+
+**Engine API.** Everything that moves a card goes through `draw_cards` /
+`deal` / `discard` / `reshuffle_deck`, and everything that changes a player
+goes through `damage` / `heal` / `shield` / `drain`. That is a real
+invariant, not a convention: `resolve()`'s effect match, the dot ticks, the
+event hooks, the challenge penalties and the tab rewards all call the same
+five functions, which is what keeps shields, the HP clamp, elimination and
+the stat counters decided in one place. The `_quiet` variants exist for the
+table-wide hooks, which are announced by their own banner and would
+otherwise emit a per-seat log line each.
+
+**Save compatibility.** A blob written before `table` existed cannot have its
+piles reconstructed — the cards in a deck were never recorded, only counted —
+so `from_json` rebuilds them from the blob's own `rng_seed`. Hands, HP,
+effects, pacts and the log survive; draw order and discard piles reset. The
+guard (`!players.is_empty() && table.shoes.is_empty()`) is only a cheap
+early-out: mutation-testing showed its second half can be deleted with the
+suite green. The real protection is `LcTable::open`'s own `is_open` check,
+which keeps a reload from dealing 40 fresh cards per deck and duplicating
+every card already in a hand.
+
 ---
 
 ## What not to do
