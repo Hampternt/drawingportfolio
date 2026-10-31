@@ -132,6 +132,13 @@ A party platform for phone-based drinking games in shared rooms.
   IN; card swaps happen in a full-screen mulligan overlay; seat chips
   show everyone's per-deck hand counts; a mode badge + pull count ride
   the tab row. Container: `docs/manifests/2026-08-13-lc-mobile-play-flow.md`
+- ✅ Last Call engine overhaul — decks are real piles (a rare card is
+  actually rare) and a game replays from its seed. After any round in which
+  someone was hit, a THE ROUND strip lists each blow — who, with which card,
+  for how much, including blocked hits — and the table waits until everyone
+  who was hit taps GOT IT. Standing rules show as a badge on the player's
+  plaque. Cards that reveal hands, pour, swap or pin a rule are built but
+  not in any deck yet. Plan: `docs/manifests/2026-08-23-last-call-engine-overhaul.md`
 - ✅ Challenge-card engine — a played challenge pauses the round for a table
   vote that settles it. No challenge card is in the deck yet, so no live game
   draws one.
