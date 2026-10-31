@@ -1022,6 +1022,16 @@ body.lc-screen .lc-banner { flex: 1; text-align: center; }
 body.lc-screen .lc-banner-beat { font-size: 46px; line-height: 1; }
 body.lc-screen .lc-banner-meta { font-size: 12px; letter-spacing: .2em; }
 body.lc-screen .lc-timer { height: 3px; }
+/* The round report on the big screen: one row, no button. `.lc-screen-head`
+   is a fixed 88px box (see `settled_strip`), and the phone's multi-line
+   receipt measured four rows spilling over the felt. Nobody can press GOT IT
+   on a cookie-less TV, and the blows themselves are on every phone, so the
+   screen keeps only what the room is waiting on. */
+body.lc-screen .lc-report { flex-direction: row; align-items: baseline;
+                            padding-bottom: 1px; }
+body.lc-screen .lc-report .lc-blows,
+body.lc-screen .lc-report .lc-report-ok { display: none; }
+body.lc-screen .lc-report-foot { border-top: 0; padding-top: 0; }
 
 /* Task 4's repaint hook: lc_screen.html's SSE listener needs a stable
    element id to replace on every `lcpublic` frame. `display: contents`

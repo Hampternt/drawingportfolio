@@ -137,14 +137,36 @@ DRINKS_TEST_MODE=1 DRINKS_DATABASE_URL='sqlite:/tmp/lc-test.db?mode=rwc' cargo r
   every seat's stripe on every surface rendered as a grey pill. Renamed to
   `.lc-standing-rule(s)`; the plaque test now asserts only the stripe
   carries `.lc-rule`, and fails on the old markup.
+- **Second regression found on the smoke load and fixed:** on the big
+  screen the round report rendered as the phone's full receipt — four rows
+  and a GOT IT button — inside `.lc-screen-head`, a fixed 88px box, so it
+  spilled over the felt; and nobody can press a button on a cookie-less TV.
+  Screen-scoped CSS now collapses it to one row: **THE ROUND · WAITING ON
+  …**. The blow list stays on the phones. (Decision taken here, not by the
+  owner: the TV shows who the room is waiting on, not the blows. Showing
+  the blows on the TV would need a redesign of the screen header.)
 - Cleared five clippy warnings in `drinkinggame` (four from this branch, one
   from master's `tests/http.rs`) — the crate is back to zero.
 
-**Smoke load** (headless Chromium, test mode, throwaway DB): the room page
-and the big screen load with Last Call started; the only console error is a
-404 for `/favicon.ico`, which the standalone server does not serve (master
-behaves the same). Seat plaques clip at the big screen's left pane edge at
-1280×720 — identical on `master`, so not this branch's.
+**Smoke load** (headless Chromium, three real players in separate
+sessions, test mode, throwaway DB): played round 1 through the routes,
+with one seat hitting another and playing Hat of Compliments on them.
+Checked on the phone (412px) and the big screen (1280×720):
+- the THE ROUND strip lists every blow, the hat as `2 ROUNDS`, and a
+  random event's hit
+- clicking **GOT IT** in the browser posts `resolution-ack` (204), and once
+  every seat that was hit had tapped, the round rolled over and the strip
+  went away
+- the rule badge sits on the target's plaque, and deck stripes keep their
+  colours.
+
+Not this branch's (both also happen on `master`, so left alone):
+- console: a 404 for `/favicon.ico`, which the standalone server does not
+  serve
+- an intermittent `htmx is not defined` from `room.html`'s `swapPanel`,
+  which can run before the deferred `htmx.min.js`. That line dates from
+  2026-07-31, and this branch does not touch `room.html`
+- seat plaques clip at the big screen's left pane edge at 1280×720.
 
 **Full gate** — `SQLX_OFFLINE=true ./scripts/verify.sh`, after the last code
 change (only docs changed after it), exit 0:
