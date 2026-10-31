@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="_ds/hampter-design-system-03c25988-bba8-4fc5-801f-653a333b24c3/tokens/fonts.css">
+<link rel="stylesheet" href="_ds/hampter-design-system-03c25988-bba8-4fc5-801f-653a333b24c3/tokens/colors.css">
+<link rel="stylesheet" href="_ds/hampter-design-system-03c25988-bba8-4fc5-801f-653a333b24c3/tokens/typography.css">
+<link rel="stylesheet" href="_ds/hampter-design-system-03c25988-bba8-4fc5-801f-653a333b24c3/tokens/spacing.css">
+<link rel="stylesheet" href="_ds/hampter-design-system-03c25988-bba8-4fc5-801f-653a333b24c3/tokens/shape.css">
+<link rel="stylesheet" href="_ds/hampter-design-system-03c25988-bba8-4fc5-801f-653a333b24c3/tokens/motion.css">
+<link rel="stylesheet" href="_ds/hampter-design-system-03c25988-bba8-4fc5-801f-653a333b24c3/tokens/base.css">
+<link rel="stylesheet" href="_ds/hampter-design-system-03c25988-bba8-4fc5-801f-653a333b24c3/components/components.css">
+<link rel="stylesheet" href="_ds/hampter-design-system-03c25988-bba8-4fc5-801f-653a333b24c3/tokens/legacy-nocturne.css">
+<link rel="stylesheet" href="_ds/hampter-design-system-03c25988-bba8-4fc5-801f-653a333b24c3/styles.css">
+<script src="_ds/hampter-design-system-03c25988-bba8-4fc5-801f-653a333b24c3/_ds_bundle.js"></script>
+<style>
+  a { color: #B48EF7; text-decoration: none; }
+  a:hover { color: #C9AEFA; }
+</style>
+</helmet>
+<div data-screen-label="Hub" style="min-height:100vh;background:#0B0910;color:#CDC6DD;font:400 15px/1.5 'Space Grotesk',system-ui,sans-serif">
+
+<header style="position:sticky;top:0;z-index:40;height:56px;display:flex;align-items:center;gap:24px;padding:0 32px;background:rgba(14,12,20,.82);backdrop-filter:blur(10px);border-bottom:1px solid rgba(242,238,248,.07)">
+<span style="font-family:'Archivo',system-ui,sans-serif;font-weight:800;font-size:17px;letter-spacing:-0.035em;color:#F2EEF8">hampter<span style="color:#B48EF7">.</span></span>
+<nav style="display:flex;align-items:center;gap:20px;font-size:14px;font-weight:500;min-width:0;overflow:hidden">
+<a href="#" style="color:#8D87A0;text-decoration:none;white-space:nowrap">Drawing Portfolio</a>
+<a href="#" style="color:#8D87A0;text-decoration:none;white-space:nowrap">Drawing Tasks</a>
+<a href="#" style="color:#8D87A0;text-decoration:none;white-space:nowrap">Fitness</a>
+<a href="#" style="color:#8D87A0;text-decoration:none;white-space:nowrap">Sorting</a>
+<a href="CV.dc.html" style="color:#8D87A0;text-decoration:none;white-space:nowrap">CV</a>
+<a href="How it works.dc.html" style="color:#8D87A0;text-decoration:none;white-space:nowrap">How it works</a>
+</nav>
+<div style="margin-left:auto;display:flex;align-items:center;gap:12px;flex:none">
+<button type="button" onClick="{{ openPalette }}" aria-label="Open command palette" style="display:flex;align-items:center;gap:8px;height:34px;padding:0 10px;background:none;border:1px solid transparent;border-radius:5px;cursor:pointer;color:#8D87A0" style-hover="background:rgba(242,238,248,.04);border-color:rgba(242,238,248,.07)">
+<x-import component-from-global-scope="HampterDesignSystem_03c259.KbdGroup" keys="{{ paletteKeys }}" hint="commands" hint-size="130px,20px"></x-import>
+</button>
+<sc-if value="{{ isAdmin }}" hint-placeholder-val="{{ true }}">
+<x-import component-from-global-scope="HampterDesignSystem_03c259.IconButton" icon="settings" label="Admin" variant="outline" hint-size="34px,34px"></x-import>
+</sc-if>
+</div>
+</header>
+
+<section style="padding:96px 32px 72px;background-color:#0B0910;background-image:linear-gradient(rgba(242,238,248,.045) 1px,transparent 1px),linear-gradient(90deg,rgba(242,238,248,.045) 1px,transparent 1px);background-size:32px 32px;border-bottom:1px solid rgba(242,238,248,.07)">
+<div style="max-width:1180px;margin:0 auto">
+<span style="font:500 11px/1.2 'IBM Plex Mono',monospace;letter-spacing:.10em;text-transform:uppercase;color:#5F5876">rust · axum · sqlite · htmx — one binary, five sections</span>
+<h1 style="margin:16px 0 0;font-family:'Archivo',system-ui,sans-serif;font-weight:900;font-size:clamp(44px,6.4vw,72px);line-height:1.04;letter-spacing:-0.025em;color:#F2EEF8">Portfolio<span style="color:#B48EF7">.</span></h1>
+<p style="margin:20px 0 0;font-size:19px;color:#CDC6DD;max-width:56ch;text-wrap:pretty">A collection of personal projects — art, code, and whatever comes next.</p>
+<p style="margin:10px 0 0;font-size:16px;color:#8D87A0;max-width:62ch;text-wrap:pretty">I draw most days, track what I eat, and build the tools for both myself — everything here runs on one server I maintain.</p>
+<sc-if value="{{ showPaletteBar }}" hint-placeholder-val="{{ true }}">
+<button type="button" onClick="{{ openPalette }}" style="display:flex;align-items:center;gap:12px;width:100%;max-width:520px;margin-top:36px;height:48px;padding:0 12px 0 16px;background:#17141F;border:1px solid rgba(242,238,248,.10);border-radius:8px;cursor:pointer;text-align:left;color:#8D87A0;font:400 15px/1.5 'Space Grotesk',system-ui,sans-serif" style-hover="border-color:#B48EF7">
+<x-import component-from-global-scope="HampterDesignSystem_03c259.Icon" name="search" size="{{ 16 }}" hint-size="16px,16px"></x-import>
+<span style="flex:1">Search commands…</span>
+<x-import component-from-global-scope="HampterDesignSystem_03c259.KbdGroup" keys="{{ paletteKeys }}" hint-size="66px,20px"></x-import>
+</button>
+<p style="margin:12px 0 0;font:500 11px/1.2 'IBM Plex Mono',monospace;letter-spacing:.10em;text-transform:uppercase;color:#5F5876">Every destination on this site is one shortcut away</p>
+</sc-if>
+</div>
+</section>
+
+<section style="max-width:1180px;margin:0 auto;padding:56px 32px 0">
+<div style="display:flex;align-items:center;gap:16px;margin-bottom:24px">
+<h2 style="margin:0;font-family:'Archivo',system-ui,sans-serif;font-weight:700;font-size:26px;line-height:1.22;letter-spacing:-0.02em;color:#F2EEF8">Sections</h2>
+<div style="flex:1;height:1px;background:rgba(242,238,248,.07)"></div>
+</div>
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));gap:16px">
+<x-import component-from-global-scope="HampterDesignSystem_03c259.HubCard" href="#" icon="image" title="Drawing Portfolio" description="A feed of drawings and sketches." meta="{{ metaArt }}" hint-size="100%,150px"></x-import>
+<x-import component-from-global-scope="HampterDesignSystem_03c259.HubCard" href="CV.dc.html" icon="file-text" title="CV" description="Hvor jeg har jobbet, hva jeg har bygget, og det samme som PDF." meta="{{ metaCv }}" hint-size="100%,150px"></x-import>
+<x-import component-from-global-scope="HampterDesignSystem_03c259.HubCard" href="#" icon="list-checks" title="Drawing Tasks" description="Practice prompts on reference images — sorted by subject, difficulty, and task type." meta="{{ metaTasks }}" hint-size="100%,150px"></x-import>
+<x-import component-from-global-scope="HampterDesignSystem_03c259.HubCard" href="#" icon="beer" title="Drinks" description="Party night drink tracker — join with a room code." meta="{{ metaDrinks }}" hint-size="100%,150px"></x-import>
+<x-import component-from-global-scope="HampterDesignSystem_03c259.HubCard" href="#" icon="activity" title="Fitness Tracker" description="Track daily meals, calories, and macros." meta="{{ metaFitness }}" hint-size="100%,150px"></x-import>
+<x-import component-from-global-scope="HampterDesignSystem_03c259.HubCard" href="#" icon="truck" title="Sorting" description="Crate sort and van load — a pick checklist, a live loading diagram, and the counts checked against each other." meta="{{ metaSorting }}" hint-size="100%,150px"></x-import>
+</div>
+</section>
+
+<footer style="max-width:1180px;margin:0 auto;padding:64px 32px 48px">
+<div style="display:flex;flex-wrap:wrap;align-items:baseline;gap:24px;padding-top:24px;border-top:1px solid rgba(242,238,248,.07);font:500 11px/1.2 'IBM Plex Mono',monospace;letter-spacing:.10em;color:#5F5876">
+<span style="color:#8D87A0">hampter<span style="color:#B48EF7">.</span></span>
+<span><a href="How it works.dc.html" style="color:#8D87A0;text-decoration:none">how this site works</a></span>
+<span>server-rendered · no build step</span>
+<span style="margin-left:auto"><a href="Admin.dc.html" style="color:#5F5876;text-decoration:none">/admin</a></span>
+</div>
+</footer>
+
+<x-import component-from-global-scope="HampterDesignSystem_03c259.CommandPalette" open="{{ paletteOpen }}" commands="{{ commands }}" isAdmin="{{ isAdmin }}" placeholder="Search commands…" onClose="{{ closePalette }}" onRun="{{ closePalette }}" hint-size="0px,0px"></x-import>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;isAdmin&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Viewer&quot;},&quot;showPaletteBar&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Hero&quot;},&quot;showTileMeta&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Sections&quot;}}">
+class Component extends DCLogic {
+  state = { paletteOpen: false };
+
+  componentDidMount() {
+    this._onKey = (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        this.setState((s) => ({ paletteOpen: !s.paletteOpen }));
+      } else if (e.key === 'Escape') {
+        this.setState({ paletteOpen: false });
+      }
+    };
+    document.addEventListener('keydown', this._onKey);
+  }
+
+  componentWillUnmount() {
+    document.removeEventListener('keydown', this._onKey);
+  }
+
+  renderVals() {
+    const meta = (s) => ((this.props.showTileMeta ?? true) ? s : undefined);
+    return {
+      paletteKeys: ['Ctrl', 'K'],
+      isAdmin: this.props.isAdmin ?? true,
+      showPaletteBar: this.props.showPaletteBar ?? true,
+      paletteOpen: this.state.paletteOpen,
+      openPalette: () => this.setState({ paletteOpen: true }),
+      closePalette: () => this.setState({ paletteOpen: false }),
+      metaArt: meta('public feed · admin uploads'),
+      metaTasks: meta('public · filter by subject, difficulty, type'),
+      metaDrinks: meta('4-letter room code · big screen'),
+      metaFitness: meta('sign-in required · per-user log'),
+      metaSorting: meta('sign-in required · tablet'),
+      metaCv: meta('one page · pdf download'),
+      commands: [
+        { id: 'hub', group: 'Navigate', label: 'Go to Hub', icon: 'home', keywords: 'home hub index start main' },
+        { id: 'art', group: 'Navigate', label: 'Go to Art Portfolio', icon: 'image', keywords: 'feed gallery art drawings portfolio' },
+        { id: 'tasks', group: 'Navigate', label: 'Go to Drawing Tasks', icon: 'list-checks', keywords: 'tasks practice prompts drills study exercises' },
+        { id: 'drinks', group: 'Navigate', label: 'Go to Drinking Game', icon: 'beer', keywords: 'drinks drinking party game shots room' },
+        { id: 'fitness', group: 'Navigate', label: 'Go to Fitness Tracker', icon: 'activity', keywords: 'fitness food nutrition calories meals health tracker' },
+        { id: 'week', group: 'Navigate', label: 'Go to Fitness Week', icon: 'calendar-days', keywords: 'week trends weight streak fitness' },
+        { id: 'sorting', group: 'Navigate', label: 'Go to Sorting', icon: 'truck', keywords: 'sorting sort crates van load route delivery pallet' },
+        { id: 'cv', group: 'Navigate', label: 'Go to CV', icon: 'file-text', keywords: 'cv resume work experience hire pdf' },
+        { id: 'docs', group: 'Navigate', label: 'How this site works', icon: 'book-open', keywords: 'docs documentation architecture stack how it works' },
+        { id: 'tag', group: 'Navigate', label: 'Filter drawings by tag', icon: 'tag', keywords: 'filter tags collection rail search' },
+        { id: 'upload', group: 'Admin', label: 'Upload new drawing', icon: 'upload', adminOnly: true, keywords: 'upload post new image add' },
+        { id: 'visitor', group: 'Admin', label: 'Toggle visitor view', icon: 'eye', adminOnly: true, keywords: 'visitor preview public visibility hidden unlisted' },
+        { id: 'session', group: 'Admin', label: 'New sorting session', icon: 'clipboard-list', adminOnly: true, keywords: 'sorting paste plan new route crates' },
+        { id: 'admin', group: 'Admin', label: 'Admin panel', icon: 'settings', adminOnly: true, keywords: 'admin settings manage' },
+      ],
+    };
+  }
+}
+</script>
+</body>
+</html>

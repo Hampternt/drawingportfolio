@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT payload as \"payload!\" FROM sorting_rules WHERE user_id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "payload!",
+        "ordinal": 0,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "b97e5f8e49653741adefccae528a1222d956ca4eead8ef79ca68d332cc08e33e"
+}

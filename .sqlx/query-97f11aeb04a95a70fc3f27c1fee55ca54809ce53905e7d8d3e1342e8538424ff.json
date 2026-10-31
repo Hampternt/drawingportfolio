@@ -1,0 +1,32 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT a.seq as \"seq!: i64\", a.kind as \"kind!\", a.payload as \"payload!\"\n           FROM sorting_actions a\n           JOIN sorting_sessions s ON s.id = a.session_id\n           WHERE a.session_id = ? AND s.user_id = ?\n           ORDER BY a.seq ASC",
+  "describe": {
+    "columns": [
+      {
+        "name": "seq!: i64",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "kind!",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "payload!",
+        "ordinal": 2,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "97f11aeb04a95a70fc3f27c1fee55ca54809ce53905e7d8d3e1342e8538424ff"
+}

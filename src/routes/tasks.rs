@@ -5,6 +5,10 @@
 //! have a "draw only the hands" focus study, a "redraw in ink" style study,
 //! and a "change the lighting" modification. Tasks are filterable by subject,
 //! difficulty and task type, and sortable like a problem list.
+//!
+//! The page is a filter rail beside a grid of cards, the same arrangement as
+//! `/artportfolio`. The rail lives inside `#task-board`, so every board swap
+//! re-renders it with the board and its active chips and counts never freeze.
 
 use crate::db::TaskFilters;
 use crate::models::{DrawingTaskWithImage, TaskImage};
@@ -23,14 +27,15 @@ use axum::{
 use std::collections::HashMap;
 use std::sync::Arc;
 
-// ── HTML helpers ──────────────────────────────────────────────────────────────
+// ── View models ───────────────────────────────────────────────────────────────
 
-fn html_escape(s: &str) -> String {
-    s.replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-}
+const DIFFICULTIES: [&str; 3] = ["easy", "medium", "hard"];
+const SORTS: [(&str, &str); 4] = [
+    ("newest", "Newest"),
+    ("oldest", "Oldest"),
+    ("easiest", "Easiest"),
+    ("hardest", "Hardest"),
+];
 
 fn difficulty_label(d: &str) -> &'static str {
     match d {
@@ -40,267 +45,323 @@ fn difficulty_label(d: &str) -> &'static str {
     }
 }
 
-fn selected_if(cond: bool) -> &'static str {
-    if cond {
-        " selected"
-    } else {
-        ""
+/// The design system's badge tone for a difficulty: mint, amber, rose.
+fn difficulty_tone(d: &str) -> &'static str {
+    match d {
+        "easy" => "success",
+        "hard" => "danger",
+        _ => "warning",
     }
 }
 
-fn task_card_html(t: &DrawingTaskWithImage, is_admin: bool) -> String {
-    let done_class = if t.completed { " task-done" } else { "" };
-    let check = if t.completed {
-        "<span class=\"task-check\" title=\"Completed\">✓</span>"
-    } else {
-        ""
-    };
-    let prompt_html = if t.prompt.is_empty() {
-        String::new()
-    } else {
-        format!("<p class=\"task-prompt\">{}</p>", html_escape(&t.prompt))
-    };
-    let subject_tag = if t.subject.is_empty() {
-        String::new()
-    } else {
-        format!(
-            "<span class=\"task-tag\">{}</span>",
-            html_escape(&t.subject)
-        )
-    };
-    let type_tag = if t.task_type.is_empty() {
-        String::new()
-    } else {
-        format!(
-            "<span class=\"task-tag\">{}</span>",
-            html_escape(&t.task_type)
-        )
-    };
-    let admin_btns = if is_admin {
-        let toggle_label = if t.completed { "Undo" } else { "Done" };
-        format!(
-            "<div class=\"task-admin-btns\">\
-             <button class=\"task-toggle-btn\" hx-post=\"/api/tasks/{id}/toggle\" \
-             hx-target=\"#task-board\" hx-swap=\"innerHTML\" hx-include=\"#task-filters\">{toggle_label}</button>\
-             <button class=\"task-delete-btn\" hx-delete=\"/api/tasks/{id}\" \
-             hx-target=\"#task-board\" hx-swap=\"innerHTML\" hx-include=\"#task-filters\" \
-             hx-confirm=\"Delete this task?\">×</button></div>",
-            id = t.id, toggle_label = toggle_label
-        )
-    } else {
-        String::new()
-    };
-    format!(
-        r#"<li class="task-card{done_class}" id="task-{id}">
-  <a class="task-thumb-link" href="{image_url}" target="_blank" rel="noopener">
-    <img class="task-thumb" src="{image_url}" alt="{image_title}" loading="lazy">
-  </a>
-  <div class="task-body">
-    <div class="task-title-row">
-      {check}<strong>{title}</strong>
-      <span class="task-diff task-diff-{difficulty}">{diff_label}</span>
-    </div>
-    {prompt_html}
-    <div class="task-tags">
-      {subject_tag}{type_tag}<span class="task-img-label">{image_title}</span>
-    </div>
-  </div>
-  {admin_btns}
-</li>"#,
-        done_class = done_class,
-        id = t.id,
-        image_url = html_escape(&t.image_url),
-        image_title = html_escape(&t.image_title),
-        check = check,
-        title = html_escape(&t.title),
-        difficulty = html_escape(&t.difficulty),
-        diff_label = difficulty_label(&t.difficulty),
-        prompt_html = prompt_html,
-        subject_tag = subject_tag,
-        type_tag = type_tag,
-        admin_btns = admin_btns,
-    )
+/// The query string for a filter state. Empty fields and the default sort are
+/// left out, so a clean board is plain `/tasks`.
+fn filter_query(f: &TaskFilters) -> String {
+    let mut s = url::form_urlencoded::Serializer::new(String::new());
+    for (key, value) in [
+        ("subject", &f.subject),
+        ("difficulty", &f.difficulty),
+        ("task_type", &f.task_type),
+    ] {
+        if !value.is_empty() {
+            s.append_pair(key, value);
+        }
+    }
+    if !f.sort.is_empty() && f.sort != "newest" {
+        s.append_pair("sort", &f.sort);
+    }
+    s.finish()
 }
 
-/// Filter bar + task list. Everything the /tasks/htmx/board endpoint returns,
-/// swapped into #task-board. The current filter values are re-marked as
-/// `selected` so the form survives the swap.
-pub fn board_html(
+/// A filter state as the two URLs a rail link carries: the page (for the
+/// address bar and a no-JS click) and the board fragment (for the swap).
+struct FilterLink {
+    page_url: String,
+    board_url: String,
+}
+
+impl FilterLink {
+    fn new(f: &TaskFilters) -> Self {
+        let q = filter_query(f);
+        if q.is_empty() {
+            FilterLink {
+                page_url: "/tasks".into(),
+                board_url: "/tasks/htmx/board".into(),
+            }
+        } else {
+            FilterLink {
+                page_url: format!("/tasks?{q}"),
+                board_url: format!("/tasks/htmx/board?{q}"),
+            }
+        }
+    }
+}
+
+/// One toggle in the rail. Its link is the full filter state a click
+/// produces — this facet flipped, every other filter carried — so the
+/// template never assembles a URL. `count` is how many tasks that state
+/// would show; the sort chips carry none.
+struct RailChip {
+    label: String,
+    count: Option<usize>,
+    active: bool,
+    link: FilterLink,
+}
+
+/// Which of the three facets a chip set toggles.
+#[derive(Clone, Copy, PartialEq)]
+enum Facet {
+    Subject,
+    Difficulty,
+    TaskType,
+}
+
+impl Facet {
+    fn get(self, f: &TaskFilters) -> &str {
+        match self {
+            Facet::Subject => &f.subject,
+            Facet::Difficulty => &f.difficulty,
+            Facet::TaskType => &f.task_type,
+        }
+    }
+
+    fn of(self, t: &DrawingTaskWithImage) -> &str {
+        match self {
+            Facet::Subject => &t.subject,
+            Facet::Difficulty => &t.difficulty,
+            Facet::TaskType => &t.task_type,
+        }
+    }
+
+    fn with(self, f: &TaskFilters, value: &str) -> TaskFilters {
+        let mut next = TaskFilters {
+            subject: f.subject.clone(),
+            difficulty: f.difficulty.clone(),
+            task_type: f.task_type.clone(),
+            sort: f.sort.clone(),
+        };
+        let slot = match self {
+            Facet::Subject => &mut next.subject,
+            Facet::Difficulty => &mut next.difficulty,
+            Facet::TaskType => &mut next.task_type,
+        };
+        *slot = value.to_string();
+        next
+    }
+}
+
+/// Does `t` pass every active filter except `skip`'s? Counting a chip this
+/// way answers "what would I see if I picked this", which is the number a
+/// filter rail should show.
+fn matches_except(t: &DrawingTaskWithImage, f: &TaskFilters, skip: Facet) -> bool {
+    [Facet::Subject, Facet::Difficulty, Facet::TaskType]
+        .into_iter()
+        .filter(|facet| *facet != skip)
+        .all(|facet| facet.get(f).is_empty() || facet.of(t) == facet.get(f))
+}
+
+/// The chips for one facet, built from the unfiltered task list. `values` is
+/// the order to show them in; an active value that no task carries any more
+/// is still shown, at zero, so it can be cleared.
+fn facet_chips(
+    all: &[DrawingTaskWithImage],
+    f: &TaskFilters,
+    facet: Facet,
+    values: Vec<String>,
+    label: fn(&str) -> String,
+) -> Vec<RailChip> {
+    let mut values = values;
+    let current = facet.get(f);
+    if !current.is_empty() && !values.iter().any(|v| v == current) {
+        values.push(current.to_string());
+    }
+    values
+        .into_iter()
+        .map(|v| {
+            let active = v == current;
+            let count = all
+                .iter()
+                .filter(|t| facet.of(t) == v && matches_except(t, f, facet))
+                .count();
+            // Clicking the active chip clears it.
+            let next = facet.with(f, if active { "" } else { &v });
+            RailChip {
+                label: label(&v),
+                count: Some(count),
+                active,
+                link: FilterLink::new(&next),
+            }
+        })
+        .collect()
+}
+
+/// Distinct non-empty values of a facet across every task, sorted.
+fn distinct(all: &[DrawingTaskWithImage], facet: Facet) -> Vec<String> {
+    let mut v: Vec<String> = all
+        .iter()
+        .map(|t| facet.of(t).to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+    v.sort();
+    v.dedup();
+    v
+}
+
+/// One task as its card renders it — the difficulty already resolved to a
+/// label and a badge tone.
+struct TaskCard<'a> {
+    task: &'a DrawingTaskWithImage,
+    difficulty_label: &'static str,
+    difficulty_tone: &'static str,
+}
+
+/// Rail + grid. Everything the /tasks/htmx/board endpoint returns, swapped
+/// into #task-board.
+#[derive(Template)]
+#[template(path = "tasks/partials/board.html")]
+struct BoardTemplate<'a> {
+    f: &'a TaskFilters,
+    cards: Vec<TaskCard<'a>>,
+    subjects: Vec<RailChip>,
+    difficulties: Vec<RailChip>,
+    types: Vec<RailChip>,
+    sorts: Vec<RailChip>,
+    total: usize,
+    done: usize,
+    done_percent: usize,
+    shown_label: String,
+    /// Some when any facet is active: the link that clears all three and
+    /// keeps the sort.
+    clear: Option<FilterLink>,
+    is_admin: bool,
+}
+
+/// `all` is every task, unfiltered — the rail's counts and the progress line
+/// come from it; `tasks` is what the current filters show.
+fn board_html(
+    all: &[DrawingTaskWithImage],
     tasks: &[DrawingTaskWithImage],
-    subjects: &[String],
-    types: &[String],
     f: &TaskFilters,
     is_admin: bool,
 ) -> String {
-    let subject_options: String = subjects
+    let as_is = |s: &str| s.to_string();
+    let subjects = facet_chips(all, f, Facet::Subject, distinct(all, Facet::Subject), as_is);
+    let difficulties = facet_chips(
+        all,
+        f,
+        Facet::Difficulty,
+        DIFFICULTIES.iter().map(|d| d.to_string()).collect(),
+        |d| difficulty_label(d).to_string(),
+    );
+    let types = facet_chips(
+        all,
+        f,
+        Facet::TaskType,
+        distinct(all, Facet::TaskType),
+        as_is,
+    );
+
+    let current_sort = if f.sort.is_empty() { "newest" } else { &f.sort };
+    let sorts = SORTS
         .iter()
-        .map(|s| {
-            format!(
-                "<option value=\"{v}\"{sel}>{v}</option>",
-                v = html_escape(s),
-                sel = selected_if(*s == f.subject)
-            )
-        })
-        .collect();
-    let type_options: String = types
-        .iter()
-        .map(|s| {
-            format!(
-                "<option value=\"{v}\"{sel}>{v}</option>",
-                v = html_escape(s),
-                sel = selected_if(*s == f.task_type)
-            )
+        .map(|(key, label)| RailChip {
+            label: label.to_string(),
+            count: None,
+            active: *key == current_sort,
+            link: FilterLink::new(&TaskFilters {
+                subject: f.subject.clone(),
+                difficulty: f.difficulty.clone(),
+                task_type: f.task_type.clone(),
+                sort: key.to_string(),
+            }),
         })
         .collect();
 
-    let cards: String = tasks
-        .iter()
-        .map(|t| task_card_html(t, is_admin))
-        .collect::<Vec<_>>()
-        .join("\n");
-    let list_html = if tasks.is_empty() {
-        "<p class=\"empty-state\">No tasks match these filters.</p>".to_string()
-    } else {
-        format!("<ul class=\"task-list\">\n{}\n</ul>", cards)
+    let total = all.len();
+    let done = all.iter().filter(|t| t.completed).count();
+    let done_percent = (done * 100).checked_div(total).unwrap_or(0);
+    let any_filter = !(f.subject.is_empty() && f.difficulty.is_empty() && f.task_type.is_empty());
+    let shown_label = match (any_filter, tasks.len()) {
+        (false, 1) => "1 task".to_string(),
+        (false, n) => format!("{n} tasks"),
+        (true, n) => format!("{n} of {total}"),
     };
+    let clear = any_filter.then(|| {
+        FilterLink::new(&TaskFilters {
+            subject: String::new(),
+            difficulty: String::new(),
+            task_type: String::new(),
+            sort: f.sort.clone(),
+        })
+    });
 
-    let count = tasks.len();
-    let count_label = if count == 1 { "task" } else { "tasks" };
-    let done = tasks.iter().filter(|t| t.completed).count();
+    let cards = tasks
+        .iter()
+        .map(|t| TaskCard {
+            task: t,
+            difficulty_label: difficulty_label(&t.difficulty),
+            difficulty_tone: difficulty_tone(&t.difficulty),
+        })
+        .collect();
 
-    format!(
-        r##"<form id="task-filters" class="task-filters"
-      hx-get="/tasks/htmx/board" hx-target="#task-board" hx-swap="innerHTML" hx-trigger="change">
-  <select name="subject" aria-label="Filter by subject">
-    <option value="">All subjects</option>
-    {subject_options}
-  </select>
-  <select name="difficulty" aria-label="Filter by difficulty">
-    <option value="">Any difficulty</option>
-    <option value="easy"{sel_easy}>Easy</option>
-    <option value="medium"{sel_medium}>Medium</option>
-    <option value="hard"{sel_hard}>Hard</option>
-  </select>
-  <select name="task_type" aria-label="Filter by task type">
-    <option value="">All types</option>
-    {type_options}
-  </select>
-  <select name="sort" aria-label="Sort order">
-    <option value="newest"{sort_newest}>Newest</option>
-    <option value="oldest"{sort_oldest}>Oldest</option>
-    <option value="easiest"{sort_easiest}>Easiest first</option>
-    <option value="hardest"{sort_hardest}>Hardest first</option>
-  </select>
-  <span class="task-count">{done}/{count} {count_label} done</span>
-</form>
-{list_html}"##,
-        subject_options = subject_options,
-        sel_easy = selected_if(f.difficulty == "easy"),
-        sel_medium = selected_if(f.difficulty == "medium"),
-        sel_hard = selected_if(f.difficulty == "hard"),
-        type_options = type_options,
-        sort_newest = selected_if(f.sort == "newest" || f.sort.is_empty()),
-        sort_oldest = selected_if(f.sort == "oldest"),
-        sort_easiest = selected_if(f.sort == "easiest"),
-        sort_hardest = selected_if(f.sort == "hardest"),
-        done = done,
-        count = count,
-        count_label = count_label,
-        list_html = list_html,
-    )
+    BoardTemplate {
+        f,
+        cards,
+        subjects,
+        difficulties,
+        types,
+        sorts,
+        total,
+        done,
+        done_percent,
+        shown_label,
+        clear,
+        is_admin,
+    }
+    .render()
+    .unwrap()
 }
 
 /// Admin panel: upload a reference image, attach a task to an existing image,
 /// and manage (delete) uploaded images. Swapped into #task-admin.
-pub fn admin_html(images: &[TaskImage], subjects: &[String], types: &[String]) -> String {
-    let image_options: String = images
-        .iter()
-        .map(|i| {
-            format!(
-                "<option value=\"{}\">{}</option>",
-                i.id,
-                html_escape(&i.title)
-            )
-        })
-        .collect();
-    let subject_datalist: String = subjects
-        .iter()
-        .map(|s| format!("<option value=\"{}\"></option>", html_escape(s)))
-        .collect();
-    let type_datalist: String = types
-        .iter()
-        .map(|s| format!("<option value=\"{}\"></option>", html_escape(s)))
-        .collect();
-    let image_rows: String = images
-        .iter()
-        .map(|i| {
-            format!(
-                r##"<li class="task-image-row">
-  <img class="task-thumb" src="{url}" alt="{title}" loading="lazy">
-  <span class="task-image-title">{title}</span>
-  <button class="task-delete-btn" hx-delete="/api/tasks/images/{id}"
-          hx-target="#task-admin" hx-swap="innerHTML"
-          hx-confirm="Delete this image and ALL tasks attached to it?">×</button>
-</li>"##,
-                url = html_escape(&i.image_url),
-                title = html_escape(&i.title),
-                id = i.id
-            )
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
-
-    format!(
-        r##"<section class="task-admin">
-  <h2>Manage tasks</h2>
-  <div class="task-admin-forms">
-    <form class="task-form" hx-post="/api/tasks/images" hx-target="#task-admin"
-          hx-swap="innerHTML" hx-encoding="multipart/form-data">
-      <h3>New reference image</h3>
-      <input type="text" name="title" placeholder="Image title *" required>
-      <label class="file-label">Image <input type="file" name="image" accept="image/jpeg,image/png,image/webp" required></label>
-      <button type="submit" class="btn-primary">Upload image</button>
-    </form>
-    <form class="task-form" hx-post="/api/tasks" hx-target="#task-admin" hx-swap="innerHTML">
-      <h3>New task</h3>
-      <select name="image_id" required>
-        <option value="">— pick reference image —</option>
-        {image_options}
-      </select>
-      <input type="text" name="title" placeholder="Task title *" required>
-      <textarea name="prompt" placeholder="Prompt — what to draw, which part to focus on, what style, what to change…"></textarea>
-      <input type="text" name="subject" list="subject-options" placeholder="Subject (e.g. anatomy, portrait)">
-      <datalist id="subject-options">{subject_datalist}</datalist>
-      <input type="text" name="task_type" list="type-options" placeholder="Type (e.g. focus study, style study, modification)">
-      <datalist id="type-options">{type_datalist}</datalist>
-      <select name="difficulty" aria-label="Difficulty">
-        <option value="easy">Easy</option>
-        <option value="medium" selected>Medium</option>
-        <option value="hard">Hard</option>
-      </select>
-      <button type="submit" class="btn-primary">Add task</button>
-    </form>
-  </div>
-  <ul class="task-image-list">
-{image_rows}
-  </ul>
-</section>"##,
-        image_options = image_options,
-        subject_datalist = subject_datalist,
-        type_datalist = type_datalist,
-        image_rows = image_rows,
-    )
+#[derive(Template)]
+#[template(path = "tasks/partials/admin.html")]
+struct AdminTemplate<'a> {
+    images: &'a [TaskImage],
+    subjects: &'a [String],
+    types: &'a [String],
 }
 
+fn admin_html(images: &[TaskImage], subjects: &[String], types: &[String]) -> String {
+    AdminTemplate {
+        images,
+        subjects,
+        types,
+    }
+    .render()
+    .unwrap()
+}
+
+/// Difficulty and sort are closed sets, so anything outside them — a
+/// hand-typed `?difficulty=Hard`, a stale `?sort=` — is normalised here
+/// rather than carried into every chip link: difficulty is lowercased and
+/// dropped if unknown, sort falls back to newest.
 fn filters_from_params(params: &HashMap<String, String>) -> TaskFilters {
+    let difficulty = params
+        .get("difficulty")
+        .map(|d| d.trim().to_lowercase())
+        .filter(|d| DIFFICULTIES.contains(&d.as_str()))
+        .unwrap_or_default();
+    let sort = params
+        .get("sort")
+        .filter(|s| SORTS.iter().any(|(key, _)| key == s))
+        .cloned()
+        .unwrap_or_else(|| "newest".to_string());
     TaskFilters {
         subject: params.get("subject").cloned().unwrap_or_default(),
-        difficulty: params.get("difficulty").cloned().unwrap_or_default(),
+        difficulty,
         task_type: params.get("task_type").cloned().unwrap_or_default(),
-        sort: params
-            .get("sort")
-            .cloned()
-            .unwrap_or_else(|| "newest".to_string()),
+        sort,
     }
 }
 
@@ -313,10 +374,15 @@ fn normalize_difficulty(d: &str) -> &'static str {
 }
 
 async fn render_board(state: &AppState, f: &TaskFilters, is_admin: bool) -> String {
+    let unfiltered = TaskFilters {
+        subject: String::new(),
+        difficulty: String::new(),
+        task_type: String::new(),
+        sort: String::new(),
+    };
+    let all = crate::db::get_tasks_filtered(&state.pool, &unfiltered).await;
     let tasks = crate::db::get_tasks_filtered(&state.pool, f).await;
-    let subjects = crate::db::get_task_subjects(&state.pool).await;
-    let types = crate::db::get_task_types(&state.pool).await;
-    board_html(&tasks, &subjects, &types, f, is_admin)
+    board_html(&all, &tasks, f, is_admin)
 }
 
 async fn render_admin(state: &AppState) -> String {
@@ -338,11 +404,14 @@ struct TasksTemplate {
 
 // ── Route handlers ────────────────────────────────────────────────────────────
 
+/// Honours the same query as the board fragment, so a filtered board's
+/// pushed URL reloads to the same board.
 async fn tasks_page(
     OptionalAdmin(is_admin): OptionalAdmin,
     State(state): State<Arc<AppState>>,
+    Query(params): Query<HashMap<String, String>>,
 ) -> impl IntoResponse {
-    let f = filters_from_params(&HashMap::new());
+    let f = filters_from_params(&params);
     let board = render_board(&state, &f, is_admin).await;
     let admin = if is_admin {
         render_admin(&state).await
@@ -523,6 +592,9 @@ async fn delete_task_handler(
     Html(render_board(&state, &f, true).await)
 }
 
+/// Mark done / Undo. The card sends the state it wants (`completed=1` or
+/// `0`) rather than asking for a flip, so a click on a stale card — Back
+/// into an old snapshot, a second tab — cannot undo what it meant to do.
 async fn toggle_task_handler(
     _: RequireAdmin,
     State(state): State<Arc<AppState>>,
@@ -530,9 +602,20 @@ async fn toggle_task_handler(
     // htmx 2.x sends hx-include'd params in the body for POST requests
     axum::Form(params): axum::Form<HashMap<String, String>>,
 ) -> impl IntoResponse {
-    crate::db::toggle_task_completed(&state.pool, id).await;
+    let completed = match params.get("completed").map(String::as_str) {
+        Some("1") => true,
+        Some("0") => false,
+        _ => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Html("<p>completed must be 1 or 0</p>".to_string()),
+            )
+                .into_response()
+        }
+    };
+    crate::db::set_task_completed(&state.pool, id, completed).await;
     let f = filters_from_params(&params);
-    Html(render_board(&state, &f, true).await)
+    Html(render_board(&state, &f, true).await).into_response()
 }
 
 pub fn router() -> Router<Arc<AppState>> {
@@ -544,4 +627,211 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/api/tasks/{id}/toggle", post(toggle_task_handler))
         .route("/api/tasks/images", post(add_task_image))
         .route("/api/tasks/images/{id}", delete(delete_task_image_handler))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn task(id: i64, subject: &str, difficulty: &str, task_type: &str) -> DrawingTaskWithImage {
+        DrawingTaskWithImage {
+            id,
+            image_id: 1,
+            title: format!("Task {id}"),
+            prompt: String::new(),
+            subject: subject.into(),
+            difficulty: difficulty.into(),
+            task_type: task_type.into(),
+            completed: false,
+            created_at: String::new(),
+            image_title: "Reference".into(),
+            image_url: "/ref.webp".into(),
+        }
+    }
+
+    fn filters(subject: &str, difficulty: &str, task_type: &str, sort: &str) -> TaskFilters {
+        TaskFilters {
+            subject: subject.into(),
+            difficulty: difficulty.into(),
+            task_type: task_type.into(),
+            sort: sort.into(),
+        }
+    }
+
+    fn sample() -> Vec<DrawingTaskWithImage> {
+        vec![
+            task(1, "figure", "easy", "gesture"),
+            task(2, "figure", "hard", "modification"),
+            task(3, "still life", "easy", "value study"),
+        ]
+    }
+
+    #[test]
+    fn test_filter_query_leaves_out_empty_fields_and_the_default_sort() {
+        assert_eq!(filter_query(&filters("", "", "", "newest")), "");
+        assert_eq!(filter_query(&filters("", "", "", "")), "");
+        assert_eq!(
+            filter_query(&filters("still life", "hard", "", "oldest")),
+            "subject=still+life&difficulty=hard&sort=oldest"
+        );
+    }
+
+    #[test]
+    fn test_a_chip_counts_what_picking_it_would_show() {
+        let all = sample();
+        // Under difficulty=easy, "figure" would show one task, not two.
+        let f = filters("", "easy", "", "newest");
+        let chips = facet_chips(
+            &all,
+            &f,
+            Facet::Subject,
+            distinct(&all, Facet::Subject),
+            |s| s.to_string(),
+        );
+        let figure = chips.iter().find(|c| c.label == "figure").unwrap();
+        assert_eq!(figure.count, Some(1));
+        assert!(!figure.active);
+        // Its link adds the subject and keeps the difficulty.
+        assert_eq!(
+            figure.link.page_url,
+            "/tasks?subject=figure&difficulty=easy"
+        );
+        assert_eq!(
+            figure.link.board_url,
+            "/tasks/htmx/board?subject=figure&difficulty=easy"
+        );
+    }
+
+    #[test]
+    fn test_the_active_chip_clears_its_own_facet() {
+        let all = sample();
+        let f = filters("figure", "easy", "", "oldest");
+        let chips = facet_chips(
+            &all,
+            &f,
+            Facet::Subject,
+            distinct(&all, Facet::Subject),
+            |s| s.to_string(),
+        );
+        let figure = chips.iter().find(|c| c.label == "figure").unwrap();
+        assert!(figure.active);
+        assert_eq!(figure.link.page_url, "/tasks?difficulty=easy&sort=oldest");
+    }
+
+    #[test]
+    fn test_an_active_value_no_task_carries_still_renders_so_it_can_be_cleared() {
+        let all = sample();
+        let f = filters("portrait", "", "", "newest");
+        let chips = facet_chips(
+            &all,
+            &f,
+            Facet::Subject,
+            distinct(&all, Facet::Subject),
+            |s| s.to_string(),
+        );
+        let gone = chips.iter().find(|c| c.label == "portrait").unwrap();
+        assert!(gone.active);
+        assert_eq!(gone.count, Some(0));
+        assert_eq!(gone.link.page_url, "/tasks");
+    }
+
+    #[test]
+    fn test_filters_normalise_difficulty_and_sort() {
+        let params = |pairs: &[(&str, &str)]| -> HashMap<String, String> {
+            pairs
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect()
+        };
+        let f = filters_from_params(&params(&[("difficulty", "Hard"), ("sort", "oldest")]));
+        assert_eq!(f.difficulty, "hard");
+        assert_eq!(f.sort, "oldest");
+        let f = filters_from_params(&params(&[("difficulty", "x"), ("sort", "bogus")]));
+        assert_eq!(f.difficulty, "");
+        assert_eq!(f.sort, "newest");
+        // So no unknown value reaches a chip link or the hidden form.
+        assert_eq!(filter_query(&f), "");
+    }
+
+    #[test]
+    fn test_the_done_button_sends_the_state_it_wants() {
+        let mut all = sample();
+        all[1].completed = true;
+        let f = filters("", "", "", "newest");
+        let html = board_html(&all, &all, &f, true);
+        let card = |id: i64| {
+            let start = html.find(&format!("id=\"task-{id}\"")).unwrap();
+            let end = html[start..].find("</li>").unwrap() + start;
+            html[start..end].to_string()
+        };
+        assert!(card(1).contains(r#"hx-vals='{"completed": "1"}'"#));
+        assert!(card(2).contains(r#"hx-vals='{"completed": "0"}'"#));
+    }
+
+    #[test]
+    fn test_a_visitor_sees_no_admin_controls() {
+        let all = sample();
+        let f = filters("", "", "", "newest");
+        let visitor = board_html(&all, &all, &f, false);
+        assert!(visitor.contains("class=\"task-card"), "positive control");
+        assert!(!visitor.contains("/toggle"));
+        assert!(!visitor.contains("hx-delete"));
+        let admin = board_html(&all, &all, &f, true);
+        assert!(admin.contains("hx-post=\"/api/tasks/1/toggle\""));
+        assert!(admin.contains("hx-delete=\"/api/tasks/1\""));
+    }
+
+    #[test]
+    fn test_task_text_is_escaped() {
+        let mut t = task(1, "<b>", "easy", "");
+        t.title = "<script>alert(1)</script>".into();
+        t.prompt = "a & b".into();
+        let f = filters("", "", "", "newest");
+        let html = board_html(
+            std::slice::from_ref(&t),
+            std::slice::from_ref(&t),
+            &f,
+            false,
+        );
+        // Positive control: the text is there, only its markup is not.
+        // (Askama escapes to numeric entities, so match the text alone.)
+        assert!(html.contains("alert(1)"));
+        assert!(!html.contains("<script>alert"));
+        assert!(!html.contains("<b>"));
+        assert!(!html.contains("a & b"));
+    }
+
+    #[test]
+    fn test_the_board_carries_the_filter_state_its_buttons_include() {
+        let all = sample();
+        let f = filters("figure", "", "", "hardest");
+        let html = board_html(&all, &all[..2], &f, true);
+        assert!(html.contains("<form id=\"task-filters\" hidden>"));
+        assert!(html.contains("name=\"subject\" value=\"figure\""));
+        assert!(html.contains("name=\"sort\" value=\"hardest\""));
+        assert!(html.contains("2 of 3"));
+        assert!(html.contains("Clear filters"));
+    }
+
+    #[test]
+    fn test_the_page_carries_the_site_dark_marker() {
+        let html = TasksTemplate {
+            is_admin: false,
+            board_html: String::new(),
+            admin_html: String::new(),
+        }
+        .render()
+        .unwrap();
+        assert!(html.contains("class=\"site-dark\""));
+        let main = &html[html.find("<main").expect("a <main>")..];
+        let first_div = &main[main.find("<div").unwrap()..];
+        assert!(
+            first_div.starts_with("<div class=\"site-page tasks-page\""),
+            "the .site-page marker must be the outermost element in the content block"
+        );
+        // No history snapshots: Done and Delete swap the board without
+        // pushing, so a cached snapshot of an earlier filter URL goes stale.
+        assert!(first_div.starts_with("<div class=\"site-page tasks-page\" hx-history=\"false\">"));
+        assert!(!html.contains("id=\"task-admin\""));
+    }
 }

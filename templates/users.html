@@ -7,7 +7,7 @@
   <p class="users-intro">
     Accounts are created here — there is no public sign-up. Give the person
     their name and the PIN you set; they log in at
-    <a href="/admin/login">/admin/login</a>.
+    <a href="/admin/login" hx-boost="false">/admin/login</a>.
   </p>
 
   {% if error != "" %}<p class="users-error">{{ error }}</p>{% endif %}

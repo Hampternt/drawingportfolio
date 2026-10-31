@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="_ds/hampter-design-system-03c25988-bba8-4fc5-801f-653a333b24c3/tokens/fonts.css">
+<link rel="stylesheet" href="_ds/hampter-design-system-03c25988-bba8-4fc5-801f-653a333b24c3/tokens/colors.css">
+<link rel="stylesheet" href="_ds/hampter-design-system-03c25988-bba8-4fc5-801f-653a333b24c3/tokens/typography.css">
+<link rel="stylesheet" href="_ds/hampter-design-system-03c25988-bba8-4fc5-801f-653a333b24c3/tokens/spacing.css">
+<link rel="stylesheet" href="_ds/hampter-design-system-03c25988-bba8-4fc5-801f-653a333b24c3/tokens/shape.css">
+<link rel="stylesheet" href="_ds/hampter-design-system-03c25988-bba8-4fc5-801f-653a333b24c3/tokens/motion.css">
+<link rel="stylesheet" href="_ds/hampter-design-system-03c25988-bba8-4fc5-801f-653a333b24c3/tokens/base.css">
+<link rel="stylesheet" href="_ds/hampter-design-system-03c25988-bba8-4fc5-801f-653a333b24c3/components/components.css">
+<link rel="stylesheet" href="_ds/hampter-design-system-03c25988-bba8-4fc5-801f-653a333b24c3/tokens/legacy-nocturne.css">
+<link rel="stylesheet" href="_ds/hampter-design-system-03c25988-bba8-4fc5-801f-653a333b24c3/styles.css">
+<script src="_ds/hampter-design-system-03c25988-bba8-4fc5-801f-653a333b24c3/_ds_bundle.js"></script>
+<style>
+  a { color: #B48EF7; text-decoration: none; }
+  a:hover { color: #C9AEFA; }
+</style>
+</helmet>
+<div data-screen-label="Admin" style="min-height:100vh;background:#0B0910;color:#CDC6DD;font:400 15px/1.5 'Space Grotesk',system-ui,sans-serif">
+
+<header style="position:sticky;top:0;z-index:40;height:56px;display:flex;align-items:center;gap:20px;padding:0 32px;background:rgba(14,12,20,.82);backdrop-filter:blur(10px);border-bottom:1px solid rgba(242,238,248,.07)">
+<span style="font-family:'Archivo',system-ui,sans-serif;font-weight:800;font-size:17px;letter-spacing:-0.035em;color:#F2EEF8;flex:none">hampter<span style="color:#B48EF7">.</span></span>
+<span style="font:500 11px/1.2 'IBM Plex Mono',monospace;letter-spacing:.10em;text-transform:uppercase;color:#5F5876;flex:none">admin</span>
+<div style="margin-left:auto;display:flex;align-items:center;gap:16px;flex:none">
+<a href="#" style="font-size:14px;font-weight:500;color:#8D87A0;text-decoration:none;white-space:nowrap">View site</a>
+<button type="button" onClick="{{ openPalette }}" aria-label="Open command palette" style="display:flex;align-items:center;gap:8px;height:34px;padding:0 10px;background:none;border:1px solid transparent;border-radius:5px;cursor:pointer;color:#8D87A0" style-hover="background:rgba(242,238,248,.04);border-color:rgba(242,238,248,.07)">
+<x-import component-from-global-scope="HampterDesignSystem_03c259.KbdGroup" keys="{{ paletteKeys }}" hint-size="66px,20px"></x-import>
+</button>
+<x-import component-from-global-scope="HampterDesignSystem_03c259.Button" size="sm" icon="log-out" hint-size="96px,34px">Log out</x-import>
+</div>
+</header>
+
+<div style="padding:44px 32px 32px;background-color:#0B0910;background-image:linear-gradient(rgba(242,238,248,.045) 1px,transparent 1px),linear-gradient(90deg,rgba(242,238,248,.045) 1px,transparent 1px);background-size:32px 32px;border-bottom:1px solid rgba(242,238,248,.07)">
+<div style="max-width:1180px;margin:0 auto;display:flex;flex-wrap:wrap;align-items:flex-end;gap:24px">
+<div style="min-width:0">
+<span style="font:500 11px/1.2 'IBM Plex Mono',monospace;letter-spacing:.10em;text-transform:uppercase;color:#5F5876;white-space:nowrap">signed in as hampter · owner</span>
+<h1 style="margin:12px 0 0;font-family:'Archivo',system-ui,sans-serif;font-weight:800;font-size:40px;line-height:1.22;letter-spacing:-0.025em;color:#F2EEF8">Admin</h1>
+</div>
+<div style="margin-left:auto;display:flex;flex-wrap:wrap;gap:28px">
+<span style="display:flex;flex-direction:column-reverse;gap:6px"><span style="font:500 11px/1.2 'IBM Plex Mono',monospace;letter-spacing:.10em;text-transform:uppercase;color:#5F5876">posts</span><span style="font:400 22px/1 'IBM Plex Mono',monospace;color:#F2EEF8">128</span></span>
+<span style="display:flex;flex-direction:column-reverse;gap:6px"><span style="font:500 11px/1.2 'IBM Plex Mono',monospace;letter-spacing:.10em;text-transform:uppercase;color:#5F5876">unlisted</span><span style="font:400 22px/1 'IBM Plex Mono',monospace;color:#FFB570">4</span></span>
+<span style="display:flex;flex-direction:column-reverse;gap:6px"><span style="font:500 11px/1.2 'IBM Plex Mono',monospace;letter-spacing:.10em;text-transform:uppercase;color:#5F5876">hidden</span><span style="font:400 22px/1 'IBM Plex Mono',monospace;color:#F7768E">2</span></span>
+<span style="display:flex;flex-direction:column-reverse;gap:6px"><span style="font:500 11px/1.2 'IBM Plex Mono',monospace;letter-spacing:.10em;text-transform:uppercase;color:#5F5876">accounts</span><span style="font:400 22px/1 'IBM Plex Mono',monospace;color:#F2EEF8">3</span></span>
+</div>
+</div>
+</div>
+
+<div style="max-width:1180px;margin:0 auto;padding:28px 32px 96px;display:grid;grid-template-columns:236px minmax(0,1fr);gap:32px;align-items:start">
+
+<aside style="position:sticky;top:80px;display:flex;flex-direction:column;gap:24px">
+<div style="display:flex;flex-direction:column;gap:6px">
+<span style="font:500 11px/1.2 'IBM Plex Mono',monospace;letter-spacing:.10em;text-transform:uppercase;color:#5F5876;padding:0 0 6px 2px">Drawings</span>
+<button type="button" onClick="{{ goPosts }}" style="{{ navPosts }}">
+<x-import component-from-global-scope="HampterDesignSystem_03c259.Icon" name="image" size="{{ 16 }}" hint-size="16px,16px"></x-import>
+<span style="flex:1;text-align:left">Posts</span>
+<span style="font:500 11px/1.2 'IBM Plex Mono',monospace;opacity:.7">128</span>
+</button>
+<button type="button" onClick="{{ goNew }}" style="{{ navNew }}">
+<x-import component-from-global-scope="HampterDesignSystem_03c259.Icon" name="upload" size="{{ 16 }}" hint-size="16px,16px"></x-import>
+<span style="flex:1;text-align:left">New post</span>
+<x-import component-from-global-scope="HampterDesignSystem_03c259.Kbd" hint-size="20px,20px">N</x-import>
+</button>
+</div>
+<sc-if value="{{ isOwner }}" hint-placeholder-val="{{ true }}">
+<div style="display:flex;flex-direction:column;gap:6px">
+<span style="font:500 11px/1.2 'IBM Plex Mono',monospace;letter-spacing:.10em;text-transform:uppercase;color:#5F5876;padding:0 0 6px 2px">Owner only</span>
+<button type="button" onClick="{{ goUsers }}" style="{{ navUsers }}">
+<x-import component-from-global-scope="HampterDesignSystem_03c259.Icon" name="users" size="{{ 16 }}" hint-size="16px,16px"></x-import>
+<span style="flex:1;text-align:left">Accounts</span>
+<span style="font:500 11px/1.2 'IBM Plex Mono',monospace;opacity:.7">3</span>
+</button>
+</div>
+</sc-if>
+<div style="padding:14px 16px;background:#0E0C14;border:1px solid rgba(242,238,248,.07);border-radius:8px;display:flex;flex-direction:column;gap:8px">
+<span style="font:500 11px/1.2 'IBM Plex Mono',monospace;letter-spacing:.10em;text-transform:uppercase;color:#5F5876">Visibility</span>
+<span style="font-size:13px;line-height:1.5;color:#8D87A0;text-wrap:pretty"><span style="color:#4FD6A8">public</span> is listed everywhere. <span style="color:#FFB570">unlisted</span> leaves the feed and the API but keeps its permalink. <span style="color:#F7768E">hidden</span> returns a 404 to a visitor.</span>
+</div>
+</aside>
+
+<main style="min-width:0;display:flex;flex-direction:column;gap:16px">
+
+<sc-if value="{{ showPosts }}" hint-placeholder-val="{{ true }}">
+<div style="display:flex;flex-wrap:wrap;align-items:center;gap:12px">
+<div style="flex:1 1 240px;min-width:0">
+<x-import component-from-global-scope="HampterDesignSystem_03c259.Input" placeholder="Search captions" icon="search" shortcut="/" hint-size="100%,34px"></x-import>
+</div>
+<div style="display:flex;gap:6px;flex:none">
+<x-import component-from-global-scope="HampterDesignSystem_03c259.Tag" interactive="{{ true }}" selected="{{ true }}" hint-size="64px,24px">public</x-import>
+<x-import component-from-global-scope="HampterDesignSystem_03c259.Tag" interactive="{{ true }}" hint-size="64px,24px">unlisted</x-import>
+<x-import component-from-global-scope="HampterDesignSystem_03c259.Tag" interactive="{{ true }}" hint-size="64px,24px">hidden</x-import>
+</div>
+</div>
+
+<sc-for list="{{ posts }}" as="post" hint-placeholder-count="4">
+<div style="background:#17141F;border:1px solid rgba(242,238,248,.07);border-radius:8px">
+<div style="display:flex;align-items:flex-start;gap:16px;padding:14px 16px">
+<span style="width:64px;height:64px;flex:none;border-radius:5px;background-color:#0E0C14;background-image:linear-gradient(rgba(242,238,248,.045) 1px,transparent 1px),linear-gradient(90deg,rgba(242,238,248,.045) 1px,transparent 1px);background-size:16px 16px;border:1px solid rgba(242,238,248,.07)"></span>
+<div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:8px">
+<span style="font:600 16px/1.3 'Archivo',system-ui,sans-serif;color:#F2EEF8;text-wrap:pretty">{{ post.caption }}</span>
+<div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px">
+<span style="font:500 11px/1.2 'IBM Plex Mono',monospace;letter-spacing:.06em;color:#5F5876;white-space:nowrap">{{ post.date }}</span>
+<span style="font:500 11px/1.2 'IBM Plex Mono',monospace;letter-spacing:.06em;color:#5F5876;white-space:nowrap">{{ post.dims }}</span>
+<span style="font:500 11px/1.2 'IBM Plex Mono',monospace;letter-spacing:.06em;color:#5F5876;white-space:nowrap">{{ post.size }}</span>
+<span style="font:500 11px/1.2 'IBM Plex Mono',monospace;letter-spacing:.06em;white-space:nowrap;color:{{ post.variantColor }}">{{ post.variants }}</span>
+</div>
+<div style="display:flex;flex-wrap:wrap;gap:6px">
+<sc-for list="{{ post.tags }}" as="tag" hint-placeholder-count="2">
+<x-import component-from-global-scope="HampterDesignSystem_03c259.Tag" hint-size="60px,24px">{{ tag }}</x-import>
+</sc-for>
+</div>
+</div>
+<div style="flex:none;display:flex;flex-direction:column;align-items:flex-end;gap:10px">
+<x-import component-from-global-scope="HampterDesignSystem_03c259.Badge" tone="{{ post.tone }}" dot="{{ true }}" hint-size="72px,20px">{{ post.visibility }}</x-import>
+<div style="display:flex;gap:4px">
+<x-import component-from-global-scope="HampterDesignSystem_03c259.IconButton" icon="pencil" label="Edit caption and tags" size="sm" onClick="{{ post.toggleEdit }}" active="{{ post.editing }}" hint-size="28px,28px"></x-import>
+<x-import component-from-global-scope="HampterDesignSystem_03c259.IconButton" icon="eye-off" label="Hide" size="sm" hint-size="28px,28px"></x-import>
+<x-import component-from-global-scope="HampterDesignSystem_03c259.IconButton" icon="link" label="Unlist" size="sm" hint-size="28px,28px"></x-import>
+<x-import component-from-global-scope="HampterDesignSystem_03c259.IconButton" icon="trash-2" label="Delete" size="sm" hint-size="28px,28px"></x-import>
+</div>
+</div>
+</div>
+<sc-if value="{{ post.editing }}">
+<div style="display:flex;flex-direction:column;gap:12px;padding:16px;border-top:1px solid rgba(242,238,248,.07);background:#0E0C14;border-radius:0 0 8px 8px">
+<x-import component-from-global-scope="HampterDesignSystem_03c259.Textarea" label="Caption" value="{{ post.caption }}" rows="{{ 2 }}" hint-size="100%,88px"></x-import>
+<x-import component-from-global-scope="HampterDesignSystem_03c259.Input" label="Tags" hint="Comma separated. Saving replaces the whole set." value="{{ post.tagsJoined }}" hint-size="100%,74px"></x-import>
+<div style="display:flex;align-items:center;gap:8px">
+<x-import component-from-global-scope="HampterDesignSystem_03c259.Button" variant="primary" size="sm" hint-size="76px,34px">Save</x-import>
+<x-import component-from-global-scope="HampterDesignSystem_03c259.Button" variant="ghost" size="sm" onClick="{{ post.toggleEdit }}" hint-size="76px,34px">Cancel</x-import>
+<span style="margin-left:auto;font:500 11px/1.2 'IBM Plex Mono',monospace;letter-spacing:.06em;color:#5F5876">{{ post.idLabel }}</span>
+</div>
+</div>
+</sc-if>
+</div>
+</sc-for>
+
+<div style="display:flex;justify-content:center;padding:8px 0 0">
+<x-import component-from-global-scope="HampterDesignSystem_03c259.Button" size="sm" iconRight="chevron-down" hint-size="120px,34px">Load more</x-import>
+</div>
+</sc-if>
+
+<sc-if value="{{ showNew }}">
+<div style="background:#17141F;border:1px solid rgba(242,238,248,.07);border-radius:8px;padding:20px;display:flex;flex-direction:column;gap:16px">
+<div style="display:flex;flex-direction:column;gap:4px">
+<h2 style="margin:0;font:700 22px/1.22 'Archivo',system-ui,sans-serif;letter-spacing:-0.02em;color:#F2EEF8">New post</h2>
+<p style="margin:0;font-size:14px;color:#8D87A0">JPEG, PNG or WebP, up to 35 MB.</p>
+</div>
+<label style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:36px 20px;border:1px dashed rgba(242,238,248,.18);border-radius:8px;cursor:pointer;background-color:#0E0C14;background-image:linear-gradient(rgba(242,238,248,.045) 1px,transparent 1px),linear-gradient(90deg,rgba(242,238,248,.045) 1px,transparent 1px);background-size:32px 32px" style-hover="border-color:#B48EF7">
+<x-import component-from-global-scope="HampterDesignSystem_03c259.Icon" name="image-plus" size="{{ 20 }}" hint-size="20px,20px"></x-import>
+<span style="font-size:15px;color:#CDC6DD">Click to browse, or drop a file here</span>
+<span style="font:500 11px/1.2 'IBM Plex Mono',monospace;letter-spacing:.10em;text-transform:uppercase;color:#5F5876">no file selected</span>
+</label>
+<x-import component-from-global-scope="HampterDesignSystem_03c259.Textarea" label="Caption" placeholder="Optional." rows="{{ 2 }}" hint-size="100%,88px"></x-import>
+<x-import component-from-global-scope="HampterDesignSystem_03c259.Input" label="Tags" placeholder="ink, wash, figure" hint="Comma separated, lowercased on save." hint-size="100%,74px"></x-import>
+<div style="display:flex;flex-direction:column;gap:8px">
+<span style="font:500 11px/1.2 'IBM Plex Mono',monospace;letter-spacing:.10em;text-transform:uppercase;color:#5F5876">Visibility</span>
+<div style="display:flex;flex-wrap:wrap;gap:16px">
+<x-import component-from-global-scope="HampterDesignSystem_03c259.Radio" name="visibility" label="public" checked="{{ true }}" hint-size="90px,24px"></x-import>
+<x-import component-from-global-scope="HampterDesignSystem_03c259.Radio" name="visibility" label="unlisted" hint-size="90px,24px"></x-import>
+<x-import component-from-global-scope="HampterDesignSystem_03c259.Radio" name="visibility" label="hidden" hint-size="90px,24px"></x-import>
+</div>
+</div>
+<div style="display:flex;align-items:center;gap:12px;padding-top:4px">
+<x-import component-from-global-scope="HampterDesignSystem_03c259.Button" variant="primary" icon="upload" hint-size="120px,42px">Upload</x-import>
+<span style="font-size:13px;color:#5F5876;text-wrap:pretty">Converted to WebP in the browser before it is sent; the AVIF variant is encoded after the response and fills itself in.</span>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ showUsers }}">
+<div style="background:#17141F;border:1px solid rgba(242,238,248,.07);border-radius:8px;padding:20px;display:flex;flex-direction:column;gap:16px">
+<div style="display:flex;flex-direction:column;gap:6px">
+<h2 style="margin:0;font:700 22px/1.22 'Archivo',system-ui,sans-serif;letter-spacing:-0.02em;color:#F2EEF8">Accounts</h2>
+<p style="margin:0;max-width:68ch;font-size:14px;color:#8D87A0;text-wrap:pretty">Accounts are created here — there is no public sign-up. Give the person their name and the PIN you set; they log in at <a href="#">/admin/login</a>.</p>
+</div>
+<div style="display:flex;flex-direction:column;overflow-x:auto;min-width:0">
+<div style="display:grid;grid-template-columns:minmax(140px,1.2fr) 96px 88px 120px minmax(300px,auto);gap:12px;min-width:780px;padding:0 4px 8px;border-bottom:1px solid rgba(242,238,248,.07);font:500 11px/1.2 'IBM Plex Mono',monospace;letter-spacing:.10em;text-transform:uppercase;color:#5F5876">
+<span>Name</span><span>Role</span><span>PIN</span><span>Added</span><span>Actions</span>
+</div>
+<sc-for list="{{ users }}" as="u" hint-placeholder-count="3">
+<div style="display:grid;grid-template-columns:minmax(140px,1.2fr) 96px 88px 120px minmax(300px,auto);gap:12px;min-width:780px;align-items:center;padding:12px 4px;border-bottom:1px solid rgba(242,238,248,.07)">
+<span style="font:600 15px/1.3 'Archivo',system-ui,sans-serif;color:#F2EEF8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ u.name }}</span>
+<span style="display:flex"><x-import component-from-global-scope="HampterDesignSystem_03c259.Badge" tone="{{ u.tone }}" hint-size="64px,20px">{{ u.role }}</x-import></span>
+<span style="font:500 12px/1.2 'IBM Plex Mono',monospace;color:{{ u.pinColor }}">{{ u.pin }}</span>
+<span style="font:500 12px/1.2 'IBM Plex Mono',monospace;color:#5F5876">{{ u.added }}</span>
+<span style="display:flex;flex-wrap:wrap;gap:6px;justify-content:flex-end">
+<x-import component-from-global-scope="HampterDesignSystem_03c259.Button" size="sm" variant="ghost" hint-size="80px,28px">Rename</x-import>
+<sc-if value="{{ u.manageable }}">
+<x-import component-from-global-scope="HampterDesignSystem_03c259.Button" size="sm" hint-size="110px,28px">{{ u.adminAction }}</x-import>
+</sc-if>
+<sc-if value="{{ u.manageable }}">
+<x-import component-from-global-scope="HampterDesignSystem_03c259.Button" size="sm" hint-size="96px,28px">Reset PIN</x-import>
+</sc-if>
+<sc-if value="{{ u.manageable }}">
+<x-import component-from-global-scope="HampterDesignSystem_03c259.Button" size="sm" variant="danger" hint-size="80px,28px">Delete</x-import>
+</sc-if>
+</span>
+</div>
+</sc-for>
+</div>
+<div style="display:flex;flex-wrap:wrap;align-items:flex-end;gap:12px;padding-top:4px">
+<div style="flex:1 1 200px;min-width:0"><x-import component-from-global-scope="HampterDesignSystem_03c259.Input" label="Name" placeholder="name" hint-size="100%,58px"></x-import></div>
+<div style="flex:1 1 200px;min-width:0"><x-import component-from-global-scope="HampterDesignSystem_03c259.Input" label="Initial PIN" placeholder="4–12 digits" mono="{{ true }}" hint-size="100%,58px"></x-import></div>
+<x-import component-from-global-scope="HampterDesignSystem_03c259.Button" variant="primary" icon="user-plus" hint-size="170px,42px">Create account</x-import>
+</div>
+<p style="margin:0;font-size:13px;color:#5F5876;text-wrap:pretty">An admin manages drawings; only the owner can grant admin, reset a PIN or delete an account. Five wrong PINs locks the account for 15 minutes.</p>
+</div>
+</sc-if>
+
+</main>
+</div>
+
+<x-import component-from-global-scope="HampterDesignSystem_03c259.CommandPalette" open="{{ paletteOpen }}" commands="{{ commands }}" isAdmin="{{ true }}" placeholder="Search commands…" onClose="{{ closePalette }}" onRun="{{ closePalette }}" hint-size="0px,0px"></x-import>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;pane&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;posts&quot;,&quot;new&quot;,&quot;users&quot;],&quot;default&quot;:&quot;posts&quot;,&quot;tsType&quot;:&quot;\&quot;posts\&quot; | \&quot;new\&quot; | \&quot;users\&quot;&quot;},&quot;isOwner&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Viewer&quot;}}">
+class Component extends DCLogic {
+  state = { paletteOpen: false, pane: null, editingId: 411 };
+
+  componentDidMount() {
+    this._onKey = (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        this.setState((s) => ({ paletteOpen: !s.paletteOpen }));
+      } else if (e.key === 'Escape') {
+        this.setState({ paletteOpen: false });
+      }
+    };
+    document.addEventListener('keydown', this._onKey);
+  }
+
+  componentWillUnmount() {
+    document.removeEventListener('keydown', this._onKey);
+  }
+
+  navStyle(on) {
+    const base = "display:flex;align-items:center;gap:10px;height:34px;padding:0 10px;border-radius:5px;cursor:pointer;font:500 14px/1.2 'Space Grotesk',system-ui,sans-serif;text-align:left;transition:background 130ms cubic-bezier(.2,.8,.3,1);";
+    return on
+      ? base + 'background:#262232;border:1px solid rgba(180,142,247,.45);color:#F2EEF8;'
+      : base + 'background:none;border:1px solid transparent;color:#8D87A0;';
+  }
+
+  renderVals() {
+    const pane = this.state.pane ?? this.props.pane ?? 'posts';
+    const rows = [
+      { id: 412, caption: '30 min gesture study — figure drawing warmup', date: '2026-07-21', dims: '2480 × 3508', size: '2.1 MB', variants: 'webp + avif', variantColor: '#5F5876', visibility: 'public', tone: 'success', tags: ['figure', 'gesture'] },
+      { id: 411, caption: 'Hands, again. Still not right.', date: '2026-07-18', dims: '1800 × 2400', size: '1.4 MB', variants: 'webp + avif', variantColor: '#5F5876', visibility: 'unlisted', tone: 'warning', tags: ['anatomy', 'hands'] },
+      { id: 410, caption: 'Colour pass on the hamster knight', date: '2026-07-12', dims: '3000 × 2000', size: '3.8 MB', variants: 'webp · avif pending', variantColor: '#FFB570', visibility: 'public', tone: 'success', tags: ['colour'] },
+      { id: 409, caption: 'Perspective drill — one point interior', date: '2026-07-09', dims: '2000 × 1414', size: '0.9 MB', variants: 'webp + avif', variantColor: '#5F5876', visibility: 'hidden', tone: 'danger', tags: ['perspective', 'drill'] },
+    ];
+    return {
+      paletteKeys: ['Ctrl', 'K'],
+      paletteOpen: this.state.paletteOpen,
+      openPalette: () => this.setState({ paletteOpen: true }),
+      closePalette: () => this.setState({ paletteOpen: false }),
+      isOwner: this.props.isOwner ?? true,
+      showPosts: pane === 'posts',
+      showNew: pane === 'new',
+      showUsers: pane === 'users',
+      navPosts: this.navStyle(pane === 'posts'),
+      navNew: this.navStyle(pane === 'new'),
+      navUsers: this.navStyle(pane === 'users'),
+      goPosts: () => this.setState({ pane: 'posts' }),
+      goNew: () => this.setState({ pane: 'new' }),
+      goUsers: () => this.setState({ pane: 'users' }),
+      posts: rows.map((p) => ({
+        ...p,
+        idLabel: 'post ' + p.id,
+        tagsJoined: p.tags.join(', '),
+        editing: this.state.editingId === p.id,
+        toggleEdit: () => this.setState((s) => ({ editingId: s.editingId === p.id ? null : p.id })),
+      })),
+      users: [
+        { name: 'hampter', role: 'Owner', tone: 'accent', pin: 'set', pinColor: '#8D87A0', added: '2026-08-16', manageable: false, adminAction: '' },
+        { name: 'sam', role: 'Admin', tone: 'info', pin: 'set', pinColor: '#8D87A0', added: '2026-08-20', manageable: true, adminAction: 'Revoke admin' },
+        { name: 'jo', role: 'Member', tone: 'neutral', pin: 'locked', pinColor: '#F7768E', added: '2026-09-02', manageable: true, adminAction: 'Grant admin' },
+      ],
+      commands: [
+        { id: 'hub', group: 'Navigate', label: 'Go to Hub', icon: 'home' },
+        { id: 'art', group: 'Navigate', label: 'Go to Art Portfolio', icon: 'image' },
+        { id: 'tasks', group: 'Navigate', label: 'Go to Drawing Tasks', icon: 'list-checks' },
+        { id: 'fitness', group: 'Navigate', label: 'Go to Fitness Tracker', icon: 'activity' },
+        { id: 'sorting', group: 'Navigate', label: 'Go to Sorting', icon: 'truck' },
+        { id: 'upload', group: 'Admin', label: 'Upload new drawing', icon: 'upload', adminOnly: true },
+        { id: 'visitor', group: 'Admin', label: 'Toggle visitor view', icon: 'eye', adminOnly: true },
+        { id: 'users', group: 'Admin', label: 'Manage accounts', icon: 'users', adminOnly: true },
+        { id: 'admin', group: 'Admin', label: 'Admin panel', icon: 'settings', adminOnly: true },
+      ],
+    };
+  }
+}
+</script>
+</body>
+</html>

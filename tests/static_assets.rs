@@ -201,3 +201,134 @@ fn test_detector_catches_unterminated_comment() {
         .expect_err("unterminated comment must be rejected");
     assert!(err.contains("unterminated"), "{err}");
 }
+
+/// Everything from the sorting section's banner to the end of the file. The
+/// section is last on purpose — it is the newest — so "to the end" is the whole
+/// of it, and a future section added after it would simply widen what these two
+/// guards cover rather than silently narrowing it.
+fn sorting_section(css: &str) -> &str {
+    let marker = "── Sorting: crate sort and van load";
+    let at = css
+        .find(marker)
+        .expect("style.css still has the sorting section banner");
+    &css[at..]
+}
+
+/// Drops `/* … */` runs so a guard reads declarations rather than prose. The
+/// nesting check above is what guarantees this can be a single pass.
+fn strip_css_comments(css: &str) -> String {
+    let mut out = String::with_capacity(css.len());
+    let mut rest = css;
+    while let Some(open) = rest.find("/*") {
+        out.push_str(&rest[..open]);
+        match rest[open + 2..].find("*/") {
+            Some(close) => rest = &rest[open + 2 + close + 2..],
+            None => return out,
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+/// The sorting screens are sized in rem so a driver who has turned the text
+/// size up gets a bigger board rather than the same board with the words
+/// spilling out of it. One pixel put back is enough to break that for the
+/// control it sizes, and it will look right on the machine it was written on.
+///
+/// The van diagram is the exception, and it is not really one: inside an
+/// `<svg>` a length is a user unit of that element's own viewBox, so `12px`
+/// there is a twelfth of the drawing rather than twelve screen pixels, and
+/// writing it in rem would peg the labels to the root font size while the
+/// drawing kept scaling — the text would grow out of the cells it names.
+#[test]
+fn test_sorting_section_sizes_in_rem_not_pixels() {
+    let css = fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("static/style.css"))
+        .expect("style.css is readable");
+    let section = strip_css_comments(sorting_section(&css));
+
+    let mut checked = 0;
+    for rule in section.split('}') {
+        let Some((selector, body)) = rule.split_once('{') else {
+            continue;
+        };
+        if selector.contains("sort-vansvg") {
+            continue;
+        }
+        checked += 1;
+        assert!(
+            !body.contains("px"),
+            "a pixel length is back in the sorting section:\n  {}{{{}}}\n\
+             sizes here are rem — see the section banner in static/style.css. \
+             Inside the van diagram (`.sort-vansvg…`) px is an SVG user unit \
+             and is allowed; everywhere else divide by 16.",
+            selector.trim(),
+            body.trim(),
+        );
+    }
+    assert!(
+        checked > 10,
+        "only {checked} rules scanned — did the sorting section move?"
+    );
+}
+
+/// The board is drawn by JavaScript into elements the Askama template names,
+/// and boots from JSON blocks the template also names. Three files have to
+/// agree on those ids — the template, `sorting-app.js`, and the runtime that
+/// paints into them — and nothing but agreement makes them the same element.
+///
+/// The failure is quiet in the worst way: a renamed id does not throw, it just
+/// leaves the board blank, and the checks below it still render so the page
+/// looks like it worked.
+#[test]
+fn test_board_template_and_boot_agree_on_their_ids() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let html = fs::read_to_string(root.join("templates/sorting/board.html"))
+        .expect("board template is readable");
+    let js =
+        fs::read_to_string(root.join("static/sorting-app.js")).expect("sorting-app.js is readable");
+    let runtime =
+        fs::read_to_string(root.join("static/sorting-runtime.js")).expect("runtime is readable");
+
+    for id in [
+        "sorting-route",
+        "sorting-van",
+        "sorting-actions",
+        "sorting-rules",
+        "sort-live-board",
+        "sort-progress-text",
+        "sort-progress-fill",
+        "sort-sync",
+        "sort-full",
+    ] {
+        assert!(
+            html.contains(&format!("id=\"{id}\"")),
+            "templates/sorting/board.html has no element with id=\"{id}\", but \
+             static/sorting-app.js looks one up — the board boots blank",
+        );
+        assert!(
+            js.contains(&format!("'{id}'")),
+            "static/sorting-app.js never mentions `{id}`, which the template \
+             declares — either the board lost a control or the id drifted",
+        );
+    }
+
+    // The runtime picks its markup by screen name: `board` and `settings` are
+    // the two `renderVals()` can return, and each needs a <template> to find.
+    for screen in ["board", "settings"] {
+        assert!(
+            html.contains(&format!("id=\"{screen}-template\"")),
+            "no <template id=\"{screen}-template\"> — paint() would find nothing \
+             to render the {screen} screen from",
+        );
+    }
+    assert!(
+        runtime.contains("(vals.screen || 'board') + '-template'"),
+        "the runtime stopped resolving its markup by screen name — the two \
+         <template> ids above are then naming nothing",
+    );
+    assert!(
+        js.contains("BOARD_HOST = 'sort-live-board'"),
+        "sorting-app.js no longer points the runtime at the board host, so \
+         paint() would look for the demo's `board` element and find none",
+    );
+}

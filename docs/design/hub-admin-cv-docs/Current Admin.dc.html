@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<div data-screen-label="Current /admin" style="min-height:100vh;background:#f5f5f5;color:#222;font-family:system-ui,sans-serif;font-size:16px">
+<header style="background:#fff;border-bottom:1px solid #ddd;padding:1rem 2rem;display:flex;align-items:center;gap:2rem">
+<h1 style="margin:0.67em 0;font-size:2em">Portfolio Admin</h1>
+<a href="#" style="color:#0000EE;text-decoration:underline">View site</a>
+<form style="display:inline"><button type="submit">Log out</button></form>
+<button type="button" aria-label="Open command palette" style="margin-left:auto;display:flex;align-items:center;gap:0.25rem;background:none;border:none;cursor:pointer;padding:0">
+<kbd style="font-family:inherit;font-size:0.7rem;color:#999;background:#f0f0f0;border:1px solid #ddd;border-radius:4px;padding:0.15rem 0.4rem;line-height:1.4">Ctrl</kbd><kbd style="font-family:inherit;font-size:0.7rem;color:#999;background:#f0f0f0;border:1px solid #ddd;border-radius:4px;padding:0.15rem 0.4rem;line-height:1.4">K</kbd>
+</button>
+</header>
+<main style="max-width:640px;margin:2rem auto;padding:0 1rem">
+<section style="background:#fff;border:1px solid #ddd;border-radius:8px;padding:1.5rem;margin-bottom:2rem">
+<h2 style="margin:0.83em 0;font-size:1.5em">New Post</h2>
+<form>
+<label>Caption<br>
+<textarea name="caption" placeholder="Caption (optional)" style="width:100%;min-height:80px;padding:0.5rem;margin:0.5rem 0;font:inherit;border:1px solid #ccc;border-radius:4px"></textarea>
+</label><br>
+<label>Image<br>
+<input type="file" name="image" accept="image/jpeg,image/png,image/webp" style="margin:0.5rem 0">
+</label><br>
+<button type="submit" style="padding:0.5rem 1.5rem;background:#333;color:#fff;border:none;border-radius:4px;cursor:pointer">Upload</button>
+<div style="margin-top:0.5rem;color:#555"></div>
+</form>
+</section>
+<section>
+<h2 style="margin:0.83em 0;font-size:1.5em">Posts</h2>
+<div>
+<div style="display:flex;gap:1rem;align-items:flex-start;background:#fff;border:1px solid #ddd;border-radius:8px;padding:1rem">
+<picture><img src="data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='80'%3E%3Crect width='80' height='80' fill='%23c9c9c9'/%3E%3C/svg%3E" alt="" style="width:80px;height:80px;object-fit:cover;border-radius:4px"></picture>
+<div style="flex:1">
+<p style="margin:1em 0">30 min gesture study — figure drawing warmup</p>
+<small style="font-size:0.8125em">2026-07-21T09:14:02Z</small>
+</div>
+<button type="button" style="background:#c00;color:#fff;border:none;padding:0.25rem 0.75rem;border-radius:4px;cursor:pointer">Delete</button>
+</div>
+<div style="display:flex;gap:1rem;align-items:flex-start;background:#fff;border:1px solid #ddd;border-radius:8px;padding:1rem">
+<picture><img src="data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='80'%3E%3Crect width='80' height='80' fill='%23c9c9c9'/%3E%3C/svg%3E" alt="" style="width:80px;height:80px;object-fit:cover;border-radius:4px"></picture>
+<div style="flex:1">
+<p style="margin:1em 0">Hands, again. Still not right.</p>
+<small style="font-size:0.8125em">2026-07-18T21:03:55Z</small>
+</div>
+<button type="button" style="background:#c00;color:#fff;border:none;padding:0.25rem 0.75rem;border-radius:4px;cursor:pointer">Delete</button>
+</div>
+<div style="display:flex;gap:1rem;align-items:flex-start;background:#fff;border:1px solid #ddd;border-radius:8px;padding:1rem">
+<picture><img src="data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='80'%3E%3Crect width='80' height='80' fill='%23c9c9c9'/%3E%3C/svg%3E" alt="" style="width:80px;height:80px;object-fit:cover;border-radius:4px"></picture>
+<div style="flex:1">
+<small style="font-size:0.8125em">2026-07-12T17:41:20Z</small>
+</div>
+<button type="button" style="background:#c00;color:#fff;border:none;padding:0.25rem 0.75rem;border-radius:4px;cursor:pointer">Delete</button>
+</div>
+</div>
+</section>
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1280,&quot;height&quot;:900}}"></script>
+</body>
+</html>

@@ -188,7 +188,7 @@ nested via `nest_service` in `main.rs`. Its templates do NOT extend
   (`three_man.rs` — dice, 3-hits-the-3-Man hand-off, doubles that hand out
   gift dice in "both" or "split" mode with payback, per-room async locking
   around each action route); Last Call (the third mode, v1 merged
-  2026-08-12).
+  2026-08-12); Backroom (the fourth, a hidden-role game — see below).
 - **Account self-service:** `/drinks/account` (rename, change PIN — current
   PIN required — and `POST /drinks/logout`, which deletes the session row as
   well as clearing the cookie), linked from the landing page and the ROOM
@@ -204,11 +204,72 @@ nested via `nest_service` in `main.rs`. Its templates do NOT extend
   roller while everyone else sees a `data-hide-player`-gated spectator banner
   for the same moment.
 
+  **That contract cannot carry a secret.** `personalize()` only sets
+  `el.hidden`; the markup still reaches every subscriber, and `screen.html`
+  runs no `personalize()` at all by design. It answers "whose button is
+  this", never "who may know this".
+
+### Backroom — the hidden-role game
+
+`secret_hitler.rs` (engine) · `sh_theme.rs` (the re-theme seam) ·
+`sh_routes.rs` (routes + the private pane) · `sh_render.rs` (broadcast
+renderers) · `assets/sh_room.js`. Mechanically Secret Hitler, 5–10 players,
+re-themed; the landing page carries the credit.
+
+**Re-theming is one file.** Every player-facing string lives in
+`sh_theme.rs` as a const or a fn over the engine's enums, and theme text is
+resolved at render time and never serialized — so a re-theme reaches games
+already in flight. The one string that is *not* themeable is
+`secret_hitler::KIND`, which is persisted in `games.kind`: renaming it
+orphans every live row.
+
+**The secrecy contract.** `RoomHub` has one broadcast channel per *room*,
+never per player, and `routes::sse_stream` takes **no session extractor** —
+so every byte published to a room is readable by anyone with the 4-letter
+code, the cookie-less spectator screen included. Therefore:
+
+- `SecretHitlerState::public_view()` is a projection that structurally never
+  reads a secret field. `votes` is touched only through `.is_some()`, so a
+  ballot laid face-down is public and its value is not; `role` only inside a
+  `Phase::Over` gate. Each secret field is doc-commented with the test that
+  pins it.
+- Every builder in `sh_render.rs` takes `&ShPublicView` and never
+  `&SecretHitlerState`. The signature is the proof; a source sweep fails the
+  build if one drifts. `sh_view_data` lives in `sh_routes.rs` and returns the
+  projection, so `game.rs` never names the full state type either.
+- **Broadcast fragments are display-only** — no form, no button, no
+  per-viewer attribute. Every control lives in the private pane instead.
+  Stricter than needed (a vote button is not a secret), and worth it: it
+  turns "is this fragment safe?" from a per-element judgement call into one
+  line.
+- Private state is **fetched, not pushed**: `GET /room/{code}/sh/private`
+  takes `State`, `PlayerSession` and `Path(code)` and nothing else, so no
+  request shape can name another player.
+- There is no tick message and `hub.rs` is untouched. Every legal action
+  changes something public, so the `Game` frame is always a real update and
+  doubles as the re-fetch signal — which keeps the SSE snapshot at four
+  frames.
+- `#sh-private` is a **sibling** of `#game-panel` in `room.html`, because
+  `swapPanel()` replaces that element's innerHTML wholesale.
+
+**Drinks are a role oracle.** Pours reach `events` → `db::leaderboard` →
+`RoomMessage::Leaderboard`, over that same unauthenticated stream. A pour
+keyed on a hidden fact ("Regulars drink when a Racket passes") publishes the
+per-player deltas that partition the table by faction, in public, on a
+television. `sh_theme::DrinkEvent` is restricted by construction to facts
+that are already public or uniform across living seats. **v1 pours nothing**
+— the drinking variant turns those numbers up, subject to that rule.
+
+**Test mode is incompatible with this game.** `DRINKS_TEST_MODE=1` exposes
+`/test/act-as`, which re-issues the caller's cookie as any room member — for
+the other three games that is convenience, here it is a one-POST role dump.
+The flag is off by default and off on the live server.
+
 ### Last Call engine
 
 The engine (`last_call.rs`) is a pure state machine — no I/O, no SQL, and no
 *ambient* randomness. Player-facing rules live in `drinkinggame/RULES.md`.
-Four modules carry the pieces that used to be implicit:
+Five modules carry the pieces that used to be implicit:
 
 - **`lc_deck`** — real card decks. Each opened deck is a `Shoe` with a
   `draw_pile` and a `discard_pile`; `LcTable` owns them. This replaced
@@ -235,10 +296,17 @@ Four modules carry the pieces that used to be implicit:
   Draw and Reveal), which two comments in the tree used to get wrong.
 - **`lc_triggers`** — card-triggered table events, as distinct from
   `lc_events`'s one scheduled round event. A trigger fires the moment a card
-  is drawn, played or discarded and holds the table until every Alive seat
-  acknowledges. Ships with the machinery and one worked example
-  (`salute-the-leader`) pointed at a card id that is not in the catalog yet;
-  wiring a real one up is a `TriggerDef` plus the card, no engine change.
+  is drawn, played or discarded. The queue records, projects and clears
+  triggers, but is **inert**: no route calls `ack_trigger` and no advance
+  predicate consults it, so nothing halts the game yet. Harmless only because
+  the one worked example (`salute-the-leader`) points at a card id that is
+  not in the catalog — wiring a real trigger needs that gate built first.
+- **`lc_report`** — the round report. `resolve()` builds a `Resolution`, an
+  ordered `Vec<Blow>` naming the card, player, subject and number behind
+  everything that landed — including what the log omits, such as a fully
+  shielded hit. It parks the round until the seats a blow landed on confirm;
+  a round that lands nothing does not park. A record beside the log, not a
+  log filter (CLAUDE.md §Last Call's engine has the rules).
 
 **Engine API.** Everything that moves a card goes through `draw_cards` /
 `deal` / `discard` / `reshuffle_deck`, and everything that changes a player
@@ -254,9 +322,11 @@ otherwise emit a per-seat log line each.
 piles reconstructed — the cards in a deck were never recorded, only counted —
 so `from_json` rebuilds them from the blob's own `rng_seed`. Hands, HP,
 effects, pacts and the log survive; draw order and discard piles reset. The
-guard (`!players.is_empty() && table.shoes.is_empty()`) is load-bearing in
-the same way migration 018's is: re-running the rebuild on a live table would
-deal 40 fresh cards per deck and duplicate every card already in a hand.
+guard (`!players.is_empty() && table.shoes.is_empty()`) is only a cheap
+early-out: mutation-testing showed its second half can be deleted with the
+suite green. The real protection is `LcTable::open`'s own `is_open` check,
+which keeps a reload from dealing 40 fresh cards per deck and duplicating
+every card already in a hand.
 
 ---
 

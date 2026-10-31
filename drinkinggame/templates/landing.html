@@ -48,5 +48,29 @@
     <p class="lifetime">New name registers it. Known name, right PIN, and you're back — from any phone.</p>
   </form>
   {% endif %}
+  <!-- Open to everyone, signed in or not: the TV in the corner has no
+       name, no PIN and no cookie, and opening its screen joins nobody. -->
+  <form method="get" action="{{ base_path }}/screen" class="join-panel screen-open-panel">
+    <span class="join-panel-kicker">OR PUT A ROOM ON THE BIG SCREEN</span>
+    <div class="join-panel-row">
+      <input name="room" placeholder="ROOM" maxlength="4" autocapitalize="characters"
+             type="text" inputmode="text" autocomplete="off" required>
+      <button type="submit">OPEN BIG SCREEN</button>
+    </div>
+    <span class="lifetime">Just watching. Nobody joins the room.</span>
+  </form>
+  <!-- Credits. Backroom's mechanics are adapted from Secret Hitler; game
+       mechanics are not copyrightable and this is a clean-room
+       implementation with its own text and art, so no licence obligation
+       attaches — the credit is here because it is owed, and the trademark
+       is used nominatively in it and nowhere in the branding. -->
+  <footer class="landing-credits">
+    <p>Backroom's mechanics are adapted from <em>Secret Hitler</em> by Max Temkin,
+       Mike Boxleiter and Tommy Maranges, art by Mackenzie Schubert, published by
+       Goat, Wolf &amp; Cabbage LLC and licensed
+       <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" rel="noopener">CC BY-NC-SA 4.0</a>.
+       This is an unofficial, re-themed, non-commercial adaptation with original
+       text and art, not affiliated with or endorsed by them.</p>
+  </footer>
 </body>
 </html>

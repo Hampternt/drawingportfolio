@@ -1,18 +1,36 @@
 {% extends "base.html" %}
 {% block title %}Drawing Tasks{% endblock %}
+{% block nav_active %}tasks{% endblock %}
+
+{% block body_class %}site-dark{% endblock %}
 
 {% block content %}
-<section class="tasks-page">
+{#- .site-page must stay the outermost element in this block: base.html's
+    theme script keys off `main .site-page` to re-apply site-dark after a
+    boosted navigation, which drops body attributes.
 
-  <div class="tasks-intro">
-    <h1>Drawing Tasks</h1>
-    <p>Practice prompts attached to reference images — filter by subject, difficulty and task type, then grind.</p>
+    hx-history="false": the chips push a URL per filter, but Done, Delete and
+    the admin forms swap the board without pushing, so a saved snapshot of
+    an earlier URL goes stale under them and Back would restore cards that
+    no longer match the database. With no snapshot, Back is a history miss
+    and refreshOnHistoryMiss reloads the URL, which /tasks honours. -#}
+<div class="site-page tasks-page" hx-history="false">
+
+  <div class="tasks-head hm-grid-bg">
+    <div class="tasks-head__inner">
+      <div class="hm-eyebrow">practice board · reference images · prompts</div>
+      <h1>Drawing Tasks</h1>
+      <p class="tasks-head__intro">Practice prompts attached to reference images — pick a subject, a difficulty or a kind of study, then draw.</p>
+    </div>
   </div>
 
-  <!-- Board: filter bar + task list (pre-rendered by Rust).
-       Also re-fetches itself when the admin panel fires a refresh-board
-       event via the HX-Trigger response header. -->
-  <div id="task-board"
+  {#- Rail + grid, pre-rendered by Rust. Also re-fetches itself when the
+      admin panel fires a refresh-board event via the HX-Trigger response
+      header, carrying the board's current filters. hx-disinherit keeps
+      that hx-include off the rail's chips: their URLs already carry the
+      next filter state, and an inherited include would append the current
+      one after it. #}
+  <div id="task-board" class="tasks-body" hx-disinherit="hx-include"
        hx-get="/tasks/htmx/board"
        hx-trigger="refresh-board from:body"
        hx-include="#task-filters"
@@ -21,10 +39,10 @@
   </div>
 
   {% if is_admin %}
-  <div id="task-admin">
+  <div id="task-admin" class="tasks-admin-wrap">
     {{ admin_html|safe }}
   </div>
   {% endif %}
 
-</section>
+</div>
 {% endblock %}

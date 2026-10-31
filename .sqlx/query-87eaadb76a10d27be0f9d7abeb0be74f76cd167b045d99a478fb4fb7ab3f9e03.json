@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO sorting_rules (user_id, payload, updated_at)\n             VALUES (?, ?, datetime('now'))\n             ON CONFLICT(user_id) DO UPDATE SET payload = excluded.payload,\n                                                updated_at = excluded.updated_at",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "87eaadb76a10d27be0f9d7abeb0be74f76cd167b045d99a478fb4fb7ab3f9e03"
+}

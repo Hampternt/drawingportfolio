@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 
 {% block title %}{% if !post.caption.is_empty() %}{{ post.caption }}{% else %}Drawing{% endif %} — Drawing Portfolio{% endblock %}
+{% block nav_active %}artportfolio{% endblock %}
 
 {% block body_class %}art-page{% endblock %}
 

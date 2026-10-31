@@ -11,5 +11,24 @@ ExecStart=/opt/portfolio/drawingportfolio
 Restart=on-failure
 RestartSec=5
 
+# Hardening (review 2026-10-25). The SQLite DBs sit in /opt/portfolio itself and
+# SQLite writes journal files beside them, so the whole dir must be writable.
+# static/ and templates/ are read relative to WorkingDirectory. Outbound
+# network stays open for S3.
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/opt/portfolio
+ProtectHome=tmpfs
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+UMask=0077
+
 [Install]
 WantedBy=multi-user.target

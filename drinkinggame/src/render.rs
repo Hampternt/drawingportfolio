@@ -87,6 +87,46 @@ pub struct GameView<'a> {
     /// against the last-seen key per SSE event and only replays the flip
     /// animation on [data-anim] elements when it changes.
     pub anim_key: String,
+    /// The felt table (seats + card ring). `None` renders the panel
+    /// without one — only unit tests that check the rest of the panel.
+    pub table: Option<RofTable>,
+}
+
+/// What Ring of Fire's felt needs: the seat ring and the card ring.
+pub struct RofTable {
+    pub game_id: i64,
+    /// Seated members in seat order, at their rim angles.
+    pub seats: Vec<RoomMember>,
+    pub start: f64,
+    /// Each draw's tapped ring slot, in draw order.
+    pub draw_slots: Vec<Option<i64>>,
+}
+
+/// Ring of Fire's felt: the seats (whoever drew last lit and badged), the
+/// face-down cards in their loose ring, and `centre` — the last card drawn,
+/// face up. `tappable` makes the cards draw on tap (the phone).
+fn rof_table_html(
+    view: &GameView,
+    table: &RofTable,
+    centre: &str,
+    scale: crate::seat_ring::Scale,
+    tappable: bool,
+) -> String {
+    let last_drawer = view.current.as_ref().map(|c| c.drawer_id);
+    let mut seats = ring_seats(table.seats.iter());
+    for seat in &mut seats {
+        if Some(seat.player_id) == last_drawer {
+            seat.active = true;
+            seat.badge = Some("DREW");
+        }
+    }
+    let draw_url = format!("{}/room/{}/game/draw", view.base_path, view.code);
+    let ring = crate::card_ring::ring_html(
+        table.game_id,
+        &table.draw_slots,
+        tappable.then_some(draw_url.as_str()),
+    );
+    crate::seat_ring::table_html(&seats, table.start, centre, &ring, scale, None)
 }
 
 /// Post-game superlatives for the over panel (phone) and screen-over panel.
@@ -107,14 +147,62 @@ pub struct RoomView<'a> {
     pub base_path: &'a str,
     pub code: &'a str,
     pub members: &'a [RoomMember],
+    /// The room's start-marker angle: seat 1 is the first token clockwise
+    /// from it.
+    pub start_angle: f64,
     pub house_rules: &'a [HouseRule],
     pub kings: i64,
     /// Active game's `kind` ("ring_of_fire" | "three_man" | ...) or "idle".
     pub mode: &'a str,
-    /// Pre-rendered by `tm_seating_html` (Task 11) when a 3 Man game is
-    /// active; `None` for idle/Ring of Fire. Slots between WHO'S HERE and
-    /// HOUSE RULES — the seating block replaces nothing.
+    /// Pre-rendered by `tm_seating_html` (the 3 Man rules reference) or
+    /// Backroom's seating when one of those games is active; `None`
+    /// otherwise. Slots between THE TABLE and HOUSE RULES.
     pub seating: Option<String>,
+    /// A running game's marks on THE TABLE (3 Man: roller, 3 Man, dice);
+    /// `None` draws the plain ring.
+    pub marks: Option<TableMarks>,
+}
+
+/// What a running game draws on the ROOM tab's table: whose seat is lit,
+/// who wears the badge, and any piece on the felt.
+pub struct TableMarks {
+    pub active: i64,
+    pub badge_holder: i64,
+    pub badge: &'static str,
+    /// Pre-rendered `table_html` overlay.
+    pub overlay: String,
+}
+
+/// Where a room's players sit round the table, for renderers that start
+/// from a game's own order: each player's rim angle and the start marker.
+pub struct TableLayout {
+    pub angles: std::collections::HashMap<i64, f64>,
+    pub start: f64,
+}
+
+impl TableLayout {
+    pub fn new(members: &[RoomMember], start: f64) -> Self {
+        TableLayout {
+            angles: members.iter().map(|m| (m.id, m.angle)).collect(),
+            start,
+        }
+    }
+
+    fn angle(&self, id: i64) -> f64 {
+        self.angles.get(&id).copied().unwrap_or(0.0)
+    }
+
+    /// `ids` in seat order: clockwise from the start marker, ties by id —
+    /// the same order the room's seat numbers count.
+    fn in_seat_order(&self, ids: &[i64]) -> Vec<i64> {
+        let mut ids = ids.to_vec();
+        ids.sort_by(|a, b| {
+            crate::seat_ring::rel_angle(self.angle(*a), self.start)
+                .total_cmp(&crate::seat_ring::rel_angle(self.angle(*b), self.start))
+                .then(a.cmp(b))
+        });
+        ids
+    }
 }
 
 /// A card face in pure HTML/CSS — rank top-left, suit glyph under it, a
@@ -215,7 +303,9 @@ pub fn game_idle_panel(base_path: &str, code: &str, presets: &[RulePreset]) -> S
 <button type="submit" class="btn-primary">START</button>
 </form>
 </div>
-</div>"#
+{backroom}
+</div>"#,
+        backroom = crate::sh_render::sh_start_card(base_path, code),
     )
 }
 
@@ -244,6 +334,18 @@ fn superla_grid(s: &GameSummary) -> String {
         shots_val,
         s.room_total,
         html_escape(&kings_name),
+    )
+}
+
+/// The Jack's rule-input form, shown only to the drawer (personalize()),
+/// while their Jack still owes the room a rule.
+fn rof_rule_form(view: &GameView, c: &CurrentCard) -> String {
+    if !c.pending_rule {
+        return String::new();
+    }
+    format!(
+        r#"<div class="rule-input-row" data-show-player="{}" hidden><form hx-post="{}/room/{}/game/rule" hx-swap="none"><input type="hidden" name="draw_id" value="{}"><input type="text" name="text" maxlength="200" required placeholder="Your rule for the rest of the night"><button type="submit" class="btn-primary">SET</button></form></div>"#,
+        c.drawer_id, view.base_path, view.code, c.draw_id,
     )
 }
 
@@ -276,6 +378,18 @@ pub fn game_active_panel(view: &GameView) -> String {
     );
 
     let (hero, rule_form) = match &view.current {
+        // On the felt: the card face sits in the table's centre, the rule
+        // text beside the table, as before.
+        Some(c) if view.table.is_some() => (
+            format!(
+                r#"<div class="hero-card hero-card-felt"><div class="hero-info"><span class="rule-kicker" data-me-text="YOU DREW" data-player-id="{}">{} DREW</span><h2 class="rule-title">{}</h2><p class="rule-text">{}</p></div></div>"#,
+                c.drawer_id,
+                html_escape(&c.drawer),
+                html_escape(&c.title),
+                html_escape(&c.text),
+            ),
+            rof_rule_form(view, c),
+        ),
         Some(c) => {
             let hero = format!(
                 r#"<div class="hero-card" data-anim="flip">{}<div class="hero-info"><span class="rule-kicker" data-me-text="YOU DREW" data-player-id="{}">{} DREW</span><h2 class="rule-title">{}</h2><p class="rule-text">{}</p></div></div>"#,
@@ -285,15 +399,7 @@ pub fn game_active_panel(view: &GameView) -> String {
                 html_escape(&c.title),
                 html_escape(&c.text),
             );
-            let rule_form = if c.pending_rule {
-                format!(
-                    r#"<div class="rule-input-row" data-show-player="{}" hidden><form hx-post="{base_path}/room/{code}/game/rule" hx-swap="none"><input type="hidden" name="draw_id" value="{}"><input type="text" name="text" maxlength="200" required placeholder="Your rule for the rest of the night"><button type="submit" class="btn-primary">SET</button></form></div>"#,
-                    c.drawer_id, c.draw_id,
-                )
-            } else {
-                String::new()
-            };
-            (hero, rule_form)
+            (hero, rof_rule_form(view, c))
         }
         None => (String::new(), String::new()),
     };
@@ -325,13 +431,31 @@ pub fn game_active_panel(view: &GameView) -> String {
     let draw_btn = format!(
         r#"<button class="btn-draw" hx-post="{base_path}/room/{code}/game/draw" hx-swap="none" data-sound="card-draw"><span class="btn-draw-label">TAP TO DRAW</span><span class="btn-draw-sub">FREE FOR ALL &middot; ANYONE CAN PULL</span></button>"#
     );
+    let felt = match &view.table {
+        Some(table) => {
+            let centre = view
+                .current
+                .as_ref()
+                .map(|c| {
+                    format!(
+                        r#"<div class="felt-card" data-anim="flip">{}</div>"#,
+                        card_face_html(c.card)
+                    )
+                })
+                .unwrap_or_else(|| {
+                    r#"<span class="felt-hint">TAP A CARD TO DRAW</span>"#.to_string()
+                });
+            rof_table_html(view, table, &centre, crate::seat_ring::Scale::Phone, true)
+        }
+        None => String::new(),
+    };
 
     let end_btn = format!(
         r#"<button class="btn-ghost" hx-post="{base_path}/room/{code}/game/end" hx-swap="none" hx-confirm="End the game for everyone?">End game early</button>"#
     );
 
     format!(
-        r#"<div class="game-active" data-anim-key="{}">{announce}{deck_row}{hero}{rule_form}{draw_btn}{held}{end_btn}</div>"#,
+        r#"<div class="game-active" data-anim-key="{}">{announce}{deck_row}{felt}{hero}{rule_form}{draw_btn}{held}{end_btn}</div>"#,
         view.anim_key,
     )
 }
@@ -416,9 +540,23 @@ pub fn lc_screen_placeholder(_code: &str) -> String {
         .to_string()
 }
 
-/// Big-screen left pane, no game running.
-pub fn screen_panel_idle(_code: &str) -> String {
-    r#"<div class="screen-panel screen-idle"><div class="screen-hero"><span class="screen-kicker">NO GAME RUNNING</span><h2 class="screen-hero-title">Just drinking.</h2><p class="screen-hero-sub">Somebody start Ring of Fire on their phone and this screen becomes the table.</p></div><div class="screen-footer"><div class="kings-fill" style="height:0%"></div><span class="screen-footer-rules">No house rules yet.</span></div></div>"#.to_string()
+/// Big-screen left pane, no game running: the room's seat ring, with the
+/// "just drinking" line in the middle of the felt. `seated` is the ring in
+/// seat order (sat-out members already left off), each at its own angle,
+/// counted from the start marker at `start`. Display only — the screen has
+/// no login, so its seats are never draggable.
+pub fn screen_panel_idle(_code: &str, seated: &[RoomMember], start: f64) -> String {
+    let ring = ring_seats(seated.iter());
+    let centre = r#"<span class="screen-kicker">NO GAME RUNNING</span><h2 class="screen-hero-title">Just drinking.</h2><p class="screen-hero-sub">Somebody start a game on their phone.</p>"#;
+    let table = crate::seat_ring::table_html(
+        &ring,
+        start,
+        centre,
+        "",
+        crate::seat_ring::Scale::Screen,
+        None,
+    );
+    format!(r#"<div class="screen-panel screen-idle">{table}</div>"#)
 }
 
 /// Big-screen left pane, game running: display-scale hero card + rule,
@@ -432,6 +570,14 @@ pub fn screen_panel_active(view: &GameView, rules: &[HouseRule], kings: i64) -> 
         view.remaining,
     );
     let hero = match &view.current {
+        // On the felt: the card face sits in the table's centre and the
+        // rule text beside the table, as before.
+        Some(c) if view.table.is_some() => format!(
+            r#"<div class="screen-hero screen-hero-felt"><div class="screen-hero-info"><span class="rule-kicker">{} drew</span><h2 class="rule-title">{}</h2><p class="rule-text">{}</p></div></div>"#,
+            html_escape(&c.drawer),
+            html_escape(&c.title),
+            html_escape(&c.text),
+        ),
         Some(c) => format!(
             r#"<div class="screen-hero" data-anim="flip">{}<div class="screen-hero-info"><span class="rule-kicker">{} drew</span><h2 class="rule-title">{}</h2><p class="rule-text">{}</p></div></div>"#,
             card_face_html(c.card),
@@ -475,8 +621,25 @@ pub fn screen_panel_active(view: &GameView, rules: &[HouseRule], kings: i64) -> 
     let footer = format!(
         r#"<div class="screen-footer"><div class="kings-fill" style="height:{kings_pct:.1}%"></div><span class="screen-footer-rules">{rules_line}</span></div>"#
     );
+    let felt = match &view.table {
+        Some(table) => {
+            let centre = view
+                .current
+                .as_ref()
+                .map(|c| {
+                    format!(
+                        r#"<div class="felt-card" data-anim="flip">{}</div>"#,
+                        card_face_html(c.card)
+                    )
+                })
+                .unwrap_or_default();
+            rof_table_html(view, table, &centre, crate::seat_ring::Scale::Screen, false)
+        }
+        None => String::new(),
+    };
+    // No data-lc-live here: that handoff marker is Last Call's alone.
     format!(
-        r#"<div class="screen-panel screen-active" data-anim-key="{}">{top}{hero}{held}{footer}</div>"#,
+        r#"<div class="screen-panel screen-active" data-anim-key="{}">{top}{felt}{hero}{held}{footer}</div>"#,
         view.anim_key,
     )
 }
@@ -502,18 +665,148 @@ pub fn screen_panel_over(s: &GameSummary) -> String {
     )
 }
 
+/// Plain ring tokens (no badge, no highlight) for members already in seat
+/// order, each at its stored angle.
+fn ring_seats<'a>(
+    members: impl Iterator<Item = &'a RoomMember>,
+) -> Vec<crate::seat_ring::RingSeat<'a>> {
+    members
+        .map(|m| crate::seat_ring::RingSeat {
+            player_id: m.id,
+            name: &m.name,
+            badge: None,
+            active: false,
+            angle: m.angle,
+        })
+        .collect()
+}
+
+/// The ROOM tab's seat block: the draggable table, the same ring as a list
+/// with a seat dropdown per player, and who is sitting out. Broadcast to
+/// every phone alike, so the SIT OUT / SIT BACK IN buttons are rendered on
+/// every row and `personalize()` shows each viewer only their own.
+fn seat_section(view: &RoomView, seated: &[&RoomMember], out: &[&RoomMember]) -> String {
+    let base_path = view.base_path;
+    let code = view.code;
+    let n = seated.len();
+    let mut ring = ring_seats(seated.iter().copied());
+    if let Some(marks) = &view.marks {
+        for seat in &mut ring {
+            seat.active = seat.player_id == marks.active;
+            if seat.player_id == marks.badge_holder {
+                seat.badge = Some(marks.badge);
+            }
+        }
+    }
+    let overlay = view.marks.as_ref().map_or("", |m| m.overlay.as_str());
+    let move_url = format!("{base_path}/room/{code}/seats/move");
+    let seat_url = format!("{base_path}/room/{code}/seats/angle");
+    let start_url = format!("{base_path}/room/{code}/seats/start");
+    let hint = if n > 1 {
+        r#"<span class="felt-hint">DRAG ANYONE ROUND THE TABLE &middot; OR THE START MARKER</span>"#
+    } else {
+        ""
+    };
+    let table = crate::seat_ring::table_html(
+        &ring,
+        view.start_angle,
+        hint,
+        overlay,
+        crate::seat_ring::Scale::Phone,
+        Some(&crate::seat_ring::DragUrls {
+            seat: &seat_url,
+            start: &start_url,
+        }),
+    );
+    let chip = |m: &RoomMember| {
+        let initial = m
+            .name
+            .chars()
+            .next()
+            .unwrap_or('?')
+            .to_uppercase()
+            .to_string();
+        format!(
+            r#"<span class="member-chip">{}</span>"#,
+            html_escape(&initial)
+        )
+    };
+    let rows: String = seated
+        .iter()
+        .enumerate()
+        .map(|(i, m)| {
+            let options: String = (1..=n)
+                .map(|p| {
+                    let sel = if p == i + 1 { " selected" } else { "" };
+                    format!(r#"<option value="{p}"{sel}>Seat {p}</option>"#)
+                })
+                .collect();
+            // 3 Man: hand anyone the title from their row (any member may,
+            // as on the old SEATING ORDER list); the holder's row says so.
+            let three_man = match &view.marks {
+                Some(marks) if view.mode == "three_man" && marks.badge_holder == m.id => {
+                    r#"<span class="seat-row-badge">3 MAN</span>"#.to_string()
+                }
+                Some(_) if view.mode == "three_man" => format!(
+                    r#"<button type="button" class="seat-3man-btn" hx-post="{base_path}/room/{code}/tm/three-man" hx-vals='{{"target":{id}}}' hx-swap="none">3 MAN</button>"#,
+                    id = m.id,
+                ),
+                _ => String::new(),
+            };
+            format!(
+                r#"<div class="seat-row" data-player-id="{id}">{chip}<span class="member-name">{name}</span>{three_man}<select class="seat-select" name="position" aria-label="Seat for {name}" hx-post="{move_url}" hx-trigger="change" hx-vals='{{"player_id":{id}}}' hx-swap="none">{options}</select><button type="button" class="seat-out-btn" data-show-player="{id}" hidden hx-post="{base_path}/room/{code}/sit-out" hx-swap="none">SIT OUT</button></div>"#,
+                id = m.id,
+                chip = chip(m),
+                name = html_escape(&m.name),
+            )
+        })
+        .collect();
+    let out_block = if out.is_empty() {
+        String::new()
+    } else {
+        let out_rows: String = out
+            .iter()
+            .map(|m| {
+                format!(
+                    r#"<div class="seat-row seat-row-out" data-player-id="{id}">{chip}<span class="member-name">{name}</span><button type="button" class="seat-in-btn" data-show-player="{id}" hidden hx-post="{base_path}/room/{code}/sit-in" hx-swap="none">SIT BACK IN</button></div>"#,
+                    id = m.id,
+                    chip = chip(m),
+                    name = html_escape(&m.name),
+                )
+            })
+            .collect();
+        format!(
+            r#"<div class="sitting-out"><span class="member-section-label">SITTING OUT &middot; {}</span>{out_rows}</div>"#,
+            out.len()
+        )
+    };
+    // Last Call and Backroom seat everyone when they start; a change made
+    // during one shows on this ring now and reaches the game next time.
+    let snapshot_note = if matches!(view.mode, "last_call" | crate::secret_hitler::KIND) {
+        r#"<p class="seat-note">Seat changes apply from the next game.</p>"#
+    } else {
+        ""
+    };
+    format!(
+        r#"<div class="member-section seat-section"><span class="member-section-label">THE TABLE &middot; {n}</span>{table}{snapshot_note}<div class="seat-list">{rows}</div>{out_block}</div>"#
+    )
+}
+
 /// Phone ROOM/TABLE tab: starts with a `<template data-topbar>` the client
-/// copies into the shell's top bar, then the room-code card, WHO'S HERE
+/// copies into the shell's top bar, then the room-code card, THE TABLE
 /// grid, HOUSE RULES list, King's Cup fill, and the end-the-night form.
 /// Root `<div>` carries `data-mode` so the client can rename tab 3
 /// (ROOM ↔ TABLE) per the fragment contract.
 pub fn room_panel(view: &RoomView) -> String {
     let base_path = view.base_path;
     let code = view.code;
-    let n = view.members.len();
+    // The ring is everyone not sitting out, in seat order; the rest are
+    // still in the room and listed under SITTING OUT.
+    let seated: Vec<&RoomMember> = view.members.iter().filter(|m| !m.sitting_out).collect();
+    let out: Vec<&RoomMember> = view.members.iter().filter(|m| m.sitting_out).collect();
+    let n = seated.len();
 
-    let topbar_chips: String = view
-        .members
+    let topbar_chips: String = seated
         .iter()
         .map(|m| {
             let initial = m
@@ -529,15 +822,22 @@ pub fn room_panel(view: &RoomView) -> String {
             )
         })
         .collect();
-    let topbar_count_label = if view.mode == "three_man" {
+    // Games that seat people around a table say so; everything else just
+    // counts heads. A lookup rather than a chain of `==` comparisons, so a
+    // fifth game is one entry and not two more branches to miss.
+    let seated_game = matches!(view.mode, "three_man" | crate::secret_hitler::KIND);
+    let topbar_count_label = if seated_game {
         format!("{n} at the table")
     } else {
         format!("{n} here")
     };
-    let tm_chip = if view.mode == "three_man" {
-        r#"<span class="tm-chip">3 MAN</span>"#
-    } else {
-        ""
+    let tm_chip = match view.mode {
+        "three_man" => r#"<span class="tm-chip">3 MAN</span>"#.to_string(),
+        crate::secret_hitler::KIND => format!(
+            r#"<span class="tm-chip">{}</span>"#,
+            html_escape(&crate::sh_theme::GAME_NAME.to_uppercase())
+        ),
+        _ => String::new(),
     };
     let topbar = format!(
         r#"<template data-topbar><div class="topbar-chips">{topbar_chips}</div>{tm_chip}<span class="topbar-count">{topbar_count_label}</span></template>"#
@@ -547,22 +847,7 @@ pub fn room_panel(view: &RoomView) -> String {
         r#"<div class="room-code-card"><span class="room-code-label">ROOM CODE</span><span class="room-code-value">{code}</span><div class="room-code-actions"><button type="button" class="room-action-btn" data-share>SHARE LINK</button><a class="room-action-btn" href="{base_path}/room/{code}/screen" target="_blank">OPEN BIG SCREEN</a></div></div>"#
     );
 
-    let member_grid: String = view
-        .members
-        .iter()
-        .map(|m| {
-            let initial = m.name.chars().next().unwrap_or('?').to_uppercase().to_string();
-            format!(
-                r#"<div class="member-chip-row"><span class="member-chip">{}</span><span class="member-name">{}</span><span class="member-dot"></span></div>"#,
-                html_escape(&initial),
-                html_escape(&m.name),
-            )
-        })
-        .collect();
-    let member_section = format!(
-        r#"<div class="member-section"><span class="member-section-label">WHO'S HERE &middot; {n}</span><div class="member-grid">{member_grid}</div></div>"#
-    );
-
+    let member_section = seat_section(view, &seated, &out);
     let rules_items: String = view
         .house_rules
         .iter()
@@ -606,7 +891,7 @@ pub fn room_panel(view: &RoomView) -> String {
     );
 
     // Deliberate TABLE-tab deviation from the prototype: seating slots
-    // between WHO'S HERE and HOUSE RULES rather than replacing either, so
+    // between THE TABLE and HOUSE RULES rather than replacing either, so
     // the room-code card and share/big-screen actions stay reachable
     // mid-game.
     let seating_block = view.seating.as_deref().unwrap_or_default();
@@ -1013,21 +1298,82 @@ pub fn tm_phone_panel(v: &TmView) -> String {
     )
 }
 
-/// Big-screen left pane + full-width bottom seat strip. The "WAITING ON"
-/// full-pane state only appears before the first roll of the game
+/// How far out from the centre the dice sit, as a fraction of the rim:
+/// inside the felt, clear of the seat tokens, on the roller's side.
+const DICE_FRACTION: f64 = 0.6;
+
+/// The dice beside the roller's seat. The last roll's faces while it is
+/// still the roller's turn; blank dice once the turn has passed, so the
+/// dice move to the next roller without carrying the old numbers.
+fn tm_dice_overlay(st: &crate::three_man::ThreeManState, layout: &TableLayout) -> String {
+    let (left, top) = crate::seat_ring::toward_centre(layout.angle(st.roller()), DICE_FRACTION);
+    let dice = match st.dice {
+        Some((d1, d2)) if !st.stale => dice_html(d1, d2),
+        _ => r#"<div class="die die-blank"></div><div class="die die-blank"></div>"#.to_string(),
+    };
+    format!(
+        r#"<div class="felt-dice" style="left:{left}%;top:{top}%" data-roller="{roller}">{dice}</div>"#,
+        roller = st.roller(),
+    )
+}
+
+/// 3 Man's marks on the ROOM tab's table: the roller lit, the 3 Man
+/// badged, the dice at the roller's seat.
+pub fn tm_table_marks(v: &TmView, layout: &TableLayout) -> TableMarks {
+    TableMarks {
+        active: v.st.roller(),
+        badge_holder: v.st.three_man,
+        badge: "3 MAN",
+        overlay: tm_dice_overlay(v.st, layout),
+    }
+}
+
+/// The 3 Man table at screen scale: the game's players at their rim
+/// angles, numbered in seat order, the roller lit, the 3 Man badged, and
+/// the dice beside the roller. `centre` goes in the middle of the felt.
+fn tm_table_html(v: &TmView, layout: &TableLayout, centre: &str) -> String {
+    let st = v.st;
+    let order = layout.in_seat_order(&st.order);
+    let seats: Vec<crate::seat_ring::RingSeat> = order
+        .iter()
+        .map(|&id| crate::seat_ring::RingSeat {
+            player_id: id,
+            name: v.names.get(&id).map(String::as_str).unwrap_or("?"),
+            badge: (id == st.three_man).then_some("3 MAN"),
+            active: id == st.roller(),
+            angle: layout.angle(id),
+        })
+        .collect();
+    crate::seat_ring::table_html(
+        &seats,
+        layout.start,
+        centre,
+        &tm_dice_overlay(st, layout),
+        crate::seat_ring::Scale::Screen,
+        None,
+    )
+}
+
+/// Big-screen left pane: the felt table (see `tm_table_html`) with the
+/// roll's sum in the middle, and the roll's calls beneath it. The "WAITING
+/// ON" centre only appears before the first roll of the game
 /// (`st.dice.is_none()`) — between rolls the dimmed stale verdict stays.
-pub fn tm_screen_panel(v: &TmView) -> String {
+/// Never carries `data-lc-live`: that handoff marker is Last Call's alone.
+pub fn tm_screen_panel(v: &TmView, layout: &TableLayout) -> String {
     let st = v.st;
     let three_man_name = tm_name(v, st.three_man);
     let header = format!(
         r#"<div class="screen-top"><span class="live-dot"></span><span class="screen-kicker">3 MAN</span><span class="tm-chip">{three_man_name}</span></div>"#
     );
 
-    let body = match st.dice {
+    let (centre, below) = match st.dice {
         None => {
             let roller_name = tm_name(v, st.roller());
-            format!(
-                r#"<div class="screen-waiting"><span class="screen-kicker">WAITING ON</span><h2 class="screen-hero-title">{roller_name}</h2><p class="screen-hero-sub">Two dice. Three, seven, nine, eleven &mdash; or a double.</p></div>"#
+            (
+                format!(
+                    r#"<div class="screen-waiting"><span class="screen-kicker">WAITING ON</span><h2 class="screen-hero-title">{roller_name}</h2><p class="screen-hero-sub">Two dice. Three, seven, nine, eleven &mdash; or a double.</p></div>"#
+                ),
+                String::new(),
             )
         }
         Some((d1, d2)) => {
@@ -1125,53 +1471,26 @@ pub fn tm_screen_panel(v: &TmView) -> String {
                 },
                 Phase::Ready | Phase::Rolled => String::new(),
             };
-            let dice = dice_html(d1, d2);
-            format!(
-                r#"<div class="verdict-card{dimmed}"><div class="dice-row">{dice}<div class="dice-sum"><span class="dice-sum-value">{sum}</span><span class="dice-sum-caption">{caption}</span><span class="dice-sum-headline">{headline}</span></div></div>{calls_html}</div>{phase_banner}"#
+            (
+                format!(
+                    r#"<div class="dice-sum{dimmed}"><span class="dice-sum-value">{sum}</span><span class="dice-sum-caption">{caption}</span><span class="dice-sum-headline">{headline}</span></div>"#
+                ),
+                format!(r#"<div class="verdict-card{dimmed}">{calls_html}</div>{phase_banner}"#),
             )
         }
     };
 
-    let seat_strip = tm_seat_strip_html(
-        v,
-        " seat-strip-screen",
-        "THE TABLE &middot; CLOCKWISE",
-        "7 hits the left &middot; 9 hits the right &middot; 11 hits the roller",
-    );
+    let table = tm_table_html(v, layout, &centre);
     let seq = st.seq;
     format!(
-        r#"<div class="screen-panel screen-tm" data-anim-key="{seq}">{header}{body}</div>{seat_strip}"#
+        r#"<div class="screen-panel screen-tm" data-anim-key="{seq}">{header}{table}<div class="tm-screen-below">{below}</div></div>"#
     )
 }
 
-/// TABLE-tab seating list (↑/↓ move, per-row 3 MAN assign) + a static
-/// rules-reference card set. `room_panel` embeds the result verbatim.
-pub fn tm_seating_html(v: &TmView) -> String {
-    let st = v.st;
-    let base = v.base_path;
-    let code = v.code;
-    let roller = st.roller();
-    let rows: String = st
-        .order
-        .iter()
-        .enumerate()
-        .map(|(idx, &id)| {
-            let pos = idx + 1;
-            let tag = if id == roller {
-                "ROLLING"
-            } else if id == st.three_man {
-                "3 MAN"
-            } else {
-                ""
-            };
-            let initial = tm_initial(v, id);
-            let name = tm_name(v, id);
-            format!(
-                r#"<div class="seat-move"><span class="seat-pos">{pos}</span><span class="seat-avatar">{initial}</span><div class="seat-info"><span class="seat-name-line">{name}</span><span class="seat-tag-line">{tag}</span></div><div class="seat-actions"><button class="seat-btn" hx-post="{base}/room/{code}/tm/seat" hx-vals='{{"target":{id},"dir":-1}}' hx-swap="none">&uarr;</button><button class="seat-btn" hx-post="{base}/room/{code}/tm/seat" hx-vals='{{"target":{id},"dir":1}}' hx-swap="none">&darr;</button><button class="seat-btn seat-btn-three" hx-post="{base}/room/{code}/tm/three-man" hx-vals='{{"target":{id}}}' hx-swap="none">3 MAN</button></div></div>"#
-            )
-        })
-        .collect();
-
+/// TABLE-tab rules reference card set. `room_panel` embeds the result
+/// verbatim. The ↑/↓ SEATING ORDER list it used to carry is gone: THE
+/// TABLE above it (drag, dropdown, per-row 3 MAN) does that job now.
+pub fn tm_seating_html(_v: &TmView) -> String {
     let rule_cards = [
         ("3", "Three", "Every 3 (and a total of 3) hits the 3 Man &mdash; unless they rolled it, then the crown moves instead."),
         ("7", "Seven", "Left of the roller drinks."),
@@ -1189,7 +1508,7 @@ pub fn tm_seating_html(v: &TmView) -> String {
         .collect();
 
     format!(
-        r#"<div class="seating-list"><span class="seating-caption">SEATING ORDER</span><p class="seating-sub">7 and 9 hit the roller's neighbours, so this list has to match the actual room.</p>{rows}</div><div class="rules-ref"><span class="rules-ref-caption">THE RULES</span>{cards}</div>"#
+        r#"<div class="rules-ref"><span class="rules-ref-caption">THE RULES</span>{cards}</div>"#
     )
 }
 
@@ -1425,6 +1744,7 @@ mod tests {
             counts,
             announcement: None,
             anim_key: "3-1".into(),
+            table: None,
         }
     }
 
@@ -1471,6 +1791,7 @@ mod tests {
             counts: &counts,
             announcement: None,
             anim_key: "1-0".into(),
+            table: None,
         };
         let html = game_active_panel(&view);
         assert!(!html.contains("/drinks/room/QK4M/game/rule"));
@@ -1491,6 +1812,7 @@ mod tests {
             counts: &counts,
             announcement: None,
             anim_key: "0-0".into(),
+            table: None,
         };
         let html = game_active_panel(&view);
         assert!(!html.contains("hero-card"));
@@ -1542,11 +1864,15 @@ mod tests {
                 id: 1,
                 name: "alice".into(),
                 joined_at: "t".into(),
+                sitting_out: false,
+                angle: 0.0,
             },
             RoomMember {
                 id: 2,
                 name: "bob".into(),
                 joined_at: "t".into(),
+                sitting_out: false,
+                angle: 0.0,
             },
         ];
         let house_rules: Vec<HouseRule> = vec![];
@@ -1554,16 +1880,18 @@ mod tests {
             base_path: "/drinks",
             code: "QK4M",
             members: &members,
+            start_angle: 0.0,
             house_rules: &house_rules,
             kings: 1,
             mode: "idle",
             seating: None,
+            marks: None,
         };
         let html = room_panel(&view);
         assert!(html.starts_with("<template data-topbar>"));
         assert!(html.contains(r#"data-mode="idle""#));
         assert!(!html.contains("tm-chip")); // no 3 MAN badge outside three_man mode
-        assert!(html.contains("WHO"));
+        assert!(html.contains("THE TABLE")); // the seat block
         assert!(html.contains("OPEN BIG SCREEN"));
         assert!(html.contains("kings-fill"));
         assert!(html.contains("1 / 4"));
@@ -1577,7 +1905,7 @@ mod tests {
 
     #[test]
     fn test_screen_panels() {
-        let idle = screen_panel_idle("QK4M");
+        let idle = screen_panel_idle("QK4M", &[], 0.0);
         assert!(idle.contains("Just drinking."));
 
         let counts = vec![DrawCount {
@@ -1648,6 +1976,59 @@ mod tests {
 
     /// 3 players alice(1)/bob(2)/cara(3), starter alice, three_man
     /// reassigned to bob — order [1,2,3], roller_idx 0 (alice), Ready.
+    /// alice, bob, cara at 60, 180, 300 from a marker at 0 — what three
+    /// joins into an unarranged room give.
+    fn fixture_layout() -> TableLayout {
+        TableLayout {
+            angles: HashMap::from([(1, 60.0), (2, 180.0), (3, 300.0)]),
+            start: 0.0,
+        }
+    }
+
+    #[test]
+    fn test_tm_screen_is_the_felt_with_dice_at_the_roller() {
+        let (mut st, names) = tm_view_fixture(); // alice rolls, bob is 3 Man
+        let layout = fixture_layout();
+        st.roll(2, 4).unwrap();
+        let v = TmView {
+            base_path: "/drinks",
+            code: "QK4M",
+            st: &st,
+            names: &names,
+        };
+        let html = tm_screen_panel(&v, &layout);
+        assert!(html.contains("felt-screen"));
+        assert_eq!(html.matches(r#"class="felt-seat"#).count(), 3);
+        assert_eq!(html.matches("is-active").count(), 1);
+        assert!(html.contains(
+            r#"class="felt-seat is-active" style="left:12.8%;top:70.6%" data-player-id="1""#
+        ));
+        assert!(html.contains(r#"<span class="felt-badge">3 MAN</span>"#));
+        // Dice by alice's seat (60°), 0.6 of the way out, showing the roll.
+        let (l, t) = crate::seat_ring::toward_centre(60.0, DICE_FRACTION);
+        assert!(html.contains(&format!(
+            r#"class="felt-dice" style="left:{l}%;top:{t}%" data-roller="1""#
+        )));
+        assert!(html.contains("die-pip"), "the faces are drawn");
+        assert!(!html.contains(" data-lc-live"));
+        assert!(!html.contains("seat-strip"), "the bottom strip is gone");
+
+        // The turn passes: the dice move to bob, blank.
+        st.pass().unwrap();
+        let v = TmView {
+            base_path: "/drinks",
+            code: "QK4M",
+            st: &st,
+            names: &names,
+        };
+        let html = tm_screen_panel(&v, &layout);
+        let (l, t) = crate::seat_ring::toward_centre(180.0, DICE_FRACTION);
+        assert!(html.contains(&format!(
+            r#"class="felt-dice" style="left:{l}%;top:{t}%" data-roller="2""#
+        )));
+        assert!(html.contains("die-blank"));
+    }
+
     fn tm_view_fixture() -> (ThreeManState, HashMap<i64, String>) {
         let mut st = ThreeManState::new(vec![1, 2, 3], 1);
         st.set_three_man(2).unwrap();
@@ -1847,7 +2228,8 @@ mod tests {
             st: &st,
             names: &names,
         };
-        let html = tm_screen_panel(&v);
+        let layout = fixture_layout();
+        let html = tm_screen_panel(&v, &layout);
         assert!(html.contains("WAITING ON"));
         // Scoped to the waiting headline — the seat strip also renders
         // "alice", so an unscoped `contains("alice")` would pass regardless.
@@ -1863,7 +2245,7 @@ mod tests {
             st: &st2,
             names: &names,
         };
-        let html2 = tm_screen_panel(&v2);
+        let html2 = tm_screen_panel(&v2, &layout);
         assert!(html2.contains("verdict-card stale"));
         assert!(!html2.contains("WAITING ON"));
     }
@@ -1878,31 +2260,32 @@ mod tests {
             names: &names,
         };
         let seating = tm_seating_html(&v);
-        assert!(seating.contains("/drinks/room/QK4M/tm/seat"));
-        // /tm/seat posts {"target":ID,"dir":±1} per the plan's Task 13
-        // route table (not "player"/"delta").
-        assert!(seating.contains(r#"hx-vals='{"target":1,"dir":-1}'"#));
-        assert!(seating.contains(r#"hx-vals='{"target":1,"dir":1}'"#));
-        assert!(!seating.contains(r#""player":"#));
-        assert!(!seating.contains(r#""delta":"#));
-        assert!(seating.contains("/drinks/room/QK4M/tm/three-man"));
+        // The rules reference only: the ↑/↓ list is gone (THE TABLE moves
+        // seats now), so nothing here posts to /tm/seat.
         assert!(seating.contains("rules-ref"));
+        assert!(!seating.contains("/tm/seat"));
 
         let members = vec![
             RoomMember {
                 id: 1,
                 name: "alice".into(),
                 joined_at: "t".into(),
+                sitting_out: false,
+                angle: 0.0,
             },
             RoomMember {
                 id: 2,
                 name: "bob".into(),
                 joined_at: "t".into(),
+                sitting_out: false,
+                angle: 0.0,
             },
             RoomMember {
                 id: 3,
                 name: "cara".into(),
                 joined_at: "t".into(),
+                sitting_out: false,
+                angle: 0.0,
             },
         ];
         let house_rules: Vec<HouseRule> = vec![];
@@ -1910,12 +2293,24 @@ mod tests {
             base_path: "/drinks",
             code: "QK4M",
             members: &members,
+            start_angle: 0.0,
             house_rules: &house_rules,
             kings: 0,
             mode: "three_man",
             seating: Some(seating),
+            marks: Some(tm_table_marks(&v, &TableLayout::new(&members, 0.0))),
         };
         let html = room_panel(&room_view);
+        // THE TABLE carries 3 Man's marks: alice rolls, bob is 3 Man, the
+        // dice sit by alice; every other row can be handed the title.
+        assert!(html.contains(
+            r#"class="felt-seat is-active" style="left:50%;top:91.1%" data-player-id="1""#
+        ));
+        assert!(html.contains(r#"<span class="felt-badge">3 MAN</span>"#));
+        assert!(html.contains(r#"class="felt-dice""#));
+        assert_eq!(html.matches("/drinks/room/QK4M/tm/three-man").count(), 2);
+        assert!(html.contains(r#"hx-vals='{"target":1}'"#));
+        assert!(html.contains(r#"<span class="seat-row-badge">3 MAN</span>"#));
         // Scoped to the <template data-topbar> half of the fragment — the
         // seating block's per-row 3 MAN assign buttons also contain the
         // literal text "3 MAN", so an unscoped `html.contains` would pass
@@ -1965,8 +2360,10 @@ mod tests {
         assert!(html.contains("/drinks/room/QK4M/tm/start"));
         assert!(html.contains("Last Call"));
         assert!(html.contains("/drinks/room/QK4M/lastcall/start"));
-        // Three START buttons now: Ring of Fire's, 3 Man's, Last Call's.
-        assert_eq!(html.matches(">START<").count(), 3);
+        assert!(html.contains(crate::sh_theme::GAME_NAME));
+        assert!(html.contains("/drinks/room/QK4M/sh/start"));
+        // Four START buttons: Ring of Fire's, 3 Man's, Last Call's, Backroom's.
+        assert_eq!(html.matches(">START<").count(), 4);
     }
 
     // -------------------------------------------------------------

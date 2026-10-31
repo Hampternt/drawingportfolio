@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM sorting_actions WHERE session_id = ? AND seq >= ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "e878228acc0666c78ac34bde7e26b3d514cc478532f3aa4e2b0374cb1eab0a2b"
+}
