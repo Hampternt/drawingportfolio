@@ -191,7 +191,7 @@ English, reached from the nav, the hub footer and the command palette.
   blueprints, stored on the site as a source of truth that AI coding tools can
   read and edit. Visitors see one demo plan. Design and open issues:
   `docs/design/blueprint-planner/README.md`
-  - 🚧 S0 canvas spike — pan, zoom, drag and wiring on a throwaway owner-only
+  - ✅ S0 canvas spike — pan, zoom, drag and wiring on a throwaway owner-only
     page, `/blueprint-spike`, with nothing saved:
     `docs/manifests/2026-11-05-blueprint-canvas-spike.md`
 - 💭 Public polish — page titles with the owner's name, link previews and a

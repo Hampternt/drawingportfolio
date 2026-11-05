@@ -1,7 +1,7 @@
 # Blueprint planner — S0 canvas spike
 
-**Status:** built 2026-11-05 on `kepler/feat/blueprint-planning-tool`, waiting
-for the owner's test.
+**Status:** merged into `dev` 2026-11-05 after the owner's go (PR #28).
+Branch `kepler/feat/blueprint-planning-tool`.
 
 ## Goal
 
