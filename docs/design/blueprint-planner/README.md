@@ -164,10 +164,10 @@ planned. **Rec** is the recommended answer.
 the owner editor, the 412 banner, the visitor demo, the empty project and empty
 plan, tokens, three design-guide boards, two open-issue boards and two
 components. Every canvas, count and outline is computed by one renderer
-(`Plan.dc.html`) from a document in the shape below. It makes two layout calls of
-its own, described on the guide boards: one port per row with outputs first, so a
-node's width is its longest label (Blender's order), and a minimum node width
-of 9u.
+(`Plan.dc.html`) from a document in the shape below. It proposes two layout calls
+of its own, for the owner to confirm: one port per row with outputs first, so a
+node's width is its longest label (Blender's order) rather than the sum of both
+sides, and a minimum node width of 9u.
 
 A separate session makes one artifact that serves as this tool's design guide
 and UI mockup. Build it on the **Hampter Design System**, dark, as the site's
