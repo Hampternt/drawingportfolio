@@ -125,7 +125,10 @@ mod tests {
         let layout = doc["layout"].as_object().unwrap();
         for (g, graph) in doc["graphs"].as_object().unwrap() {
             for name in graph["nodes"].as_object().unwrap().keys() {
-                assert!(layout.contains_key(&format!("{g}/{name}")), "{g}/{name} has no position");
+                assert!(
+                    layout.contains_key(&format!("{g}/{name}")),
+                    "{g}/{name} has no position"
+                );
             }
         }
     }
@@ -149,8 +152,15 @@ mod tests {
         assert!(html.contains(r#"<section class="site-page bp-spike""#));
         assert!(html.contains(r#"<script type="application/json" id="bp-demo">"#));
         assert!(html.contains(r#""token_gate""#));
-        for js in ["blueprint-model.js", "blueprint-view.js", "blueprint-app.js"] {
-            assert!(html.contains(&format!("/static/{js}?v=")), "{js} is not loaded");
+        for js in [
+            "blueprint-model.js",
+            "blueprint-view.js",
+            "blueprint-app.js",
+        ] {
+            assert!(
+                html.contains(&format!("/static/{js}?v=")),
+                "{js} is not loaded"
+            );
         }
     }
 
@@ -184,7 +194,11 @@ mod tests {
                 .oneshot(get("/blueprint-spike", Some(&format!("session={sess}"))))
                 .await
                 .unwrap();
-            assert_eq!(resp.status(), StatusCode::NOT_FOUND, "{name} reached the spike");
+            assert_eq!(
+                resp.status(),
+                StatusCode::NOT_FOUND,
+                "{name} reached the spike"
+            );
         }
         let resp = app.oneshot(get("/blueprint-spike", None)).await.unwrap();
         assert_eq!(resp.status(), StatusCode::SEE_OTHER);
