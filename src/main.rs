@@ -148,6 +148,7 @@ async fn main() {
         .merge(routes::tasks::router()) // GET /tasks, POST/DELETE /api/tasks/...
         .merge(routes::sorting::router()) // GET /sorting, POST/DELETE /api/sorting/...
         .merge(routes::users::router()) // GET /admin/users (owner), /fitness/account
+        .merge(routes::blueprint::router()) // GET /blueprint-spike (owner; S0 canvas spike)
         .nest_service("/drinks", drinks) // party drink tracker (drinkinggame crate)
         // Serve files from the `static/` directory on disk at the /static URL prefix.
         // Unlike templates (compiled into the binary), these are read from disk at runtime.

@@ -1,0 +1,53 @@
+{
+  "v": 1,
+  "root": "main",
+  "graphs": {
+    "main": {
+      "nodes": {
+        "nginx":      { "kind": "machine", "status": "done", "note": "TLS, static cache, body limit",
+                        "in": { "https": "Request" }, "out": { "req": "Request", "static": "File" } },
+        "router":     { "kind": "machine", "status": "done", "note": "axum Router; ai routes to add",
+                        "in": { "req": "Request" }, "out": { "page": "Request", "api": "Request", "ai": "Request" } },
+        "session":    { "kind": "machine", "status": "done", "note": "AuthSession, RequireOwner",
+                        "in": { "req": "Request" }, "out": { "viewer": "Viewer" } },
+        "token_gate": { "kind": "machine", "status": "planned", "note": "bp_ token to scope; never a cookie",
+                        "in": { "bearer": "Header" }, "out": { "scope": "Scope" } },
+        "handler":    { "kind": "machine", "status": "done", "note": "one effective viewer",
+                        "in": { "req": "Request", "viewer": "Viewer" }, "out": { "query": "Filter", "view": "Page" } },
+        "db":         { "kind": "blueprint", "status": "done", "graph": "db", "note": "SQLite via sqlx",
+                        "in": { "query": "Filter" }, "out": { "rows": "Vec<Post>", "plan": "PlanDoc" } },
+        "render":     { "kind": "machine", "status": "done", "note": "Askama, htmx fragments",
+                        "in": { "rows": "Vec<Post>", "view": "Page" }, "out": { "html": "Html" } },
+        "exporter":   { "kind": "machine", "status": "idea", "note": "outline.md + JSON, no layout",
+                        "in": { "plan": "PlanDoc", "scope": "Scope" }, "out": { "outline": "Markdown" } }
+      },
+      "wires": [
+        ["nginx.req", "router.req"],
+        ["router.page", "session.req"],
+        ["router.api", "session.req"],
+        ["router.page", "handler.req"],
+        ["session.viewer", "handler.viewer"],
+        ["handler.query", "db.query"],
+        ["handler.view", "render.view"],
+        ["db.rows", "render.rows"],
+        ["router.ai", "token_gate.bearer"],
+        ["token_gate.scope", "exporter.scope"],
+        ["db.plan", "exporter.plan"],
+        ["exporter.outline", "claude.context"]
+      ]
+    },
+    "db": {
+      "nodes": {
+        "pool":  { "kind": "machine", "status": "done", "note": "one pool in AppState", "in": {}, "out": { "conn": "Pool" } },
+        "posts": { "kind": "machine", "status": "done", "note": "posts, tags, collections", "in": { "conn": "Pool" }, "out": { "rows": "Vec<Post>" } },
+        "plans": { "kind": "machine", "status": "planned", "note": "payload stored whole", "in": { "conn": "Pool" }, "out": { "plan": "PlanDoc" } }
+      },
+      "wires": [["pool.conn", "posts.conn"], ["pool.conn", "plans.conn"]]
+    }
+  },
+  "layout": {
+    "main/nginx": [1, 6], "main/router": [13, 5], "main/session": [25, 12], "main/token_gate": [25, 22],
+    "main/handler": [39, 3], "main/db": [52, 10], "main/render": [69, 2], "main/exporter": [69, 19],
+    "db/pool": [1, 2], "db/posts": [13, 1], "db/plans": [13, 9]
+  }
+}

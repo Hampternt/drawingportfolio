@@ -19,6 +19,8 @@
 #                                   live beside the demo they were written for
 #                                   but the code they run is the served
 #                                   static/sorting-*.js, so they gate the route.
+#                                   Plus tests/js/blueprint-model.test.js, the
+#                                   blueprint planner's model on plain node.
 #
 # clippy runs without `-D warnings` on purpose: the tree carries pre-existing
 # warnings (21 distinct as of 2026-08-12 — CLAUDE.md keeps the measured count).
@@ -69,7 +71,7 @@ fi
 printf '\n=== node (the board suites)\n'
 if command -v node >/dev/null 2>&1; then
   board_bad=0
-  for t in docs/design/sorting-live/src/model.test.js docs/design/sorting-live/src/board.test.js; do
+  for t in docs/design/sorting-live/src/model.test.js docs/design/sorting-live/src/board.test.js tests/js/blueprint-model.test.js; do
     [[ -e "$t" ]] || continue
     if out=$(node "$t" 2>&1) && [[ "$out" != *FAIL* ]]; then
       printf 'ok   %s — %s\n' "$t" "${out##*$'\n'}"

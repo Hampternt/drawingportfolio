@@ -218,7 +218,7 @@ boxes) and 6 (mismatch rule). Do not mark any of them decided; the owner picks.
 
 | # | Slice | Done when | Depends on |
 |---|---|---|---|
-| S0 | **Canvas spike**: no persistence, a throwaway page | Pan, wheel zoom, drag and wiring work with mouse and keyboard inside a boosted page; wires drop onto ports at zoom 0.3 and 3; 200 nodes and 400 wires drag smoothly | — |
+| S0 | **Canvas spike**: no persistence, a throwaway page (built: `docs/manifests/2026-11-05-blueprint-canvas-spike.md`) | Pan, wheel zoom, drag and wiring work with mouse and keyboard inside a boosted page; wires drop onto ports at zoom 0.3 and 3; 200 nodes and 400 wires drag smoothly | — |
 | S1 | **Document and model**: `blueprint-model.js` plus node tests | Validate, add, move, connect, rename-by-name (rewriting wires), dangling count, mismatch check, nearest-port, all in the gate | 2, 3, 6 |
 | S2 | **Section scaffold**: the next free migration, routes, hub tile, nav, palette, `/docs` row and its "six sections" wording, projects and their plans, read-only demo for visitors | A visitor sees the demo; the owner creates projects and plans; any other plan id 404s | 1, 8 |
 | S3 | **Editor v1** | The owner builds a plan in the browser: nodes, ports, wires, notes, status, undo, autosave with `If-Match` | S0, S1, S2 |

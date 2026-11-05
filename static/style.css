@@ -4601,3 +4601,403 @@ body.sorting-dark .sort-list__link { color: var(--text-body); }
 @media (prefers-reduced-motion: reduce) {
   .sort-bhead__fill { transition: none; }
 }
+
+/* ── Blueprint planner: S0 canvas spike ─────────────────────────────────
+   A throwaway page (/blueprint-spike, owner only) that proves the canvas
+   before anything is stored. Plan: docs/manifests/2026-11-05-blueprint-
+   canvas-spike.md. Geometry and colours follow the reviewed design canvas in
+   docs/design/blueprint-planner/canvas/.
+
+   1u = 1rem. Every size inside a node is a fraction of a rem, and
+   static/blueprint-model.js does its arithmetic in the same units, so the
+   model's port positions and the dots drawn here are the same numbers. Change
+   a height here and measure()/portAt() must change with it; the node test
+   pins them against the canvas.
+
+   The wire and ghost <svg>s have a viewBox one unit square drawn 1rem wide,
+   so their user unit is a grid unit too: stroke widths below are unitless
+   numbers of u (0.125 = 2px at the default size).
+
+   Rules are scoped `body.site-dark .bp-…` (0,2,1): enough to beat the design
+   system's button reset at (0,1,2), which would otherwise hand every node
+   `font: inherit`. */
+
+body.site-dark .bp-spike {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  padding: var(--space-8) var(--gutter) var(--space-9);
+}
+body.site-dark .bp-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-5);
+}
+body.site-dark .bp-head .hm-eyebrow { margin-bottom: var(--space-3); }
+body.site-dark .bp-head__name {
+  font: var(--type-h3);
+  font-family: var(--font-mono);
+  color: var(--text-strong);
+}
+body.site-dark .bp-counts {
+  font: var(--type-mono);
+  font-size: var(--text-12);
+  color: var(--text-muted);
+}
+body.site-dark .bp-counts.has-problems { color: var(--amber-400); }
+
+body.site-dark .bp-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+body.site-dark .bp-bar__gap { flex: 1; }
+
+/* ── The canvas ── */
+body.site-dark .bp-viewport {
+  --bp-cell: 1rem;
+  --bp-ox: 0;
+  --bp-oy: 0;
+  position: relative;
+  height: calc(100dvh - 17rem);
+  min-height: 28rem;
+  overflow: hidden;
+  border: var(--border-width) solid var(--border-default);
+  border-radius: var(--radius-md);
+  background-color: var(--ink-950);
+  /* Three line weights: every 8u, every 2u, every 1u. The sizes come from the
+     app through --bp-cell (1u on screen, in px), so the grid zooms with the
+     plan and pans with it through the offsets. */
+  background-image:
+    linear-gradient(rgba(242,238,248,.075) 0.0625rem, transparent 0.0625rem),
+    linear-gradient(90deg, rgba(242,238,248,.075) 0.0625rem, transparent 0.0625rem),
+    linear-gradient(rgba(242,238,248,.045) 0.0625rem, transparent 0.0625rem),
+    linear-gradient(90deg, rgba(242,238,248,.045) 0.0625rem, transparent 0.0625rem),
+    linear-gradient(rgba(242,238,248,.022) 0.0625rem, transparent 0.0625rem),
+    linear-gradient(90deg, rgba(242,238,248,.022) 0.0625rem, transparent 0.0625rem);
+  background-size:
+    calc(var(--bp-cell) * 8) calc(var(--bp-cell) * 8),
+    calc(var(--bp-cell) * 8) calc(var(--bp-cell) * 8),
+    calc(var(--bp-cell) * 2) calc(var(--bp-cell) * 2),
+    calc(var(--bp-cell) * 2) calc(var(--bp-cell) * 2),
+    var(--bp-cell) var(--bp-cell),
+    var(--bp-cell) var(--bp-cell);
+  background-position: var(--bp-ox) var(--bp-oy);
+  cursor: default;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+/* Zoomed far out, the 1u lines would be a grey wash. */
+body.site-dark .bp-viewport.is-far {
+  background-size:
+    calc(var(--bp-cell) * 8) calc(var(--bp-cell) * 8),
+    calc(var(--bp-cell) * 8) calc(var(--bp-cell) * 8),
+    calc(var(--bp-cell) * 2) calc(var(--bp-cell) * 2),
+    calc(var(--bp-cell) * 2) calc(var(--bp-cell) * 2),
+    0 0, 0 0;
+}
+body.site-dark .bp-viewport:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+body.site-dark .bp-viewport.is-grab { cursor: grab; }
+body.site-dark .bp-viewport.is-panning { cursor: grabbing; }
+
+body.site-dark .bp-stage {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+}
+body.site-dark .bp-wires,
+body.site-dark .bp-ghost {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 1rem;
+  height: 1rem;
+  overflow: visible;
+  pointer-events: none;
+}
+body.site-dark .bp-nodes { position: absolute; left: 0; top: 0; }
+
+/* ── Wires ── */
+body.site-dark .bp-wire__line {
+  fill: none;
+  stroke: var(--ink-300);
+  stroke-width: 0.125;
+  stroke-linecap: round;
+  opacity: .85;
+}
+/* The hit area is 0.75u wide and invisible. */
+body.site-dark .bp-wire__hit {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 0.75;
+  pointer-events: stroke;
+  cursor: pointer;
+}
+body.site-dark .bp-wire.is-mismatch .bp-wire__line { stroke: var(--rose-400); stroke-dasharray: 0.375 0.25; opacity: 1; }
+body.site-dark .bp-wire.is-dangling .bp-wire__line { stroke: var(--amber-400); stroke-dasharray: 0.125 0.3125; opacity: .9; }
+body.site-dark .bp-wire.is-selected .bp-wire__line { stroke: var(--violet-400); stroke-width: 0.15625; opacity: 1; }
+body.site-dark .bp-wire.is-selected .bp-wire__hit { stroke: var(--violet-a28); stroke-width: 0.5625; }
+
+body.site-dark .bp-ghost { display: none; }
+body.site-dark .bp-ghost.is-on { display: block; }
+body.site-dark .bp-ghost__line {
+  fill: none;
+  stroke: var(--violet-400);
+  stroke-width: 0.125;
+  stroke-dasharray: 0.3125 0.3125;
+  stroke-linecap: round;
+}
+body.site-dark .bp-ghost__end { fill: var(--ink-950); stroke: var(--violet-400); stroke-width: 0.125; }
+
+/* Mismatch and dangling labels, placed in u by the view. */
+body.site-dark .bp-tag {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: inline-flex;
+  align-items: center;
+  height: 1.25rem;
+  margin-top: -0.625rem;
+  padding: 0 0.375rem;
+  border: 0.0625rem solid;
+  border-radius: 0.1875rem;
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  white-space: pre;
+  pointer-events: none;
+}
+body.site-dark .bp-tag--mismatch {
+  translate: -50% 0;
+  background: rgba(30,14,22,.96);
+  border-color: var(--rose-600);
+  color: var(--rose-400);
+}
+body.site-dark .bp-tag--dangling { background: rgba(36,24,14,.96); border-color: var(--amber-600); color: var(--amber-400); }
+body.site-dark .bp-tag--left { translate: -100% 0; }
+
+/* ── Nodes ──
+   Heights here are the model's: a 0.0625 border, a 2u head, 0.5u of body
+   padding, 1.5u port rows, 1u note lines, a 1.75u blueprint footer. */
+body.site-dark .bp-node {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  align-items: stretch;
+  margin: 0;
+  padding: 0;
+  border: 0.0625rem solid var(--ink-600);
+  border-radius: 0.375rem;
+  background: var(--ink-850);
+  color: var(--ink-100);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  line-height: 1.5;
+  text-align: left;
+  cursor: grab;
+  will-change: transform;
+}
+body.site-dark .bp-node:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+body.site-dark .bp-node.is-selected {
+  border-color: var(--violet-400);
+  box-shadow: 0 0 0 0.0625rem var(--violet-a45), 0 0 1.5rem -0.375rem rgba(180,142,247,.55);
+}
+body.site-dark .bp-node.is-selected:focus-visible { box-shadow: var(--focus-ring); }
+
+body.site-dark .bp-node__head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  height: 2rem;
+  padding: 0 0.625rem 0 0.75rem;
+  border-bottom: 0.0625rem solid var(--white-a07);
+  border-radius: 0.3125rem 0.3125rem 0 0;
+  background: var(--ink-800);
+}
+body.site-dark .bp-node__icon {
+  flex: none;
+  width: 0.875rem;
+  height: 0.875rem;
+  fill: none;
+  stroke: var(--violet-400);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+body.site-dark .bp-node__title {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  white-space: nowrap;
+  color: var(--ink-050);
+}
+body.site-dark .bp-node__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  height: 1.125rem;
+  margin-left: auto;
+  padding: 0 0.375rem;
+  border: 0.0625rem solid var(--ink-500);
+  border-radius: 0.1875rem;
+  font-size: 0.625rem;
+  font-weight: 500;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+body.site-dark .bp-node__badge-dot { width: 0.3125rem; height: 0.3125rem; border-radius: 50%; background: currentColor; }
+
+body.site-dark .bp-node__body { display: block; padding: 0.5rem 0; }
+body.site-dark .bp-port {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.4375rem;
+  height: 1.5rem;
+  padding: 0 0.875rem;
+  white-space: nowrap;
+  cursor: crosshair;
+}
+body.site-dark .bp-port--out { flex-direction: row-reverse; }
+body.site-dark .bp-port__name { color: var(--ink-100); }
+body.site-dark .bp-port__type { color: var(--bp-port); }
+/* The dot is 0.625u and centred on the node's outer edge, where the model
+   puts the wire's end. Unwired ports are hollow, wired ones solid. */
+body.site-dark .bp-port__dot {
+  position: absolute;
+  top: 0.4375rem;
+  width: 0.625rem;
+  height: 0.625rem;
+  border: 0.09375rem solid var(--bp-port);
+  border-radius: 50%;
+  background: var(--ink-950);
+}
+body.site-dark .bp-port--in .bp-port__dot { left: -0.375rem; }
+body.site-dark .bp-port--out .bp-port__dot { right: -0.375rem; }
+/* A 2.75u target around the dot, so a wire is easy to start. */
+body.site-dark .bp-port__dot::after {
+  content: "";
+  position: absolute;
+  inset: -0.75rem;
+  border-radius: 50%;
+}
+body.site-dark .bp-port.is-wired .bp-port__dot { background: var(--bp-port); }
+body.site-dark .bp-port.is-bad .bp-port__dot { box-shadow: 0 0 0 0.125rem var(--ink-950), 0 0 0 0.21875rem var(--rose-400); }
+body.site-dark .bp-port.is-focus { background: var(--violet-a14); }
+body.site-dark .bp-port.is-focus .bp-port__dot,
+body.site-dark .bp-port.is-from .bp-port__dot,
+body.site-dark .bp-port.is-target .bp-port__dot {
+  box-shadow: 0 0 0 0.125rem var(--ink-950), 0 0 0 0.25rem var(--violet-400);
+}
+body.site-dark .bp-port.is-target { background: var(--violet-a08); }
+
+body.site-dark .bp-node__note {
+  display: block;
+  height: 1rem;
+  padding: 0 0.75rem;
+  font-size: 0.6875rem;
+  line-height: 1rem;
+  color: var(--ink-200);
+  white-space: pre;
+}
+body.site-dark .bp-node__foot {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  height: 1.75rem;
+  padding: 0 0.5rem 0 0.75rem;
+  border-top: 0.0625rem solid var(--white-a07);
+  font-size: 0.6875rem;
+  color: var(--ink-200);
+  white-space: nowrap;
+}
+body.site-dark .bp-node__later {
+  display: inline-flex;
+  align-items: center;
+  height: 1.25rem;
+  padding: 0 0.375rem;
+  border: 0.0625rem dashed var(--ink-500);
+  border-radius: 0.1875rem;
+  color: var(--ink-300);
+}
+/* A blueprint is drawn as a stack: a second card offset behind it. */
+body.site-dark .bp-stack {
+  position: absolute;
+  left: 0;
+  top: 0;
+  border: 0.0625rem solid var(--ink-500);
+  border-radius: 0.375rem;
+  background: var(--ink-900);
+  pointer-events: none;
+}
+body.site-dark .bp-stack--idea,
+body.site-dark .bp-stack--planned { border-style: dashed; }
+
+/* Status, drawn Factorio-ghost style: an idea or a planned machine is a
+   translucent dashed outline, building is accented, done is solid. */
+body.site-dark .bp-node--idea { border-style: dashed; border-color: var(--ink-400); background: rgba(23,20,31,.35); }
+body.site-dark .bp-node--idea .bp-node__head { background: transparent; border-bottom-color: rgba(242,238,248,.06); }
+body.site-dark .bp-node--idea .bp-node__title { color: var(--ink-200); }
+body.site-dark .bp-node--idea .bp-node__badge { color: var(--ink-200); }
+body.site-dark .bp-node--planned { border-style: dashed; border-color: var(--ink-300); background: rgba(23,20,31,.72); }
+body.site-dark .bp-node--planned .bp-node__head { background: rgba(242,238,248,.03); }
+body.site-dark .bp-node--planned .bp-node__title { color: var(--ink-100); }
+body.site-dark .bp-node--planned .bp-node__badge { background: var(--ink-800); color: var(--ink-100); }
+body.site-dark .bp-node--building { border-color: var(--amber-600); }
+body.site-dark .bp-node--building .bp-node__head { background: rgba(255,181,112,.10); border-bottom-color: rgba(255,181,112,.22); }
+body.site-dark .bp-node--building .bp-node__badge { background: rgba(255,181,112,.12); border-color: var(--amber-600); color: var(--amber-400); }
+body.site-dark .bp-node--done .bp-node__badge { background: rgba(79,214,168,.12); border-color: var(--mint-600); color: var(--mint-400); }
+body.site-dark .bp-node.bp-node--idea.is-selected,
+body.site-dark .bp-node.bp-node--planned.is-selected { border-color: var(--violet-400); }
+
+/* ── Overlays ── */
+body.site-dark .bp-box {
+  position: absolute;
+  border: 0.0625rem solid var(--violet-400);
+  background: var(--violet-a08);
+  pointer-events: none;
+}
+body.site-dark .bp-readout {
+  position: absolute;
+  left: 0.75rem;
+  bottom: 0.625rem;
+  padding: 0.125rem 0.375rem;
+  border-radius: 0.1875rem;
+  background: rgba(11,9,16,.8);
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  color: var(--ink-300);
+  pointer-events: none;
+}
+body.site-dark .bp-keys {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3) var(--space-7);
+  margin: 0;
+  font-size: var(--text-13);
+  color: var(--text-muted);
+}
+body.site-dark .bp-keys div { display: flex; gap: var(--space-3); align-items: baseline; }
+body.site-dark .bp-keys dt { font-family: var(--font-mono); font-size: var(--text-11); text-transform: uppercase; letter-spacing: var(--tracking-caps); }
+body.site-dark .bp-keys dd { margin: 0; }
+body.site-dark .bp-sr {
+  position: absolute;
+  width: 0.0625rem;
+  height: 0.0625rem;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

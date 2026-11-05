@@ -1,0 +1,141 @@
+# Blueprint planner — S0 canvas spike
+
+**Status:** built 2026-11-05 on `kepler/feat/blueprint-planning-tool`, waiting
+for the owner's test.
+
+## Goal
+
+Prove the hand-rolled canvas before anything is saved. This is slice S0 of
+`docs/design/blueprint-planner/README.md`: a throwaway page where the owner can
+pan, zoom, drag machines and wire ports together, with mouse and keyboard,
+inside a boosted page, on the demo plan from the design canvas. Nothing is
+stored. What the spike proves (or breaks) feeds S1 (the model) and S3 (the
+editor).
+
+## Decisions
+
+- **Built directly, without a separate go.** The ask was to implement the
+  task's work and make the changes rather than describe them. S0 is the only
+  slice with no open issue in front of it.
+- **Route: `/blueprint-spike`, behind `RequireOwner`.** Temporary on purpose.
+  The real name and URL are open issue 1, so there is no hub tile, nav link,
+  palette command, migration or `/docs` row. Those belong to S2. Signed-out
+  visitors get the login redirect and other signed-in users get a 404, like
+  `/admin/users`.
+- **HTML nodes over an SVG wire layer, in one transformed stage.** The README
+  says "hand-rolled SVG". The reviewed canvas (`Plan.dc.html`) draws nodes as
+  `<button>`s in a scaled layer with SVG wires under them. The spike follows
+  the canvas: buttons give focus, `aria-label` and the site's focus ring for
+  free, and the label sizing stays monospace arithmetic. Not chosen: nodes as
+  SVG `<g>` + `<text>`, which would need a hand-made focus model.
+- **Port layout: one port per row, outputs first** (the canvas's proposal).
+  **Still open for the owner.** All of it is confined to `measure()` and
+  `portAt()` in `blueprint-model.js`, so switching to Unreal's side-by-side
+  rows touches those two functions.
+- **1u follows the root font size.** The model works only in grid units. The
+  page reads 1rem in px at boot, so a larger browser font makes the whole
+  canvas larger. This closes the gap `canvas/README.md` lists (the renderer
+  drew 1u as a fixed 16px).
+- **Zoom range 0.2 to 3.** The S0 criteria test 0.3 and 3. A 200-node plan
+  needs to fit below 0.3.
+- **The port hit radius is in screen space** (1.375u on screen, a 2.75u
+  target), converted to world units by the zoom. That makes a drop land on a
+  port at both 0.3 and 3. When neighbouring targets overlap at low zoom, the
+  nearest port wins.
+- **A wire dropped on empty grid is cancelled.** The add-node search box is
+  S3.
+- **Three scripts, not four.** `blueprint-model.js` is pure and tested on
+  plain node. `blueprint-view.js` draws. `blueprint-app.js` holds input,
+  undo and boot. The README's separate `blueprint-input.js` splits out when S3
+  grows the input model (menus, the search box).
+- **The demo plan is a committed JSON file**,
+  `docs/design/blueprint-planner/demo-plan.json`, loaded with `include_str!`.
+  It is the design canvas's `DEMO` document, so S2 can reuse it as the
+  visitor demo.
+
+## Guidelines
+
+- Read first: `docs/design/blueprint-planner/README.md` (Decisions, Shape,
+  Canvas) and `canvas/README.md` (what the review settled).
+- Geometry and colour rules come from the reviewed canvas
+  (`canvas/Plan.dc.html`, `canvas/Guide.dc.html`). Match these:
+  - grid unit 1u = 1rem
+  - header 2u, port row 1.5u, body padding 0.5u, note line 1u, minimum
+    width 9u, sizes rounded up to whole units
+  - wires: forward `c = max(3u, dx/2)`, backward `c = max(6u, |dx|/2 + 3u)`
+  - port hue `30 + fnv1a32(label) mod 300`
+  - Factorio-ghost status looks
+- Input rules come from `canvas/Input-model.dc.html` and the guide's key
+  table:
+  - right-drag pans past a 0.25u threshold; middle-drag and Space + drag pan
+    too
+  - left-drag on empty grid box-selects
+  - Space never toggles the selection
+  - single-letter keys work only while the canvas has focus, never in a
+    field
+  - Esc steps back one level at a time
+- The hx-boost rules from `CLAUDE.md`:
+  - the IIFE files expose `window.BP`
+  - a body-targeted `htmx:beforeSwap` tears the instance down
+  - document-level listeners are bound once and look the instance up at call
+    time, so they never pile up across navigations
+- CSS: a named `style.css` section, every length in rem, scoped under
+  `body.site-dark` so a `.bp-…` rule beats the design system's `button`
+  reset.
+- Avoid:
+  - persistence of any kind: no migration, no API, no `localStorage`
+  - the README's "Avoid" list (exec pins, reroute knots, one-wire-per-input)
+
+## Done when
+
+- Pan, wheel zoom, drag and wiring work with mouse and keyboard on
+  `/blueprint-spike`, reached by a boosted link as well as by a full load.
+- A wire dropped near a port connects at zoom 0.3 and at zoom 3.
+- "200 / 400" loads 200 machines and 400 wires. Dragging a box-selected
+  group stays smooth; the readout shows the frame time.
+- Leaving the page by a boosted link and coming back leaves one working
+  canvas: no doubled key handling, no console errors.
+- The model's geometry, hit-testing and validation checks run in
+  `./scripts/verify.sh`.
+
+## Test it yourself
+
+No test data to load: the demo plan ships in the page. Sign in as the owner
+(`/admin/login`), then:
+
+1. Open `http://localhost:3000/blueprint-spike`. The site's request-flow plan
+   is drawn on a blueprint grid and fitted to the view. It has one dashed red
+   mismatch wire (`router.ai`, a `Request`, into `token_gate.bearer`, a
+   `Header`) and one amber dangling stub
+   (`exporter.outline → claude.context`). The counts read
+   "8 machines · 12 wires · 1 dangling · 1 mismatch".
+2. **Pan:** right-drag, middle-drag, or hold Space and drag. A right-click
+   that barely moves does nothing (menus are S3).
+3. **Zoom:** wheel over a node. It stays under the pointer. Press `+`, `−`,
+   `0` (100%) and `F` (fit). The readout shows the zoom.
+4. **Drag:** drag a machine. It snaps to whole grid units and its wires
+   follow. Shift + click adds to the selection. Left-drag on empty grid draws
+   a selection box.
+5. **Wire:** drag from an output dot to an input dot on another machine. Do
+   it once zoomed far out (the wheel, or `−` until the readout is near 30%)
+   and once zoomed in to 300%. Dropping near the dot is enough. Dropping on
+   empty grid cancels. Click a wire to select it; `Delete` removes it.
+6. **Keyboard:** click the canvas, then:
+   - `Tab` walks the machines
+   - arrows move the selection by 1u (Shift: 4u)
+   - `]` and `[` walk the focused machine's ports
+   - `W` starts a wire from the focused port; Tab to another machine, `]` to
+     its input, `Enter` to connect; `Esc` cancels
+   - `A` adds a machine at the centre of the view
+   - `Delete` removes the selection; `Ctrl + Z` and `Ctrl + Shift + Z` undo
+     and redo
+7. **Load:** click "200 / 400". Press `Ctrl + A`, then drag the whole lot.
+   The frame-time readout should stay well under 16 ms.
+8. **Boost:** click "How it works" in the nav, then press Back (or open the
+   page from the address bar again and navigate away and back). One canvas,
+   keys act once.
+9. Signed in as a non-owner user, `/blueprint-spike` is a 404.
+
+## Built
+
+_Written at handover._

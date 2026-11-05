@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+
+{% block title %}Blueprint canvas spike{% endblock %}
+
+{% block body_class %}site-dark{% endblock %}
+
+{% block content %}
+<!-- `.site-page` is the marker base.html's syncBodyTheme() re-derives
+     body.site-dark from after a boosted navigation; it must stay outermost.
+     hx-history="false": the canvas is drawn by script and holds unsaved state,
+     so a history snapshot of it would come back without its listeners. Back
+     is a history miss and reloads the page instead. -->
+<section class="site-page bp-spike" id="bp-spike" hx-history="false">
+  <script type="application/json" id="bp-demo">{{ demo_json|safe }}</script>
+
+  <div class="bp-head">
+    <div class="bp-head__title">
+      <span class="hm-eyebrow">blueprint planner · S0 canvas spike · nothing is saved</span>
+      <h1 class="bp-head__name">drawingportfolio / request-flow</h1>
+    </div>
+    <p class="bp-counts" id="bp-counts">—</p>
+  </div>
+
+  <div class="bp-bar" role="toolbar" aria-label="Canvas">
+    <button type="button" class="hm-btn hm-btn--sm hm-btn--secondary" data-bp-action="fit" title="F">Fit</button>
+    <button type="button" class="hm-btn hm-btn--sm hm-btn--secondary" data-bp-action="actual" title="0">100%</button>
+    <button type="button" class="hm-btn hm-btn--sm hm-btn--ghost" data-bp-action="undo" title="Ctrl + Z">Undo</button>
+    <button type="button" class="hm-btn hm-btn--sm hm-btn--ghost" data-bp-action="redo" title="Ctrl + Shift + Z">Redo</button>
+    <span class="bp-bar__gap"></span>
+    <button type="button" class="hm-btn hm-btn--sm hm-btn--ghost" data-bp-action="stress">Load 200 / 400</button>
+    <button type="button" class="hm-btn hm-btn--sm hm-btn--ghost" data-bp-action="demo">Reset demo</button>
+  </div>
+
+  <div class="bp-viewport" tabindex="0" role="application"
+       aria-label="request-flow plan canvas. Tab walks the machines, Escape steps back out."
+       aria-describedby="bp-keys">
+    <div class="bp-stage">
+      <svg class="bp-wires" viewBox="0 0 1 1" aria-hidden="true"></svg>
+      <div class="bp-nodes"></div>
+      <svg class="bp-ghost" viewBox="0 0 1 1" aria-hidden="true"></svg>
+    </div>
+    <div class="bp-box" hidden></div>
+    <p class="bp-readout"><span id="bp-zoom">100%</span> <span id="bp-perf"></span></p>
+  </div>
+
+  <div class="bp-sr" id="bp-live" role="status" aria-live="polite"></div>
+
+  <dl class="bp-keys" id="bp-keys">
+    <div><dt>Pan</dt><dd><kbd class="hm-kbd">right-drag</kbd> <kbd class="hm-kbd">middle-drag</kbd> <kbd class="hm-kbd">Space + drag</kbd></dd></div>
+    <div><dt>Zoom</dt><dd><kbd class="hm-kbd">wheel</kbd> <kbd class="hm-kbd">+</kbd> <kbd class="hm-kbd">−</kbd> <kbd class="hm-kbd">0</kbd> 100% <kbd class="hm-kbd">F</kbd> fit</dd></div>
+    <div><dt>Select</dt><dd><kbd class="hm-kbd">click</kbd> <kbd class="hm-kbd">Shift + click</kbd> <kbd class="hm-kbd">drag on grid</kbd> <kbd class="hm-kbd">Ctrl + A</kbd> <kbd class="hm-kbd">Tab</kbd> <kbd class="hm-kbd">Ctrl + arrows</kbd></dd></div>
+    <div><dt>Move</dt><dd><kbd class="hm-kbd">drag</kbd> <kbd class="hm-kbd">arrows</kbd> 1u <kbd class="hm-kbd">Shift + arrows</kbd> 4u</dd></div>
+    <div><dt>Wire</dt><dd><kbd class="hm-kbd">drag port to port</kbd> or <kbd class="hm-kbd">]</kbd> <kbd class="hm-kbd">[</kbd> pick a port, <kbd class="hm-kbd">W</kbd> start, <kbd class="hm-kbd">↵</kbd> connect · <kbd class="hm-kbd">&gt;</kbd> <kbd class="hm-kbd">&lt;</kbd> follow</dd></div>
+    <div><dt>Edit</dt><dd><kbd class="hm-kbd">A</kbd> or <kbd class="hm-kbd">double-click</kbd> add · <kbd class="hm-kbd">Delete</kbd> · <kbd class="hm-kbd">Ctrl + Z</kbd> <kbd class="hm-kbd">Ctrl + Shift + Z</kbd> · <kbd class="hm-kbd">Esc</kbd> steps back</dd></div>
+  </dl>
+</section>
+
+<script src="/static/blueprint-model.js?v={{ crate::assets::asset_version() }}" defer></script>
+<script src="/static/blueprint-view.js?v={{ crate::assets::asset_version() }}" defer></script>
+<script src="/static/blueprint-app.js?v={{ crate::assets::asset_version() }}" defer></script>
+{% endblock %}

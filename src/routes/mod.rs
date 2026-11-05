@@ -1,5 +1,6 @@
 pub mod admin;
 pub mod auth;
+pub mod blueprint;
 pub mod cv;
 pub mod docs;
 pub mod feed;
