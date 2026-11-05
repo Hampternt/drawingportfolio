@@ -4882,11 +4882,13 @@ body.site-dark .bp-port__dot {
 }
 body.site-dark .bp-port--in .bp-port__dot { left: -0.375rem; }
 body.site-dark .bp-port--out .bp-port__dot { right: -0.375rem; }
-/* A 2.75u target around the dot, so a wire is easy to start. */
+/* A 2.75u target around the dot, so a wire is easy to start. The inset is
+   from the dot's padding box (0.4375u inside its border):
+   (2.75 - 0.4375) / 2 = 1.15625. */
 body.site-dark .bp-port__dot::after {
   content: "";
   position: absolute;
-  inset: -0.75rem;
+  inset: -1.15625rem;
   border-radius: 50%;
 }
 body.site-dark .bp-port.is-wired .bp-port__dot { background: var(--bp-port); }

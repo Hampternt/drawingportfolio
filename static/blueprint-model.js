@@ -148,18 +148,42 @@
     return p ? [q.x + p[0], q.y + p[1]] : null;
   }
 
-  function bounds(geo) {
+  // The box around every node, its blueprint stack and, when `checks` is
+  // given, each dangling wire's stub and tag, so Fit shows all of them.
+  function bounds(geo, checks) {
     var b = null;
+    function grow(x1, y1, x2, y2) {
+      if (!b) b = { x1: x1, y1: y1, x2: x2, y2: y2 };
+      else {
+        b.x1 = Math.min(b.x1, x1); b.y1 = Math.min(b.y1, y1);
+        b.x2 = Math.max(b.x2, x2); b.y2 = Math.max(b.y2, y2);
+      }
+    }
     Object.keys(geo).forEach(function (k) {
       var q = geo[k], extra = q.n.kind === 'blueprint' ? 0.375 : 0;
-      var x2 = q.x + q.m.w + extra, y2 = q.y + q.m.h + extra;
-      if (!b) b = { x1: q.x, y1: q.y, x2: x2, y2: y2 };
-      else {
-        b.x1 = Math.min(b.x1, q.x); b.y1 = Math.min(b.y1, q.y);
-        b.x2 = Math.max(b.x2, x2); b.y2 = Math.max(b.y2, y2);
+      grow(q.x, q.y, q.x + q.m.w + extra, q.y + q.m.h + extra);
+    });
+    (checks || []).forEach(function (w) {
+      if (!w.dangling) return;
+      var tag = danglingTag(w);
+      if (w.fromOk) {
+        var A = portXY(geo, w.an, 'out', w.ap);
+        if (A) grow(A[0], A[1] - 0.625, A[0] + STUB + 0.375 + tag.w, A[1] + 0.625);
+      } else if (w.toOk) {
+        var B = portXY(geo, w.bn, 'in', w.bp);
+        if (B) grow(B[0] - STUB - 0.375 - tag.w, B[1] - 0.625, B[0], B[1] + 0.625);
       }
     });
     return b;
+  }
+
+  // A dangling wire is drawn as a short stub off the port that still exists,
+  // with a tag naming the end that does not.
+  var STUB = 2.5;
+  function danglingTag(w) {
+    var text = w.fromOk ? '→ ' + w.b + '  ?' : '?  ' + w.a + ' →';
+    // 11px mono, 0.375u padding and a 1px border each side.
+    return { text: text, w: text.length * CH_NOTE + 0.875 };
   }
 
   // ── Wires ──────────────────────────────────────────────────────────────────
@@ -322,6 +346,7 @@
 
   function moveNodes(doc, g, names, dx, dy) {
     names.forEach(function (name) {
+      if (!doc.graphs[g].nodes[name]) return;
       var k = layoutKey(g, name), p = doc.layout[k] || [0, 0];
       doc.layout[k] = [p[0] + dx, p[1] + dy];
     });
@@ -354,6 +379,8 @@
   // type mismatches are allowed.
   function connect(doc, g, p, q) {
     if (!p || !q || p.side === q.side || p.node === q.node) return null;
+    var nodes = doc.graphs[g].nodes;
+    if (!nodes[p.node] || !nodes[q.node]) return null;
     var from = p.side === 'out' ? p : q, to = p.side === 'out' ? q : p;
     var a = from.node + '.' + from.port, b = to.node + '.' + to.port;
     var wires = doc.graphs[g].wires;
@@ -406,6 +433,7 @@
     split: split, layoutKey: layoutKey, uniqueName: uniqueName,
     typeKey: typeKey, fnv1a: fnv1a, hueOf: hueOf, portColor: portColor,
     wrapWords: wrapWords, measure: measure, portAt: portAt, geometry: geometry, portXY: portXY, bounds: bounds,
+    STUB: STUB, danglingTag: danglingTag,
     wireCurve: wireCurve, pathD: pathD, curveMid: curveMid, checkGraph: checkGraph, summarize: summarize,
     toScreen: toScreen, toWorld: toWorld, clampZoom: clampZoom, zoomAt: zoomAt, fitView: fitView,
     nearestPort: nearestPort, nodesInRect: nodesInRect,

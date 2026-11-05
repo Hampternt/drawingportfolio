@@ -11,7 +11,6 @@
   'use strict';
 
   var SVG = 'http://www.w3.org/2000/svg';
-  var STUB = 2.5; // a dangling wire's stub, in u
 
   function el(tag, cls, text) {
     var e = document.createElement(tag);
@@ -121,8 +120,8 @@
         var cv = M.wireCurve(A[0], A[1], B[0], B[1]);
         return { d: M.pathD(cv), label: w.mismatch ? M.curveMid(cv) : null };
       }
-      if (A) return { d: 'M' + A[0] + ' ' + A[1] + 'H' + (A[0] + STUB), label: [A[0] + STUB + 0.375, A[1]] };
-      if (B) return { d: 'M' + (B[0] - STUB) + ' ' + B[1] + 'H' + B[0], label: [B[0] - STUB - 0.375, B[1]] };
+      if (A) return { d: 'M' + A[0] + ' ' + A[1] + 'H' + (A[0] + M.STUB), label: [A[0] + M.STUB + 0.375, A[1]] };
+      if (B) return { d: 'M' + (B[0] - M.STUB) + ' ' + B[1] + 'H' + B[0], label: [B[0] - M.STUB - 0.375, B[1]] };
       return null;
     }
 
@@ -136,7 +135,7 @@
       var tag = null;
       if (w.mismatch || w.dangling) {
         tag = el('span', 'bp-tag ' + (w.mismatch ? 'bp-tag--mismatch' : 'bp-tag--dangling' + (w.fromOk ? '' : ' bp-tag--left')));
-        tag.textContent = w.mismatch ? w.ft + ' ≠ ' + w.tt : w.fromOk ? '→ ' + w.b + '  ?' : '?  ' + w.a + ' →';
+        tag.textContent = w.mismatch ? w.ft + ' ≠ ' + w.tt : M.danglingTag(w).text;
       }
       return { w: w, g: gEl, hit: hit, line: line, tag: tag };
     }

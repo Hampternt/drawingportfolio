@@ -77,11 +77,23 @@
       if (selWire !== null && selWire >= doc.graphs[G].wires.length) selWire = null;
       v.render(doc, G);
       updateSel();
+      syncGhost();
       updateCounts();
       if (hadFocus) {
         var e = primary && v.nodeEl(primary);
         (e || viewport).focus({ preventScroll: true });
       }
+    }
+
+    // The keyboard wire's ghost is redrawn from wherever its port is now, and
+    // hidden once there is no keyboard wire (a mouse drag draws its own).
+    function syncGhost() {
+      if (drag && drag.mode === 'wire') return;
+      if (!kbWire) { v.setGhost(null); return; }
+      var a = M.portXY(v.geo(), kbWire.node, kbWire.side, kbWire.port);
+      if (!a) { kbWire = null; v.setGhost(null); return; }
+      var to = focusPort && focusPort.node !== kbWire.node && M.portXY(v.geo(), focusPort.node, focusPort.side, focusPort.port);
+      v.setGhost({ side: kbWire.side, x: a[0], y: a[1] }, to || [a[0] + (kbWire.side === 'out' ? 3 : -3), a[1]]);
     }
 
     function announce(msg) {
@@ -92,6 +104,7 @@
 
     // ── Undo: a snapshot per action, as the sorting board does ───────────────
     function snapshot() {
+      arrowRunAt = 0;
       undo.push(JSON.stringify(doc));
       if (undo.length > 200) undo.shift();
       redo = [];
@@ -102,6 +115,7 @@
       to.push(JSON.stringify(doc));
       doc = JSON.parse(from.pop());
       arrowRunAt = 0;
+      selWire = null; // a position in the wire list, which undo can reshuffle
       rerender();
       announce(word === 'undo' ? 'Undone.' : 'Redone.');
     }
@@ -109,20 +123,25 @@
     // ── View ─────────────────────────────────────────────────────────────────
     function centre() { return [viewport.clientWidth / 2, viewport.clientHeight / 2]; }
 
+    // Zoom waits while the pointer is dragging: every drag measures from where
+    // it started on screen, and a zoom under it would move what it is holding.
     function zoomBy(factor, at) {
+      if (drag) return;
       var p = at || centre();
       view = M.zoomAt(view, U, p[0], p[1], view.z * factor);
       applyView();
     }
 
     function zoomTo(z) {
+      if (drag) return;
       var p = centre();
       view = M.zoomAt(view, U, p[0], p[1], z);
       applyView();
     }
 
     function fit() {
-      view = M.fitView(M.bounds(v.geo()), U, viewport.clientWidth, viewport.clientHeight);
+      if (drag) return;
+      view = M.fitView(M.bounds(v.geo(), M.checkGraph(doc, G)), U, viewport.clientWidth, viewport.clientHeight);
       applyView();
     }
 
@@ -181,6 +200,7 @@
       }
       undo.push(before);
       redo = [];
+      arrowRunAt = 0;
       rerender();
       announce(wireSentence(pair));
       return true;
@@ -224,12 +244,15 @@
       var names = Array.from(sel);
       M.moveNodes(doc, G, names, dx, dy);
       v.moved(names);
+      syncGhost();
       if (primary) reveal(primary);
     }
 
     // ── Pointer ──────────────────────────────────────────────────────────────
     var rect = null;
-    function local(e) { return [e.clientX - rect.left, e.clientY - rect.top]; }
+    // Measured from the padding box, where the stage and the box overlay sit,
+    // not from the viewport's border.
+    function local(e) { return [e.clientX - rect.left - viewport.clientLeft, e.clientY - rect.top - viewport.clientTop]; }
 
     function beginDrag(e, d) {
       drag = d;
@@ -331,6 +354,7 @@
         M.moveNodes(doc, G, drag.names, du - drag.applied[0], dv - drag.applied[1]);
         drag.applied = [du, dv];
         v.moved(drag.names);
+        syncGhost();
         var t1 = performance.now();
         perf.work += t1 - t0;
         perf.frames++;
@@ -499,6 +523,11 @@
         else if (kbWire) cancelKeyboardWire();
         else if (sel.size || selWire !== null || focusPort) { clearSelection(); viewport.focus({ preventScroll: true }); }
         else { var first = rootEl.querySelector('.bp-bar button'); if (first) first.focus(); }
+        e.preventDefault();
+        return;
+      }
+      if (drag && drag.mode !== 'pan' && drag.mode !== 'right') {
+        // Mid-drag, an edit would pull the plan out from under the pointer.
         e.preventDefault();
         return;
       }

@@ -152,6 +152,14 @@ function canvasMeasure(name, n, doc) {
   near((tl[0] + br[0]) / 2, 600, 'fit centres horizontally', 1e-6);
   eq(M.fitView(b, unit, 100000, 100000).z, 1, 'a small plan in a big viewport fits at 100%');
   eq(M.fitView(null, unit, 800, 600), { x: 32, y: 32, z: 1 }, 'an empty plan fits at 100%');
+  // Fit covers the dangling stub and its tag, not just the nodes.
+  const withStubs = M.bounds(geo, M.checkGraph(DEMO, 'main'));
+  const port = M.portXY(geo, 'exporter', 'out', 'outline');
+  const tag = M.danglingTag(M.checkGraph(DEMO, 'main').find((w) => w.dangling));
+  eq(tag.text, '→ claude.context  ?', 'the dangling tag names the missing end');
+  near(withStubs.x2, port[0] + M.STUB + 0.375 + tag.w, 'bounds reach the end of the dangling tag', 1e-9);
+  ok(withStubs.x2 > b.x2, 'which is past the last node');
+  eq([withStubs.x1, withStubs.y1], [b.x1, b.y1], 'and change nothing on the other sides');
 }
 
 // ── 7. Drops land on ports at zoom 0.3 and 3 ────────────────────────────────
@@ -200,6 +208,9 @@ function canvasMeasure(name, n, doc) {
   eq(M.connect(doc, 'main', { node: 'db', side: 'out', port: 'rows' }, { node: 'nginx', side: 'out', port: 'req' }), null, 'two outputs are not a wire');
   eq(M.summarize(doc, 'main').mismatch, 2, 'fan-in and a mismatch are both allowed, and the mismatch counts');
 
+  eq(M.connect(doc, 'main', { node: 'gone', side: 'out', port: 'x' }, { node: 'render', side: 'in', port: 'view' }), null, 'a machine deleted mid-drag is never wired');
+  M.moveNodes(doc, 'main', ['gone'], 1, 1);
+  ok(!('main/gone' in doc.layout), 'moving a missing machine leaves no stray position');
   M.moveNodes(doc, 'main', ['nginx', 'router'], 2, -1);
   eq([doc.layout['main/nginx'], doc.layout['main/router']], [[3, 5], [15, 4]], 'moveNodes shifts each by whole units');
   eq(DEMO.layout['main/nginx'], [1, 6], 'clone() kept the original untouched');
