@@ -159,6 +159,16 @@ planned. **Rec** is the recommended answer.
 
 ## Primer: the design guide and UI mockup artifact
 
+**Made 2026-11-05:** a private claude.ai Design canvas,
+<https://claude.ai/artifact/KB2g3BHRHBshZwzqKNv5D6>. Its thirteen artboards are
+the owner editor, the 412 banner, the visitor demo, the empty project and empty
+plan, tokens, three design-guide boards, two open-issue boards and two
+components. Every canvas, count and outline is computed by one renderer
+(`Plan.dc.html`) from a document in the shape below. It makes two layout calls of
+its own, described on the guide boards: one port per row with outputs first, so a
+node's width is its longest label (Blender's order), and a minimum node width
+of 9u.
+
 A separate session makes one artifact that serves as this tool's design guide
 and UI mockup. Build it on the **Hampter Design System**, dark, as the site's
 own screens (hub, CV, tasks) wear it: `site-dark` tokens in `static/style.css`.
