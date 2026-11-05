@@ -138,4 +138,101 @@ No test data to load: the demo plan ships in the page. Sign in as the owner
 
 ## Built
 
-_Written at handover._
+Commits `43d4946` (the spike), `c084e1c` (review fixes) and the formatting
+commit after it, on `kepler/feat/blueprint-planning-tool`.
+
+**What changed**
+
+- `src/routes/blueprint.rs`: `GET /blueprint-spike` behind `RequireOwner`,
+  with five tests. They cover the demo plan's shape, the script-safe escaping
+  round trip, the template's marker and scripts, the owner getting the page,
+  and admin and plain members getting a 404 while a visitor is redirected.
+  The route is registered in `main.rs` and `routes/mod.rs`.
+- `templates/blueprint/spike.html`: on `site-dark`, with `hx-history="false"`.
+- `static/blueprint-model.js`: pure, in grid units.
+  `tests/js/blueprint-model.test.js` has 279 checks and is now in
+  `./scripts/verify.sh`. It pins every node size against the design canvas's
+  px formula, and pins drops at zoom 0.3, 1 and 3.
+- `static/blueprint-view.js` and `static/blueprint-app.js`.
+- A `style.css` section, all rem. It sits after the sorting section, so the
+  sorting rem guard in `tests/static_assets.rs` covers it too.
+- `docs/design/blueprint-planner/demo-plan.json`.
+
+**Different from the plan or the canvas**
+
+- **Demo layout:** `render` and `exporter` sit 4u further right than in the
+  canvas's `DEMO`. The review's width fix made `db` 16u wide, which put it on
+  top of `exporter`. A model check now fails if demo machines overlap.
+- **The demo's mismatch** is `router.ai` (`Request`) into `token_gate.bearer`
+  (`Header`), as in the canvas. The first draft of the test steps named the
+  wrong wire; they have been corrected.
+- **The load-test plan** wires `x→a` and `y→b` with matching types. Random
+  types made 351 of the 400 wires mismatches, so the drag test was a screen
+  of red dashes.
+- **Partial features:** `>` and `<` follow the first wire only, with no
+  chooser for several.
+
+**Review:** one workflow, with three reviewers (input and lifecycle, model
+and CSS, server and template) and an adversarial verifier per finding. It
+found 8 defects, all confirmed and all fixed in `c084e1c`:
+
+- the keyboard ghost wire was left behind after a delete or reload
+- a zoom during a drag fought the drag
+- a wire selection survived undo by list position
+- an arrow-key run swallowed other edits into its undo step
+- pointer positions were off by 1px (the canvas border)
+- the port press target was 2.125u, not 2.75u
+- Fit clipped the dangling tag
+- `connect` and `moveNodes` accepted a deleted machine
+
+The server and template reviewer found nothing.
+
+**Browser smoke:** headless Chrome against a local server, signed in as the
+owner through a dev-only session row (since deleted). 21 checks, all
+passing:
+
+- counts and node and wire totals
+- wire ends land on dot centres, worst 0.01px
+- a wire is hit-testable
+- mouse drops connect at 30% and 300%
+- undo
+- right-drag pans
+- a drop on empty grid makes no wire
+- a drag snaps to whole units
+- Tab, `]`, `W` and Enter wire from the keyboard
+- Esc leaves the canvas
+- the 200 / 400 load test
+- two boosted arrivals each give one canvas whose keys act once
+- no console errors
+
+A 20px root font scales the canvas, with wire ends within 0.4px. A
+follow-up run confirmed the ghost and Fit fixes.
+
+The headless drag measured about 1.5–2.3 ms of script work per frame with all
+200 machines moving. The time between frames, 19–31 ms, is the test
+harness's own input rate, so smoothness still needs your eye in a real
+browser (step 7).
+
+**Not this slice's:** `/favicon.ico` 404s site-wide (it shows on `/cv` too).
+It is the 💭 public-polish item.
+
+**Full gate** (`./scripts/verify.sh`, after the last code change):
+
+```
+=== cargo fmt --check
+=== cargo clippy
+=== cargo test
+test result: ok. 371 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.98s
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 559 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.02s
+test result: ok. 252 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 21.83s
+=== node --check (static JS)
+=== node (the board suites)
+ok   docs/design/sorting-live/src/model.test.js — passed 265/265 checks
+ok   docs/design/sorting-live/src/board.test.js — passed 193/193 checks
+ok   tests/js/blueprint-model.test.js — 279 checks, all passed
+VERIFY OK — fmt, clippy, tests, JS syntax, board suites all clean.
+```
+
+The workspace now has 1190 tests, 5 of them new. `CLAUDE.md`'s figure of
+1185 is left for the merge.
