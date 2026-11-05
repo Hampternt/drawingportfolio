@@ -125,12 +125,16 @@ No test data to load: the demo plan ships in the page. Sign in as the owner
    - arrows move the selection by 1u (Shift: 4u)
    - `]` and `[` walk the focused machine's ports
    - `W` starts a wire from the focused port; Tab to another machine, `]` to
-     its input, `Enter` to connect; `Esc` cancels
+     its input (`[` lands on the last input in one press; `]` walks the
+     outputs first), `Enter` to connect; `Esc` cancels
    - `A` adds a machine at the centre of the view
    - `Delete` removes the selection; `Ctrl + Z` and `Ctrl + Shift + Z` undo
      and redo
-7. **Load:** click "200 / 400". Press `Ctrl + A`, then drag the whole lot.
-   The frame-time readout should stay well under 16 ms.
+7. **Load:** click "Load 200 / 400". Press `Ctrl + A`, then drag the whole
+   lot. The readout under the canvas shows two numbers. Work per frame
+   should stay well under 16 ms. The time between frames should sit at
+   your display's refresh interval (about 16.7 ms at 60 Hz); much more than
+   that means frames are being dropped.
 8. **Boost:** click "How it works" in the nav, then press Back (or open the
    page from the address bar again and navigate away and back). One canvas,
    keys act once.
@@ -138,8 +142,10 @@ No test data to load: the demo plan ships in the page. Sign in as the owner
 
 ## Built
 
-Commits `43d4946` (the spike), `c084e1c` (review fixes) and the formatting
-commit after it, on `kepler/feat/blueprint-planning-tool`.
+Commits `43d4946` (the spike), `c084e1c` (review fixes), a formatting
+commit, and a last fix: toolbar buttons now hand focus back to the canvas,
+so Ctrl + A straight after "Load 200 / 400" reaches it. All are on
+`kepler/feat/blueprint-planning-tool`.
 
 **What changed**
 
@@ -188,7 +194,7 @@ found 8 defects, all confirmed and all fixed in `c084e1c`:
 The server and template reviewer found nothing.
 
 **Browser smoke:** headless Chrome against a local server, signed in as the
-owner through a dev-only session row (since deleted). 21 checks, all
+owner through a dev-only session row (since deleted). 23 checks, all
 passing:
 
 - counts and node and wire totals
@@ -201,8 +207,9 @@ passing:
 - a drag snaps to whole units
 - Tab, `]`, `W` and Enter wire from the keyboard
 - Esc leaves the canvas
-- the 200 / 400 load test
+- the 200 / 400 load test, with Ctrl + A straight after the toolbar click
 - two boosted arrivals each give one canvas whose keys act once
+- Back from `/docs` reloads to one working canvas
 - no console errors
 
 A 20px root font scales the canvas, with wire ends within 0.4px. A
@@ -222,10 +229,10 @@ It is the 💭 public-polish item.
 === cargo fmt --check
 === cargo clippy
 === cargo test
-test result: ok. 371 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.98s
+test result: ok. 371 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.73s
 test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
-test result: ok. 559 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.02s
-test result: ok. 252 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 21.83s
+test result: ok. 559 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.04s
+test result: ok. 252 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 20.05s
 === node --check (static JS)
 === node (the board suites)
 ok   docs/design/sorting-live/src/model.test.js — passed 265/265 checks
@@ -234,5 +241,7 @@ ok   tests/js/blueprint-model.test.js — 279 checks, all passed
 VERIFY OK — fmt, clippy, tests, JS syntax, board suites all clean.
 ```
 
-The workspace now has 1190 tests, 5 of them new. `CLAUDE.md`'s figure of
-1185 is left for the merge.
+The workspace now has 1190 tests, 5 of them new. The figure is updated in
+`CLAUDE.md` and in `/docs`, whose `WORKSPACE_TESTS` is now dated
+2026-11-05. `CLAUDE.md` also gains the temporary route and the new test
+files. The 458 board checks are unchanged: they count the van board only.

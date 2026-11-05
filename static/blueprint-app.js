@@ -642,7 +642,12 @@
       demo: function () { load(M.clone(demo), 'Loaded the demo plan.'); },
     };
     rootEl.querySelectorAll('[data-bp-action]').forEach(function (b) {
-      b.addEventListener('click', function () { actions[b.dataset.bpAction](); });
+      // Focus goes back to the canvas, so the next key (Ctrl + A after a
+      // load, F after a pan) reaches it instead of the button.
+      b.addEventListener('click', function () {
+        actions[b.dataset.bpAction]();
+        viewport.focus({ preventScroll: true });
+      });
     });
 
     rerender();

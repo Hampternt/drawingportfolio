@@ -86,9 +86,9 @@ thorough review — often of the plan, before any code is written.";
 
 /// `cargo test --workspace`'s total and `scripts/verify.sh`'s board checks,
 /// as measured on `MEASURED_ON`. Re-measure, never copy from another document.
-const WORKSPACE_TESTS: u32 = 1185;
+const WORKSPACE_TESTS: u32 = 1190;
 const BOARD_CHECKS: u32 = 458;
-const MEASURED_ON: &str = "2026-10-22";
+const MEASURED_ON: &str = "2026-11-05";
 #[derive(Template)]
 #[template(path = "docs.html")]
 struct DocsTemplate {
