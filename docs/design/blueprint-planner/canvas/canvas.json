@@ -1,0 +1,51 @@
+{
+  "v": 3,
+  "createdOnFiles": { "v": 1, "at": "2026-11-05T12:00:00Z" },
+  "title": "Blueprint planner",
+  "launch": { "view": "canvas" },
+  "pages": [],
+  "boards": {
+    "Main.dc.html": { "x": 0, "y": 0, "w": 1680, "h": 1000, "title": "Owner editor — request-flow", "expand": "fill", "is_interactive": true },
+    "Changed-elsewhere.dc.html": { "x": 1760, "y": 0, "w": 1440, "h": 900, "title": "State — plan changed elsewhere (412)", "expand": "fill" },
+
+    "Visitor-demo.dc.html": { "x": 0, "y": 1420, "w": 1600, "h": 1060, "title": "State — visitor's read-only demo", "expand": "fill", "is_interactive": true },
+    "Empty-project.dc.html": { "x": 1680, "y": 1420, "w": 1200, "h": 720, "title": "State — empty project", "expand": "fill" },
+    "Empty-plan.dc.html": { "x": 2960, "y": 1420, "w": 1200, "h": 720, "title": "State — empty plan", "expand": "fill" },
+    "Tokens.dc.html": { "x": 4240, "y": 1420, "w": 1200, "h": 1060, "title": "State — AI access tokens", "expand": "fill" },
+
+    "Anatomy.dc.html": { "x": 0, "y": 2900, "w": 1440, "h": 1760, "title": "Guide — nodes, wires, blueprint node, add-node search", "expand": "fill" },
+    "AI-view.dc.html": { "x": 1520, "y": 2900, "w": 1600, "h": 1500, "title": "Guide — the AI's view of the same plan", "expand": "fill" },
+    "Guide.dc.html": { "x": 3200, "y": 2900, "w": 1440, "h": 1760, "title": "Guide — grid, geometry, type, wires, shortcuts", "expand": "fill" },
+    "Input-model.dc.html": { "x": 4720, "y": 2900, "w": 1440, "h": 2600, "title": "Guide — input model: right-click menus, keyboard navigation", "expand": "fill" },
+
+    "Issue-status-kinds.dc.html": { "x": 0, "y": 5080, "w": 1440, "h": 1500, "title": "Open issues 2 and 3 — owner picks", "expand": "fill" },
+    "Issue-name-boxes-rule.dc.html": { "x": 1520, "y": 5080, "w": 1440, "h": 1700, "title": "Open issues 1, 5 and 6 — owner picks", "expand": "fill" },
+
+    "Plan.dc.html": { "x": 0, "y": 7200, "w": 1060, "h": 600, "title": "Component — plan renderer (one document, every view)" },
+    "SiteHeader.dc.html": { "x": 1140, "y": 7200, "w": 1440, "h": 56, "title": "Component — site header" }
+  },
+  "order": [
+    "Main.dc.html",
+    "Changed-elsewhere.dc.html",
+    "Visitor-demo.dc.html",
+    "Empty-project.dc.html",
+    "Empty-plan.dc.html",
+    "Tokens.dc.html",
+    "Anatomy.dc.html",
+    "AI-view.dc.html",
+    "Guide.dc.html",
+    "Input-model.dc.html",
+    "Issue-status-kinds.dc.html",
+    "Issue-name-boxes-rule.dc.html",
+    "Plan.dc.html",
+    "SiteHeader.dc.html"
+  ],
+  "notes": {
+    "rowOwner": { "x": 0, "y": -280, "text": "Blueprint planner — the owner's editor", "kind": "title1", "maxW": 3200 },
+    "rowStates": { "x": 0, "y": 1140, "text": "States", "kind": "title1", "maxW": 5440 },
+    "rowGuide": { "x": 0, "y": 2620, "text": "Design guide", "kind": "title1", "maxW": 6160 },
+    "rowIssues": { "x": 0, "y": 4800, "text": "Open issues — shown as options, not decided", "kind": "title1", "maxW": 2960 },
+    "rowParts": { "x": 0, "y": 6920, "text": "Components", "kind": "title1", "maxW": 2580 }
+  },
+  "designSystems": []
+}

@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Input model</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;background:#0B0910}
+a{color:#CBB0FF;text-decoration:none}a:hover{color:#DED0FF}
+@font-face{font-family:"Archivo";font-weight:700;font-style:normal;font-display:swap;src:url("/_blob/549b009c0a16767e513681b5829fa715") format("woff2")}
+@font-face{font-family:"Archivo";font-weight:800;font-style:normal;font-display:swap;src:url("/_blob/a412b00a9fb065eb8ce75e359beb437d") format("woff2")}
+@font-face{font-family:"Space Grotesk";font-weight:400;font-style:normal;font-display:swap;src:url("/_blob/f1111d6a6a4b0cf29164bf0670e13709") format("woff2")}
+@font-face{font-family:"Space Grotesk";font-weight:500;font-style:normal;font-display:swap;src:url("/_blob/edad51755ad257b050ac50ca711fce34") format("woff2")}
+@font-face{font-family:"Space Grotesk";font-weight:600;font-style:normal;font-display:swap;src:url("/_blob/9aa65012e8d8d2bba77fedbbc71aefd1") format("woff2")}
+@font-face{font-family:"IBM Plex Mono";font-weight:400;font-style:normal;font-display:swap;src:url("/_blob/b36838188d823b70621f4e61e5bc841f") format("woff2")}
+@font-face{font-family:"IBM Plex Mono";font-weight:500;font-style:normal;font-display:swap;src:url("/_blob/ebe4ec317241372908148eb7f6a1633a") format("woff2")}
+.im-item:hover{background:#262232}
+.im-item:focus-visible{outline:none;box-shadow:0 0 0 2px #0B0910,0 0 0 4px #B48EF7}
+</style>
+</helmet>
+<div style="min-height: 100vh; background: #0B0910; color: #CDC6DD; font-family: 'Space Grotesk', system-ui, sans-serif; font-size: 0.9375rem; line-height: 1.5; padding: 3rem 2.5rem 4rem; box-sizing: border-box">
+  <div style="max-width: 85rem; margin: 0 auto; display: flex; flex-direction: column; gap: 3.5rem">
+
+    <header style="display: flex; flex-direction: column; gap: 0.625rem">
+      <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 0.6875rem; font-weight: 500; letter-spacing: .10em; text-transform: uppercase; color: #ADA6BE">design guide · input model</span>
+      <h1 style="margin: 0; font-family: 'Archivo', system-ui, sans-serif; font-weight: 800; font-size: 2.5rem; line-height: 1.1; letter-spacing: -0.025em; color: #F2EEF8">Right-click, keys and focus<span style="color: #B48EF7">.</span></h1>
+      <p style="margin: 0; max-width: 70ch; font-size: 1rem; color: #CDC6DD">Everything a mouse can do, a keyboard can do too, and every right-click menu shows the key for each item. Keys from the shortcut table on the grid-and-geometry guide keep their meaning. Additions are marked <span style="display: inline-flex; align-items: center; height: 1.125rem; padding: 0 0.375rem; border: 1px solid #443C58; border-radius: 0.1875rem; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 0.625rem; letter-spacing: .06em; text-transform: uppercase; color: #CDC6DD; vertical-align: 0.1em">new</span>.</p>
+    </header>
+
+    <section aria-labelledby="h-rules" style="display: flex; flex-direction: column; gap: 1rem">
+      <h2 id="h-rules" style="margin: 0; font-family: 'Archivo', system-ui, sans-serif; font-weight: 700; font-size: 1.625rem; letter-spacing: -0.01em; color: #F2EEF8">Mouse rules</h2>
+      <ol style="margin: 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr)); gap: 1rem">
+        <sc-for list="{{rules}}" as="r" hint-placeholder-count="5">
+          <li style="display: flex; flex-direction: column; gap: 0.5rem; padding: 1.25rem; background: #17141F; border: 1px solid rgba(242,238,248,.07); border-radius: 0.5rem">
+            <span style="display: inline-flex; align-items: center; justify-content: center; width: 1.375rem; height: 1.375rem; border-radius: 50%; border: 1px solid #443C58; background: #1C1926; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 0.6875rem; color: #CDC6DD">{{r.n}}</span>
+            <strong style="font-weight: 600; color: #F2EEF8">{{r.title}}</strong>
+            <span style="font-size: 0.875rem; color: #CDC6DD">{{r.text}}</span>
+          </li>
+        </sc-for>
+      </ol>
+    </section>
+
+    <section aria-labelledby="h-menus" style="display: flex; flex-direction: column; gap: 1rem">
+      <h2 id="h-menus" style="margin: 0; font-family: 'Archivo', system-ui, sans-serif; font-weight: 700; font-size: 1.625rem; letter-spacing: -0.01em; color: #F2EEF8">Right-click menus, one per target</h2>
+      <p style="margin: 0; max-width: 72ch; font-size: 0.875rem; color: #ADA6BE">Right-click with the mouse, long-press on touch, or focus the thing and press Shift + F10 (or the Menu key). Same menu every way. Up and down arrows move through the items, Enter runs one, and → opens a submenu.</p>
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 15.5rem), 1fr)); gap: 1.25rem; align-items: start">
+        <sc-for list="{{menus}}" as="m" hint-placeholder-count="5">
+          <div style="display: flex; flex-direction: column; gap: 0.75rem">
+            <div style="display: flex; flex-direction: column; gap: 0.125rem">
+              <strong style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 0.8125rem; font-weight: 500; color: #F2EEF8">{{m.title}}</strong>
+              <span style="font-size: 0.8125rem; color: #ADA6BE">{{m.how}}</span>
+            </div>
+            <div role="menu" aria-label="{{m.aria}}" style="display: flex; flex-direction: column; padding: 0.25rem; background: #17141F; border: 1px solid #322C42; border-radius: 0.5rem; box-shadow: 0 1rem 2.5rem rgba(0,0,0,.5)">
+              <sc-for list="{{m.groups}}" as="g" hint-placeholder-count="3">
+                <div role="group" style="display: flex; flex-direction: column; padding: 0.25rem 0; border-top: 1px solid {{g.line}}">
+                  <sc-for list="{{g.items}}" as="i" hint-placeholder-count="2">
+                    <button type="button" role="menuitem" class="im-item" aria-disabled="{{i.disabled}}" style="display: flex; align-items: center; gap: 0.5rem; min-height: 2rem; padding: 0 0.5rem 0 0.625rem; border: none; border-radius: 0.3125rem; background: transparent; color: {{i.color}}; font: inherit; font-size: 0.875rem; text-align: left; cursor: {{i.cursor}}">
+                      <span style="flex: 1; min-width: 0">{{i.l}}</span>
+                      <span style="display: {{i.tagShow}}; align-items: center; height: 1.125rem; padding: 0 0.3125rem; border: 1px {{i.tagBs}} #443C58; border-radius: 0.1875rem; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 0.625rem; letter-spacing: .06em; text-transform: uppercase; color: {{i.tagFg}}">{{i.tag}}</span>
+                      <span style="display: inline-flex; gap: 0.25rem">
+                        <sc-for list="{{i.k}}" as="c" hint-placeholder-count="1">
+                          <kbd style="display: inline-flex; align-items: center; height: 1.25rem; padding: 0 0.375rem; border: 1px solid #262232; border-bottom-width: 2px; border-radius: 0.1875rem; background: #0E0C14; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 0.6875rem; color: #ADA6BE; white-space: nowrap">{{c.t}}</kbd>
+                        </sc-for>
+                      </span>
+                    </button>
+                  </sc-for>
+                </div>
+              </sc-for>
+            </div>
+            <span style="font-size: 0.8125rem; color: #ADA6BE">{{m.note}}</span>
+          </div>
+        </sc-for>
+      </div>
+    </section>
+
+    <section aria-labelledby="h-nav" style="display: flex; flex-direction: column; gap: 1rem">
+      <h2 id="h-nav" style="margin: 0; font-family: 'Archivo', system-ui, sans-serif; font-weight: 700; font-size: 1.625rem; letter-spacing: -0.01em; color: #F2EEF8">Keyboard navigation</h2>
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 24rem), 1fr)); gap: 1.5rem">
+        <sc-for list="{{nav}}" as="s" hint-placeholder-count="3">
+          <div style="display: flex; flex-direction: column; gap: 0.875rem; padding: 1.5rem; background: #17141F; border: 1px solid rgba(242,238,248,.07); border-radius: 0.5rem">
+            <h3 style="margin: 0; font-family: 'Archivo', system-ui, sans-serif; font-weight: 700; font-size: 1.25rem; color: #F2EEF8">{{s.title}}</h3>
+            <sc-for list="{{s.rows}}" as="r" hint-placeholder-count="4">
+              <div style="display: flex; flex-direction: column; gap: 0.375rem; padding-top: 0.75rem; border-top: 1px solid rgba(242,238,248,.06)">
+                <span style="display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem 0.5rem">
+                  <sc-for list="{{r.k}}" as="c" hint-placeholder-count="2">
+                    <kbd style="display: inline-flex; align-items: center; height: 1.375rem; padding: 0 0.4375rem; border: 1px solid #262232; border-bottom-width: 2px; border-radius: 0.1875rem; background: #0E0C14; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 0.6875rem; color: #F2EEF8; white-space: nowrap">{{c.t}}</kbd>
+                  </sc-for>
+                  <span style="display: {{r.tagShow}}; align-items: center; height: 1.125rem; padding: 0 0.3125rem; border: 1px solid #443C58; border-radius: 0.1875rem; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 0.625rem; letter-spacing: .06em; text-transform: uppercase; color: #CDC6DD">new</span>
+                </span>
+                <span style="font-size: 0.875rem; color: #CDC6DD">{{r.text}}</span>
+              </div>
+            </sc-for>
+          </div>
+        </sc-for>
+      </div>
+      <p style="margin: 0; font-size: 0.875rem; color: #ADA6BE">On macOS, Ctrl means ⌘ throughout, except Ctrl + arrows, which becomes ⌥ + arrows because macOS uses Ctrl + arrows to switch desktops. Following a wire uses &gt; and &lt;, not Alt + arrows, because Alt + ← is the browser's Back button.</p>
+    </section>
+
+    <section aria-labelledby="h-other" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 24rem), 1fr)); gap: 1.5rem">
+      <h2 id="h-other" style="grid-column: 1 / -1; margin: 0; font-family: 'Archivo', system-ui, sans-serif; font-weight: 700; font-size: 1.625rem; letter-spacing: -0.01em; color: #F2EEF8">Touch, pen and screen readers</h2>
+      <sc-for list="{{other}}" as="o" hint-placeholder-count="2">
+        <div style="display: flex; flex-direction: column; gap: 0.75rem; padding: 1.5rem; background: #17141F; border: 1px solid rgba(242,238,248,.07); border-radius: 0.5rem">
+          <h3 style="margin: 0; font-family: 'Archivo', system-ui, sans-serif; font-weight: 700; font-size: 1.25rem; color: #F2EEF8">{{o.title}}</h3>
+          <ul style="margin: 0; padding: 0 0 0 1.125rem; display: flex; flex-direction: column; gap: 0.5rem; font-size: 0.875rem; color: #CDC6DD">
+            <sc-for list="{{o.items}}" as="t" hint-placeholder-count="4">
+              <li>{{t.t}}</li>
+            </sc-for>
+          </ul>
+        </div>
+      </sc-for>
+    </section>
+
+    <section aria-labelledby="h-open" style="display: flex; flex-direction: column; gap: 1rem">
+      <div style="display: flex; align-items: baseline; gap: 0.75rem; flex-wrap: wrap">
+        <h2 id="h-open" style="margin: 0; font-family: 'Archivo', system-ui, sans-serif; font-weight: 700; font-size: 1.625rem; letter-spacing: -0.01em; color: #F2EEF8">Owner decisions</h2>
+        <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 0.75rem; color: #4FD6A8">decided · 2026-11-05</span>
+      </div>
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr)); gap: 1rem">
+        <sc-for list="{{picks}}" as="p" hint-placeholder-count="3">
+          <div style="display: flex; flex-direction: column; gap: 0.5rem; padding: 1.25rem; background: #17141F; border: 1px solid rgba(242,238,248,.07); border-radius: 0.5rem">
+            <strong style="font-weight: 600; color: #F2EEF8">{{p.q}}</strong>
+            <span style="font-size: 0.875rem; color: #CDC6DD">{{p.text}}</span>
+            <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 0.75rem; color: #4FD6A8">decided · {{p.pick}}</span>
+          </div>
+        </sc-for>
+      </div>
+    </section>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":2600}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const ks = (a) => (a || []).map((t) => ({ t }));
+    // it(label, keys, tag, opts): tag '' | 'new' | 'later'; opts.danger, opts.disabled
+    const it = (l, k, tag, o) => {
+      o = o || {};
+      const later = tag === 'later';
+      return {
+        l, k: ks(k), tag: tag || '',
+        tagShow: tag ? 'inline-flex' : 'none',
+        tagBs: later ? 'dashed' : 'solid',
+        tagFg: later ? '#8D87A0' : '#CDC6DD',
+        color: o.danger ? '#F7768E' : (later || o.disabled) ? '#8D87A0' : '#F2EEF8',
+        disabled: later || o.disabled ? 'true' : 'false',
+        cursor: later || o.disabled ? 'default' : 'pointer',
+      };
+    };
+    const groups = (gs) => gs.map((items, i) => ({ items, line: i ? '#262232' : 'transparent' }));
+    const nr = (k, text, isNew) => ({ k: ks(k), text, tagShow: isNew ? 'inline-flex' : 'none' });
+
+    return {
+      rules: [
+        { title: 'Right-click selects first', text: 'On something unselected, the click replaces the selection with it. On part of a selection, the selection stays, so the menu acts on all of it.' },
+        { title: 'Right-drag pans', text: 'A right-press that moves less than 0.25u before release opens the menu. More than that and it pans, as in Unreal Blueprints. Middle-drag and Space + drag still pan too.' },
+        { title: 'Nothing lives only in a menu', text: 'Every item shows its key, and every item also has a key or a place in the inspector. The menu is where the keys get learned.' },
+        { title: 'Shift + right-click is the browser’s', text: 'It passes through to the browser’s own menu (inspect, copy link), so that is never lost.' },
+        { title: 'Menus stay out of the way', text: 'They open at the pointer and flip to stay on screen. Esc, a click outside, a pan or a zoom closes them. They never animate in under prefers-reduced-motion.' },
+      ].map((r, i) => Object.assign({ n: i + 1 }, r)),
+
+      menus: [
+        {
+          title: 'machine', aria: 'Machine menu', how: 'Right-click a node.',
+          groups: groups([
+            [it('Rename', ['F2']), it('Edit note', ['N'], 'new'), it('Set status  ▸', ['S'], 'new')],
+            [it('Wire a new machine after', ['W', 'A']), it('Go upstream', ['<'], 'new'), it('Go downstream', ['>'], 'new')],
+            [it('Copy', ['Ctrl + C'], 'new'), it('Duplicate', ['Ctrl + D'], 'new'), it('Collapse to blueprint', ['Ctrl + G'], 'later')],
+            [it('Delete machine', ['Delete'], '', { danger: true })],
+          ]),
+          note: 'A blueprint node adds “Open blueprint” at the top, inert until entering is built.',
+        },
+        {
+          title: 'wire', aria: 'Wire menu', how: 'Right-click the curve. Its hit area is 0.75u wide.',
+          groups: groups([
+            [it('Go to source', ['<'], 'new'), it('Go to target', ['>'], 'new')],
+            [it('Insert machine on wire', ['I'], 'new')],
+            [it('Copy type label', [])],
+            [it('Delete wire', ['Delete'], '', { danger: true })],
+          ]),
+          note: 'Insert splits the wire and opens the add-node search, so the new machine starts with a matching input and output.',
+        },
+        {
+          title: 'port', aria: 'Port menu', how: 'Right-click a port dot or its label.',
+          groups: groups([
+            [it('Start a wire', ['W']), it('Select its wires', ['E'], 'new')],
+            [it('Rename port', ['F2']), it('Change type', ['T'], 'new')],
+            [it('Disconnect all', ['Shift + Delete'], 'new'), it('Remove port', ['Delete'], '', { danger: true })],
+          ]),
+          note: 'Rename and Change type move focus to that field in the inspector. There is still one place where text gets typed.',
+        },
+        {
+          title: 'empty grid', aria: 'Grid menu', how: 'Right-click anywhere with nothing under the pointer.',
+          groups: groups([
+            [it('Add machine here', ['A']), it('Paste here', ['Ctrl + V'], 'new')],
+            [it('Select all', ['Ctrl + A'], 'new'), it('Fit the plan', ['F']), it('Zoom to 100%', ['0'])],
+            [it('Add comment box', [], 'later')],
+          ]),
+          note: '“Here” is the grid cell under the pointer. From the keyboard, it is the centre of the view.',
+        },
+        {
+          title: 'several machines', aria: 'Selection menu', how: 'Right-click any machine in a selection of two or more.',
+          groups: groups([
+            [it('Set status for all  ▸', ['S'], 'new'), it('Copy', ['Ctrl + C'], 'new'), it('Duplicate', ['Ctrl + D'], 'new')],
+            [it('Align  ▸', [], 'new'), it('Collapse to blueprint', ['Ctrl + G'], 'later')],
+            [it('Delete 3 machines', ['Delete'], '', { danger: true })],
+          ]),
+          note: 'Duplicate and paste keep the wires between the copied machines, and drop wires that lead outside the copy.',
+        },
+      ],
+
+      nav: [
+        {
+          title: 'Focus and selection',
+          rows: [
+            nr(['Tab'], 'The canvas is one stop in the page’s tab order. Inside it, the keys below move focus. The focused item is the selection, and Shift adds to it instead of replacing it.', false),
+            nr(['A', 'W', 'E', '…'], 'Single-letter keys work only while the canvas has focus, never while typing in a field. That satisfies WCAG 2.1.4 without a settings page.', true),
+            nr(['Shift + F10', 'Menu'], 'Opens the right-click menu for whatever has focus. Esc closes it and puts focus back where it was.', true),
+            nr(['?'], 'Opens a sheet listing every shortcut. The sheet, the menus and the button tooltips all read one keymap table, so they can never disagree.', true),
+          ],
+        },
+        {
+          title: 'Moving between things',
+          rows: [
+            nr(['Tab', 'Shift + Tab'], 'Next or previous machine, in reading order: by x, then y, then name. The order comes from the layout, so it matches what you see.', false),
+            nr(['Ctrl + arrows'], 'Moves to the nearest machine in that direction, measured centre to centre.', true),
+            nr(['Ctrl + Shift + arrows'], 'Adds the nearest machine in that direction to the selection. This is box select for the keyboard.', true),
+            nr([']', '['], 'Next or previous port on the focused machine, outputs first, in the order they are drawn.', false),
+            nr(['>', '<'], 'Follows a wire downstream or upstream. If there is more than one, a small chooser lists the far ends with their types.', true),
+            nr(['E'], 'On a port, selects its first wire. Press again for the next one. Delete then removes it.', true),
+          ],
+        },
+        {
+          title: 'Esc, one step at a time',
+          rows: [
+            nr(['Esc'], '1. Closes an open menu, chooser or search box.', false),
+            nr(['Esc'], '2. Cancels a wire in progress. Nothing changes, so there is nothing to undo.', false),
+            nr(['Esc'], '3. Clears the selection.', false),
+            nr(['Esc'], '4. Leaves the canvas. Focus goes to the toolbar, so the page’s Tab order takes over again.', true),
+            nr(['arrows', 'Shift + arrows'], 'Unchanged: they move the selection 1u, or 4u with Shift. A whole run of presses with no pause counts as one undo step, like a drag.', false),
+          ],
+        },
+      ],
+
+      other: [
+        {
+          title: 'Touch and pen',
+          items: [
+            'Tap selects. Long-press (500 ms) opens the same menu a right-click does.',
+            'Drag from a port to draw a wire, and drop it on empty grid to open the add-node search.',
+            'One-finger drag on empty grid pans, pinch zooms, and two fingers never select.',
+            'Port dots are drawn at 0.625u but their hit area is 2.75u (44 px at the default size), so a fingertip can catch them.',
+            'A pen’s barrel button counts as a right-click.',
+          ].map((t) => ({ t })),
+        },
+        {
+          title: 'Screen readers',
+          items: [
+            'The canvas is a labelled region (“request-flow plan, 9 machines”). Each machine is a button, and ports are reached with ] and [.',
+            'A polite live region speaks each change, for example: “token_gate, machine, planned. 1 output, 1 input.”',
+            'Wiring is spoken: “Wired token_gate.scope to exporter.scope, type Scope.” A mismatch adds “type mismatch”.',
+            'Deleting is spoken with its undo: “Deleted wire. Ctrl + Z to undo.”',
+            'The outline view stays the full non-visual version of the plan, and it already works without JavaScript.',
+          ].map((t) => ({ t })),
+        },
+      ],
+
+      picks: [
+        { q: 'What does right-drag do?', text: 'It pans, as in Unreal. Left-drag on empty grid stays box select, and a right-click that barely moves opens the menu.', pick: 'pan' },
+        { q: 'Should tapping Space toggle the selection?', text: 'No. Space only pans while held. Shift + click and Ctrl + Shift + arrows add to the selection.', pick: 'no' },
+        { q: 'Can the keys be rebound?', text: 'Not in this slice. One keymap table drives the menus, tooltips and the ? sheet, so a rebinding page can read that same table later.', pick: 'later slice' },
+      ],
+    };
+  }
+}
+</script>
+</body>
+</html>

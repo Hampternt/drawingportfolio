@@ -1,0 +1,779 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Plan renderer</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+@font-face{font-family:"Space Grotesk";font-weight:400;font-style:normal;font-display:swap;src:url("/_blob/f1111d6a6a4b0cf29164bf0670e13709") format("woff2")}
+@font-face{font-family:"Space Grotesk";font-weight:500;font-style:normal;font-display:swap;src:url("/_blob/edad51755ad257b050ac50ca711fce34") format("woff2")}
+@font-face{font-family:"Space Grotesk";font-weight:600;font-style:normal;font-display:swap;src:url("/_blob/9aa65012e8d8d2bba77fedbbc71aefd1") format("woff2")}
+@font-face{font-family:"Archivo";font-weight:700;font-style:normal;font-display:swap;src:url("/_blob/549b009c0a16767e513681b5829fa715") format("woff2")}
+@font-face{font-family:"IBM Plex Mono";font-weight:400;font-style:normal;font-display:swap;src:url("/_blob/b36838188d823b70621f4e61e5bc841f") format("woff2")}
+@font-face{font-family:"IBM Plex Mono";font-weight:500;font-style:normal;font-display:swap;src:url("/_blob/ebe4ec317241372908148eb7f6a1633a") format("woff2")}
+.bp-node:focus-visible,.bp-btn:focus-visible,.bp-field:focus-visible{outline:none;box-shadow:0 0 0 2px #0B0910,0 0 0 4px #B48EF7 !important}
+</style>
+</helmet>
+<div style="font-family: 'Space Grotesk', system-ui, sans-serif; color: #CDC6DD; font-size: 15px; line-height: 1.5">
+
+<sc-if value="{{isCanvas}}" hint-placeholder-val="{{true}}">
+<div ref="{{setEl}}" style="position: relative; width: 100%; height: {{c.vh}}px; overflow: hidden; background: #0B0910; border-radius: {{c.radius}}px">
+  <div style="position: absolute; left: 0; top: 0; width: {{c.stageW}}px; height: {{c.stageH}}px; transform: scale({{c.zoom}}); transform-origin: 0 0; opacity: {{c.dim}}; background-image: linear-gradient(rgba(242,238,248,.075) 1px, transparent 1px), linear-gradient(90deg, rgba(242,238,248,.075) 1px, transparent 1px), linear-gradient(rgba(242,238,248,.045) 1px, transparent 1px), linear-gradient(90deg, rgba(242,238,248,.045) 1px, transparent 1px), linear-gradient(rgba(242,238,248,.022) 1px, transparent 1px), linear-gradient(90deg, rgba(242,238,248,.022) 1px, transparent 1px); background-size: 128px 128px, 128px 128px, 32px 32px, 32px 32px, 16px 16px, 16px 16px">
+
+    <sc-for list="{{c.comments}}" as="cm" hint-placeholder-count="0">
+      <div style="position: absolute; left: {{cm.left}}px; top: {{cm.top}}px; width: {{cm.w}}px; height: {{cm.h}}px; box-sizing: border-box; border: 1px solid rgba(122,162,247,.38); border-radius: 8px; background: rgba(122,162,247,.06)">
+        <span style="position: absolute; left: 0; top: 0; right: 0; height: 28px; display: flex; align-items: center; padding: 0 12px; box-sizing: border-box; border-bottom: 1px solid rgba(122,162,247,.22); background: rgba(122,162,247,.10); border-radius: 7px 7px 0 0; font-weight: 600; font-size: 13px; color: #C7D6FB">{{cm.title}}</span>
+      </div>
+    </sc-for>
+
+    <sc-for list="{{c.wires}}" as="w" hint-placeholder-count="0">
+      <svg aria-hidden="true" width="{{c.stageW}}" height="{{c.stageH}}" style="position: absolute; left: 0; top: 0; overflow: visible; pointer-events: none">
+        <path d="{{w.d}}" style="fill: none; stroke: {{w.glow}}; stroke-width: 9px; stroke-linecap: round"></path>
+        <path d="{{w.d}}" style="fill: none; stroke: {{w.stroke}}; stroke-width: {{w.sw}}px; stroke-dasharray: {{w.dash}}; stroke-linecap: round; opacity: {{w.op}}"></path>
+      </svg>
+    </sc-for>
+
+    <sc-for list="{{c.stacks}}" as="s" hint-placeholder-count="0">
+      <div aria-hidden="true" style="position: absolute; left: {{s.left}}px; top: {{s.top}}px; width: {{s.w}}px; height: {{s.h}}px; box-sizing: border-box; border: 1px {{s.bs}} #443C58; border-radius: 6px; background: #0E0C14"></div>
+    </sc-for>
+
+    <sc-for list="{{c.nodes}}" as="n" hint-placeholder-count="6">
+      <button type="button" class="bp-node" onClick="{{n.pick}}" aria-label="{{n.aria}}" aria-pressed="{{n.pressed}}" style="position: absolute; left: {{n.left}}px; top: {{n.top}}px; width: {{n.w}}px; height: {{n.h}}px; box-sizing: border-box; margin: 0; padding: 0; display: flex; flex-direction: column; justify-content: flex-start; align-items: stretch; text-align: left; font: inherit; color: inherit; cursor: {{n.cursor}}; border-width: 1px; border-style: {{n.bs}}; border-color: {{n.bc}}; border-radius: {{n.radius}}; background: {{n.bg}}; box-shadow: {{n.shadow}}">
+        <span style="display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 10px 0 12px; box-sizing: border-box; border-bottom: 1px solid {{n.headLine}}; background: {{n.head}}; border-radius: {{n.headRadius}}">
+          <sc-if value="{{n.isBp}}" hint-placeholder-val="{{false}}">
+            <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#B48EF7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex: none"><path d="m12 2 10 5-10 5L2 7z"></path><path d="m2 17 10 5 10-5"></path><path d="m2 12 10 5 10-5"></path></svg>
+          </sc-if>
+          <sc-if value="{{n.isSource}}" hint-placeholder-val="{{false}}">
+            <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#7AA2F7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex: none"><circle cx="6" cy="12" r="3"></circle><path d="M9 12h12"></path><path d="m17 8 4 4-4 4"></path></svg>
+          </sc-if>
+          <sc-if value="{{n.isSink}}" hint-placeholder-val="{{false}}">
+            <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#7AA2F7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex: none"><path d="M3 12h12"></path><path d="m11 8 4 4-4 4"></path><path d="M20 5v14"></path></svg>
+          </sc-if>
+          <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 13px; font-weight: 500; white-space: nowrap; color: {{n.titleColor}}; text-decoration: {{n.deco}}">{{n.name}}</span>
+          <span style="margin-left: auto; display: {{n.bShow}}; align-items: center; gap: 4px; height: 18px; padding: 0 6px; box-sizing: border-box; border-radius: 3px; border: 1px solid {{n.bBd}}; background: {{n.bBg}}; color: {{n.bFg}}; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 10px; font-weight: 500; letter-spacing: .06em; text-transform: uppercase; white-space: nowrap"><span style="width: 5px; height: 5px; border-radius: 50%; background: currentColor"></span>{{n.status}}</span>
+        </span>
+        <span style="display: block; padding: 8px 0">
+          <sc-for list="{{n.rows}}" as="r" hint-placeholder-count="2">
+            <span style="position: relative; display: flex; flex-direction: {{r.dir}}; align-items: center; gap: 7px; height: 24px; padding: 0 14px; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12px; white-space: nowrap">
+              <span style="position: absolute; top: 7px; width: 10px; height: 10px; border-radius: 50%; box-sizing: border-box; {{r.dot}}"></span>
+              <span style="color: #CDC6DD">{{r.name}}</span>
+              <span style="color: {{r.typeColor}}">{{r.type}}</span>
+            </span>
+          </sc-for>
+        </span>
+        <sc-for list="{{n.noteLines}}" as="line" hint-placeholder-count="1">
+          <span style="display: block; height: 16px; padding: 0 12px; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; line-height: 16px; color: #ADA6BE; white-space: pre">{{line.t}}</span>
+        </sc-for>
+        <sc-if value="{{n.isBp}}" hint-placeholder-val="{{false}}">
+          <span style="position: absolute; left: 0; right: 0; bottom: 0; height: 28px; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 8px 0 12px; box-sizing: border-box; border-top: 1px solid rgba(242,238,248,.07); font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; color: #ADA6BE; white-space: nowrap">
+            <span>{{n.bpText}}</span>
+            <span title="Entering a blueprint is a later slice" style="display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 6px; border: 1px dashed #443C58; border-radius: 3px; color: #8D87A0">open · later</span>
+          </span>
+        </sc-if>
+      </button>
+    </sc-for>
+
+    <sc-for list="{{c.labels}}" as="lb" hint-placeholder-count="0">
+      <span style="position: absolute; left: {{lb.left}}px; top: {{lb.top}}px; transform: {{lb.tf}}; display: inline-flex; align-items: center; height: 20px; padding: 0 6px; border-radius: 3px; border: 1px solid {{lb.bd}}; background: {{lb.bg}}; color: {{lb.fg}}; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; font-weight: 500; white-space: nowrap; pointer-events: none">{{lb.text}}</span>
+    </sc-for>
+
+    <sc-if value="{{c.hasGhost}}" hint-placeholder-val="{{false}}">
+      <svg aria-hidden="true" width="{{c.stageW}}" height="{{c.stageH}}" style="position: absolute; left: 0; top: 0; overflow: visible; pointer-events: none">
+        <path d="{{c.ghost.d}}" style="fill: none; stroke: #B48EF7; stroke-width: 2px; stroke-dasharray: 5 5; stroke-linecap: round"></path>
+        <circle cx="{{c.ghost.x}}" cy="{{c.ghost.y}}" r="5" style="fill: #0B0910; stroke: #B48EF7; stroke-width: 2px"></circle>
+      </svg>
+    </sc-if>
+  </div>
+
+  <sc-if value="{{c.hasPop}}" hint-placeholder-val="{{false}}">
+    <div role="dialog" aria-label="Add a node" style="position: absolute; left: {{c.pop.left}}px; top: {{c.pop.top}}px; width: 300px; background: #17141F; border: 1px solid #322C42; border-radius: 12px; box-shadow: 0 18px 48px rgba(0,0,0,.6); overflow: hidden">
+      <div style="display: flex; align-items: center; gap: 8px; height: 42px; padding: 0 12px; border-bottom: 1px solid rgba(242,238,248,.07)">
+        <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8D87A0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex: none"><circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.3-4.3"></path></svg>
+        <input class="bp-field" aria-label="New node name" value="{{c.pop.query}}" onChange="{{noop}}" style="flex: 1; min-width: 0; height: 28px; background: none; border: none; outline: none; color: #F2EEF8; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 13px">
+        <kbd style="display: inline-flex; align-items: center; height: 20px; padding: 0 6px; border: 1px solid #262232; border-bottom-width: 2px; border-radius: 3px; background: #0E0C14; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; color: #ADA6BE">Esc</kbd>
+      </div>
+      <div style="padding: 10px 14px 4px; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; letter-spacing: .10em; text-transform: uppercase; color: #8D87A0">wired to {{c.pop.port}}</div>
+      <div style="display: flex; flex-direction: column; gap: 2px; padding: 4px 6px 8px">
+        <sc-for list="{{c.pop.items}}" as="it" hint-placeholder-count="3">
+          <button type="button" class="bp-btn" disabled="{{it.disabled}}" style="display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 8px 10px; border-radius: 5px; border: 1px solid {{it.bd}}; background: {{it.bg}}; color: {{it.fg}}; text-align: left; font: inherit; cursor: pointer">
+            <span style="font-size: 14px; font-weight: 500">{{it.label}}</span>
+            <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; color: #ADA6BE">{{it.sub}}</span>
+          </button>
+        </sc-for>
+      </div>
+      <div style="display: flex; gap: 14px; padding: 8px 14px; border-top: 1px solid rgba(242,238,248,.07); background: #0E0C14; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; color: #8D87A0">
+        <span>↑ ↓ move</span><span>↵ create</span><span>Esc cancel</span>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{c.showReadout}}" hint-placeholder-val="{{true}}">
+    <span style="position: absolute; left: 12px; bottom: 10px; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; color: #8D87A0; background: rgba(11,9,16,.8); padding: 2px 6px; border-radius: 3px">{{c.readout}}</span>
+  </sc-if>
+</div>
+</sc-if>
+
+<sc-if value="{{isSummary}}" hint-placeholder-val="{{false}}">
+  <span style="display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12px">
+    <span style="color: #ADA6BE; white-space: nowrap">{{s.counts}}</span>
+    <span style="display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 6px; border-radius: 3px; border: 1px solid {{s.d.bd}}; background: {{s.d.bg}}; color: {{s.d.fg}}; font-size: 11px; font-weight: 500; letter-spacing: .06em; text-transform: uppercase; white-space: nowrap"><span style="width: 5px; height: 5px; border-radius: 50%; background: currentColor"></span>{{s.d.text}}</span>
+    <span style="display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 6px; border-radius: 3px; border: 1px solid {{s.m.bd}}; background: {{s.m.bg}}; color: {{s.m.fg}}; font-size: 11px; font-weight: 500; letter-spacing: .06em; text-transform: uppercase; white-space: nowrap"><span style="width: 5px; height: 5px; border-radius: 50%; background: currentColor"></span>{{s.m.text}}</span>
+  </span>
+</sc-if>
+
+<sc-if value="{{isInspector}}" hint-placeholder-val="{{false}}">
+<div style="display: flex; flex-direction: column; gap: 20px; padding: 20px">
+  <sc-if value="{{i.none}}" hint-placeholder-val="{{false}}">
+    <p style="margin: 0; font-size: 14px; color: #ADA6BE">Select a machine on the canvas to edit its name, ports, status and note.</p>
+  </sc-if>
+  <sc-if value="{{i.has}}" hint-placeholder-val="{{true}}">
+  <div style="display: flex; flex-direction: column; gap: 20px">
+    <div style="display: flex; flex-direction: column; gap: 6px">
+      <label for="bp-name" style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; font-weight: 500; letter-spacing: .10em; text-transform: uppercase; color: #ADA6BE">Name</label>
+      <input id="bp-name" class="bp-field" value="{{i.name}}" onChange="{{noop}}" style="height: 34px; padding: 0 12px; box-sizing: border-box; background: #0E0C14; border: 1px solid #262232; border-radius: 5px; color: #F2EEF8; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 13px">
+      <p style="margin: 0; font-size: 13px; color: #ADA6BE">{{i.renameHint}}</p>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 6px">
+      <label for="bp-kind" style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; font-weight: 500; letter-spacing: .10em; text-transform: uppercase; color: #ADA6BE">Kind</label>
+      <select id="bp-kind" class="bp-field" value="{{i.kind}}" onChange="{{noop}}" style="height: 34px; padding: 0 12px; background: #0E0C14; border: 1px solid #262232; border-radius: 5px; color: #F2EEF8; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 13px">
+        <option value="machine">machine</option>
+        <option value="blueprint">blueprint</option>
+      </select>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 6px">
+      <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 8px">
+        <span id="bp-status-label" style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; font-weight: 500; letter-spacing: .10em; text-transform: uppercase; color: #ADA6BE">Status</span>
+        <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; color: #FFB570">draft set · open issue 2</span>
+      </div>
+      <div role="group" aria-labelledby="bp-status-label" style="display: flex; gap: 3px; padding: 3px; background: #0E0C14; border: 1px solid #262232; border-radius: 5px">
+        <sc-for list="{{i.statuses}}" as="st" hint-placeholder-count="4">
+          <button type="button" class="bp-btn" aria-pressed="{{st.pressed}}" style="flex: 1; height: 28px; padding: 0; border-radius: 3px; border: 1px solid {{st.bd}}; background: {{st.bg}}; color: {{st.fg}}; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12px; cursor: pointer">{{st.s}}</button>
+        </sc-for>
+      </div>
+    </div>
+    <sc-for list="{{i.groups}}" as="g" hint-placeholder-count="2">
+      <div style="display: flex; flex-direction: column; gap: 8px">
+        <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 8px">
+          <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; font-weight: 500; letter-spacing: .10em; text-transform: uppercase; color: #ADA6BE">{{g.title}}</span>
+          <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; color: #8D87A0">{{g.edge}}</span>
+        </div>
+        <sc-for list="{{g.ports}}" as="p" hint-placeholder-count="1">
+          <div style="display: grid; grid-template-columns: 12px minmax(0, 1fr) minmax(0, 1.25fr) 28px; column-gap: 8px; row-gap: 2px; align-items: center">
+            <span aria-hidden="true" style="width: 10px; height: 10px; border-radius: 50%; box-sizing: border-box; {{p.dot}}"></span>
+            <input class="bp-field" aria-label="{{p.nameLabel}}" value="{{p.p}}" onChange="{{noop}}" style="min-width: 0; height: 28px; padding: 0 8px; box-sizing: border-box; background: #0E0C14; border: 1px solid #262232; border-radius: 5px; color: #F2EEF8; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12px">
+            <input class="bp-field" aria-label="{{p.typeLabel}}" value="{{p.t}}" onChange="{{noop}}" style="min-width: 0; height: 28px; padding: 0 8px; box-sizing: border-box; background: #0E0C14; border: 1px solid #262232; border-radius: 5px; color: {{p.color}}; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12px">
+            <button type="button" class="bp-btn" aria-label="{{p.removeLabel}}" style="display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; padding: 0; border: 1px solid transparent; border-radius: 5px; background: transparent; color: #8D87A0; cursor: pointer"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg></button>
+            <span style="grid-column: 2 / 5; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; color: {{p.metaColor}}">{{p.meta}}</span>
+          </div>
+        </sc-for>
+        <button type="button" class="bp-btn" style="align-self: flex-start; display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; border: 1px solid transparent; border-radius: 5px; background: transparent; color: #ADA6BE; font: inherit; font-size: 13px; cursor: pointer"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"></path><path d="M12 5v14"></path></svg>{{g.add}}</button>
+      </div>
+    </sc-for>
+    <div style="display: flex; flex-direction: column; gap: 6px">
+      <label for="bp-note" style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; font-weight: 500; letter-spacing: .10em; text-transform: uppercase; color: #ADA6BE">Note</label>
+      <textarea id="bp-note" class="bp-field" rows="3" value="{{i.note}}" onChange="{{noop}}" style="padding: 10px 12px; box-sizing: border-box; resize: vertical; background: #0E0C14; border: 1px solid #262232; border-radius: 5px; color: #F2EEF8; font: inherit; font-size: 14px"></textarea>
+    </div>
+    <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 16px; border-top: 1px solid rgba(242,238,248,.07)">
+      <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; color: #8D87A0">{{i.saveLine}}</span>
+      <button type="button" class="bp-btn" style="display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 12px; border: 1px solid #8F3346; border-radius: 5px; background: transparent; color: #F7768E; font: inherit; font-size: 13px; cursor: pointer"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path></svg>Delete node</button>
+    </div>
+  </div>
+  </sc-if>
+</div>
+</sc-if>
+
+<sc-if value="{{isOutline}}" hint-placeholder-val="{{false}}">
+<div role="region" aria-label="Plan outline" style="display: flex; flex-direction: column; gap: 20px; padding: 20px">
+  <p style="margin: 0; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12px; color: #ADA6BE">{{o.headline}}</p>
+  <sc-for list="{{o.graphs}}" as="g" hint-placeholder-count="2">
+    <section aria-label="{{g.name}}" style="display: flex; flex-direction: column; gap: 10px">
+      <div>
+        <h3 style="margin: 0; font-family: 'Archivo', system-ui, sans-serif; font-weight: 700; font-size: 16px; letter-spacing: -0.01em; color: #F2EEF8">{{g.title}}</h3>
+        <p style="margin: 0; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; color: #8D87A0">{{g.sub}}</p>
+      </div>
+      <ul style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px">
+        <sc-for list="{{g.nodes}}" as="n" hint-placeholder-count="3">
+          <li style="display: flex; flex-direction: column; gap: 2px; padding-bottom: 10px; border-bottom: 1px solid rgba(242,238,248,.06)">
+            <span style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap">
+              <strong style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 13px; font-weight: 500; color: #F2EEF8">{{n.name}}</strong>
+              <span style="display: inline-flex; align-items: center; height: 18px; padding: 0 6px; border-radius: 3px; border: 1px solid {{n.bBd}}; background: {{n.bBg}}; color: {{n.bFg}}; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 10px; font-weight: 500; letter-spacing: .06em; text-transform: uppercase">{{n.status}}</span>
+              <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; color: #8D87A0">{{n.kind}}</span>
+            </span>
+            <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12px; color: #CDC6DD">out: {{n.outs}}</span>
+            <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12px; color: #CDC6DD">in: {{n.ins}}</span>
+            <span style="font-size: 13px; color: #ADA6BE">{{n.note}}</span>
+          </li>
+        </sc-for>
+      </ul>
+      <h4 style="margin: 0; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; font-weight: 500; letter-spacing: .10em; text-transform: uppercase; color: #ADA6BE">Wires</h4>
+      <ul style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12px">
+        <sc-for list="{{g.wires}}" as="w" hint-placeholder-count="3">
+          <li style="color: #CDC6DD">{{w.text}} <span style="color: {{w.flagColor}}">{{w.flag}}</span></li>
+        </sc-for>
+      </ul>
+    </section>
+  </sc-for>
+</div>
+</sc-if>
+
+<sc-if value="{{isMd}}" hint-placeholder-val="{{false}}">
+  <pre style="margin: 0; padding: 20px; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12.5px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; background: #0E0C14; color: #CDC6DD"><sc-for list="{{md}}" as="l" hint-placeholder-count="12"><span style="display: block; color: {{l.c}}">{{l.t}}</span></sc-for></pre>
+</sc-if>
+
+<sc-if value="{{isJson}}" hint-placeholder-val="{{false}}">
+  <pre style="margin: 0; padding: 20px; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12px; line-height: 1.55; white-space: pre; overflow: auto; max-height: {{jsonMax}}px; background: #0E0C14; color: #CDC6DD">{{json}}</pre>
+</sc-if>
+
+<sc-if value="{{isSwatches}}" hint-placeholder-val="{{false}}">
+  <div style="display: flex; flex-wrap: wrap; gap: 8px">
+    <sc-for list="{{sw}}" as="x" hint-placeholder-count="6">
+      <span style="display: inline-flex; align-items: center; gap: 8px; height: 28px; padding: 0 10px; border: 1px solid #262232; border-radius: 999px; background: #17141F; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12px; color: #CDC6DD; white-space: nowrap"><span style="width: 10px; height: 10px; border-radius: 50%; background: {{x.color}}"></span>{{x.label}}<span style="color: #8D87A0">{{x.hue}}°</span></span>
+    </sc-for>
+  </div>
+</sc-if>
+
+<sc-if value="{{isRules}}" hint-placeholder-val="{{false}}">
+  <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border: 1px solid #262232; border-radius: 8px; overflow: hidden; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 13px">
+    <span style="padding: 10px 14px; background: #1C1926; font-size: 11px; letter-spacing: .10em; text-transform: uppercase; color: #ADA6BE">Out port type</span>
+    <span style="padding: 10px 14px; background: #1C1926; font-size: 11px; letter-spacing: .10em; text-transform: uppercase; color: #ADA6BE">In port type</span>
+    <span style="padding: 10px 14px; background: #1C1926; font-size: 11px; letter-spacing: .10em; text-transform: uppercase; color: #ADA6BE">Exact compare</span>
+    <span style="padding: 10px 14px; background: #1C1926; font-size: 11px; letter-spacing: .10em; text-transform: uppercase; color: #ADA6BE">Ignore case + space</span>
+    <sc-for list="{{rules}}" as="r" hint-placeholder-count="4">
+      <span style="padding: 10px 14px; border-top: 1px solid #262232; color: #F2EEF8; white-space: pre">{{r.a}}</span>
+      <span style="padding: 10px 14px; border-top: 1px solid #262232; color: #F2EEF8; white-space: pre">{{r.b}}</span>
+      <span style="padding: 10px 14px; border-top: 1px solid #262232; color: {{r.exColor}}">{{r.ex}}</span>
+      <span style="padding: 10px 14px; border-top: 1px solid #262232; color: {{r.nColor}}">{{r.n}}</span>
+    </sc-for>
+  </div>
+</sc-if>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"view":{"editor":"enum","options":["canvas","summary","inspector","outline","md","json","validation","swatches","rules"],"default":"canvas"},"zoom":{"editor":"float","default":0,"min":0,"max":3,"step":0.05},"vh":{"editor":"int","default":600},"readOnly":{"editor":"boolean","default":false},"rule":{"editor":"enum","options":["normalized","exact"],"default":"normalized"},"doc":{"editor":null},"meta":{"editor":null},"graph":{"editor":null},"selected":{"editor":null},"selectedWire":{"editor":null},"onSelect":{"editor":null},"ghost":{"editor":null},"comments":{"editor":null},"labels":{"editor":null},"pairs":{"editor":null},"$preview":{"width":1060,"height":600}}'>
+// One renderer for every view of a plan: the canvas, the toolbar counts, the
+// inspector, the side outline, outline.md, the JSON export and the PUT
+// response. Every number on every artboard is computed here from one document
+// in the README's shape, so the views cannot disagree.
+
+const U = 16;                 // one grid unit, in px at zoom 1
+const HEAD = 32, PAD = 8, ROW = 24, NOTE_LH = 16, FOOT = 28;
+const CH = 7.2;               // IBM Plex Mono 12px: 0.6em per character
+const CH_TITLE = 7.8;         // 13px
+const CH_NOTE = 6.6;          // 11px
+const CH_BADGE = 6.6;         // 10px caps + .06em letter-spacing
+
+const C = {
+  page: '#0B0910', inset: '#0E0C14', card: '#17141F', card2: '#1C1926', chip: '#262232',
+  line: '#322C42', line2: '#443C58', faint: '#5F5876', muted: '#8D87A0', dim: '#ADA6BE',
+  body: '#CDC6DD', strong: '#F2EEF8', violet: '#B48EF7', amber: '#FFB570', amberDim: '#A86A34',
+  rose: '#F7768E', roseDim: '#8F3346', mint: '#4FD6A8', mintDim: '#1F7F63', azure: '#7AA2F7', azureDim: '#2F4C8F',
+};
+
+// The demo plan: how this site answers a request (all built), plus the
+// planner's own AI path (not built yet). Shape as drafted in the README.
+const DEMO = {
+  v: 1,
+  root: 'main',
+  graphs: {
+    main: {
+      nodes: {
+        nginx:      { kind: 'machine', status: 'done', note: 'TLS, static cache, body limit',
+                      in: { https: 'Request' }, out: { req: 'Request', static: 'File' } },
+        router:     { kind: 'machine', status: 'done', note: 'axum Router; ai routes to add',
+                      in: { req: 'Request' }, out: { page: 'Request', api: 'Request', ai: 'Request' } },
+        session:    { kind: 'machine', status: 'done', note: 'AuthSession, RequireOwner',
+                      in: { req: 'Request' }, out: { viewer: 'Viewer' } },
+        token_gate: { kind: 'machine', status: 'planned', note: 'bp_ token to scope; never a cookie',
+                      in: { bearer: 'Header' }, out: { scope: 'Scope' } },
+        handler:    { kind: 'machine', status: 'done', note: 'one effective viewer',
+                      in: { req: 'Request', viewer: 'Viewer' }, out: { query: 'Filter', view: 'Page' } },
+        db:         { kind: 'blueprint', status: 'done', graph: 'db', note: 'SQLite via sqlx',
+                      in: { query: 'Filter' }, out: { rows: 'Vec<Post>', plan: 'PlanDoc' } },
+        render:     { kind: 'machine', status: 'done', note: 'Askama, htmx fragments',
+                      in: { rows: 'Vec<Post>', view: 'Page' }, out: { html: 'Html' } },
+        exporter:   { kind: 'machine', status: 'idea', note: 'outline.md + JSON, no layout',
+                      in: { plan: 'PlanDoc', scope: 'Scope' }, out: { outline: 'Markdown' } },
+      },
+      wires: [
+        ['nginx.req', 'router.req'],
+        ['router.page', 'session.req'],
+        ['router.api', 'session.req'],
+        ['router.page', 'handler.req'],
+        ['session.viewer', 'handler.viewer'],
+        ['handler.query', 'db.query'],
+        ['handler.view', 'render.view'],
+        ['db.rows', 'render.rows'],
+        ['router.ai', 'token_gate.bearer'],
+        ['token_gate.scope', 'exporter.scope'],
+        ['db.plan', 'exporter.plan'],
+        ['exporter.outline', 'claude.context'],
+      ],
+    },
+    db: {
+      nodes: {
+        pool:  { kind: 'machine', status: 'done', note: 'one pool in AppState', in: {}, out: { conn: 'Pool' } },
+        posts: { kind: 'machine', status: 'done', note: 'posts, tags, collections', in: { conn: 'Pool' }, out: { rows: 'Vec<Post>' } },
+        plans: { kind: 'machine', status: 'planned', note: 'payload stored whole', in: { conn: 'Pool' }, out: { plan: 'PlanDoc' } },
+      },
+      wires: [['pool.conn', 'posts.conn'], ['pool.conn', 'plans.conn']],
+    },
+  },
+  layout: {
+    'main/nginx': [1, 6], 'main/router': [13, 5], 'main/session': [25, 12], 'main/token_gate': [25, 22],
+    'main/handler': [39, 3], 'main/db': [52, 10], 'main/render': [65, 2], 'main/exporter': [65, 19],
+    'db/pool': [1, 2], 'db/posts': [13, 1], 'db/plans': [13, 9],
+  },
+};
+const META = { project: 'drawingportfolio', plan: 'request-flow', rev: 14 };
+
+const STATUS_ORDER = ['idea', 'planned', 'building', 'done'];
+const LOOK = {
+  idea:     { bs: 'dashed', bc: C.faint,    bg: 'rgba(23,20,31,.35)', head: 'transparent',            headLine: 'rgba(242,238,248,.06)', title: C.dim,    deco: 'none',         badge: ['transparent', C.line2, C.dim] },
+  planned:  { bs: 'dashed', bc: C.muted,    bg: 'rgba(23,20,31,.72)', head: 'rgba(242,238,248,.03)',  headLine: 'rgba(242,238,248,.07)', title: C.body,   deco: 'none',         badge: [C.card2, C.line2, C.body] },
+  building: { bs: 'solid',  bc: C.amberDim, bg: C.card,               head: 'rgba(255,181,112,.10)',  headLine: 'rgba(255,181,112,.22)', title: C.strong, deco: 'none',         badge: ['rgba(255,181,112,.12)', C.amberDim, C.amber] },
+  done:     { bs: 'solid',  bc: C.line,     bg: C.card,               head: C.card2,                  headLine: 'rgba(242,238,248,.07)', title: C.strong, deco: 'none',         badge: ['rgba(79,214,168,.12)', C.mintDim, C.mint] },
+  blocked:  { bs: 'solid',  bc: C.roseDim,  bg: C.card,               head: 'repeating-linear-gradient(135deg, rgba(247,118,142,.16) 0 6px, transparent 6px 12px)', headLine: 'rgba(247,118,142,.25)', title: C.strong, deco: 'none', badge: ['rgba(247,118,142,.12)', C.roseDim, C.rose] },
+  dropped:  { bs: 'dotted', bc: C.faint,    bg: 'transparent',        head: 'transparent',            headLine: 'rgba(242,238,248,.05)', title: C.dim,    deco: 'line-through', badge: ['transparent', C.line2, C.dim] },
+};
+const look = (s) => LOOK[s] || LOOK.planned;
+
+function norm(t, rule) { return rule === 'exact' ? String(t) : String(t).toLowerCase().replace(/\s+/g, ''); }
+function fnv(s) { let h = 0x811c9dc5; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; } return h; }
+// Hue 30..329: the rose band either side of 0 is kept for type mismatches.
+function hueOf(t, rule) { return 30 + (fnv(norm(t, rule)) % 300); }
+function portColor(t, rule) { return 'hsl(' + hueOf(t, rule) + ' 70% 70%)'; }
+function split(ref) { const i = ref.indexOf('.'); return i < 0 ? [ref, ''] : [ref.slice(0, i), ref.slice(i + 1)]; }
+function r1(n) { return Math.round(n * 10) / 10; }
+
+function wrapWords(text, max) {
+  const lines = []; let cur = '';
+  String(text || '').split(/\s+/).filter(Boolean).forEach((w) => {
+    if (!cur) cur = w;
+    else if ((cur + ' ' + w).length <= max) cur += ' ' + w;
+    else { lines.push(cur); cur = w; }
+  });
+  if (cur) lines.push(cur);
+  return lines.map((l) => (l.length > max ? l.slice(0, max - 1) + '…' : l));
+}
+
+// Node size is pure arithmetic over monospace character counts.
+// One port per row, outputs first: width is the longest single label.
+function measure(name, n, doc) {
+  const outs = Object.entries(n.out || {}), ins = Object.entries(n.in || {});
+  const len = ([p, t]) => p.length + 1 + String(t).length;
+  const longest = Math.max(0, ...outs.map(len), ...ins.map(len));
+  // Every width below adds the node's 2px of side border and the real CSS
+  // paddings and gaps, so the box is never narrower than what it holds.
+  const portPx = 2 + 14 + longest * CH + 14;
+  const status = n.status || '';
+  // Badge: 1px border + 6px padding each side, 5px dot + 4px gap, then
+  // 10px caps at .06em letter-spacing (6.6px per character).
+  const badgePx = status ? 23 + status.length * CH_BADGE : 0;
+  const iconPx = n.kind && n.kind !== 'machine' ? 22 : 0;
+  const titlePx = 2 + 12 + iconPx + name.length * CH_TITLE + (badgePx ? 8 + badgePx : 0) + 10;
+  let footPx = 0;
+  if (n.kind === 'blueprint') {
+    const sub = doc && doc.graphs ? doc.graphs[n.graph] : null;
+    const foot = sub ? 'graph ' + n.graph + ' · ' + Object.keys(sub.nodes || {}).length + ' nodes' : 'graph ' + (n.graph || '?') + ' · missing';
+    // 12px left pad, text, 8px gap, the "open · later" chip, 8px right pad.
+    footPx = 2 + 12 + foot.length * CH_NOTE + 8 + (14 + 12 * CH_NOTE) + 8;
+  }
+  const w = Math.max(9 * U, Math.ceil(Math.max(portPx, titlePx, footPx) / U) * U);
+  const noteLines = n.note ? wrapWords(n.note, Math.floor((w - 24) / CH_NOTE)) : [];
+  const rows = Math.max(outs.length + ins.length, 1);
+  const raw = 2 + HEAD + PAD + rows * ROW + PAD + (noteLines.length ? noteLines.length * NOTE_LH + 6 : 0) + (n.kind === 'blueprint' ? FOOT : 0);
+  return { w, h: Math.ceil(raw / U) * U, outs, ins, noteLines };
+}
+
+function checkGraph(doc, g, rule) {
+  const graph = doc.graphs[g] || { nodes: {}, wires: [] };
+  return (graph.wires || []).map(([a, b], idx) => {
+    const [an, ap] = split(a), [bn, bp] = split(b);
+    const A = graph.nodes[an], B = graph.nodes[bn];
+    const ft = A && A.out ? A.out[ap] : undefined;
+    const tt = B && B.in ? B.in[bp] : undefined;
+    let why = '';
+    if (!A) why = 'no node "' + an + '"';
+    else if (ft === undefined) why = 'no out port "' + a + '"';
+    else if (!B) why = 'no node "' + bn + '"';
+    else if (tt === undefined) why = 'no in port "' + b + '"';
+    const dangling = !!why;
+    const mismatch = !dangling && norm(ft, rule) !== norm(tt, rule);
+    return { idx, a, b, an, ap, bn, bp, ft, tt, why, dangling, mismatch, fromOk: ft !== undefined, toOk: tt !== undefined };
+  });
+}
+
+function graphOrder(doc) { return [doc.root, ...Object.keys(doc.graphs).filter((g) => g !== doc.root)]; }
+
+function summarize(doc, rule) {
+  let nodes = 0, wires = 0, dangling = 0, mismatch = 0;
+  graphOrder(doc).forEach((g) => {
+    nodes += Object.keys(doc.graphs[g].nodes).length;
+    checkGraph(doc, g, rule).forEach((w) => { wires++; if (w.dangling) dangling++; if (w.mismatch) mismatch++; });
+  });
+  return { nodes, wires, dangling, mismatch };
+}
+
+function openerOf(doc, g) {
+  for (const pg of Object.keys(doc.graphs)) {
+    for (const [name, n] of Object.entries(doc.graphs[pg].nodes)) if (n.kind === 'blueprint' && n.graph === g) return pg + '/' + name;
+  }
+  return '';
+}
+
+function wirePath(x1, y1, x2, y2) {
+  const dx = x2 - x1;
+  const c = dx >= 0 ? Math.max(3 * U, dx / 2) : Math.max(6 * U, -dx / 2 + 3 * U);
+  return {
+    d: 'M' + r1(x1) + ' ' + r1(y1) + ' C' + r1(x1 + c) + ' ' + r1(y1) + ' ' + r1(x2 - c) + ' ' + r1(y2) + ' ' + r1(x2) + ' ' + r1(y2),
+    mx: (x1 + 3 * (x1 + c) + 3 * (x2 - c) + x2) / 8,
+    my: (y1 + 3 * y1 + 3 * y2 + y2) / 8,
+  };
+}
+
+function badge(text, tone) {
+  const t = {
+    neutral: ['#1C1926', '#262232', C.dim],
+    warning: ['rgba(255,181,112,.12)', C.amberDim, C.amber],
+    danger: ['rgba(247,118,142,.12)', C.roseDim, C.rose],
+  }[tone];
+  return { text, bg: t[0], bd: t[1], fg: t[2] };
+}
+
+function exportJson(doc) {
+  let s = JSON.stringify({ v: doc.v, root: doc.root, graphs: doc.graphs }, null, 2);
+  s = s.replace(/\[\s+("[^"]*"),\s+("[^"]*")\s+\]/g, '[$1, $2]');
+  s = s.replace(/\{\s+\}/g, '{}').replace(/\[\s+\]/g, '[]');
+  s = s.replace(/\{\n\s+("[^"]+": "[^"]+")\n\s+\}/g, '{ $1 }');
+  return s;
+}
+
+class Component extends DCLogic {
+  componentDidMount() {
+    this.measureBox();
+    if (typeof ResizeObserver !== 'undefined' && this.box) {
+      this.ro = new ResizeObserver(() => this.measureBox());
+      this.ro.observe(this.box);
+    }
+  }
+  componentWillUnmount() { if (this.ro) this.ro.disconnect(); }
+  measureBox() {
+    if (!this.box) return;
+    const w = this.box.clientWidth;
+    const st = this.state || {};
+    if (w && w !== st.mw) this.setState({ mw: w });
+  }
+
+  canvas(doc, g, rule) {
+    const p = this.props, st = this.state || {};
+    const graph = doc.graphs[g] || { nodes: {}, wires: [] };
+    const checks = checkGraph(doc, g, rule);
+    const readOnly = !!p.readOnly;
+    const selected = p.selected !== undefined ? p.selected : st.sel;
+    const wired = {}, bad = {};
+    checks.forEach((w) => { if (w.fromOk) wired[w.a] = true; if (w.toOk) wired[w.b] = true; if (w.mismatch) bad[w.b] = true; });
+
+    const geo = {};
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    const grow = (x1, y1, x2, y2) => { minX = Math.min(minX, x1); minY = Math.min(minY, y1); maxX = Math.max(maxX, x2); maxY = Math.max(maxY, y2); };
+    Object.entries(graph.nodes).forEach(([name, n]) => {
+      const m = measure(name, n, doc);
+      const pos = (doc.layout && doc.layout[g + '/' + name]) || [0, 0];
+      geo[name] = { n, m, x: pos[0] * U, y: pos[1] * U };
+      grow(geo[name].x, geo[name].y, geo[name].x + m.w + (n.kind === 'blueprint' ? 6 : 0), geo[name].y + m.h + (n.kind === 'blueprint' ? 6 : 0));
+    });
+    const portXY = (node, side, port) => {
+      const q = geo[node]; if (!q) return null;
+      const outIdx = q.m.outs.findIndex(([k]) => k === port);
+      const inIdx = q.m.ins.findIndex(([k]) => k === port);
+      const row = side === 'out' ? outIdx : (inIdx < 0 ? -1 : q.m.outs.length + inIdx);
+      if (row < 0) return null;
+      return [side === 'out' ? q.x + q.m.w : q.x, q.y + 1 + HEAD + PAD + row * ROW + ROW / 2];
+    };
+
+    const wires = [], labels = [];
+    checks.forEach((w) => {
+      const A = w.fromOk ? portXY(w.an, 'out', w.ap) : null;
+      const B = w.toOk ? portXY(w.bn, 'in', w.bp) : null;
+      if (A && B) {
+        const path = wirePath(A[0], A[1], B[0], B[1]);
+        const sel = p.selectedWire === w.a + '>' + w.b;
+        wires.push({
+          d: path.d,
+          glow: sel ? 'rgba(180,142,247,.28)' : 'transparent',
+          stroke: w.mismatch ? C.rose : sel ? C.violet : portColor(w.ft, rule),
+          sw: sel ? 2.5 : 2,
+          dash: w.mismatch ? '6 4' : 'none',
+          op: w.mismatch || sel ? 1 : 0.85,
+        });
+        if (w.mismatch) labels.push({ left: r1(path.mx), top: r1(path.my), tf: 'translate(-50%, -50%)', text: w.ft + ' ≠ ' + w.tt, bg: 'rgba(30,14,22,.96)', bd: C.roseDim, fg: C.rose });
+      } else if (A) {
+        wires.push({ d: 'M' + A[0] + ' ' + A[1] + ' H' + (A[0] + 40), glow: 'transparent', stroke: C.amber, sw: 2, dash: '2 5', op: 0.9 });
+        labels.push({ left: A[0] + 46, top: A[1], tf: 'translateY(-50%)', text: '→ ' + w.b + '  ?', bg: 'rgba(36,24,14,.96)', bd: C.amberDim, fg: C.amber });
+        grow(A[0], A[1] - 12, A[0] + 46 + (w.b.length + 5) * 6.6 + 14, A[1] + 12);
+      } else if (B) {
+        wires.push({ d: 'M' + (B[0] - 40) + ' ' + B[1] + ' H' + B[0], glow: 'transparent', stroke: C.amber, sw: 2, dash: '2 5', op: 0.9 });
+        labels.push({ left: B[0] - 46, top: B[1], tf: 'translate(-100%, -50%)', text: '?  ' + w.a + ' →', bg: 'rgba(36,24,14,.96)', bd: C.amberDim, fg: C.amber });
+        grow(B[0] - 46 - (w.a.length + 5) * 6.6 - 14, B[1] - 12, B[0], B[1] + 12);
+      }
+    });
+    (p.labels || []).forEach((lb) => labels.push({ left: lb.x * U, top: lb.y * U, tf: 'none', text: lb.text, bg: C.card2, bd: C.line2, fg: C.dim }));
+
+    const comments = (p.comments || []).map((cm) => {
+      grow(cm.x * U, cm.y * U, (cm.x + cm.w) * U, (cm.y + cm.h) * U);
+      return { left: cm.x * U, top: cm.y * U, w: cm.w * U, h: cm.h * U, title: cm.title };
+    });
+
+    let ghost = null;
+    if (p.ghost) {
+      const [gn, gp] = split(p.ghost.from);
+      const A = portXY(gn, 'out', gp);
+      if (A) {
+        const gx = p.ghost.to[0] * U, gy = p.ghost.to[1] * U;
+        ghost = { d: wirePath(A[0], A[1], gx, gy).d, x: gx, y: gy, type: geo[gn].m.outs.find(([k]) => k === gp)[1], port: gp };
+        grow(gx, gy - 40, gx + 320, gy + 260);
+      }
+    }
+    if (minX === Infinity) { minX = 0; minY = 0; maxX = 8 * U; maxY = 6 * U; }
+
+    const M = 2 * U;
+    const vh = p.vh || 600;
+    const vw = st.mw || p.fitW || 1060;
+    const contentW = maxX - minX, contentH = maxY - minY;
+    const zoom = p.zoom > 0 ? p.zoom : Math.max(0.3, Math.min(p.maxZoom || 1, (vw - 2 * M) / contentW, (vh - 2 * M) / contentH));
+    const visW = vw / zoom, visH = vh / zoom;
+    const ox = Math.round((Math.max(M, (visW - contentW) / 2) - minX) / U) * U;
+    const oy = Math.round((Math.max(M, (visH - contentH) / 2) - minY) / U) * U;
+    const stageW = Math.ceil(Math.max(visW, contentW + ox + minX + M)) + U;
+    const stageH = Math.ceil(Math.max(visH, contentH + oy + minY + M)) + U;
+    const shift = (d) => d.replace(/(-?\d+(?:\.\d+)?) (-?\d+(?:\.\d+)?)/g, (_, x, y) => r1(+x + ox) + ' ' + r1(+y + oy)).replace(/H(-?\d+(?:\.\d+)?)/g, (_, x) => 'H' + r1(+x + ox));
+
+    const nodes = [], stacks = [];
+    Object.entries(geo).forEach(([name, q]) => {
+      const n = q.n, L = look(n.status), sel = name === selected;
+      const radius = n.kind === 'source' ? '22px 6px 6px 22px' : n.kind === 'sink' ? '6px 22px 22px 6px' : '6px';
+      const headRadius = n.kind === 'source' ? '21px 5px 0 0' : n.kind === 'sink' ? '5px 21px 0 0' : '5px 5px 0 0';
+      if (n.kind === 'blueprint') stacks.push({ left: q.x + ox + 6, top: q.y + oy + 6, w: q.m.w, h: q.m.h, bs: L.bs });
+      const sub = n.kind === 'blueprint' ? doc.graphs[n.graph] : null;
+      const rows = q.m.outs.map(([k, t]) => ({ side: 'out', k, t })).concat(q.m.ins.map(([k, t]) => ({ side: 'in', k, t })));
+      nodes.push({
+        name, left: q.x + ox, top: q.y + oy, w: q.m.w, h: q.m.h,
+        bs: L.bs, bc: sel ? C.violet : L.bc, bg: L.bg, head: L.head, headLine: L.headLine, radius, headRadius,
+        shadow: sel ? '0 0 0 1px rgba(180,142,247,.45), 0 0 24px -6px rgba(180,142,247,.55)' : 'none',
+        titleColor: L.title, deco: L.deco, status: n.status || '', bShow: n.status ? 'inline-flex' : 'none', bBg: L.badge[0], bBd: L.badge[1], bFg: L.badge[2],
+        isBp: n.kind === 'blueprint', isSource: n.kind === 'source', isSink: n.kind === 'sink',
+        bpText: sub ? 'graph ' + n.graph + ' · ' + Object.keys(sub.nodes).length + ' nodes' : 'graph ' + (n.graph || '?') + ' · missing',
+        aria: name + ', ' + (n.kind || 'machine') + ', ' + (n.status || 'no status'),
+        pressed: sel ? 'true' : 'false',
+        cursor: readOnly ? 'default' : 'grab',
+        pick: () => { if (readOnly) return; if (p.onSelect) p.onSelect(name); else this.setState({ sel: name }); },
+        noteLines: q.m.noteLines.map((t) => ({ t })),
+        rows: rows.map((r) => {
+          const ref = name + '.' + r.k, col = portColor(r.t, rule), on = !!wired[ref];
+          const side = r.side === 'out' ? 'right: -6px' : 'left: -6px';
+          const fill = on ? 'background: ' + col : 'background: ' + C.page;
+          const ring = r.side === 'in' && bad[ref] ? '; box-shadow: 0 0 0 2px ' + C.page + ', 0 0 0 3.5px ' + C.rose : '';
+          return { dir: r.side === 'out' ? 'row-reverse' : 'row', name: r.k, type: String(r.t), typeColor: col, dot: side + '; ' + fill + '; border: 1.5px solid ' + col + ring };
+        }),
+      });
+    });
+
+    let pop = null;
+    if (ghost) {
+      const q = p.ghost.query || '';
+      pop = {
+        left: Math.round((ghost.x + ox) * zoom + 12), top: Math.round((ghost.y + oy) * zoom - 22),
+        query: q, port: ghost.port + ': ' + ghost.type,
+        items: [
+          { label: 'Create machine “' + q + '”', sub: 'in ' + ghost.port + ': ' + ghost.type + ' · wired', bg: 'rgba(180,142,247,.14)', bd: 'rgba(180,142,247,.45)', fg: C.strong, disabled: false },
+          { label: 'Create blueprint “' + q + '”', sub: 'opens into a new graph · ' + q, bg: 'transparent', bd: 'transparent', fg: C.body, disabled: false },
+          { label: 'Wire to an existing port', sub: 'no free input typed ' + ghost.type, bg: 'transparent', bd: 'transparent', fg: C.muted, disabled: true },
+        ],
+      };
+    }
+
+    return {
+      vh, zoom: r1(zoom * 100) / 100, stageW, stageH, radius: p.radius || 0, dim: p.dim || 1,
+      readout: Math.round(zoom * 100) + '% · 1u = 16px',
+      showReadout: p.readout !== false,
+      nodes, stacks, comments,
+      wires: wires.map((w) => Object.assign({}, w, { d: shift(w.d) })),
+      labels: labels.map((lb) => Object.assign({}, lb, { left: r1(lb.left + ox), top: r1(lb.top + oy) })),
+      hasGhost: !!ghost, ghost: ghost ? { d: shift(ghost.d), x: ghost.x + ox, y: ghost.y + oy } : { d: '', x: 0, y: 0 },
+      hasPop: !!pop, pop: pop || { left: 0, top: 0, query: '', port: '', items: [] },
+    };
+  }
+
+  inspector(doc, g, rule, meta) {
+    const p = this.props;
+    const graph = doc.graphs[g];
+    const sel = p.selected;
+    const n = sel && graph.nodes[sel];
+    const noop = () => {};
+    if (!n) return { none: true, has: false };
+    const checks = checkGraph(doc, g, rule);
+    const refs = checks.filter((w) => w.an === sel || w.bn === sel).length;
+    const portRows = (side) => Object.entries(n[side] || {}).map(([k, t]) => {
+      const ref = sel + '.' + k;
+      const ws = checks.filter((w) => (side === 'out' ? w.a : w.b) === ref);
+      const bad = ws.find((w) => w.mismatch);
+      const dang = ws.find((w) => w.dangling);
+      const col = portColor(t, rule);
+      let meta2 = ws.length ? ws.length + (ws.length === 1 ? ' wire' : ' wires') + ' · ' + ws.map((w) => (side === 'out' ? w.b : w.a)).join(', ') : 'unwired';
+      let metaColor = ws.length ? C.dim : C.muted;
+      if (bad) { meta2 = 'mismatch · gets ' + bad.ft + ' from ' + bad.a; metaColor = C.rose; }
+      if (dang) { meta2 = 'dangling · ' + dang.why; metaColor = C.amber; }
+      return {
+        p: k, t: String(t), color: col, meta: meta2, metaColor,
+        dot: (ws.length ? 'background: ' + col : 'background: ' + C.page) + '; border: 1.5px solid ' + col,
+        nameLabel: (side === 'out' ? 'Output' : 'Input') + ' name', typeLabel: k + ' type', removeLabel: 'Remove ' + k,
+      };
+    });
+    return {
+      none: false, has: true,
+      name: sel, kind: n.kind || 'machine', note: n.note || '',
+      renameHint: 'Renaming ' + sel + ' rewrites the ' + refs + (refs === 1 ? ' wire' : ' wires') + ' that name it.',
+      statuses: STATUS_ORDER.map((s) => ({
+        s, pressed: s === n.status ? 'true' : 'false',
+        bg: s === n.status ? 'rgba(180,142,247,.14)' : 'transparent',
+        bd: s === n.status ? 'rgba(180,142,247,.45)' : 'transparent',
+        fg: s === n.status ? '#CBB0FF' : C.dim,
+      })),
+      groups: [
+        { title: 'Outputs', edge: 'right edge · listed first', ports: portRows('out'), add: 'Add output' },
+        { title: 'Inputs', edge: 'left edge', ports: portRows('in'), add: 'Add input' },
+      ],
+      saveLine: 'saved · rev ' + meta.rev + ' · sent with If-Match',
+      noop,
+    };
+  }
+
+  outline(doc, rule, meta) {
+    const s = summarize(doc, rule);
+    return {
+      headline: meta.project + ' / ' + meta.plan + ' · rev ' + meta.rev + ' · ' + s.nodes + ' nodes · ' + s.wires + ' wires · ' + s.dangling + ' dangling · ' + s.mismatch + ' mismatch',
+      graphs: graphOrder(doc).map((g) => {
+        const graph = doc.graphs[g];
+        const checks = checkGraph(doc, g, rule);
+        return {
+          name: 'Graph ' + g,
+          title: g === doc.root ? g + ' (root)' : g,
+          sub: g === doc.root ? 'the plan’s top level' : 'opened by ' + (openerOf(doc, g) || 'nothing'),
+          nodes: Object.entries(graph.nodes).map(([name, n]) => {
+            const L = look(n.status);
+            const outs = Object.entries(n.out || {}).map(([k, t]) => {
+              const to = checks.filter((w) => w.a === name + '.' + k).map((w) => w.b);
+              return k + ': ' + t + (to.length ? ' → ' + to.join(', ') : '');
+            });
+            return {
+              name, status: n.status || '—', kind: n.kind === 'blueprint' ? 'blueprint → ' + n.graph : (n.kind || 'machine'),
+              bBg: L.badge[0], bBd: L.badge[1], bFg: L.badge[2],
+              outs: outs.join('; ') || '—',
+              ins: Object.entries(n.in || {}).map(([k, t]) => k + ': ' + t).join(', ') || '—',
+              note: n.note || '',
+            };
+          }),
+          wires: checks.map((w) => ({
+            text: w.a + ' → ' + w.b,
+            flag: w.dangling ? 'dangling: ' + w.why : w.mismatch ? 'mismatch: ' + w.ft + ' ≠ ' + w.tt : '',
+            flagColor: w.dangling ? C.amber : C.rose,
+          })),
+        };
+      }),
+    };
+  }
+
+  outlineMd(doc, rule, meta) {
+    const s = summarize(doc, rule);
+    const L = [];
+    const add = (t, c) => L.push({ t: t === '' ? ' ' : t, c: c || C.body });
+    add('# ' + meta.project + ' / ' + meta.plan + ' · rev ' + meta.rev, '#CBB0FF');
+    add(s.nodes + ' nodes · ' + s.wires + ' wires · ' + s.dangling + ' dangling · ' + s.mismatch + ' mismatch', C.dim);
+    const problems = [];
+    graphOrder(doc).forEach((g) => {
+      const graph = doc.graphs[g];
+      const checks = checkGraph(doc, g, rule);
+      add('');
+      add('## ' + g + (g === doc.root ? ' (root)' : ' (opened by ' + openerOf(doc, g) + ')'), '#CBB0FF');
+      Object.entries(graph.nodes).forEach(([name, n]) => {
+        const outs = Object.entries(n.out || {}).map(([k, t]) => {
+          const to = checks.filter((w) => w.a === name + '.' + k).map((w) => w.b + (w.dangling ? ' (dangling)' : w.mismatch ? ' (mismatch)' : ''));
+          return k + ': ' + t + (to.length ? ' → ' + to.join(', ') : '');
+        });
+        const ins = Object.entries(n.in || {}).map(([k, t]) => k + ': ' + t);
+        const kind = n.kind === 'blueprint' ? 'blueprint → ' + n.graph : (n.kind || 'machine');
+        add('- ' + name + ' [' + kind + ', ' + (n.status || '—') + '] out(' + outs.join('; ') + ') in(' + ins.join(', ') + ')' + (n.note ? ' — ' + n.note : ''));
+      });
+      checks.forEach((w) => {
+        if (w.mismatch) problems.push({ t: '- mismatch: ' + w.a + ' (' + w.ft + ') → ' + w.b + ' (' + w.tt + ')', c: C.rose });
+        if (w.dangling) problems.push({ t: '- dangling: ' + w.a + ' → ' + w.b + ' (' + w.why + ')', c: C.amber });
+      });
+    });
+    add('');
+    add('## problems', '#CBB0FF');
+    if (!problems.length) add('- none', C.dim);
+    problems.forEach((x) => add(x.t, x.c));
+    return L;
+  }
+
+  validation(doc, rule, meta) {
+    const s = summarize(doc, rule);
+    const problems = [];
+    graphOrder(doc).forEach((g) => checkGraph(doc, g, rule).forEach((w) => {
+      if (w.dangling) problems.push({ kind: 'dangling', graph: g, wire: [w.a, w.b], why: w.why });
+      if (w.mismatch) problems.push({ kind: 'mismatch', graph: g, wire: [w.a, w.b], from: w.ft, to: w.tt });
+    }));
+    let out = JSON.stringify({ rev: meta.rev + 1, nodes: s.nodes, wires: s.wires, dangling: s.dangling, mismatches: s.mismatch, problems }, null, 2);
+    out = out.replace(/\[\s+("[^"]*"),\s+("[^"]*")\s+\]/g, '[$1, $2]');
+    return out;
+  }
+
+  renderVals() {
+    const p = this.props;
+    if (!this._setBox) this._setBox = (el) => { this.box = el; };
+    const view = p.view || 'canvas';
+    const doc = p.doc || DEMO;
+    const meta = p.meta || META;
+    const rule = p.rule || 'normalized';
+    const g = p.graph || doc.root;
+    const s = summarize(doc, rule);
+    const noop = () => {};
+    const vals = {
+      noop, setEl: this._setBox,
+      isCanvas: view === 'canvas', isSummary: view === 'summary', isInspector: view === 'inspector',
+      isOutline: view === 'outline', isMd: view === 'md', isJson: view === 'json' || view === 'validation',
+      isSwatches: view === 'swatches', isRules: view === 'rules',
+      jsonMax: p.jsonMax || 520,
+      c: { vh: 0, nodes: [], stacks: [], comments: [], wires: [], labels: [], hasGhost: false, ghost: {}, hasPop: false, pop: { items: [] } },
+      s: {
+        counts: s.nodes + ' nodes · ' + s.wires + ' wires',
+        d: badge(s.dangling + ' dangling', s.dangling ? 'warning' : 'neutral'),
+        m: badge(s.mismatch + ' mismatch', s.mismatch ? 'danger' : 'neutral'),
+      },
+      i: { none: true, has: false, statuses: [], groups: [], noop },
+      o: { headline: '', graphs: [] },
+      md: [], json: '', sw: [], rules: [],
+    };
+    if (view === 'canvas') vals.c = this.canvas(doc, g, rule);
+    if (view === 'inspector') vals.i = Object.assign({ noop }, this.inspector(doc, g, rule, meta));
+    if (view === 'outline') vals.o = this.outline(doc, rule, meta);
+    if (view === 'md') vals.md = this.outlineMd(doc, rule, meta);
+    if (view === 'json') vals.json = exportJson(doc);
+    if (view === 'validation') vals.json = this.validation(doc, rule, meta);
+    if (view === 'swatches') vals.sw = (p.labels || ['Request', 'Viewer', 'Filter', 'Vec<Post>', 'Html', 'Header', 'Scope', 'PlanDoc', 'Markdown', 'Page', 'File', 'Pool'])
+      .map((label) => ({ label, hue: hueOf(label, rule), color: portColor(label, rule) }));
+    if (view === 'rules') vals.rules = (p.pairs || []).map(([a, b]) => {
+      const ex = a === b, nm = norm(a, 'normalized') === norm(b, 'normalized');
+      return { a, b, ex: ex ? 'match' : 'mismatch', n: nm ? 'match' : 'mismatch', exColor: ex ? C.mint : C.rose, nColor: nm ? C.mint : C.rose };
+    });
+    return vals;
+  }
+}
+</script>
+</body>
+</html>

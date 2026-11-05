@@ -160,10 +160,11 @@ planned. **Rec** is the recommended answer.
 ## Primer: the design guide and UI mockup artifact
 
 **Made 2026-11-05:** a private claude.ai Design canvas,
-<https://claude.ai/artifact/KB2g3BHRHBshZwzqKNv5D6>. Its thirteen artboards are
-the owner editor, the 412 banner, the visitor demo, the empty project and empty
-plan, tokens, three design-guide boards, two open-issue boards and two
-components. Every canvas, count and outline is computed by one renderer
+<https://claude.ai/artifact/KB2g3BHRHBshZwzqKNv5D6>, with a reference copy of
+its source in [`canvas/`](canvas/README.md). Its fourteen artboards are the
+owner editor, the 412 banner, the visitor demo, the empty project and empty
+plan, tokens, four design-guide boards (including the input model), two
+open-issue boards and two components. Every canvas, count and outline is computed by one renderer
 (`Plan.dc.html`) from a document in the shape below. It proposes two layout calls
 of its own, for the owner to confirm: one port per row with outputs first, so a
 node's width is its longest label (Blender's order) rather than the sum of both

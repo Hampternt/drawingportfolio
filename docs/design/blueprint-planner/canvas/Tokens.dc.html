@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>AI access tokens</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;background:#0B0910}
+a{color:#CBB0FF;text-decoration:none}a:hover{color:#DED0FF}
+@font-face{font-family:"Archivo";font-weight:700;font-style:normal;font-display:swap;src:url("/_blob/549b009c0a16767e513681b5829fa715") format("woff2")}
+@font-face{font-family:"Archivo";font-weight:800;font-style:normal;font-display:swap;src:url("/_blob/a412b00a9fb065eb8ce75e359beb437d") format("woff2")}
+@font-face{font-family:"Space Grotesk";font-weight:400;font-style:normal;font-display:swap;src:url("/_blob/f1111d6a6a4b0cf29164bf0670e13709") format("woff2")}
+@font-face{font-family:"Space Grotesk";font-weight:500;font-style:normal;font-display:swap;src:url("/_blob/edad51755ad257b050ac50ca711fce34") format("woff2")}
+@font-face{font-family:"Space Grotesk";font-weight:600;font-style:normal;font-display:swap;src:url("/_blob/9aa65012e8d8d2bba77fedbbc71aefd1") format("woff2")}
+@font-face{font-family:"IBM Plex Mono";font-weight:400;font-style:normal;font-display:swap;src:url("/_blob/b36838188d823b70621f4e61e5bc841f") format("woff2")}
+@font-face{font-family:"IBM Plex Mono";font-weight:500;font-style:normal;font-display:swap;src:url("/_blob/ebe4ec317241372908148eb7f6a1633a") format("woff2")}
+</style>
+</helmet>
+<div style="min-height: 1060px; background: #0B0910; color: #CDC6DD; font-family: 'Space Grotesk', system-ui, sans-serif; font-size: 15px; line-height: 1.5">
+  <dc-import name="SiteHeader" active="Blueprints" admin="{{yes}}" hint-size="100%,56px"></dc-import>
+
+  <section style="padding: 40px 32px 32px; background-color: #0B0910; background-image: linear-gradient(rgba(242,238,248,.045) 1px, transparent 1px), linear-gradient(90deg, rgba(242,238,248,.045) 1px, transparent 1px); background-size: 32px 32px; border-bottom: 1px solid rgba(242,238,248,.07)">
+    <div style="max-width: 1000px; margin: 0 auto; display: flex; flex-direction: column; gap: 10px">
+      <a href="Main.dc.html" style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12px">← back to the plans</a>
+      <h1 style="margin: 0; font-family: 'Archivo', system-ui, sans-serif; font-weight: 800; font-size: 40px; line-height: 1.1; letter-spacing: -0.025em; color: #F2EEF8">AI access<span style="color: #B48EF7">.</span></h1>
+      <p style="margin: 0; max-width: 68ch; font-size: 16px; color: #CDC6DD">A token lets Claude Code read your plans as context, or edit them so they stay true to what was built. A token never opens this page, and a signed-in cookie never satisfies the AI routes.</p>
+    </div>
+  </section>
+
+  <div style="max-width: 1000px; margin: 0 auto; padding: 32px; display: flex; flex-direction: column; gap: 24px">
+
+    <form aria-labelledby="mint-title" style="display: flex; flex-direction: column; gap: 18px; padding: 24px; background: #17141F; border: 1px solid rgba(242,238,248,.07); border-radius: 8px">
+      <h2 id="mint-title" style="margin: 0; font-family: 'Archivo', system-ui, sans-serif; font-weight: 700; font-size: 20px; letter-spacing: -0.01em; color: #F2EEF8">Mint a token</h2>
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 18px">
+        <div style="display: flex; flex-direction: column; gap: 6px">
+          <label for="tok-label" style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; font-weight: 500; letter-spacing: .10em; text-transform: uppercase; color: #ADA6BE">Label</label>
+          <input id="tok-label" value="laptop-claude" onChange="{{noop}}" style="height: 34px; padding: 0 12px; box-sizing: border-box; background: #0E0C14; border: 1px solid #262232; border-radius: 5px; color: #F2EEF8; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 13px">
+        </div>
+        <fieldset style="margin: 0; padding: 0; border: none; display: flex; flex-direction: column; gap: 6px">
+          <legend style="padding: 0; margin-bottom: 6px; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; font-weight: 500; letter-spacing: .10em; text-transform: uppercase; color: #ADA6BE">Scope</legend>
+          <label style="display: flex; align-items: center; gap: 8px; font-size: 14px; color: #CDC6DD"><input type="radio" name="scope" value="read" style="accent-color: #B48EF7"> read · outline and JSON</label>
+          <label style="display: flex; align-items: center; gap: 8px; font-size: 14px; color: #CDC6DD"><input type="radio" name="scope" value="write" checked style="accent-color: #B48EF7"> write · also PUT a plan</label>
+        </fieldset>
+        <div style="display: flex; flex-direction: column; gap: 6px">
+          <label for="tok-plan" style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; font-weight: 500; letter-spacing: .10em; text-transform: uppercase; color: #ADA6BE">Plans it reaches</label>
+          <select id="tok-plan" style="height: 34px; padding: 0 12px; background: #0E0C14; border: 1px solid #262232; border-radius: 5px; color: #F2EEF8; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 13px">
+            <option>all plans</option>
+            <option>drawingportfolio / request-flow</option>
+            <option>drawingportfolio / blueprint-planner</option>
+            <option>drawingportfolio / sorting-board</option>
+          </select>
+        </div>
+      </div>
+      <div style="display: flex; align-items: center; gap: 16px; flex-wrap: wrap">
+        <button type="button" style="display: inline-flex; align-items: center; gap: 8px; height: 34px; padding: 0 16px; border: 1px solid #CBB0FF; border-radius: 5px; background: #B48EF7; color: #191624; font: inherit; font-size: 14px; font-weight: 500; cursor: pointer">
+          <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="7.5" cy="15.5" r="5.5"></circle><path d="m21 2-9.6 9.6"></path><path d="m15.5 7.5 3 3L22 7l-3-3"></path></svg>
+          Mint token
+        </button>
+        <span style="font-size: 13px; color: #ADA6BE">Writes are rate limited at nginx. Every accepted write becomes a revision you can revert.</span>
+      </div>
+    </form>
+
+    <div role="status" style="display: flex; flex-direction: column; gap: 14px; padding: 24px; background: #17141F; border: 1px solid rgba(180,142,247,.45); border-radius: 8px; box-shadow: 0 0 0 1px rgba(180,142,247,.45), 0 0 24px -6px rgba(180,142,247,.45)">
+      <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap">
+        <h2 style="margin: 0; font-family: 'Archivo', system-ui, sans-serif; font-weight: 700; font-size: 18px; letter-spacing: -0.01em; color: #F2EEF8">laptop-claude is ready</h2>
+        <span style="display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 6px; border-radius: 3px; border: 1px solid #A86A34; background: rgba(255,181,112,.12); color: #FFB570; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; font-weight: 500; letter-spacing: .06em; text-transform: uppercase">shown once</span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap">
+        <code style="flex: 1 1 360px; min-width: 0; padding: 10px 14px; background: #0E0C14; border: 1px solid #262232; border-radius: 5px; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 14px; color: #F2EEF8; overflow-wrap: anywhere">bp_7f3K9qL2vX8mN4pR6tY1wZ5cB0dHs2Ja</code>
+        <button type="button" style="display: inline-flex; align-items: center; gap: 8px; height: 42px; padding: 0 16px; border: 1px solid #262232; border-radius: 5px; background: #1C1926; color: #F2EEF8; font: inherit; font-size: 14px; font-weight: 500; cursor: pointer">
+          <svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg>
+          Copy
+        </button>
+      </div>
+      <p style="margin: 0; font-size: 14px; color: #CDC6DD">Only its SHA-256 hash is stored, so this page cannot show it again. Put it in the other repo’s <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace">.env</span> now. Lose it, and you revoke it and mint another.</p>
+    </div>
+
+    <section aria-labelledby="list-title" style="display: flex; flex-direction: column; gap: 12px">
+      <h2 id="list-title" style="margin: 0; font-family: 'Archivo', system-ui, sans-serif; font-weight: 700; font-size: 20px; letter-spacing: -0.01em; color: #F2EEF8">Tokens</h2>
+      <div style="overflow-x: auto; border: 1px solid rgba(242,238,248,.07); border-radius: 8px">
+        <div style="min-width: 820px; display: grid; grid-template-columns: minmax(140px, 1.2fr) 130px 80px minmax(170px, 1.4fr) 110px 110px 96px; font-size: 14px">
+          <span style="padding: 10px 14px; background: #1C1926; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; letter-spacing: .10em; text-transform: uppercase; color: #ADA6BE">Label</span>
+          <span style="padding: 10px 14px; background: #1C1926; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; letter-spacing: .10em; text-transform: uppercase; color: #ADA6BE">Prefix</span>
+          <span style="padding: 10px 14px; background: #1C1926; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; letter-spacing: .10em; text-transform: uppercase; color: #ADA6BE">Scope</span>
+          <span style="padding: 10px 14px; background: #1C1926; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; letter-spacing: .10em; text-transform: uppercase; color: #ADA6BE">Plans</span>
+          <span style="padding: 10px 14px; background: #1C1926; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; letter-spacing: .10em; text-transform: uppercase; color: #ADA6BE">Last used</span>
+          <span style="padding: 10px 14px; background: #1C1926; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; letter-spacing: .10em; text-transform: uppercase; color: #ADA6BE">Created</span>
+          <span style="padding: 10px 14px; background: #1C1926"></span>
+          <sc-for list="{{tokens}}" as="t" hint-placeholder-count="3">
+            <span style="padding: 12px 14px; border-top: 1px solid #262232; font-weight: 600; color: {{t.nameColor}}; text-decoration: {{t.deco}}">{{t.label}}</span>
+            <span style="padding: 12px 14px; border-top: 1px solid #262232; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 13px; color: #CDC6DD">{{t.prefix}}</span>
+            <span style="padding: 12px 14px; border-top: 1px solid #262232; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 13px; color: {{t.scopeColor}}">{{t.scope}}</span>
+            <span style="padding: 12px 14px; border-top: 1px solid #262232; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 13px; color: #CDC6DD">{{t.plan}}</span>
+            <span style="padding: 12px 14px; border-top: 1px solid #262232; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 13px; color: #ADA6BE">{{t.used}}</span>
+            <span style="padding: 12px 14px; border-top: 1px solid #262232; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 13px; color: #ADA6BE">{{t.created}}</span>
+            <span style="padding: 8px 14px; border-top: 1px solid #262232; display: flex; align-items: center">
+              <sc-if value="{{t.live}}" hint-placeholder-val="{{true}}">
+                <button type="button" aria-label="{{t.revokeLabel}}" style="height: 28px; padding: 0 12px; border: 1px solid #8F3346; border-radius: 5px; background: transparent; color: #F7768E; font: inherit; font-size: 13px; cursor: pointer">Revoke</button>
+              </sc-if>
+              <sc-if value="{{t.dead}}" hint-placeholder-val="{{false}}">
+                <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12px; color: #ADA6BE">revoked</span>
+              </sc-if>
+            </span>
+          </sc-for>
+        </div>
+      </div>
+      <p style="margin: 0; font-size: 13px; color: #ADA6BE">The prefix is the only part kept in readable form, so you can tell tokens apart. Revoking takes effect on the next request.</p>
+    </section>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1200,"height":1060}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const rows = [
+      { label: 'laptop-claude', prefix: 'bp_7f3K…', scope: 'write', plan: 'all plans', used: '11-05 14:02', created: '2026-11-05', live: true },
+      { label: 'context-reader', prefix: 'bp_Q2mx…', scope: 'read', plan: 'request-flow', used: '2026-11-04', created: '2026-10-28', live: true },
+      { label: 'old-desktop', prefix: 'bp_9Lwe…', scope: 'write', plan: 'all plans', used: '2026-10-12', created: '2026-09-30', live: false },
+    ];
+    return {
+      yes: true,
+      noop: () => {},
+      tokens: rows.map((t) => Object.assign({}, t, {
+        dead: !t.live,
+        nameColor: t.live ? '#F2EEF8' : '#ADA6BE',
+        deco: t.live ? 'none' : 'line-through',
+        scopeColor: t.scope === 'write' ? '#FFB570' : '#CDC6DD',
+        revokeLabel: 'Revoke ' + t.label,
+      })),
+    };
+  }
+}
+</script>
+</body>
+</html>

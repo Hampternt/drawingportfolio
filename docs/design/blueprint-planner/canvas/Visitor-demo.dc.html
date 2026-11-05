@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Blueprints — visitor demo</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;background:#0B0910}
+a{color:#CBB0FF;text-decoration:none}a:hover{color:#DED0FF}
+@font-face{font-family:"Archivo";font-weight:700;font-style:normal;font-display:swap;src:url("/_blob/549b009c0a16767e513681b5829fa715") format("woff2")}
+@font-face{font-family:"Archivo";font-weight:900;font-style:normal;font-display:swap;src:url("/_blob/5b340516fbe4d005903d83307ea0e8f8") format("woff2")}
+@font-face{font-family:"Space Grotesk";font-weight:400;font-style:normal;font-display:swap;src:url("/_blob/f1111d6a6a4b0cf29164bf0670e13709") format("woff2")}
+@font-face{font-family:"Space Grotesk";font-weight:500;font-style:normal;font-display:swap;src:url("/_blob/edad51755ad257b050ac50ca711fce34") format("woff2")}
+@font-face{font-family:"IBM Plex Mono";font-weight:400;font-style:normal;font-display:swap;src:url("/_blob/b36838188d823b70621f4e61e5bc841f") format("woff2")}
+@font-face{font-family:"IBM Plex Mono";font-weight:500;font-style:normal;font-display:swap;src:url("/_blob/ebe4ec317241372908148eb7f6a1633a") format("woff2")}
+</style>
+</helmet>
+<div style="min-height: 1060px; display: flex; flex-direction: column; background: #0B0910; color: #CDC6DD; font-family: 'Space Grotesk', system-ui, sans-serif; font-size: 15px; line-height: 1.5">
+  <dc-import name="SiteHeader" active="Blueprints" admin="{{no}}" hint-size="100%,56px"></dc-import>
+
+  <section style="padding: 40px 32px 28px; background-color: #0B0910; background-image: linear-gradient(rgba(242,238,248,.045) 1px, transparent 1px), linear-gradient(90deg, rgba(242,238,248,.045) 1px, transparent 1px); background-size: 32px 32px; border-bottom: 1px solid rgba(242,238,248,.07)">
+    <div style="max-width: 1180px; margin: 0 auto; display: flex; flex-wrap: wrap; align-items: flex-end; gap: 20px 40px">
+      <div style="flex: 1 1 560px; min-width: 0; display: flex; flex-direction: column; gap: 12px">
+        <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; font-weight: 500; letter-spacing: .10em; text-transform: uppercase; color: #ADA6BE">blueprints · the one public plan</span>
+        <h1 style="margin: 0; font-family: 'Archivo', system-ui, sans-serif; font-weight: 900; font-size: 48px; line-height: 1.04; letter-spacing: -0.025em; color: #F2EEF8">How this site answers a request<span style="color: #B48EF7">.</span></h1>
+        <p style="margin: 0; max-width: 68ch; font-size: 17px; color: #CDC6DD">A planning tool laid out like a factory floor: each machine has named inputs and outputs, and wires carry typed items between them. The planner itself is private. This is its demo plan, read-only.</p>
+      </div>
+      <span style="display: inline-flex; align-items: center; gap: 8px; height: 28px; padding: 0 10px; border: 1px solid #262232; border-radius: 3px; background: #1C1926; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; font-weight: 500; letter-spacing: .06em; text-transform: uppercase; color: #CDC6DD">
+        <svg aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+        read-only demo
+      </span>
+    </div>
+  </section>
+
+  <div style="flex: 1; display: flex; flex-wrap: wrap; min-height: 0">
+    <main style="flex: 999 1 640px; min-width: 0; display: flex; flex-direction: column">
+      <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px; min-height: 48px; padding: 7px 16px; box-sizing: border-box; background: #0E0C14; border-bottom: 1px solid rgba(242,238,248,.07)">
+        <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 13px; color: #ADA6BE; white-space: nowrap">demo <span style="color: #5F5876">/</span> <span style="color: #F2EEF8">request-flow</span></span>
+        <dc-import name="Plan" view="summary" hint-size="300px,20px"></dc-import>
+        <div role="group" aria-label="Zoom" style="margin-left: auto; display: inline-flex; align-items: center; height: 34px; border: 1px solid #262232; border-radius: 5px; background: #1C1926">
+          <button type="button" aria-label="Zoom out" style="display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; padding: 0; border: none; background: transparent; color: #ADA6BE; cursor: pointer"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"></path></svg></button>
+          <button type="button" aria-label="Fit the plan" style="height: 32px; padding: 0 10px; border: none; border-left: 1px solid #262232; border-right: 1px solid #262232; background: transparent; color: #F2EEF8; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12px; cursor: pointer">fit</button>
+          <button type="button" aria-label="Zoom in" style="display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; padding: 0; border: none; background: transparent; color: #ADA6BE; cursor: pointer"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"></path><path d="M12 5v14"></path></svg></button>
+        </div>
+      </div>
+      <div style="flex: 1; min-height: 0">
+        <dc-import name="Plan" view="canvas" read-only="{{yes}}" meta="{{meta}}" vh="{{canvasH}}" hint-size="100%,700px"></dc-import>
+      </div>
+    </main>
+
+    <aside aria-label="Plan outline" style="flex: 1 1 340px; max-width: 100%; box-sizing: border-box; display: flex; flex-direction: column; background: #0E0C14; border-left: 1px solid rgba(242,238,248,.07)">
+      <div style="display: flex; align-items: center; justify-content: space-between; height: 44px; padding: 0 20px; border-bottom: 1px solid rgba(242,238,248,.07)">
+        <h2 style="margin: 0; font-family: 'Archivo', system-ui, sans-serif; font-weight: 700; font-size: 15px; color: #F2EEF8">Outline</h2>
+        <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; color: #ADA6BE">works without JavaScript</span>
+      </div>
+      <div style="flex: 1; overflow: auto; max-height: 700px">
+        <dc-import name="Plan" view="outline" meta="{{meta}}" hint-size="100%,700px"></dc-import>
+      </div>
+    </aside>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1600,"height":1060}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {
+      yes: true, no: false, canvasH: 700,
+      // The demo is a committed JSON file, not a database row: no rev to show.
+      meta: { project: 'demo', plan: 'request-flow', rev: 1 },
+    };
+  }
+}
+</script>
+</body>
+</html>

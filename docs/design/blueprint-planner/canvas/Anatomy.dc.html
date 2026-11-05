@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Nodes and wires</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;background:#0B0910}
+a{color:#CBB0FF;text-decoration:none}a:hover{color:#DED0FF}
+@font-face{font-family:"Archivo";font-weight:700;font-style:normal;font-display:swap;src:url("/_blob/549b009c0a16767e513681b5829fa715") format("woff2")}
+@font-face{font-family:"Archivo";font-weight:800;font-style:normal;font-display:swap;src:url("/_blob/a412b00a9fb065eb8ce75e359beb437d") format("woff2")}
+@font-face{font-family:"Space Grotesk";font-weight:400;font-style:normal;font-display:swap;src:url("/_blob/f1111d6a6a4b0cf29164bf0670e13709") format("woff2")}
+@font-face{font-family:"Space Grotesk";font-weight:500;font-style:normal;font-display:swap;src:url("/_blob/edad51755ad257b050ac50ca711fce34") format("woff2")}
+@font-face{font-family:"Space Grotesk";font-weight:600;font-style:normal;font-display:swap;src:url("/_blob/9aa65012e8d8d2bba77fedbbc71aefd1") format("woff2")}
+@font-face{font-family:"IBM Plex Mono";font-weight:400;font-style:normal;font-display:swap;src:url("/_blob/b36838188d823b70621f4e61e5bc841f") format("woff2")}
+@font-face{font-family:"IBM Plex Mono";font-weight:500;font-style:normal;font-display:swap;src:url("/_blob/ebe4ec317241372908148eb7f6a1633a") format("woff2")}
+</style>
+</helmet>
+<div style="min-height: 1760px; background: #0B0910; color: #CDC6DD; font-family: 'Space Grotesk', system-ui, sans-serif; font-size: 15px; line-height: 1.5; padding: 48px 40px 64px; box-sizing: border-box">
+  <div style="max-width: 1360px; margin: 0 auto; display: flex; flex-direction: column; gap: 56px">
+
+    <header style="display: flex; flex-direction: column; gap: 10px">
+      <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; font-weight: 500; letter-spacing: .10em; text-transform: uppercase; color: #ADA6BE">design guide · 1 of 3</span>
+      <h1 style="margin: 0; font-family: 'Archivo', system-ui, sans-serif; font-weight: 800; font-size: 40px; line-height: 1.1; letter-spacing: -0.025em; color: #F2EEF8">Nodes and wires<span style="color: #B48EF7">.</span></h1>
+      <p style="margin: 0; max-width: 68ch; font-size: 16px; color: #CDC6DD">Every canvas on this page is drawn by the same renderer from a document in the README’s shape, so a size or a count here is computed, not drawn by hand.</p>
+    </header>
+
+    <section aria-labelledby="h-anatomy" style="display: flex; flex-wrap: wrap; gap: 32px">
+      <div style="flex: 999 1 640px; min-width: 0; display: flex; flex-direction: column; gap: 12px">
+        <h2 id="h-anatomy" style="margin: 0; font-family: 'Archivo', system-ui, sans-serif; font-weight: 700; font-size: 26px; letter-spacing: -0.01em; color: #F2EEF8">Node anatomy</h2>
+        <p style="margin: 0; font-size: 14px; color: #ADA6BE">The README’s own example document, at 125%. Its layout puts <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace">ingest</span> at [4, 6] and <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace">clean</span> at [17, 6] grid units. <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace">storage</span> has no position in the example, so it is placed at [30, 6] here.</p>
+        <div style="border: 1px solid rgba(242,238,248,.07); border-radius: 12px; overflow: hidden">
+          <dc-import name="Plan" view="canvas" doc="{{readme}}" zoom="{{z125}}" vh="{{h360}}" hint-size="100%,360px"></dc-import>
+        </div>
+      </div>
+      <ol style="flex: 1 1 340px; min-width: 0; margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 12px; counter-reset: a">
+        <sc-for list="{{anatomy}}" as="a" hint-placeholder-count="8">
+          <li style="display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 10px; align-items: baseline">
+            <span style="display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; border: 1px solid rgba(180,142,247,.45); background: rgba(180,142,247,.14); font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; color: #CBB0FF">{{a.n}}</span>
+            <span style="display: flex; flex-direction: column; gap: 2px">
+              <strong style="font-weight: 600; font-size: 15px; color: #F2EEF8">{{a.title}}</strong>
+              <span style="font-size: 14px; color: #CDC6DD">{{a.text}}</span>
+            </span>
+          </li>
+        </sc-for>
+      </ol>
+    </section>
+
+    <section aria-labelledby="h-wires" style="display: flex; flex-direction: column; gap: 16px">
+      <h2 id="h-wires" style="margin: 0; font-family: 'Archivo', system-ui, sans-serif; font-weight: 700; font-size: 26px; letter-spacing: -0.01em; color: #F2EEF8">Wires</h2>
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: 16px">
+        <sc-for list="{{wireCells}}" as="w" hint-placeholder-count="5">
+          <figure style="margin: 0; display: flex; flex-direction: column; background: #17141F; border: 1px solid rgba(242,238,248,.07); border-radius: 8px; overflow: hidden">
+            <dc-import name="Plan" view="canvas" doc="{{w.doc}}" selected-wire="{{w.sel}}" zoom="{{one}}" vh="{{h208}}" readout="{{no}}" read-only="{{yes}}" hint-size="100%,208px"></dc-import>
+            <figcaption style="display: flex; flex-direction: column; gap: 6px; padding: 14px 16px; border-top: 1px solid rgba(242,238,248,.07)">
+              <span style="display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap">
+                <strong style="font-weight: 600; font-size: 15px; color: #F2EEF8">{{w.title}}</strong>
+                <dc-import name="Plan" view="summary" doc="{{w.doc}}" hint-size="260px,20px"></dc-import>
+              </span>
+              <span style="font-size: 14px; color: #CDC6DD">{{w.text}}</span>
+            </figcaption>
+          </figure>
+        </sc-for>
+      </div>
+    </section>
+
+    <section aria-labelledby="h-ladder" style="display: flex; flex-direction: column; gap: 16px">
+      <div style="display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap">
+        <h2 id="h-ladder" style="margin: 0; font-family: 'Archivo', system-ui, sans-serif; font-weight: 700; font-size: 26px; letter-spacing: -0.01em; color: #F2EEF8">Status: the ghost ladder</h2>
+        <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12px; color: #FFB570">draft set · open issue 2</span>
+      </div>
+      <p style="margin: 0; max-width: 68ch; font-size: 14px; color: #CDC6DD">Like a Factorio ghost, an unbuilt machine is see-through: the grid shows through its body and its border is dashed. Its text stays readable; only the body fades. Building turns amber, the site’s “live” colour. Done is solid. Violet never means a status: it means selected.</p>
+      <div style="border: 1px solid rgba(242,238,248,.07); border-radius: 12px; overflow: hidden">
+        <dc-import name="Plan" view="canvas" doc="{{ladder}}" zoom="{{one}}" vh="{{h208}}" readout="{{no}}" read-only="{{yes}}" hint-size="100%,208px"></dc-import>
+      </div>
+    </section>
+
+    <section aria-labelledby="h-bp" style="display: flex; flex-wrap: wrap; gap: 32px">
+      <div style="flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column; gap: 12px">
+        <h2 id="h-bp" style="margin: 0; font-family: 'Archivo', system-ui, sans-serif; font-weight: 700; font-size: 26px; letter-spacing: -0.01em; color: #F2EEF8">A blueprint node</h2>
+        <div style="border: 1px solid rgba(242,238,248,.07); border-radius: 12px; overflow: hidden">
+          <dc-import name="Plan" view="canvas" doc="{{bpDoc}}" zoom="{{z110}}" vh="{{h320}}" selected="{{bpSel}}" read-only="{{yes}}" readout="{{no}}" hint-size="100%,320px"></dc-import>
+        </div>
+      </div>
+      <div style="flex: 1 1 320px; min-width: 0; display: flex; flex-direction: column; gap: 12px; padding-top: 48px">
+        <p style="margin: 0; font-size: 15px; color: #CDC6DD">A group of machines collapsed into one node with its own ports. It is drawn as a stack, a node with a second one behind it, plus the layers mark and a footer naming the graph it opens into and how many machines that graph holds.</p>
+        <p style="margin: 0; font-size: 15px; color: #CDC6DD">The stored format supports it from day one: the node’s <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace">graph</span> key names an entry in the flat <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace">graphs</span> map. Entering it is a later slice, so the footer’s <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace">open · later</span> is visibly inert: dashed, muted, no hover.</p>
+        <p style="margin: 0; font-size: 15px; color: #CDC6DD">If the named graph is missing, the footer says <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace">missing</span> instead of a count.</p>
+      </div>
+    </section>
+
+    <section aria-labelledby="h-add" style="display: flex; flex-wrap: wrap; gap: 32px">
+      <div style="flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column; gap: 12px">
+        <h2 id="h-add" style="margin: 0; font-family: 'Archivo', system-ui, sans-serif; font-weight: 700; font-size: 26px; letter-spacing: -0.01em; color: #F2EEF8">Making a node: drag a wire into space</h2>
+        <div style="border: 1px solid rgba(242,238,248,.07); border-radius: 12px; overflow: hidden">
+          <dc-import name="Plan" view="canvas" doc="{{addDoc}}" ghost="{{ghost}}" zoom="{{one}}" vh="{{h380}}" read-only="{{yes}}" readout="{{no}}" hint-size="100%,380px"></dc-import>
+        </div>
+      </div>
+      <div style="flex: 1 1 320px; min-width: 0; display: flex; flex-direction: column; gap: 12px; padding-top: 48px">
+        <p style="margin: 0; font-size: 15px; color: #CDC6DD">Releasing a wire over empty grid opens the search box where the wire ends. Typing names the new machine. Enter creates it with an input of the same type, already wired.</p>
+        <p style="margin: 0; font-size: 15px; color: #CDC6DD">The box is drawn in screen space: it stays 300px wide at any zoom. Esc drops the wire and changes nothing, so there is nothing to undo.</p>
+        <p style="margin: 0; font-size: 15px; color: #CDC6DD">From a keyboard: select a port, press <kbd style="display: inline-flex; align-items: center; height: 20px; padding: 0 6px; border: 1px solid #262232; border-bottom-width: 2px; border-radius: 3px; background: #17141F; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; color: #CDC6DD">W</kbd> to start a wire, then <kbd style="display: inline-flex; align-items: center; height: 20px; padding: 0 6px; border: 1px solid #262232; border-bottom-width: 2px; border-radius: 3px; background: #17141F; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; color: #CDC6DD">A</kbd> opens the same box.</p>
+      </div>
+    </section>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1760}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const pair = (fromType, toType, extra) => Object.assign({
+      v: 1, root: 'main',
+      graphs: { main: { nodes: {
+        read:  { kind: 'machine', status: 'done', in: {}, out: { rows: fromType } },
+        clean: { kind: 'machine', status: 'done', in: { rows: toType }, out: {} },
+      }, wires: [['read.rows', 'clean.rows']] } },
+      layout: { 'main/read': [2, 3], 'main/clean': [16, 4] },
+    }, extra || {});
+
+    const dangling = pair('Vec<Row>', 'Vec<Row>');
+    dangling.graphs.main.wires = [['read.rows', 'store.rows']];
+    delete dangling.graphs.main.nodes.clean;
+
+    const fanIn = {
+      v: 1, root: 'main',
+      graphs: { main: { nodes: {
+        page:  { kind: 'machine', status: 'done', in: {}, out: { req: 'Request' } },
+        api:   { kind: 'machine', status: 'done', in: {}, out: { req: 'Request' } },
+        gate:  { kind: 'machine', status: 'done', in: { req: 'Request' }, out: {} },
+      }, wires: [['page.req', 'gate.req'], ['api.req', 'gate.req']] } },
+      layout: { 'main/page': [2, 1], 'main/api': [2, 6], 'main/gate': [17, 3] },
+    };
+
+    const ladderNodes = {}, ladderLayout = {};
+    ['idea', 'planned', 'building', 'done'].forEach((s, i) => {
+      ladderNodes[s] = { kind: 'machine', status: s, in: { rows: 'Vec<Row>' }, out: { ok: 'Vec<Clean>' } };
+      ladderLayout['main/' + s] = [2 + i * 13, 2];
+    });
+
+    return {
+      yes: true, no: false, one: 1, z125: 1.25, z110: 1.1,
+      h208: 208, h320: 320, h360: 360, h380: 380,
+      // Verbatim from the README's Document section, plus a position for storage.
+      readme: {
+        v: 1, root: 'main',
+        graphs: {
+          main: {
+            nodes: {
+              ingest:  { kind: 'machine', status: 'planned', note: 'reads CSV', in: {}, out: { rows: 'Vec<Row>' } },
+              clean:   { kind: 'machine', status: 'idea', in: { rows: 'Vec<Row>' }, out: { ok: 'Vec<Clean>' } },
+              storage: { kind: 'blueprint', graph: 'storage', in: { data: 'Vec<Clean>' }, out: {} },
+            },
+            wires: [['ingest.rows', 'clean.rows'], ['clean.ok', 'storage.data']],
+          },
+          storage: { nodes: {}, wires: [] },
+        },
+        layout: { 'main/ingest': [4, 6], 'main/clean': [17, 6], 'main/storage': [30, 6] },
+      },
+      anatomy: [
+        { title: 'Title', text: 'The node’s name, IBM Plex Mono 13px. Names are keys, so two nodes can never share one.' },
+        { title: 'Status badge', text: 'Mono 10px caps, coloured by status. A node with no status shows none (storage, here).' },
+        { title: 'Output ports', text: 'Right edge, listed first: what the machine makes. One port per row.' },
+        { title: 'Input ports', text: 'Left edge, below the outputs: what it needs. Fan-in is allowed.' },
+        { title: 'Type label', text: 'Free text after the port name. Its colour is hashed from the label, so the same type reads the same everywhere.' },
+        { title: 'Port dot', text: 'Solid when a wire uses it, hollow when nothing does. A mismatched input gets a rose ring.' },
+        { title: 'Note', text: 'Mono 11px, wrapped at the node’s width by character count, at most a few words.' },
+        { title: 'Size', text: 'Width is the longest single label or the title row, whichever is wider, rounded up to whole grid units. Height rounds up too.' },
+      ].map((a, i) => Object.assign({ n: i + 1 }, a)),
+      wireCells: [
+        { title: 'Normal', doc: pair('Vec<Row>', 'Vec<Row>'), sel: '', text: 'A cubic bezier with flat tangents at both ports, 2px, in the hue of the type it carries. Wires run under nodes.' },
+        { title: 'Selected', doc: pair('Vec<Row>', 'Vec<Row>'), sel: 'read.rows>clean.rows', text: 'Violet at 2.5px over a 9px glow. Delete removes it; the ports it used go hollow.' },
+        { title: 'Type mismatch', doc: pair('Request', 'Header'), sel: '', text: 'Allowed but flagged, like a belt carrying the wrong item: dashed rose, a chip at the curve’s midpoint naming both types, a ring on the input, and a count in the toolbar.' },
+        { title: 'Dangling', doc: dangling, sel: '', text: 'The wire names a node that does not exist. It stays in the file and is counted. With nothing to draw to, it is a short dotted stub labelled with the missing end.' },
+        { title: 'Fan-in', doc: fanIn, sel: '', text: 'Two outputs into one input. Allowed: a plan has no runtime that has to pick one value.' },
+      ],
+      ladder: { v: 1, root: 'main', graphs: { main: { nodes: ladderNodes, wires: [] } }, layout: ladderLayout },
+      bpDoc: {
+        v: 1, root: 'main',
+        graphs: {
+          main: {
+            nodes: {
+              handler: { kind: 'machine', status: 'done', in: {}, out: { query: 'Filter' } },
+              db: { kind: 'blueprint', status: 'done', graph: 'db', note: 'SQLite via sqlx', in: { query: 'Filter' }, out: { rows: 'Vec<Post>', plan: 'PlanDoc' } },
+            },
+            wires: [['handler.query', 'db.query']],
+          },
+          db: { nodes: { pool: { kind: 'machine', in: {}, out: {} }, posts: { kind: 'machine', in: {}, out: {} }, plans: { kind: 'machine', in: {}, out: {} } }, wires: [] },
+        },
+        layout: { 'main/handler': [2, 6], 'main/db': [16, 3] },
+      },
+      bpSel: 'db',
+      addDoc: {
+        v: 1, root: 'main',
+        graphs: { main: { nodes: { render: { kind: 'machine', status: 'done', note: 'Askama, htmx fragments', in: { rows: 'Vec<Post>' }, out: { html: 'Html' } } }, wires: [] } },
+        layout: { 'main/render': [2, 4] },
+      },
+      ghost: { from: 'render.html', to: [19, 5], query: 'respond' },
+    };
+  }
+}
+</script>
+</body>
+</html>

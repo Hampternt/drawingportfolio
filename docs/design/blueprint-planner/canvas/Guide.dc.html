@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Design guide notes</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;background:#0B0910}
+a{color:#CBB0FF;text-decoration:none}a:hover{color:#DED0FF}
+@font-face{font-family:"Archivo";font-weight:700;font-style:normal;font-display:swap;src:url("/_blob/549b009c0a16767e513681b5829fa715") format("woff2")}
+@font-face{font-family:"Archivo";font-weight:800;font-style:normal;font-display:swap;src:url("/_blob/a412b00a9fb065eb8ce75e359beb437d") format("woff2")}
+@font-face{font-family:"Space Grotesk";font-weight:400;font-style:normal;font-display:swap;src:url("/_blob/f1111d6a6a4b0cf29164bf0670e13709") format("woff2")}
+@font-face{font-family:"Space Grotesk";font-weight:500;font-style:normal;font-display:swap;src:url("/_blob/edad51755ad257b050ac50ca711fce34") format("woff2")}
+@font-face{font-family:"Space Grotesk";font-weight:600;font-style:normal;font-display:swap;src:url("/_blob/9aa65012e8d8d2bba77fedbbc71aefd1") format("woff2")}
+@font-face{font-family:"IBM Plex Mono";font-weight:400;font-style:normal;font-display:swap;src:url("/_blob/b36838188d823b70621f4e61e5bc841f") format("woff2")}
+@font-face{font-family:"IBM Plex Mono";font-weight:500;font-style:normal;font-display:swap;src:url("/_blob/ebe4ec317241372908148eb7f6a1633a") format("woff2")}
+</style>
+</helmet>
+<div style="min-height: 1760px; background: #0B0910; color: #CDC6DD; font-family: 'Space Grotesk', system-ui, sans-serif; font-size: 15px; line-height: 1.5; padding: 48px 40px 64px; box-sizing: border-box">
+  <div style="max-width: 1360px; margin: 0 auto; display: flex; flex-direction: column; gap: 48px">
+
+    <header style="display: flex; flex-direction: column; gap: 10px">
+      <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; font-weight: 500; letter-spacing: .10em; text-transform: uppercase; color: #ADA6BE">design guide · 3 of 3</span>
+      <h1 style="margin: 0; font-family: 'Archivo', system-ui, sans-serif; font-weight: 800; font-size: 40px; line-height: 1.1; letter-spacing: -0.025em; color: #F2EEF8">The numbers behind the canvas<span style="color: #B48EF7">.</span></h1>
+      <p style="margin: 0; max-width: 68ch; font-size: 16px; color: #CDC6DD">Built on the Hampter Design System as the site’s own screens wear it (<span style="font-family: 'IBM Plex Mono', ui-monospace, monospace">site-dark</span>). Everything below is a value <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace">blueprint-model.js</span> can compute and a node test can pin.</p>
+    </header>
+
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: 24px">
+
+      <section aria-labelledby="h-grid" style="display: flex; flex-direction: column; gap: 14px; padding: 24px; background: #17141F; border: 1px solid rgba(242,238,248,.07); border-radius: 8px">
+        <h2 id="h-grid" style="margin: 0; font-family: 'Archivo', system-ui, sans-serif; font-weight: 700; font-size: 20px; letter-spacing: -0.01em; color: #F2EEF8">The grid unit</h2>
+        <div aria-hidden="true" style="height: 128px; border-radius: 5px; border: 1px solid rgba(242,238,248,.07); background-color: #0B0910; background-image: linear-gradient(rgba(242,238,248,.075) 1px, transparent 1px), linear-gradient(90deg, rgba(242,238,248,.075) 1px, transparent 1px), linear-gradient(rgba(242,238,248,.045) 1px, transparent 1px), linear-gradient(90deg, rgba(242,238,248,.045) 1px, transparent 1px), linear-gradient(rgba(242,238,248,.022) 1px, transparent 1px), linear-gradient(90deg, rgba(242,238,248,.022) 1px, transparent 1px); background-size: 128px 128px, 128px 128px, 32px 32px, 32px 32px, 16px 16px, 16px 16px"></div>
+        <ul style="margin: 0; padding: 0 0 0 18px; display: flex; flex-direction: column; gap: 6px; font-size: 14px; color: #CDC6DD">
+          <li><strong style="color: #F2EEF8">1u = 1rem</strong>, 16px at the browser default and 100% zoom. Every stored position is in whole units, which gives the factory snap. The README’s [4, 6] stays [4, 6] at any screen size.</li>
+          <li>Three line weights: every unit at 2.2% white, every 2u at 4.5% (the site’s own 32px texture), every 8u at 7.5%. The grid scales with zoom.</li>
+          <li>A node’s width and height round up to whole units, so its edges sit on lines.</li>
+        </ul>
+      </section>
+
+      <section aria-labelledby="h-geo" style="display: flex; flex-direction: column; gap: 14px; padding: 24px; background: #17141F; border: 1px solid rgba(242,238,248,.07); border-radius: 8px">
+        <h2 id="h-geo" style="margin: 0; font-family: 'Archivo', system-ui, sans-serif; font-weight: 700; font-size: 20px; letter-spacing: -0.01em; color: #F2EEF8">Node geometry</h2>
+        <div style="display: grid; grid-template-columns: minmax(0, 1fr) auto; border: 1px solid #262232; border-radius: 5px; overflow: hidden; font-size: 14px">
+          <sc-for list="{{geometry}}" as="g" hint-placeholder-count="8">
+            <span style="padding: 7px 12px; border-top: 1px solid #262232; color: #CDC6DD">{{g.k}}</span>
+            <span style="padding: 7px 12px; border-top: 1px solid #262232; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 13px; color: #F2EEF8; text-align: right">{{g.v}}</span>
+          </sc-for>
+        </div>
+        <code style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12px; line-height: 1.6; color: #ADA6BE; white-space: pre-wrap">w = ceil(max(1.875u + 0.45u·longest_label,
+             title_row, footer)), at least 9u
+h = ceil(3.125u + 1.5u·ports + notes + footer), in whole u
+on screen: px = u · rem · zoom</code>
+        <p style="margin: 0; font-size: 14px; color: #CDC6DD">Sizes are stated in grid units, not pixels. 1u follows the root font size (1rem, 16px by browser default), and the canvas zoom multiplies everything at once. Fit (<span style="font-family: 'IBM Plex Mono', ui-monospace, monospace">F</span>) sets that zoom from the viewport, so a node scales with the screen. Its proportions never change.</p>
+      </section>
+
+      <section aria-labelledby="h-type" style="display: flex; flex-direction: column; gap: 14px; padding: 24px; background: #17141F; border: 1px solid rgba(242,238,248,.07); border-radius: 8px">
+        <h2 id="h-type" style="margin: 0; font-family: 'Archivo', system-ui, sans-serif; font-weight: 700; font-size: 20px; letter-spacing: -0.01em; color: #F2EEF8">Type</h2>
+        <div style="display: flex; flex-direction: column; gap: 12px">
+          <span style="font-family: 'Archivo', system-ui, sans-serif; font-weight: 800; font-size: 26px; letter-spacing: -0.025em; color: #F2EEF8">Archivo 800 · page headings</span>
+          <span style="font-size: 15px; color: #CDC6DD">Space Grotesk 400/500 · prose, controls, the inspector’s labels in sentences</span>
+          <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 13px; font-weight: 500; color: #F2EEF8">IBM Plex Mono 13/500 · node titles</span>
+          <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12px; color: #CDC6DD">IBM Plex Mono 12 · ports, types, counts, outline.md</span>
+          <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; color: #ADA6BE">IBM Plex Mono 11 · notes, readouts, 0.10em caps labels</span>
+        </div>
+        <p style="margin: 0; font-size: 14px; color: #CDC6DD">Everything on the canvas is monospace, at 0.6em per character: 7.2px at 12px. That is what makes node size pure arithmetic and testable on plain node. Plex Mono is the face the site already self-hosts.</p>
+      </section>
+
+      <section aria-labelledby="h-colour" style="display: flex; flex-direction: column; gap: 14px; padding: 24px; background: #17141F; border: 1px solid rgba(242,238,248,.07); border-radius: 8px">
+        <h2 id="h-colour" style="margin: 0; font-family: 'Archivo', system-ui, sans-serif; font-weight: 700; font-size: 20px; letter-spacing: -0.01em; color: #F2EEF8">Colour has one job each</h2>
+        <div style="display: flex; flex-direction: column; gap: 8px">
+          <sc-for list="{{roles}}" as="r" hint-placeholder-count="6">
+            <span style="display: grid; grid-template-columns: 18px 88px minmax(0, 1fr); gap: 10px; align-items: center; font-size: 14px">
+              <span style="width: 14px; height: 14px; border-radius: 3px; background: {{r.c}}"></span>
+              <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12px; color: #ADA6BE">{{r.hex}}</span>
+              <span style="color: #CDC6DD">{{r.use}}</span>
+            </span>
+          </sc-for>
+        </div>
+      </section>
+
+      <section aria-labelledby="h-curve" style="display: flex; flex-direction: column; gap: 14px; padding: 24px; background: #17141F; border: 1px solid rgba(242,238,248,.07); border-radius: 8px">
+        <h2 id="h-curve" style="margin: 0; font-family: 'Archivo', system-ui, sans-serif; font-weight: 700; font-size: 20px; letter-spacing: -0.01em; color: #F2EEF8">Wire curve rules</h2>
+        <div style="border: 1px solid #262232; border-radius: 5px; overflow: hidden">
+          <dc-import name="Plan" view="canvas" doc="{{curves}}" zoom="{{z70}}" vh="{{h220}}" read-only="{{yes}}" readout="{{no}}" hint-size="100%,220px"></dc-import>
+        </div>
+        <ul style="margin: 0; padding: 0 0 0 18px; display: flex; flex-direction: column; gap: 6px; font-size: 14px; color: #CDC6DD">
+          <li>Cubic bezier, port to port, both tangents horizontal: a wire always leaves an output to the right and enters an input from the left.</li>
+          <li>Forward: control offset <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace">c = max(3u, dx/2)</span>. Backward (target left of source): <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace">c = max(6u, |dx|/2 + 3u)</span>, so it loops out of the node instead of cutting through it.</li>
+          <li>2px at 100%, drawn under nodes, coloured by the type it carries. No reroute knots: they are layout-only clutter in the AI view.</li>
+        </ul>
+      </section>
+
+      <section aria-labelledby="h-hue" style="display: flex; flex-direction: column; gap: 14px; padding: 24px; background: #17141F; border: 1px solid rgba(242,238,248,.07); border-radius: 8px">
+        <h2 id="h-hue" style="margin: 0; font-family: 'Archivo', system-ui, sans-serif; font-weight: 700; font-size: 20px; letter-spacing: -0.01em; color: #F2EEF8">Port colour from the type label</h2>
+        <code style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12px; line-height: 1.6; color: #ADA6BE; white-space: pre-wrap">hue = 30 + fnv1a32(label) mod 300
+colour = hsl(hue 70% 70%)</code>
+        <dc-import name="Plan" view="swatches" hint-size="100%,72px"></dc-import>
+        <p style="margin: 0; font-size: 14px; color: #CDC6DD">Hues 330° to 30° are never handed out: that rose band means mismatch. The label is hashed after the same folding the mismatch rule uses (open issue 6), so two labels that count as one type always share a colour. Shown here with case and spaces ignored.</p>
+      </section>
+    </div>
+
+    <section aria-labelledby="h-keys" style="display: flex; flex-direction: column; gap: 16px">
+      <h2 id="h-keys" style="margin: 0; font-family: 'Archivo', system-ui, sans-serif; font-weight: 700; font-size: 26px; letter-spacing: -0.01em; color: #F2EEF8">Keyboard and mouse</h2>
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: 8px 32px">
+        <sc-for list="{{keys}}" as="k" hint-placeholder-count="12">
+          <div style="display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); gap: 16px; align-items: center; padding: 10px 0; border-bottom: 1px solid rgba(242,238,248,.06)">
+            <span style="font-size: 14px; color: #CDC6DD">{{k.what}}</span>
+            <span style="display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; justify-content: flex-end">
+              <sc-for list="{{k.keys}}" as="c" hint-placeholder-count="2">
+                <kbd style="display: inline-flex; align-items: center; height: 22px; padding: 0 7px; border: 1px solid #262232; border-bottom-width: 2px; border-radius: 3px; background: #17141F; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; color: {{k.color}}; white-space: nowrap">{{c.t}}</kbd>
+              </sc-for>
+            </span>
+          </div>
+        </sc-for>
+      </div>
+      <p style="margin: 0; font-size: 14px; color: #ADA6BE">Undo keeps a snapshot per action, as the sorting board does; a whole drag is one entry. Keys in muted text are reserved: the site’s palette and search, and the later nesting slice. Right-click menus and the rest of the keyboard model are on <a href="Input-model.dc.html">the input model guide</a>.</p>
+    </section>
+
+    <section aria-labelledby="h-motion" style="display: flex; flex-direction: column; gap: 10px; padding: 24px; background: #0E0C14; border: 1px solid rgba(242,238,248,.07); border-radius: 8px">
+      <h2 id="h-motion" style="margin: 0; font-family: 'Archivo', system-ui, sans-serif; font-weight: 700; font-size: 20px; letter-spacing: -0.01em; color: #F2EEF8">Motion and focus</h2>
+      <p style="margin: 0; max-width: 90ch; font-size: 14px; color: #CDC6DD">Controls 130ms, panels 190ms, the search box 280ms, all <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace">cubic-bezier(.2,.8,.3,1)</span>, and none under <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace">prefers-reduced-motion</span>. Pan and zoom never animate: the canvas follows the pointer exactly. Press is <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace">translateY(1px)</span>, never a scale. Nodes take the site’s double focus ring, <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace">0 0 0 2px #0B0910, 0 0 0 4px #B48EF7</span>.</p>
+    </section>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1760}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const key = (what, keys, reserved) => ({ what, keys: keys.map((t) => ({ t })), color: reserved ? '#8D87A0' : '#F2EEF8' });
+    return {
+      yes: true, no: false, z70: 0.7, h220: 220,
+      geometry: [
+        { k: 'Grid unit', v: '1u = 1rem' },
+        { k: 'Header', v: '2u' },
+        { k: 'Port row', v: '1.5u' },
+        { k: 'Body padding', v: '0.5u top and bottom' },
+        { k: 'Note line', v: '1u, mono at 0.6875u' },
+        { k: 'Blueprint footer', v: '1.75u' },
+        { k: 'Port dot', v: '0.625u, centred on the edge' },
+        { k: 'Minimum width', v: '9u' },
+        { k: 'Corner radius', v: '0.375u' },
+      ],
+      roles: [
+        { c: '#B48EF7', hex: '#B48EF7', use: 'Selection, focus, links, the primary button. Never a status.' },
+        { c: '#4FD6A8', hex: '#4FD6A8', use: 'Done, and saved.' },
+        { c: '#FFB570', hex: '#FFB570', use: 'Building, and dangling wires: things that need attention, not errors.' },
+        { c: '#F7768E', hex: '#F7768E', use: 'Type mismatch only, and destructive buttons. Kept out of the port hues.' },
+        { c: '#7AA2F7', hex: '#7AA2F7', use: 'Reserved for the options shown under open issues (sources, sinks, comment boxes).' },
+        { c: '#CDC6DD', hex: '#CDC6DD', use: 'Body text, port names. Faint text never drops below #ADA6BE on the canvas.' },
+      ],
+      curves: {
+        v: 1, root: 'main',
+        graphs: { main: { nodes: {
+          a: { kind: 'machine', status: 'done', in: {}, out: { x: 'T' } },
+          b: { kind: 'machine', status: 'done', in: { x: 'T' }, out: { y: 'U' } },
+          c: { kind: 'machine', status: 'done', in: { y: 'U' }, out: {} },
+        }, wires: [['a.x', 'b.x'], ['b.y', 'c.y']] } },
+        layout: { 'main/a': [1, 1], 'main/b': [16, 6], 'main/c': [6, 11] },
+      },
+      keys: [
+        key('Pan', ['Space + drag', 'middle drag']),
+        key('Zoom at the cursor', ['wheel', '+', '−']),
+        key('Fit the plan · 100%', ['F', '0']),
+        key('Select · add to the selection', ['click', 'Shift + click']),
+        key('Box select', ['drag on empty grid']),
+        key('Next or previous machine', ['Tab', 'Shift + Tab']),
+        key('Next or previous port', [']', '[']),
+        key('Move one unit · four units', ['arrows', 'Shift + arrows']),
+        key('Add a machine', ['A', 'double-click grid']),
+        key('Start a wire from the selected port', ['W']),
+        key('Connect · cancel', ['↵', 'Esc']),
+        key('Rename (focuses the inspector)', ['F2']),
+        key('Delete the selection', ['Delete', 'Backspace']),
+        key('Undo · redo', ['Ctrl + Z', 'Ctrl + Shift + Z']),
+        key('Site command palette', ['Ctrl + K'], true),
+        key('Site search focus', ['/'], true),
+        key('Collapse to a blueprint (later)', ['Ctrl + G'], true),
+      ],
+    };
+  }
+}
+</script>
+</body>
+</html>
