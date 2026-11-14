@@ -300,6 +300,158 @@
    }
   },
   {
+   "name": "no-break and ideographic spaces are dropped",
+   "ok": true,
+   "doc": {
+    "v": 1,
+    "root": "main",
+    "graphs": {
+     "main": {
+      "nodes": {
+       "a": {
+        "kind": "machine",
+        "out": {
+         "o": "Vec< Post　>"
+        }
+       },
+       "b": {
+        "kind": "machine",
+        "in": {
+         "i": "vec<post>"
+        }
+       }
+      },
+      "wires": [
+       [
+        "a.o",
+        "b.i"
+       ]
+      ]
+     }
+    }
+   },
+   "summary": {
+    "nodes": 2,
+    "wires": 1,
+    "dangling": 0,
+    "mismatch": 0
+   }
+  },
+  {
+   "name": "U+FEFF is not whitespace, as Rust counts it",
+   "ok": true,
+   "doc": {
+    "v": 1,
+    "root": "main",
+    "graphs": {
+     "main": {
+      "nodes": {
+       "a": {
+        "kind": "machine",
+        "out": {
+         "o": "Html﻿"
+        }
+       },
+       "b": {
+        "kind": "machine",
+        "in": {
+         "i": "html"
+        }
+       }
+      },
+      "wires": [
+       [
+        "a.o",
+        "b.i"
+       ]
+      ]
+     }
+    }
+   },
+   "summary": {
+    "nodes": 2,
+    "wires": 1,
+    "dangling": 0,
+    "mismatch": 1
+   }
+  },
+  {
+   "name": "U+0085 is whitespace, as Rust counts it",
+   "ok": true,
+   "doc": {
+    "v": 1,
+    "root": "main",
+    "graphs": {
+     "main": {
+      "nodes": {
+       "a": {
+        "kind": "machine",
+        "out": {
+         "o": "Html"
+        }
+       },
+       "b": {
+        "kind": "machine",
+        "in": {
+         "i": "html"
+        }
+       }
+      },
+      "wires": [
+       [
+        "a.o",
+        "b.i"
+       ]
+      ]
+     }
+    }
+   },
+   "summary": {
+    "nodes": 2,
+    "wires": 1,
+    "dangling": 0,
+    "mismatch": 0
+   }
+  },
+  {
+   "name": "Greek capitals fold letter by letter, no final-sigma rule",
+   "ok": true,
+   "doc": {
+    "v": 1,
+    "root": "main",
+    "graphs": {
+     "main": {
+      "nodes": {
+       "a": {
+        "kind": "machine",
+        "out": {
+         "o": "ΑΣ"
+        }
+       },
+       "b": {
+        "kind": "machine",
+        "in": {
+         "i": "ασ"
+        }
+       }
+      },
+      "wires": [
+       [
+        "a.o",
+        "b.i"
+       ]
+      ]
+     }
+    }
+   },
+   "summary": {
+    "nodes": 2,
+    "wires": 1,
+    "dangling": 0,
+    "mismatch": 0
+   }
+  },
+  {
    "name": "not an object",
    "ok": false,
    "doc": []

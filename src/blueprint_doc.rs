@@ -258,8 +258,10 @@ pub fn parse(text: &str) -> Result<Doc, Vec<String>> {
     if !errs.is_empty() {
         return Err(errs);
     }
-    // Validation has already checked every field this reads, so this second
-    // pass (the one that keeps key order) cannot fail on a valid plan.
+    // Validation has already checked every field this reads. This second pass
+    // (the one that keeps key order) is stricter in one way: a key repeated in
+    // one object is refused here, where the first pass let the last one win.
+    // JSON.stringify never repeats a key, so the editor cannot hit it.
     serde_json::from_str(text).map_err(|e| vec![format!("not a plan: {e}")])
 }
 
@@ -626,6 +628,12 @@ mod tests {
         assert_eq!(type_key("Vec<Post>"), type_key("vec < post >"));
         assert_eq!(type_key(" Html\t"), "html");
         assert_ne!(type_key("Request"), type_key("Header"));
+        // Unicode: White_Space is dropped (U+0085 is, U+FEFF is not) and each
+        // code point is lowercased alone (no final-sigma rule). The JS side
+        // folds the same way; the shared fixtures pin both.
+        assert_eq!(type_key("ΑΣ"), type_key("ασ"));
+        assert_eq!(type_key("Html\u{85}"), "html");
+        assert_ne!(type_key("Html\u{feff}"), "html");
     }
 
     #[test]

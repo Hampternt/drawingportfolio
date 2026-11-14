@@ -71,7 +71,17 @@
   // Case and whitespace are folded before compare (the recommended answer to
   // open issue 6), and the hue is hashed after the same folding, so two labels
   // that count as one type always share a colour.
-  function typeKey(t) { return String(t).toLowerCase().replace(/\s+/g, ''); }
+  //
+  // The fold is the server's, code point by code point (src/blueprint_doc.rs
+  // type_key): drop Unicode White_Space, which is Rust's char::is_whitespace
+  // and not quite JS's \s (that has U+FEFF and lacks U+0085), and lowercase
+  // each code point alone, so no context rule such as the Greek final sigma
+  // applies. Otherwise a header count and the server's outline could differ.
+  var WHITE = /[\t-\r \u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]/;
+  function typeKey(t) {
+    return Array.from(String(t)).filter(function (c) { return !WHITE.test(c); })
+      .map(function (c) { return c.toLowerCase(); }).join('');
+  }
 
   function fnv1a(s) {
     var h = 0x811c9dc5;
