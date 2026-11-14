@@ -181,6 +181,21 @@ English, reached from the nav, the hub footer and the command palette.
 - ✅ A README for the public repository: what the site is, how to run it
   locally, and how AI is used to build it.
 
+## Blueprints — `/blueprints` (owner; visitors see a demo)
+
+A factory-game-style canvas for planning code: machines with typed input and
+output ports wired together, collapsible into blueprints, stored on the site
+as a source of truth that AI coding tools can read and edit. Visitors see one
+read-only demo plan. Design: `docs/design/blueprint-planner/README.md`.
+Tracking issue: #29.
+
+- ✅ S0 canvas spike — pan, zoom, drag and wiring, nothing saved:
+  `docs/manifests/2026-11-05-blueprint-canvas-spike.md`
+- 🚧 S1–S3: the model, the section (projects and plans, the public demo) and
+  the editor with autosave: `docs/manifests/2026-11-10-blueprints-editor.md`
+- 💭 S4–S6: the AI read and write API behind a token, and revisions. Waits on
+  open issue 4 (the token model) and its own plan.
+
 ## Infrastructure
 
 - ✅ Single Rust/Axum binary, server-side rendered, SQLite storage, S3-compatible
@@ -194,14 +209,6 @@ English, reached from the nav, the hub footer and the command palette.
 
 - 💭 Spotify song sharing — friends share tracks and queue them straight into
   their own Spotify. Parked idea: `docs/manifests/2026-10-04-spotify-song-share.md`
-- 💭 Blueprint planner — a factory-game-style canvas for planning code: machines
-  with typed input and output ports wired together, collapsible into
-  blueprints, stored on the site as a source of truth that AI coding tools can
-  read and edit. Visitors see one demo plan. Design and open issues:
-  `docs/design/blueprint-planner/README.md`
-  - ✅ S0 canvas spike — pan, zoom, drag and wiring on a throwaway owner-only
-    page, `/blueprint-spike`, with nothing saved:
-    `docs/manifests/2026-11-05-blueprint-canvas-spike.md`
 - 💭 Public polish — page titles with the owner's name, link previews and a
   favicon, robots.txt, and a 404 page that keeps the site header. From the
   portfolio review: `docs/handoffs/2026-09-27-portfolio-review.md` (N2).

@@ -1,6 +1,6 @@
 # Blueprints — S1–S3: model, section and editor v1
 
-**Status:** drafted, awaiting go. Tracking issue: #29.
+**Status:** building (S1 and S2 first, then the owner's midpoint test). Tracking issue: #29.
 Branch `kepler/feat/blueprints-editor`, cut from `kepler/feat/blueprint-planning-tool` (S0).
 
 ## Goal
@@ -55,6 +55,40 @@ Taken as recommended, not asked:
   outline renderer.
 - **Blueprint nodes render but cannot be entered.** The stored format supports
   sub-graphs (design decision). The nesting UI is on the Later list.
+
+Made while building (2026-11-14), recommended options taken:
+
+- **Built on this session's go.** The ask was to implement the task's work
+  and make the changes rather than describe them, which is the go for
+  S1–S3. S4–S6 stay out: the token model (open issue 4) is still the
+  owner's call. The build stops at the S2 midpoint for the owner's test.
+- **A signed-out visitor asking for any id gets a 404**, like an admin or a
+  member. The plan said both "every handler is `RequireOwner`" (which sends
+  a visitor to the login page) and "any other id gets a 404 for a visitor".
+  Pages that take an id use `OptionalOwner` and answer 404 to anyone but
+  the owner. Writes stay `RequireOwner`, so a visitor's write is sent to log
+  in and never reaches a handler.
+- **URLs carry numeric ids:** `/blueprints/{project}` and
+  `/blueprints/{project}/{plan}`, so a rename never breaks a link. A plan
+  id under the wrong project is a 404.
+- **Names.** Nodes, ports and graphs start with a letter or `_`, then
+  letters, digits, `_` or `-`, at most 64 characters. A `.` would split a
+  wire, a `/` would break a layout key, and a key that looks like a number
+  would be reordered by JavaScript, and port order is row order. Projects
+  and plans are lower case, digits and dashes, as the Empty-project board
+  says.
+- **`status` may be left out** of a node; when present it is one of the
+  four. Both validators agree on that.
+- **The header counts the whole plan** (every graph), as the design
+  canvas's summary does, so it matches what the server returns.
+- **Kind is shown, not edited,** in the v1 inspector. A new node is a
+  machine. A blueprint needs a sub-graph to open into, and that is the
+  nesting UI on the Later list.
+- **The payload is stored exactly as the browser sent it.** The server parses
+  it only to validate and to render the outline, keeping key order, so
+  ports never swap rows after a reload.
+- **A save with no `If-Match` is refused with `428`.** Treating it as
+  unconditional would bring last-write-wins back.
 
 ## Guidelines
 
