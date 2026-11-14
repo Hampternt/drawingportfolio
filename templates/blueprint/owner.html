@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+
+{% block title %}Blueprints{% endblock %}
+
+{% block nav_active %}blueprints{% endblock %}
+
+{% block body_class %}site-dark{% endblock %}
+
+{% block content %}
+<!-- `.site-page` stays outermost: base.html derives body.site-dark from it. -->
+<div class="site-page bp-page bp-page--owner" {% block bp_attrs %}{% endblock %}>
+  <div class="bp-layout">
+    <nav class="bp-rail" aria-label="Projects and plans">
+      <a href="/blueprints" class="bp-rail__label">Projects</a>
+      {% if rail.is_empty() %}
+      <p class="bp-rail__empty">No projects yet.</p>
+      {% else %}
+      <ul class="bp-rail__projects">
+        {% for p in rail %}
+        <li>
+          <a href="/blueprints/{{ p.id }}" class="bp-rail__project{% if p.open %} is-open{% endif %}"{% if p.current %} aria-current="page"{% endif %}>
+            <span class="hm-icon hm-icon--chevron-{% if p.open %}down{% else %}right{% endif %}" aria-hidden="true"></span>
+            <span class="bp-rail__name">{{ p.name }}</span>
+            <span class="bp-rail__count">{{ p.count }}</span>
+          </a>
+          {% if p.open && !p.plans.is_empty() %}
+          <ul class="bp-rail__plans">
+            {% for pl in p.plans %}
+            <li><a href="/blueprints/{{ p.id }}/{{ pl.id }}" class="bp-rail__plan"{% if pl.current %} aria-current="page"{% endif %}><span class="bp-rail__name">{{ pl.name }}</span><span class="bp-rail__rev">rev {{ pl.rev }}</span></a></li>
+            {% endfor %}
+          </ul>
+          {% endif %}
+        </li>
+        {% endfor %}
+      </ul>
+      {% endif %}
+      <div class="bp-rail__foot">
+        <a href="/blueprints?visitor=1">Preview the visitor demo</a>
+      </div>
+    </nav>
+    {% block bp_main %}{% endblock %}
+  </div>
+</div>
+{% block bp_scripts %}{% endblock %}
+{% endblock %}

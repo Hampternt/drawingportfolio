@@ -1,0 +1,61 @@
+{% extends "blueprint/owner.html" %}
+
+{% block bp_main %}
+<div class="bp-main bp-panel">
+  <span class="hm-eyebrow">{{ project.name }} · {{ project.plans }} {% if project.plans == 1 %}plan{% else %}plans{% endif %}</span>
+  {% if plans.is_empty() %}
+  <h1 class="bp-panel__title">No plans in this project yet.</h1>
+  <p class="bp-panel__text">A project holds one plan per feature or system. When Claude Code asks for this project, it will get every plan in it.</p>
+  {% else %}
+  <h1 class="bp-panel__title bp-panel__title--mono">{{ project.name }}</h1>
+  <ul class="bp-plans">
+    {% for pl in plans %}
+    <li class="bp-plans__row">
+      <a class="bp-plans__name" href="/blueprints/{{ project.id }}/{{ pl.id }}">{{ pl.name }}</a>
+      <span class="bp-plans__meta">rev {{ pl.rev }} · saved {{ pl.updated_at }} UTC</span>
+      <details class="bp-more">
+        <summary class="hm-btn hm-btn--sm hm-btn--ghost">Rename or delete</summary>
+        <div class="bp-more__body">
+          <form class="bp-form__row" method="post" action="/blueprints/{{ project.id }}/{{ pl.id }}/rename">
+            <input class="hm-input hm-input--mono bp-form__input" name="name" value="{{ pl.name }}" aria-label="New name for {{ pl.name }}"
+                   autocomplete="off" required maxlength="64" pattern="[a-z0-9][a-z0-9\-]*">
+            <button type="submit" class="hm-btn hm-btn--sm hm-btn--secondary">Rename</button>
+          </form>
+          <form method="post" action="/blueprints/{{ project.id }}/{{ pl.id }}/delete"
+                hx-confirm="Delete the plan {{ pl.name }}? This cannot be undone.">
+            <button type="submit" class="hm-btn hm-btn--sm hm-btn--danger">Delete plan</button>
+          </form>
+        </div>
+      </details>
+    </li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+
+  <form class="bp-form" method="post" action="/blueprints/{{ project.id }}/plans">
+    <label class="hm-field__label" for="bp-new-plan">Plan name</label>
+    <div class="bp-form__row">
+      <input class="hm-input hm-input--mono bp-form__input" id="bp-new-plan" name="name" placeholder="reading-pipeline"
+             autocomplete="off" required maxlength="64" pattern="[a-z0-9][a-z0-9\-]*"{% if !error.is_empty() %} aria-describedby="bp-form-error"{% endif %}>
+      <button type="submit" class="hm-btn hm-btn--primary">New plan</button>
+    </div>
+    <span class="bp-form__hint">Lower case, digits and dashes. It is the name the AI asks for.</span>
+    {% if !error.is_empty() %}<p class="bp-form__error" id="bp-form-error" role="alert">{{ error }}</p>{% endif %}
+  </form>
+
+  <details class="bp-more bp-more--project">
+    <summary class="hm-btn hm-btn--sm hm-btn--ghost">Rename or delete this project</summary>
+    <div class="bp-more__body">
+      <form class="bp-form__row" method="post" action="/blueprints/{{ project.id }}/rename">
+        <input class="hm-input hm-input--mono bp-form__input" name="name" value="{{ project.name }}" aria-label="New name for {{ project.name }}"
+               autocomplete="off" required maxlength="64" pattern="[a-z0-9][a-z0-9\-]*">
+        <button type="submit" class="hm-btn hm-btn--sm hm-btn--secondary">Rename</button>
+      </form>
+      <form method="post" action="/blueprints/{{ project.id }}/delete"
+            hx-confirm="Delete {{ project.name }} and its {{ project.plans }} {% if project.plans == 1 %}plan{% else %}plans{% endif %}? This cannot be undone.">
+        <button type="submit" class="hm-btn hm-btn--sm hm-btn--danger">Delete project</button>
+      </form>
+    </div>
+  </details>
+</div>
+{% endblock %}

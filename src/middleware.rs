@@ -153,11 +153,10 @@ impl FromRequestParts<Arc<AppState>> for RequireAdmin {
 ///
 /// Rejects exactly as `RequireAdmin` does — 404 for a valid non-owner session,
 /// redirect only when there is no session at all.
-/// A unit struct for the same reason [`RequireAdmin`] is: the management
-/// handlers act on a user id from the path, never on the requester's own
-/// identity, so none of them needs to know *which* owner is asking — and there
-/// is only ever one.
-pub struct RequireOwner;
+/// It carries the owner's [`UserId`], which Blueprints scopes every query by.
+/// The management handlers act on a user id from the path and bind this as
+/// `_`; there is only ever one owner.
+pub struct RequireOwner(pub UserId);
 
 impl FromRequestParts<Arc<AppState>> for RequireOwner {
     type Rejection = axum::response::Response;
@@ -170,7 +169,7 @@ impl FromRequestParts<Arc<AppState>> for RequireOwner {
             Some(session) => {
                 let auth: AuthSession = session.into();
                 if auth.is_owner {
-                    Ok(RequireOwner)
+                    Ok(RequireOwner(auth.user()))
                 } else {
                     tracing::warn!(
                         "non-owner user {} ({}) refused an owner-only route",
@@ -210,6 +209,33 @@ impl FromRequestParts<Arc<AppState>> for OptionalAdmin {
             .map(|s| s.is_effective_admin())
             .unwrap_or(false);
         Ok(OptionalAdmin(is_admin))
+    }
+}
+
+/// Extractor: asks whether the requester is *the* owner, without ever
+/// rejecting. `Some` carries the owner's id; everyone else, signed in or not,
+/// is `None`.
+///
+/// Blueprints' one public route needs exactly this question: `/blueprints`
+/// gives the owner their projects and everyone else the read-only demo, and a
+/// page that names a project or plan is a 404 for anyone but the owner.
+/// [`OptionalAdmin`] must not stand in for it: it is true for any granted
+/// admin, who would then be shown the owner's private plans.
+pub struct OptionalOwner(pub Option<UserId>);
+
+impl FromRequestParts<Arc<AppState>> for OptionalOwner {
+    type Rejection = std::convert::Infallible;
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &Arc<AppState>,
+    ) -> Result<Self, Self::Rejection> {
+        let owner = load_session(parts, state)
+            .await
+            .map(AuthSession::from)
+            .filter(|s| s.is_owner)
+            .map(|s| s.user());
+        Ok(OptionalOwner(owner))
     }
 }
 
@@ -265,6 +291,10 @@ mod tests {
     /// One route per session extractor, so each one's no-session answer is
     /// checked on its own rather than through whichever handler uses it.
     async fn app() -> Router {
+        app_with_pool().await.0
+    }
+
+    async fn app_with_pool() -> (Router, crate::db::DbPool) {
         let pool = SqlitePoolOptions::new()
             .connect("sqlite::memory:")
             .await
@@ -277,16 +307,26 @@ mod tests {
             .build()
             .unwrap();
         let state = Arc::new(AppState {
-            pool,
+            pool: pool.clone(),
             storage,
             webauthn,
         });
-        Router::new()
+        let router = Router::new()
             .route("/session", get(|_: AuthSession| async { "ok" }))
             .route("/admin", get(|_: RequireAdmin| async { "ok" }))
             .route("/owner", get(|_: RequireOwner| async { "ok" }))
+            .route(
+                "/maybe-owner",
+                get(|OptionalOwner(o): OptionalOwner| async move {
+                    match o {
+                        Some(id) => format!("owner {}", id.get()),
+                        None => "nobody".to_string(),
+                    }
+                }),
+            )
             .route("/local", get(|_: LocalhostOnly| async { "ok" }))
-            .with_state(state)
+            .with_state(state);
+        (router, pool)
     }
 
     fn get_req(uri: &str, htmx: bool) -> Request<Body> {
@@ -337,6 +377,40 @@ mod tests {
         ] {
             assert!(shell
                 .contains(r#"<meta name="htmx-config" content='{"refreshOnHistoryMiss":true}'>"#));
+        }
+    }
+
+    /// Only the owner is `Some`. A granted admin is the case this extractor
+    /// exists for: `OptionalAdmin` says yes to them, and Blueprints would then
+    /// hand an admin the owner's plans.
+    #[tokio::test]
+    async fn test_optional_owner_is_some_only_for_the_owner() {
+        let (app, pool) = app_with_pool().await;
+        let owner = crate::db::get_owner_user_id(&pool).await.unwrap();
+        crate::db::create_session(&pool, "owner-sess", "2099-01-01 00:00:00", owner).await;
+        let alex = crate::db::create_user(&pool, "alex", "hash").await.unwrap();
+        crate::db::set_user_admin(&pool, alex, true).await;
+        crate::db::create_session(&pool, "admin-sess", "2099-01-01 00:00:00", alex).await;
+        let sam = crate::db::create_user(&pool, "sam", "hash").await.unwrap();
+        crate::db::create_session(&pool, "member-sess", "2099-01-01 00:00:00", sam).await;
+
+        let cases = [
+            (Some("session=owner-sess"), format!("owner {owner}")),
+            (Some("session=admin-sess"), "nobody".to_string()),
+            (Some("session=member-sess"), "nobody".to_string()),
+            (Some("session=no-such-session"), "nobody".to_string()),
+            (None, "nobody".to_string()),
+        ];
+        for (cookie, want) in cases {
+            let mut b = Request::builder().method("GET").uri("/maybe-owner");
+            if let Some(c) = cookie {
+                b = b.header("cookie", c);
+            }
+            let resp = app.clone().oneshot(b.body(Body::empty()).unwrap()).await.unwrap();
+            // Never a rejection: no redirect, no 404, whoever asks.
+            assert_eq!(resp.status(), StatusCode::OK, "{cookie:?}");
+            let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+            assert_eq!(String::from_utf8_lossy(&body), want, "{cookie:?}");
         }
     }
 

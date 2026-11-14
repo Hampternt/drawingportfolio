@@ -2007,6 +2007,7 @@ body.fitness-dark .meal-cal { color: var(--noc-muted); font-size: 12px; }
 :is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-icon--settings { -webkit-mask-image: url("/static/icons/settings.svg"); mask-image: url("/static/icons/settings.svg"); }
 :is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-icon--tag { -webkit-mask-image: url("/static/icons/tag.svg"); mask-image: url("/static/icons/tag.svg"); }
 :is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-icon--trash-2 { -webkit-mask-image: url("/static/icons/trash-2.svg"); mask-image: url("/static/icons/trash-2.svg"); }
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-icon--layers { -webkit-mask-image: url("/static/icons/layers.svg"); mask-image: url("/static/icons/layers.svg"); }
 :is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-icon--truck { -webkit-mask-image: url("/static/icons/truck.svg"); mask-image: url("/static/icons/truck.svg"); }
 :is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-icon--upload { -webkit-mask-image: url("/static/icons/upload.svg"); mask-image: url("/static/icons/upload.svg"); }
 :is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) .hm-icon--user-plus { -webkit-mask-image: url("/static/icons/user-plus.svg"); mask-image: url("/static/icons/user-plus.svg"); }
@@ -3209,6 +3210,7 @@ header nav[data-active="artportfolio"] a[href="/artportfolio"],
 header nav[data-active="tasks"] a[href="/tasks"],
 header nav[data-active="fitness"] a[href="/fitness"],
 header nav[data-active="sorting"] a[href="/sorting"],
+header nav[data-active="blueprints"] a[href="/blueprints"],
 header nav[data-active="cv"] a[href="/cv"],
 header nav[data-active="docs"] a[href="/docs"] {
   color: #222;
@@ -3217,6 +3219,7 @@ header nav[data-active="docs"] a[href="/docs"] {
 :is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) header nav[data-active="tasks"] a[href="/tasks"],
 :is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) header nav[data-active="fitness"] a[href="/fitness"],
 :is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) header nav[data-active="sorting"] a[href="/sorting"],
+:is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) header nav[data-active="blueprints"] a[href="/blueprints"],
 :is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) header nav[data-active="cv"] a[href="/cv"],
 :is(body.art-page, body.fitness-dark, body.sorting-dark, body.site-dark) header nav[data-active="docs"] a[href="/docs"] {
   color: var(--text-strong);
@@ -4602,11 +4605,10 @@ body.sorting-dark .sort-list__link { color: var(--text-body); }
   .sort-bhead__fill { transition: none; }
 }
 
-/* ── Blueprint planner: S0 canvas spike ─────────────────────────────────
-   A throwaway page (/blueprint-spike, owner only) that proves the canvas
-   before anything is stored. Plan: docs/manifests/2026-11-05-blueprint-
-   canvas-spike.md. Geometry and colours follow the reviewed design canvas in
-   docs/design/blueprint-planner/canvas/.
+/* ── Blueprints (/blueprints) ───────────────────────────────────────────
+   The owner's projects and plans, and the read-only demo every visitor gets.
+   Plan: docs/manifests/2026-11-10-blueprints-editor.md. Geometry and colours
+   follow the reviewed design canvas in docs/design/blueprint-planner/canvas/.
 
    1u = 1rem. Every size inside a node is a fraction of a rem, and
    static/blueprint-model.js does its arithmetic in the same units, so the
@@ -4622,39 +4624,293 @@ body.sorting-dark .sort-list__link { color: var(--text-body); }
    system's button reset at (0,1,2), which would otherwise hand every node
    `font: inherit`. */
 
-body.site-dark .bp-spike {
+/* ── The page ── */
+body.site-dark .bp-page {
   display: flex;
   flex-direction: column;
-  gap: var(--space-5);
-  padding: var(--space-8) var(--gutter) var(--space-9);
+  min-height: calc(100dvh - 3.5rem);
 }
-body.site-dark .bp-head {
+body.site-dark .bp-layout {
+  flex: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  min-height: 0;
+}
+body.site-dark .bp-main {
+  flex: 999 1 35rem;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* The visitor demo's head: the hub's blueprint grid, an eyebrow, a title
+   with the violet full stop. */
+body.site-dark .bp-hero {
   display: flex;
   flex-wrap: wrap;
   align-items: flex-end;
   justify-content: space-between;
   gap: var(--space-5);
+  padding: var(--space-8) var(--gutter) var(--space-7);
+  border-bottom: var(--border-width) solid var(--border-subtle);
 }
-body.site-dark .bp-head .hm-eyebrow { margin-bottom: var(--space-3); }
-body.site-dark .bp-head__name {
-  font: var(--type-h3);
+body.site-dark .bp-hero__text { display: flex; flex-direction: column; gap: var(--space-3); max-width: 46rem; }
+body.site-dark .bp-hero__title { font: var(--type-h1); color: var(--text-strong); }
+body.site-dark .bp-hero__dot { color: var(--violet-400); }
+body.site-dark .bp-hero__lede { color: var(--text-muted); }
+body.site-dark .bp-lock {
+  display: inline-flex;
+  align-items: center;
+  height: 1.75rem;
+  padding: 0 0.625rem;
+  border: var(--border-width) solid var(--border-default);
+  border-radius: var(--radius-sm);
   font-family: var(--font-mono);
+  font-size: var(--text-12);
+  color: var(--text-muted);
+}
+body.site-dark .bp-preview {
+  padding: var(--space-3) var(--gutter);
+  background: var(--violet-a08);
+  border-bottom: var(--border-width) solid var(--violet-a28);
+  font-size: var(--text-13);
+}
+
+/* ── The rail: projects, and the open project's plans ── */
+body.site-dark .bp-rail {
+  flex: 1 1 15rem;
+  max-width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-6) 0.875rem;
+  background: var(--surface-raised);
+  border-right: var(--border-width) solid var(--border-subtle);
+}
+body.site-dark .bp-rail__label {
+  padding: 0 0.375rem;
+  font-family: var(--font-mono);
+  font-size: var(--text-11);
+  font-weight: 500;
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+body.site-dark .bp-rail__label:hover { color: var(--text-strong); text-decoration: none; }
+body.site-dark .bp-rail__projects,
+body.site-dark .bp-rail__plans { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.125rem; }
+body.site-dark .bp-rail__plans { padding-left: 1.375rem; margin-top: 0.125rem; }
+body.site-dark .bp-rail__project,
+body.site-dark .bp-rail__plan {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 2.125rem;
+  padding: 0 0.5rem;
+  border: var(--border-width) solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+}
+body.site-dark .bp-rail__project { font-weight: 600; font-size: var(--text-14); }
+body.site-dark .bp-rail__project.is-open { color: var(--text-strong); }
+body.site-dark .bp-rail__plan { min-height: 2rem; font-family: var(--font-mono); font-size: var(--text-13); }
+body.site-dark .bp-rail__project:hover,
+body.site-dark .bp-rail__plan:hover { color: var(--text-strong); background: var(--surface-hover); text-decoration: none; }
+body.site-dark .bp-rail__project[aria-current="page"],
+body.site-dark .bp-rail__plan[aria-current="page"] {
+  border-color: var(--violet-a45);
+  background: var(--ink-800);
   color: var(--text-strong);
 }
+body.site-dark .bp-rail__name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+body.site-dark .bp-rail__count,
+body.site-dark .bp-rail__rev { flex: none; margin-left: auto; white-space: nowrap; font-family: var(--font-mono); font-size: var(--text-11); font-weight: 400; color: var(--text-faint); }
+body.site-dark .bp-rail__empty { padding: 0 0.375rem; font-size: var(--text-13); color: var(--text-muted); }
+body.site-dark .bp-rail__foot { margin-top: auto; padding: 0 0.375rem; font-size: var(--text-13); }
+
+/* ── Owner panels: home and a project ── */
+body.site-dark .bp-panel {
+  gap: var(--space-5);
+  padding: var(--space-8) var(--gutter) var(--space-9);
+  max-width: 52rem;
+}
+body.site-dark .bp-panel__title { font: var(--type-h2); color: var(--text-strong); }
+body.site-dark .bp-panel__title--mono { font-family: var(--font-mono); }
+body.site-dark .bp-panel__text { color: var(--text-muted); max-width: 40rem; }
+body.site-dark .bp-form { display: flex; flex-direction: column; gap: var(--space-3); max-width: 32rem; }
+body.site-dark .bp-form__row { display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: center; }
+body.site-dark .bp-form__input { flex: 1 1 12rem; min-width: 0; }
+body.site-dark .bp-form__hint { font-size: var(--text-13); color: var(--text-muted); }
+body.site-dark .bp-form__error { font-size: var(--text-13); color: var(--rose-400); }
+body.site-dark .bp-plans { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; border-top: var(--border-width) solid var(--border-subtle); }
+body.site-dark .bp-plans__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3) var(--space-5);
+  padding: var(--space-4) 0;
+  border-bottom: var(--border-width) solid var(--border-subtle);
+}
+body.site-dark .bp-plans__name { font-family: var(--font-mono); font-size: var(--text-15); font-weight: 500; }
+body.site-dark .bp-plans__meta { font-family: var(--font-mono); font-size: var(--text-12); color: var(--text-muted); }
+body.site-dark .bp-more { margin-left: auto; }
+body.site-dark .bp-more--project { margin: var(--space-5) 0 0; }
+body.site-dark .bp-more > summary { list-style: none; cursor: pointer; }
+body.site-dark .bp-more > summary::-webkit-details-marker { display: none; }
+body.site-dark .bp-more__body { display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: center; padding-top: var(--space-3); }
+
+/* ── The toolbar above the canvas ── */
+body.site-dark .bp-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem 1rem;
+  min-height: 3rem;
+  padding: 0.4375rem 1rem;
+  background: var(--surface-raised);
+  border-bottom: var(--border-width) solid var(--border-subtle);
+}
+body.site-dark .bp-toolbar__gap { flex: 1; }
+body.site-dark .bp-crumb {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-family: var(--font-mono);
+  font-size: var(--text-13);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+body.site-dark .bp-crumb a { color: var(--text-muted); }
+body.site-dark .bp-crumb__sep { color: var(--ink-400); }
+body.site-dark .bp-crumb__here { color: var(--text-strong); }
 body.site-dark .bp-counts {
-  font: var(--type-mono);
+  font-family: var(--font-mono);
   font-size: var(--text-12);
   color: var(--text-muted);
 }
 body.site-dark .bp-counts.has-problems { color: var(--amber-400); }
-
-body.site-dark .bp-bar {
-  display: flex;
-  flex-wrap: wrap;
+body.site-dark .bp-save {
+  display: inline-flex;
   align-items: center;
-  gap: var(--space-3);
+  gap: 0.375rem;
+  font-family: var(--font-mono);
+  font-size: var(--text-12);
+  color: var(--text-muted);
+  white-space: nowrap;
 }
-body.site-dark .bp-bar__gap { flex: 1; }
+body.site-dark .bp-save__dot { width: 0.375rem; height: 0.375rem; border-radius: 50%; background: var(--ink-400); }
+body.site-dark .bp-save.is-saved .bp-save__dot { background: var(--mint-400); }
+body.site-dark .bp-save.is-pending .bp-save__dot { background: var(--amber-400); }
+body.site-dark .bp-save.is-failed .bp-save__dot { background: var(--rose-400); }
+body.site-dark .bp-zoom {
+  display: inline-flex;
+  align-items: center;
+  height: 2.125rem;
+  border: var(--border-width) solid var(--border-default);
+  border-radius: var(--radius-sm);
+  background: var(--ink-850);
+}
+body.site-dark .bp-zoom__btn {
+  height: 2rem;
+  min-width: 2rem;
+  padding: 0 0.625rem;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-13);
+  cursor: pointer;
+}
+body.site-dark .bp-zoom__btn:hover { color: var(--text-strong); }
+body.site-dark .bp-zoom__fit { border-left: var(--border-width) solid var(--border-default); border-right: var(--border-width) solid var(--border-default); color: var(--text-strong); font-size: var(--text-12); }
+
+/* ── The side panel: the outline ── */
+body.site-dark .bp-side {
+  flex: 1 1 20rem;
+  max-width: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface-raised);
+  border-left: var(--border-width) solid var(--border-subtle);
+}
+body.site-dark .bp-side__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-5) var(--space-6) 0;
+}
+body.site-dark .bp-side__title { font-size: var(--text-16); font-weight: 600; color: var(--text-strong); }
+body.site-dark .bp-side__note { font-family: var(--font-mono); font-size: var(--text-11); color: var(--text-muted); }
+body.site-dark .bp-outline {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  padding: 1.25rem var(--space-6);
+  overflow: auto;
+  max-height: calc(100dvh - 8rem);
+}
+body.site-dark .bp-outline__headline { font-family: var(--font-mono); font-size: var(--text-12); color: var(--text-muted); }
+body.site-dark .bp-outline__graph { display: flex; flex-direction: column; gap: 0.625rem; }
+body.site-dark .bp-outline__title { font-size: var(--text-16); color: var(--text-strong); }
+body.site-dark .bp-outline__sub { font-family: var(--font-mono); font-size: var(--text-11); color: var(--text-muted); }
+body.site-dark .bp-outline__nodes,
+body.site-dark .bp-outline__wires { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+body.site-dark .bp-outline__nodes { gap: 0.625rem; }
+body.site-dark .bp-outline__node {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  padding-bottom: 0.625rem;
+  border-bottom: var(--border-width) solid var(--border-subtle);
+}
+body.site-dark .bp-outline__line { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+body.site-dark .bp-outline__name { font-family: var(--font-mono); font-size: var(--text-13); font-weight: 500; color: var(--text-strong); }
+body.site-dark .bp-outline__kind { font-family: var(--font-mono); font-size: var(--text-11); color: var(--text-muted); }
+body.site-dark .bp-outline__ports,
+body.site-dark .bp-outline__wires { font-family: var(--font-mono); font-size: var(--text-12); color: var(--ink-100); overflow-wrap: anywhere; }
+body.site-dark .bp-outline__wires { gap: 0.25rem; }
+body.site-dark .bp-outline__note { font-size: var(--text-13); color: var(--text-muted); }
+body.site-dark .bp-outline__wires-title {
+  font-family: var(--font-mono);
+  font-size: var(--text-11);
+  font-weight: 500;
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+body.site-dark .bp-badge {
+  display: inline-flex;
+  align-items: center;
+  height: 1.125rem;
+  padding: 0 0.375rem;
+  border: var(--border-width) solid var(--ink-500);
+  border-radius: 0.1875rem;
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+  font-weight: 500;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--ink-200);
+}
+body.site-dark .bp-badge--planned { background: var(--ink-800); color: var(--ink-100); }
+body.site-dark .bp-badge--building { background: rgba(255,181,112,.12); border-color: var(--amber-600); color: var(--amber-400); }
+body.site-dark .bp-badge--done { background: rgba(79,214,168,.12); border-color: var(--mint-600); color: var(--mint-400); }
+body.site-dark .bp-flag--dangling { color: var(--amber-400); }
+body.site-dark .bp-flag--mismatch { color: var(--rose-400); }
+
+/* ── Keys help, under the canvas ── */
+body.site-dark .bp-help { padding: var(--space-4) 1rem; border-top: var(--border-width) solid var(--border-subtle); }
+body.site-dark .bp-help > summary {
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: var(--text-11);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+body.site-dark .bp-help[open] > summary { margin-bottom: var(--space-4); }
 
 /* ── The canvas ── */
 body.site-dark .bp-viewport {
@@ -4662,11 +4918,10 @@ body.site-dark .bp-viewport {
   --bp-ox: 0;
   --bp-oy: 0;
   position: relative;
-  height: calc(100dvh - 17rem);
+  flex: 1;
+  height: calc(100dvh - 12rem);
   min-height: 28rem;
   overflow: hidden;
-  border: var(--border-width) solid var(--border-default);
-  border-radius: var(--radius-md);
   background-color: var(--ink-950);
   /* Three line weights: every 8u, every 2u, every 1u. The sizes come from the
      app through --bp-cell (1u on screen, in px), so the grid zooms with the

@@ -1,0 +1,38 @@
+{% extends "blueprint/owner.html" %}
+
+{% block title %}{{ plan_name }} · Blueprints{% endblock %}
+
+{# hx-history="false": the canvas is drawn by script and holds unsaved state,
+   so a history snapshot of it would come back without its listeners. Back is
+   a history miss and reloads the page. #}
+{% block bp_attrs %}id="bp-app" data-mode="{% if editable %}edit{% else %}read{% endif %}" data-rev="{{ rev }}" hx-history="false"{% endblock %}
+
+{% block bp_main %}
+<div class="bp-main">
+  <div class="bp-toolbar" role="toolbar" aria-label="Plan">
+    <nav class="bp-crumb" aria-label="Breadcrumb">
+      <a href="/blueprints/{{ project.id }}">{{ project.name }}</a>
+      <span class="bp-crumb__sep" aria-hidden="true">/</span>
+      <span class="bp-crumb__here">{{ plan_name }}</span>
+      <span class="bp-crumb__sep" aria-hidden="true">/</span>
+      <span>main</span>
+    </nav>
+    <span class="bp-counts{% if summary.dangling > 0 || summary.mismatch > 0 %} has-problems{% endif %}" id="bp-counts">{{ summary.line() }}</span>
+    <span class="bp-toolbar__gap"></span>
+    <span class="bp-save" id="bp-save"><span class="bp-save__dot" aria-hidden="true"></span><span id="bp-save-text">{% if editable %}saved · rev {{ rev }}{% else %}read-only · rev {{ rev }}{% endif %}</span></span>
+    {% include "blueprint/partials/zoom.html" %}
+  </div>
+  <script type="application/json" id="bp-doc">{{ doc_json|safe }}</script>
+  {% include "blueprint/partials/canvas.html" %}
+  {% include "blueprint/partials/keys.html" %}
+</div>
+<aside class="bp-side" aria-label="Plan outline">
+  <div class="bp-side__head">
+    <h2 class="bp-side__title">Outline</h2>
+    <span class="bp-side__note">works without JavaScript</span>
+  </div>
+  {% include "blueprint/partials/outline.html" %}
+</aside>
+{% endblock %}
+
+{% block bp_scripts %}{% include "blueprint/partials/scripts.html" %}{% endblock %}

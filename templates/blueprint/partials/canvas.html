@@ -1,0 +1,15 @@
+{# The canvas. static/blueprint-view.js draws into it; nothing in here is
+   server-rendered beyond the empty layers. The outline beside it is the
+   version that works without JavaScript. #}
+<div class="bp-viewport" tabindex="0" role="application"
+     aria-label="Plan canvas. Tab walks the machines, Escape steps back out."
+     aria-describedby="bp-keys">
+  <div class="bp-stage">
+    <svg class="bp-wires" viewBox="0 0 1 1" aria-hidden="true"></svg>
+    <div class="bp-nodes"></div>
+    <svg class="bp-ghost" viewBox="0 0 1 1" aria-hidden="true"></svg>
+  </div>
+  <div class="bp-box" hidden></div>
+  <p class="bp-readout"><span id="bp-zoom">100%</span></p>
+</div>
+<div class="bp-sr" id="bp-live" role="status" aria-live="polite"></div>

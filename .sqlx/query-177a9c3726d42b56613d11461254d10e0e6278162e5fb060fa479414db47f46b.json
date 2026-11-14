@@ -1,0 +1,50 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT pl.id as \"id!\", pl.project_id as \"project_id!\", pl.name as \"name!\",\n                  pl.payload as \"payload!\", pl.rev as \"rev!\", pl.updated_at as \"updated_at!\"\n           FROM blueprint_plans pl\n           JOIN blueprint_projects p ON p.id = pl.project_id\n           WHERE pl.id = ? AND pl.project_id = ? AND p.user_id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "project_id!",
+        "ordinal": 1,
+        "type_info": "Integer"
+      },
+      {
+        "name": "name!",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "payload!",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "rev!",
+        "ordinal": 4,
+        "type_info": "Integer"
+      },
+      {
+        "name": "updated_at!",
+        "ordinal": 5,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "177a9c3726d42b56613d11461254d10e0e6278162e5fb060fa479414db47f46b"
+}

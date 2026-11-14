@@ -1,5 +1,6 @@
 use crate::models::{
-    AuthChallengeState, Collection, CollectionWithCount, CreateCollectionError,
+    AuthChallengeState, BlueprintNameOutcome, BlueprintPlan, BlueprintPlanSummary,
+    BlueprintProject, BlueprintSaveOutcome, Collection, CollectionWithCount, CreateCollectionError,
     DrawingTaskWithImage, FoodItem, MealEntryWithFood, NewSortingAction, PasskeyCredential, Post,
     PostCounts, PostFilter, Session, SortingAction, SortingSession, SortingSessionSummary,
     TagWithCount, Targets, TaskImage, UserId, Viewer, Visibility,
@@ -206,6 +207,13 @@ pub async fn run_migrations(pool: &DbPool) {
         .execute(pool)
         .await
         .expect("failed to run sorting live board migration");
+
+    // Migration 025: Blueprints — the owner's projects and their plans. Two
+    // CREATE ... IF NOT EXISTS tables, self-idempotent like 023 and 024.
+    sqlx::query(include_str!("../migrations/025_blueprints.sql"))
+        .execute(pool)
+        .await
+        .expect("failed to run blueprints migration");
 }
 
 /// Whether `table` currently has a column named `column`.
@@ -2632,6 +2640,333 @@ async fn sorting_session_belongs_to(pool: &DbPool, session_id: i64, user: UserId
     .await
     .map(|n| n > 0)
     .unwrap_or(false)
+}
+
+// ── Blueprints ─────────────────────────────────────────────────────────────
+//
+// Projects carry the user id; plans reach it through their project. Every
+// query that touches a plan joins or sub-selects through `blueprint_projects`
+// in the same statement, so "is this yours?" and "then do it" are one step,
+// and an id that is not yours behaves exactly like one that does not exist.
+
+fn is_unique_violation(e: &sqlx::Error) -> bool {
+    e.as_database_error()
+        .is_some_and(|d| d.is_unique_violation())
+}
+
+/// This user's projects by name, each with its plan count.
+pub async fn list_blueprint_projects(pool: &DbPool, user: UserId) -> Vec<BlueprintProject> {
+    let uid = user.get();
+    sqlx::query!(
+        r#"SELECT p.id as "id!", p.name as "name!",
+                  (SELECT COUNT(*) FROM blueprint_plans pl WHERE pl.project_id = p.id) as "plans!: i64"
+           FROM blueprint_projects p
+           WHERE p.user_id = ?
+           ORDER BY p.name"#,
+        uid
+    )
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default()
+    .into_iter()
+    .map(|r| BlueprintProject {
+        id: r.id,
+        name: r.name,
+        plans: r.plans,
+    })
+    .collect()
+}
+
+/// Every plan in every one of this user's projects, by name. The rail lists
+/// them all, so it is one query rather than one per project.
+pub async fn list_blueprint_plans(pool: &DbPool, user: UserId) -> Vec<BlueprintPlanSummary> {
+    let uid = user.get();
+    sqlx::query!(
+        r#"SELECT pl.id as "id!", pl.project_id as "project_id!", pl.name as "name!",
+                  pl.rev as "rev!", pl.updated_at as "updated_at!"
+           FROM blueprint_plans pl
+           JOIN blueprint_projects p ON p.id = pl.project_id
+           WHERE p.user_id = ?
+           ORDER BY pl.name"#,
+        uid
+    )
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default()
+    .into_iter()
+    .map(|r| BlueprintPlanSummary {
+        id: r.id,
+        project_id: r.project_id,
+        name: r.name,
+        rev: r.rev,
+        updated_at: r.updated_at,
+    })
+    .collect()
+}
+
+pub async fn get_blueprint_project(
+    pool: &DbPool,
+    id: i64,
+    user: UserId,
+) -> Option<BlueprintProject> {
+    let uid = user.get();
+    sqlx::query!(
+        r#"SELECT p.id as "id!", p.name as "name!",
+                  (SELECT COUNT(*) FROM blueprint_plans pl WHERE pl.project_id = p.id) as "plans!: i64"
+           FROM blueprint_projects p
+           WHERE p.id = ? AND p.user_id = ?"#,
+        id,
+        uid
+    )
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten()
+    .map(|r| BlueprintProject {
+        id: r.id,
+        name: r.name,
+        plans: r.plans,
+    })
+}
+
+/// Creates a project. `Taken` if this user already has one of that name.
+pub async fn create_blueprint_project(
+    pool: &DbPool,
+    user: UserId,
+    name: &str,
+) -> BlueprintNameOutcome {
+    let uid = user.get();
+    match sqlx::query!(
+        r#"INSERT INTO blueprint_projects (user_id, name) VALUES (?, ?) RETURNING id as "id!""#,
+        uid,
+        name
+    )
+    .fetch_one(pool)
+    .await
+    {
+        Ok(r) => BlueprintNameOutcome::Done(r.id),
+        Err(e) if is_unique_violation(&e) => BlueprintNameOutcome::Taken,
+        Err(e) => {
+            tracing::error!("create_blueprint_project: {e}");
+            BlueprintNameOutcome::Missing
+        }
+    }
+}
+
+pub async fn rename_blueprint_project(
+    pool: &DbPool,
+    id: i64,
+    user: UserId,
+    name: &str,
+) -> BlueprintNameOutcome {
+    let uid = user.get();
+    match sqlx::query!(
+        "UPDATE blueprint_projects SET name = ? WHERE id = ? AND user_id = ?",
+        name,
+        id,
+        uid
+    )
+    .execute(pool)
+    .await
+    {
+        Ok(r) if r.rows_affected() > 0 => BlueprintNameOutcome::Done(id),
+        Ok(_) => BlueprintNameOutcome::Missing,
+        Err(e) if is_unique_violation(&e) => BlueprintNameOutcome::Taken,
+        Err(e) => {
+            tracing::error!("rename_blueprint_project: {e}");
+            BlueprintNameOutcome::Missing
+        }
+    }
+}
+
+/// Deletes a project and every plan in it, in one transaction. The plans go
+/// only once the project's own delete has proved it is this user's, so a
+/// guessed id never touches anyone's plans.
+pub async fn delete_blueprint_project(pool: &DbPool, id: i64, user: UserId) -> bool {
+    let uid = user.get();
+    let Ok(mut tx) = pool.begin().await else {
+        return false;
+    };
+    let deleted = sqlx::query!(
+        "DELETE FROM blueprint_projects WHERE id = ? AND user_id = ?",
+        id,
+        uid
+    )
+    .execute(&mut *tx)
+    .await
+    .map(|r| r.rows_affected() > 0)
+    .unwrap_or(false);
+    if deleted
+        && sqlx::query!("DELETE FROM blueprint_plans WHERE project_id = ?", id)
+            .execute(&mut *tx)
+            .await
+            .is_err()
+    {
+        return false; // dropping the transaction rolls the project back too
+    }
+    tx.commit().await.is_ok() && deleted
+}
+
+/// One plan, payload and all, if it is in this project and the project is
+/// this user's. A plan id under the wrong project is `None`, like a missing one.
+pub async fn get_blueprint_plan(
+    pool: &DbPool,
+    project_id: i64,
+    plan_id: i64,
+    user: UserId,
+) -> Option<BlueprintPlan> {
+    let uid = user.get();
+    sqlx::query!(
+        r#"SELECT pl.id as "id!", pl.project_id as "project_id!", pl.name as "name!",
+                  pl.payload as "payload!", pl.rev as "rev!", pl.updated_at as "updated_at!"
+           FROM blueprint_plans pl
+           JOIN blueprint_projects p ON p.id = pl.project_id
+           WHERE pl.id = ? AND pl.project_id = ? AND p.user_id = ?"#,
+        plan_id,
+        project_id,
+        uid
+    )
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten()
+    .map(|r| BlueprintPlan {
+        id: r.id,
+        project_id: r.project_id,
+        name: r.name,
+        payload: r.payload,
+        rev: r.rev,
+        updated_at: r.updated_at,
+    })
+}
+
+/// Creates a plan in one of this user's projects, at rev 1. `Missing` if the
+/// project is not theirs: the ownership check is part of the INSERT.
+pub async fn create_blueprint_plan(
+    pool: &DbPool,
+    project_id: i64,
+    user: UserId,
+    name: &str,
+    payload: &str,
+) -> BlueprintNameOutcome {
+    let uid = user.get();
+    match sqlx::query!(
+        r#"INSERT INTO blueprint_plans (project_id, name, payload)
+           SELECT ?, ?, ?
+           WHERE EXISTS (SELECT 1 FROM blueprint_projects WHERE id = ? AND user_id = ?)
+           RETURNING id as "id!""#,
+        project_id,
+        name,
+        payload,
+        project_id,
+        uid
+    )
+    .fetch_optional(pool)
+    .await
+    {
+        Ok(Some(r)) => BlueprintNameOutcome::Done(r.id),
+        Ok(None) => BlueprintNameOutcome::Missing,
+        Err(e) if is_unique_violation(&e) => BlueprintNameOutcome::Taken,
+        Err(e) => {
+            tracing::error!("create_blueprint_plan: {e}");
+            BlueprintNameOutcome::Missing
+        }
+    }
+}
+
+/// Renames a plan. The document and its rev are untouched: a plan's name is
+/// not part of what it says.
+pub async fn rename_blueprint_plan(
+    pool: &DbPool,
+    project_id: i64,
+    plan_id: i64,
+    user: UserId,
+    name: &str,
+) -> BlueprintNameOutcome {
+    let uid = user.get();
+    match sqlx::query!(
+        "UPDATE blueprint_plans SET name = ?
+         WHERE id = ? AND project_id = ?
+           AND project_id IN (SELECT id FROM blueprint_projects WHERE user_id = ?)",
+        name,
+        plan_id,
+        project_id,
+        uid
+    )
+    .execute(pool)
+    .await
+    {
+        Ok(r) if r.rows_affected() > 0 => BlueprintNameOutcome::Done(plan_id),
+        Ok(_) => BlueprintNameOutcome::Missing,
+        Err(e) if is_unique_violation(&e) => BlueprintNameOutcome::Taken,
+        Err(e) => {
+            tracing::error!("rename_blueprint_plan: {e}");
+            BlueprintNameOutcome::Missing
+        }
+    }
+}
+
+pub async fn delete_blueprint_plan(
+    pool: &DbPool,
+    project_id: i64,
+    plan_id: i64,
+    user: UserId,
+) -> bool {
+    let uid = user.get();
+    sqlx::query!(
+        "DELETE FROM blueprint_plans
+         WHERE id = ? AND project_id = ?
+           AND project_id IN (SELECT id FROM blueprint_projects WHERE user_id = ?)",
+        plan_id,
+        project_id,
+        uid
+    )
+    .execute(pool)
+    .await
+    .map(|r| r.rows_affected() > 0)
+    .unwrap_or(false)
+}
+
+/// Saves a plan's document if, and only if, it is still at `if_rev`.
+///
+/// One compare-and-set UPDATE: the rev check, the ownership check and the
+/// write are a single statement, so two saves that both started from rev 14
+/// cannot both land. The loser changes nothing and learns the rev that beat
+/// it. Never read-then-write here; that is last-write-wins with extra steps.
+pub async fn save_blueprint_plan(
+    pool: &DbPool,
+    project_id: i64,
+    plan_id: i64,
+    user: UserId,
+    payload: &str,
+    if_rev: i64,
+) -> BlueprintSaveOutcome {
+    let uid = user.get();
+    let saved = sqlx::query!(
+        r#"UPDATE blueprint_plans
+           SET payload = ?, rev = rev + 1, updated_at = datetime('now')
+           WHERE id = ? AND project_id = ? AND rev = ?
+             AND project_id IN (SELECT id FROM blueprint_projects WHERE user_id = ?)
+           RETURNING rev as "rev!""#,
+        payload,
+        plan_id,
+        project_id,
+        if_rev,
+        uid
+    )
+    .fetch_optional(pool)
+    .await;
+    match saved {
+        Ok(Some(r)) => BlueprintSaveOutcome::Saved(r.rev),
+        Ok(None) => match get_blueprint_plan(pool, project_id, plan_id, user).await {
+            Some(plan) => BlueprintSaveOutcome::Stale(plan.rev),
+            None => BlueprintSaveOutcome::Missing,
+        },
+        Err(e) => {
+            tracing::error!("save_blueprint_plan: {e}");
+            BlueprintSaveOutcome::Missing
+        }
+    }
 }
 
 #[cfg(test)]
@@ -5295,5 +5630,187 @@ mod tests {
             .unwrap();
         let back = get_sorting_session(&pool, id, OWNER).await.unwrap();
         assert_eq!(back.payload, payload);
+    }
+
+    // ── Blueprints ─────────────────────────────────────────────────────────
+
+    async fn bp_project(pool: &DbPool, name: &str, by: UserId) -> i64 {
+        match create_blueprint_project(pool, by, name).await {
+            BlueprintNameOutcome::Done(id) => id,
+            other => panic!("create project {name}: {other:?}"),
+        }
+    }
+
+    async fn bp_plan(pool: &DbPool, project: i64, name: &str, by: UserId) -> i64 {
+        match create_blueprint_plan(pool, project, by, name, "{}").await {
+            BlueprintNameOutcome::Done(id) => id,
+            other => panic!("create plan {name}: {other:?}"),
+        }
+    }
+
+    /// The save is one compare-and-set. Two saves that both started from rev 1
+    /// cannot both land: the second learns the rev that beat it and changes
+    /// nothing. That is the whole of what keeps last-write-wins out.
+    #[tokio::test]
+    async fn test_blueprint_save_is_compare_and_set_on_rev() {
+        let pool = test_pool().await;
+        let p = bp_project(&pool, "site", OWNER).await;
+        let id = bp_plan(&pool, p, "flow", OWNER).await;
+
+        assert_eq!(
+            save_blueprint_plan(&pool, p, id, OWNER, "first", 1).await,
+            BlueprintSaveOutcome::Saved(2)
+        );
+        // The same starting rev again: refused, and told rev 2 is current.
+        assert_eq!(
+            save_blueprint_plan(&pool, p, id, OWNER, "second", 1).await,
+            BlueprintSaveOutcome::Stale(2)
+        );
+        let plan = get_blueprint_plan(&pool, p, id, OWNER).await.unwrap();
+        assert_eq!((plan.payload.as_str(), plan.rev), ("first", 2), "the stale save wrote");
+        // A rev from the future is just as stale.
+        assert_eq!(
+            save_blueprint_plan(&pool, p, id, OWNER, "x", 9).await,
+            BlueprintSaveOutcome::Stale(2)
+        );
+        assert_eq!(
+            save_blueprint_plan(&pool, p, id, OWNER, "third", 2).await,
+            BlueprintSaveOutcome::Saved(3)
+        );
+        assert_eq!(
+            save_blueprint_plan(&pool, p, 999, OWNER, "x", 1).await,
+            BlueprintSaveOutcome::Missing
+        );
+    }
+
+    /// Two saves racing from the same rev, really concurrently: exactly one
+    /// lands. A read-then-write would let both through.
+    #[tokio::test]
+    async fn test_blueprint_saves_racing_from_one_rev_land_once() {
+        let pool = test_pool().await;
+        let p = bp_project(&pool, "site", OWNER).await;
+        let id = bp_plan(&pool, p, "flow", OWNER).await;
+        let mut tasks = Vec::new();
+        for i in 0..8 {
+            let pool = pool.clone();
+            tasks.push(tokio::spawn(async move {
+                save_blueprint_plan(&pool, p, id, OWNER, &format!("writer {i}"), 1).await
+            }));
+        }
+        let mut saved = 0;
+        for t in tasks {
+            match t.await.unwrap() {
+                BlueprintSaveOutcome::Saved(2) => saved += 1,
+                BlueprintSaveOutcome::Stale(2) => {}
+                other => panic!("unexpected {other:?}"),
+            }
+        }
+        assert_eq!(saved, 1);
+        assert_eq!(get_blueprint_plan(&pool, p, id, OWNER).await.unwrap().rev, 2);
+    }
+
+    /// Every way into a plan or project by id, as another user: each one
+    /// answers like the id does not exist, and changes nothing.
+    #[tokio::test]
+    async fn test_blueprints_addressed_by_id_are_not_reachable_by_another_user() {
+        let pool = test_pool().await;
+        let alex = other_user(&pool, "alex").await;
+        let p = bp_project(&pool, "site", OWNER).await;
+        let id = bp_plan(&pool, p, "flow", OWNER).await;
+
+        assert!(list_blueprint_projects(&pool, alex).await.is_empty());
+        assert!(list_blueprint_plans(&pool, alex).await.is_empty());
+        assert!(get_blueprint_project(&pool, p, alex).await.is_none());
+        assert!(get_blueprint_plan(&pool, p, id, alex).await.is_none());
+        assert_eq!(
+            save_blueprint_plan(&pool, p, id, alex, "theirs", 1).await,
+            BlueprintSaveOutcome::Missing,
+            "a stale/fresh answer would confirm the plan exists"
+        );
+        assert_eq!(
+            create_blueprint_plan(&pool, p, alex, "planted", "{}").await,
+            BlueprintNameOutcome::Missing
+        );
+        assert_eq!(
+            rename_blueprint_project(&pool, p, alex, "mine").await,
+            BlueprintNameOutcome::Missing
+        );
+        assert_eq!(
+            rename_blueprint_plan(&pool, p, id, alex, "mine").await,
+            BlueprintNameOutcome::Missing
+        );
+        assert!(!delete_blueprint_plan(&pool, p, id, alex).await);
+        assert!(!delete_blueprint_project(&pool, p, alex).await);
+
+        let plan = get_blueprint_plan(&pool, p, id, OWNER).await.unwrap();
+        assert_eq!((plan.name.as_str(), plan.rev, plan.payload.as_str()), ("flow", 1, "{}"));
+        assert_eq!(list_blueprint_projects(&pool, OWNER).await[0].name, "site");
+        assert_eq!(list_blueprint_plans(&pool, OWNER).await.len(), 1);
+    }
+
+    /// A plan id under the wrong project is not found, even for its owner:
+    /// the URL names both, and both have to agree.
+    #[tokio::test]
+    async fn test_blueprint_plan_must_be_in_the_named_project() {
+        let pool = test_pool().await;
+        let a = bp_project(&pool, "a", OWNER).await;
+        let b = bp_project(&pool, "b", OWNER).await;
+        let id = bp_plan(&pool, a, "flow", OWNER).await;
+        assert!(get_blueprint_plan(&pool, b, id, OWNER).await.is_none());
+        assert_eq!(
+            save_blueprint_plan(&pool, b, id, OWNER, "x", 1).await,
+            BlueprintSaveOutcome::Missing
+        );
+        assert!(!delete_blueprint_plan(&pool, b, id, OWNER).await);
+        assert!(get_blueprint_plan(&pool, a, id, OWNER).await.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_blueprint_names_are_unique_within_their_parent() {
+        let pool = test_pool().await;
+        let alex = other_user(&pool, "alex").await;
+        let a = bp_project(&pool, "site", OWNER).await;
+        assert_eq!(
+            create_blueprint_project(&pool, OWNER, "site").await,
+            BlueprintNameOutcome::Taken
+        );
+        // Another user's namespace is their own.
+        bp_project(&pool, "site", alex).await;
+        let b = bp_project(&pool, "other", OWNER).await;
+        assert_eq!(
+            rename_blueprint_project(&pool, b, OWNER, "site").await,
+            BlueprintNameOutcome::Taken
+        );
+        bp_plan(&pool, a, "flow", OWNER).await;
+        assert_eq!(
+            create_blueprint_plan(&pool, a, OWNER, "flow", "{}").await,
+            BlueprintNameOutcome::Taken
+        );
+        // The same plan name in another project is fine.
+        let other = bp_plan(&pool, b, "flow", OWNER).await;
+        bp_plan(&pool, b, "ingest", OWNER).await;
+        assert_eq!(
+            rename_blueprint_plan(&pool, b, other, OWNER, "ingest").await,
+            BlueprintNameOutcome::Taken
+        );
+        let projects = list_blueprint_projects(&pool, OWNER).await;
+        assert_eq!(
+            projects.iter().map(|p| (p.name.as_str(), p.plans)).collect::<Vec<_>>(),
+            [("other", 2), ("site", 1)]
+        );
+    }
+
+    #[tokio::test]
+    async fn test_deleting_a_blueprint_project_deletes_only_its_plans() {
+        let pool = test_pool().await;
+        let a = bp_project(&pool, "a", OWNER).await;
+        let b = bp_project(&pool, "b", OWNER).await;
+        bp_plan(&pool, a, "one", OWNER).await;
+        bp_plan(&pool, a, "two", OWNER).await;
+        let kept = bp_plan(&pool, b, "kept", OWNER).await;
+        assert!(delete_blueprint_project(&pool, a, OWNER).await);
+        let left = list_blueprint_plans(&pool, OWNER).await;
+        assert_eq!(left.iter().map(|p| p.id).collect::<Vec<_>>(), [kept]);
+        assert!(!delete_blueprint_project(&pool, a, OWNER).await, "twice");
     }
 }

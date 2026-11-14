@@ -1,9 +1,15 @@
-// Blueprint planner: the S0 spike's app. Input, undo and boot.
+// Blueprints: the canvas app. Input, undo and boot.
 //
-// Nothing is saved. The page boots from the demo plan in #bp-demo, and every
-// edit lives in this tab until it is closed. The input model follows
-// docs/design/blueprint-planner/canvas/Input-model.dc.html; what is left out
-// (right-click menus, the add-node search box, the inspector) is slice S3.
+// The page boots from the plan in #bp-doc. #bp-app's data-mode says what the
+// canvas may do:
+//
+//   demo  the visitor demo: look, pan, zoom, select, follow wires
+//   read  an owner's plan, read-only (slice S2)
+//   edit  an owner's plan, edited and saved (slice S3)
+//
+// Read-only is not hidden buttons: in demo and read mode the handlers that
+// move, add, delete or wire are never reached, and nothing is ever sent.
+// The input model follows docs/design/blueprint-planner/canvas/Input-model.dc.html.
 //
 // hx-boost: this file can run more than once (every boosted visit re-executes
 // it) and the three scripts can arrive in any order. Each one calls
@@ -24,16 +30,16 @@
   }
 
   function start(rootEl, M, V) {
-    var G = 'main';
+    var editable = rootEl.dataset.mode === 'edit';
     var viewport = rootEl.querySelector('.bp-viewport');
     var countsEl = rootEl.querySelector('#bp-counts');
     var zoomEl = rootEl.querySelector('#bp-zoom');
-    var perfEl = rootEl.querySelector('#bp-perf');
     var liveEl = rootEl.querySelector('#bp-live');
-    var demo = JSON.parse(rootEl.querySelector('#bp-demo').textContent);
 
     var U = unitPx();
-    var doc = M.clone(demo);
+    var doc = JSON.parse(rootEl.querySelector('#bp-doc').textContent);
+    // v1 draws the root graph only; entering a blueprint is a later slice.
+    var G = doc.root;
     var view = { x: 0, y: 0, z: 1 };
     var sel = new Set(), primary = null, selWire = null;
     var focusPort = null;   // the port ] and [ are on: { node, side, port }
@@ -42,12 +48,13 @@
     var arrowRunAt = 0;     // a run of arrow presses is one undo step
     var spaceHeld = false;
     var drag = null, frame = 0, lastPt = null;
-    var perf = null;
     var v = V.create(viewport, M);
 
     // ── Drawing ──────────────────────────────────────────────────────────────
+    // The whole plan, every graph: the same counts the server answers a save
+    // with and the outline's headline shows.
     function updateCounts() {
-      var s = M.summarize(doc, G);
+      var s = M.summarizeDoc(doc);
       countsEl.textContent = s.nodes + (s.nodes === 1 ? ' machine' : ' machines') + ' · '
         + s.wires + (s.wires === 1 ? ' wire' : ' wires') + ' · ' + s.dangling + ' dangling · '
         + s.mismatch + ' mismatch';
@@ -280,7 +287,7 @@
       var nodeEl = e.target.closest('.bp-node');
       var portEl = e.target.closest('.bp-port');
       var wireEl = e.target.closest('.bp-wire');
-      if (nodeEl && portEl) {
+      if (nodeEl && portEl && editable) {
         e.preventDefault();
         var from = { node: nodeEl.dataset.node, side: portEl.dataset.side, port: portEl.dataset.port };
         var xy = M.portXY(v.geo(), from.node, from.side, from.port);
@@ -301,11 +308,12 @@
         if (focusPort && focusPort.node !== name) focusPort = null;
         updateSel();
         focusNode(name);
+        // Read-only, the press still selects; the drag simply never moves
+        // anything (see tick()).
         beginDrag(e, {
           mode: 'move', s: p, name: name, names: Array.from(sel), applied: [0, 0],
           toggleOff: e.shiftKey && wasIn, narrow: !e.shiftKey && wasIn && sel.size > 1, snapped: false,
         });
-        perf = { work: 0, frames: 0, first: 0, last: 0 };
         return;
       }
       if (wireEl) {
@@ -316,7 +324,7 @@
         updateSel();
         viewport.focus({ preventScroll: true });
         var w = doc.graphs[G].wires[selWire];
-        announce('Wire ' + w[0] + ' to ' + w[1] + ' selected. Delete removes it.');
+        announce('Wire ' + w[0] + ' to ' + w[1] + ' selected.' + (editable ? ' Delete removes it.' : ''));
         return;
       }
       viewport.focus({ preventScroll: true });
@@ -330,10 +338,10 @@
     }
 
     // Pointer moves are coalesced to one update per frame.
-    function tick(now) {
+    function tick() {
       frame = 0;
       if (!drag || !lastPt) return;
-      var p = lastPt, t0 = performance.now();
+      var p = lastPt;
 
       if (drag.mode === 'right') {
         // Under 0.25u it is a click (the menu, in S3). Past that it pans.
@@ -347,6 +355,7 @@
         return;
       }
       if (drag.mode === 'move') {
+        if (!editable) return;
         var k = U * view.z;
         var du = Math.round((p[0] - drag.s[0]) / k), dv = Math.round((p[1] - drag.s[1]) / k);
         if (du === drag.applied[0] && dv === drag.applied[1]) return;
@@ -355,11 +364,6 @@
         drag.applied = [du, dv];
         v.moved(drag.names);
         syncGhost();
-        var t1 = performance.now();
-        perf.work += t1 - t0;
-        perf.frames++;
-        if (!perf.first) perf.first = now;
-        perf.last = now;
         return;
       }
       if (drag.mode === 'wire') {
@@ -383,19 +387,12 @@
       }
     }
 
-    function showPerf() {
-      if (!perf || !perf.frames) return;
-      var span = perf.frames > 1 ? (perf.last - perf.first) / (perf.frames - 1) : 0;
-      perfEl.textContent = 'last drag: ' + sel.size + ' moved · ' + (perf.work / perf.frames).toFixed(1) + ' ms work/frame'
-        + (span ? ' · ' + span.toFixed(1) + ' ms between frames' : '');
-    }
-
     function endDrag(e, cancelled) {
       // A frame still pending holds the last move: apply it before letting go.
       if (frame) {
         cancelAnimationFrame(frame);
         frame = 0;
-        if (!cancelled) tick(performance.now());
+        if (!cancelled) tick();
       }
       var d = drag;
       drag = null;
@@ -420,7 +417,6 @@
           else if (d.narrow) selectOnly(d.name);
           else selectOnly(d.name, sel.size > 1);
         } else if (d.snapped) {
-          showPerf();
           announce('Moved ' + (d.names.length === 1 ? d.names[0] : d.names.length + ' machines') + '.');
         }
         return;
@@ -452,7 +448,7 @@
     }
 
     function onDouble(e) {
-      if (e.target.closest('.bp-node') || e.target.closest('.bp-wire')) return;
+      if (!editable || e.target.closest('.bp-node') || e.target.closest('.bp-wire')) return;
       rect = viewport.getBoundingClientRect();
       var p = local(e);
       addMachineAt(M.toWorld(view, U, p[0], p[1]));
@@ -522,7 +518,7 @@
         if (drag && drag.mode === 'wire') { endDrag(null, true); announce('Wire cancelled.'); }
         else if (kbWire) cancelKeyboardWire();
         else if (sel.size || selWire !== null || focusPort) { clearSelection(); viewport.focus({ preventScroll: true }); }
-        else { var first = rootEl.querySelector('.bp-bar button'); if (first) first.focus(); }
+        else { var first = rootEl.querySelector('.bp-toolbar button'); if (first) first.focus(); }
         e.preventDefault();
         return;
       }
@@ -541,8 +537,8 @@
       }
       if (ctrl) {
         var lower = k.toLowerCase();
-        if (lower === 'z' && !e.shiftKey) { step(undo, redo, 'undo'); e.preventDefault(); return; }
-        if ((lower === 'z' && e.shiftKey) || lower === 'y') { step(redo, undo, 'redo'); e.preventDefault(); return; }
+        if (editable && lower === 'z' && !e.shiftKey) { step(undo, redo, 'undo'); e.preventDefault(); return; }
+        if (editable && ((lower === 'z' && e.shiftKey) || lower === 'y')) { step(redo, undo, 'redo'); e.preventDefault(); return; }
         if (lower === 'a') {
           sel = new Set(Object.keys(v.geo()));
           selWire = null;
@@ -562,7 +558,7 @@
       }
       if (ctrl || e.altKey) return; // everything else with a modifier is the browser's or the site's
 
-      if (DIRS[k]) {
+      if (DIRS[k] && editable) {
         var n = e.shiftKey ? 4 : 1;
         moveSelection(k === 'ArrowLeft' ? -n : k === 'ArrowRight' ? n : 0, k === 'ArrowUp' ? -n : k === 'ArrowDown' ? n : 0);
         e.preventDefault();
@@ -577,7 +573,7 @@
         e.preventDefault();
         return;
       }
-      if (k === 'Enter') {
+      if (k === 'Enter' && editable) {
         if (kbWire && focusPort && focusPort.node !== kbWire.node) {
           var a = kbWire;
           kbWire = null;
@@ -597,9 +593,9 @@
         case '[': walkPorts(-1); break;
         case '>': follow(true); break;
         case '<': follow(false); break;
-        case 'w': case 'W': startKeyboardWire(); break;
-        case 'a': case 'A': addMachineAt(M.toWorld(view, U, centre()[0], centre()[1])); break;
-        case 'Delete': case 'Backspace': deleteSelection(); break;
+        case 'w': case 'W': if (!editable) return; startKeyboardWire(); break;
+        case 'a': case 'A': if (!editable) return; addMachineAt(M.toWorld(view, U, centre()[0], centre()[1])); break;
+        case 'Delete': case 'Backspace': if (!editable) return; deleteSelection(); break;
         default: return;
       }
       e.preventDefault();
@@ -624,28 +620,23 @@
     viewport.addEventListener('contextmenu', function (e) { if (!e.shiftKey) e.preventDefault(); });
 
     // ── Toolbar ──────────────────────────────────────────────────────────────
-    function load(next, what) {
-      snapshot();
-      doc = next;
-      clearSelection();
-      kbWire = null;
-      rerender();
-      fit();
-      announce(what);
-    }
     var actions = {
       fit: fit,
-      actual: function () { zoomTo(1); },
-      undo: function () { step(undo, redo, 'undo'); },
-      redo: function () { step(redo, undo, 'redo'); },
-      stress: function () { load(M.stressDoc(200, 400), 'Loaded 200 machines and 400 wires.'); },
-      demo: function () { load(M.clone(demo), 'Loaded the demo plan.'); },
+      'zoom-in': function () { zoomBy(1.25); },
+      'zoom-out': function () { zoomBy(0.8); },
     };
+    if (editable) {
+      actions.undo = function () { step(undo, redo, 'undo'); };
+      actions.redo = function () { step(redo, undo, 'redo'); };
+      actions.add = function () { addMachineAt(M.toWorld(view, U, centre()[0], centre()[1])); };
+    }
     rootEl.querySelectorAll('[data-bp-action]').forEach(function (b) {
-      // Focus goes back to the canvas, so the next key (Ctrl + A after a
-      // load, F after a pan) reaches it instead of the button.
+      var act = actions[b.dataset.bpAction];
+      if (!act) return;
+      // Focus goes back to the canvas, so the next key (F after a pan, Ctrl
+      // + A after Fit) reaches it instead of the button.
       b.addEventListener('click', function () {
-        actions[b.dataset.bpAction]();
+        act();
         viewport.focus({ preventScroll: true });
       });
     });
@@ -664,7 +655,7 @@
   }
 
   function boot() {
-    var rootEl = document.getElementById('bp-spike');
+    var rootEl = document.getElementById('bp-app');
     if (!rootEl || rootEl.dataset.booted || !BP.model || !BP.view) return;
     rootEl.dataset.booted = '1';
     BP.app = start(rootEl, BP.model, BP.view);

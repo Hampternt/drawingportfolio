@@ -24,7 +24,7 @@ struct Section {
     who: &'static str,
 }
 
-/// The six sections, in the hub's tile order.
+/// The seven sections, in the hub's tile order.
 const SECTIONS: &[Section] = &[
     Section {
         name: "Drawing Portfolio",
@@ -57,6 +57,12 @@ const SECTIONS: &[Section] = &[
         who: "Signed in; built for a tablet.",
     },
     Section {
+        name: "Blueprints",
+        route: "/blueprints",
+        what: "Plans for code, laid out like a factory floor: machines with typed inputs and outputs, wired together, and stored as the source of truth an AI coding tool reads.",
+        who: "Anyone sees the demo plan. The planner itself is mine alone.",
+    },
+    Section {
         name: "CV",
         route: "/cv",
         what: "My CV, in Norwegian, with a print-ready PDF.",
@@ -66,7 +72,7 @@ const SECTIONS: &[Section] = &[
 
 /// Migration files for the site's database (`migrations/`) and the drinks
 /// games' own (`drinkinggame/migrations/`). Pinned to the `.sql` files.
-const SITE_MIGRATIONS: usize = 24;
+const SITE_MIGRATIONS: usize = 25;
 const DRINKS_MIGRATIONS: usize = 3;
 const MIGRATIONS: usize = SITE_MIGRATIONS + DRINKS_MIGRATIONS;
 
@@ -157,9 +163,9 @@ mod tests {
             let route = format!(r#"<span class="docs-table__route">{}</span>"#, s.route);
             assert_eq!(main.matches(&route).count(), 1, "table row for {}", s.route);
         }
-        // The lede states the count in words; six is what the hub has.
-        assert_eq!(tiles.len(), 6, "the lede says six sections");
-        assert!(main.contains("six sections, one program, one server"));
+        // The lede states the count in words; seven is what the hub has.
+        assert_eq!(tiles.len(), 7, "the lede says seven sections");
+        assert!(main.contains("seven sections, one program, one server"));
     }
 
     #[test]

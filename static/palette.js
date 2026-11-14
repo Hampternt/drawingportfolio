@@ -89,6 +89,13 @@ const COMMANDS = [
     },
   },
   {
+    // No sign-in marker: a visitor lands on the demo plan, the owner on
+    // their projects. Both are worth the click.
+    label: 'Go to Blueprints',
+    keywords: ['blueprints', 'blueprint', 'plan', 'planner', 'canvas', 'machines', 'nodes', 'factory', 'code'],
+    action() { location.href = '/blueprints'; },
+  },
+  {
     label: 'Go to CV',
     keywords: ['cv', 'resume', 'work', 'experience', 'hire', 'pdf'],
     action() { location.href = '/cv'; },

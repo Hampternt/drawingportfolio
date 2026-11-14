@@ -1,0 +1,32 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT p.id as \"id!\", p.name as \"name!\",\n                  (SELECT COUNT(*) FROM blueprint_plans pl WHERE pl.project_id = p.id) as \"plans!: i64\"\n           FROM blueprint_projects p\n           WHERE p.id = ? AND p.user_id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "name!",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "plans!: i64",
+        "ordinal": 2,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "22b5d93f61dc00be1a2aca493d23f0ae3b8f6884491b3d74a7e2a528e8447a69"
+}
