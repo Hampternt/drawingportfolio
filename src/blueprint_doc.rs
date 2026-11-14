@@ -28,6 +28,8 @@ pub const KINDS: [&str; 2] = ["machine", "blueprint"];
 
 /// The largest plan a save may send. The demo is about 4 KB; a 200-machine
 /// plan is about 60 KB.
+// S3's save route reads this; the allow goes when it lands.
+#[allow(dead_code)]
 pub const MAX_PAYLOAD: usize = 1024 * 1024;
 
 /// The names every JavaScript object already answers to. The editor keeps a
@@ -376,7 +378,11 @@ impl Summary {
         format!(
             "{} {} · {} {} · {} dangling · {} mismatch",
             self.nodes,
-            if self.nodes == 1 { "machine" } else { "machines" },
+            if self.nodes == 1 {
+                "machine"
+            } else {
+                "machines"
+            },
             self.wires,
             if self.wires == 1 { "wire" } else { "wires" },
             self.dangling,
@@ -471,8 +477,16 @@ pub fn outline(doc: &Doc) -> Outline {
                         status: n.status.clone().unwrap_or_else(|| "—".into()),
                         status_class: n.status.clone().unwrap_or_else(|| "none".into()),
                         kind,
-                        outs: if outs.is_empty() { "—".into() } else { outs.join("; ") },
-                        ins: if ins.is_empty() { "—".into() } else { ins.join(", ") },
+                        outs: if outs.is_empty() {
+                            "—".into()
+                        } else {
+                            outs.join("; ")
+                        },
+                        ins: if ins.is_empty() {
+                            "—".into()
+                        } else {
+                            ins.join(", ")
+                        },
                         note: n.note.clone().unwrap_or_default(),
                     }
                 })
@@ -611,14 +625,31 @@ mod tests {
             assert!(is_name(good), "{good}");
         }
         for bad in [
-            "", "2fa", "a.b", "a/b", "a b", "ä", "constructor", "__proto__", &"A".repeat(65),
+            "",
+            "2fa",
+            "a.b",
+            "a/b",
+            "a b",
+            "ä",
+            "constructor",
+            "__proto__",
+            &"A".repeat(65),
         ] {
             assert!(!is_name(bad), "{bad}");
         }
         for good in ["drawingportfolio", "request-flow", "s3", "2026-plans"] {
             assert!(is_slug(good), "{good}");
         }
-        for bad in ["", "Request", "-x", "a_b", "a b", "a.b", "a/b", &"a".repeat(65)] {
+        for bad in [
+            "",
+            "Request",
+            "-x",
+            "a_b",
+            "a b",
+            "a.b",
+            "a/b",
+            &"a".repeat(65),
+        ] {
             assert!(!is_slug(bad), "{bad}");
         }
     }
@@ -639,13 +670,23 @@ mod tests {
     #[test]
     fn test_outline_of_the_demo() {
         let o = outline(&parse(DEMO).unwrap());
-        assert_eq!(o.summary.line(), "11 machines · 14 wires · 1 dangling · 1 mismatch");
         assert_eq!(
-            o.graphs.iter().map(|g| g.title.as_str()).collect::<Vec<_>>(),
+            o.summary.line(),
+            "11 machines · 14 wires · 1 dangling · 1 mismatch"
+        );
+        assert_eq!(
+            o.graphs
+                .iter()
+                .map(|g| g.title.as_str())
+                .collect::<Vec<_>>(),
             ["main (root)", "db"]
         );
         assert_eq!(o.graphs[1].sub, "opened by main/db");
-        let router = o.graphs[0].nodes.iter().find(|n| n.name == "router").unwrap();
+        let router = o.graphs[0]
+            .nodes
+            .iter()
+            .find(|n| n.name == "router")
+            .unwrap();
         assert_eq!(
             router.outs,
             "page: Request → session.req, handler.req; api: Request → session.req; ai: Request → token_gate.bearer"
@@ -662,7 +703,10 @@ mod tests {
         assert_eq!(
             flags,
             [
-                ("router.ai → token_gate.bearer", "mismatch: Request ≠ Header"),
+                (
+                    "router.ai → token_gate.bearer",
+                    "mismatch: Request ≠ Header"
+                ),
                 (
                     "exporter.outline → claude.context",
                     r#"dangling: no node "claude""#

@@ -178,6 +178,8 @@ struct PlanTemplate {
     is_admin: bool,
     rail: Vec<RailProject>,
     project: BlueprintProject,
+    // S3's save URL is built from this; the allow goes when it lands.
+    #[allow(dead_code)]
     plan_id: i64,
     plan_name: String,
     rev: i64,
@@ -600,7 +602,14 @@ mod tests {
             assert!(in_page(DEMO) || in_page(CANVAS), "the demo lost #{id}");
             assert!(in_page(PLAN) || in_page(CANVAS), "the plan page lost #{id}");
         }
-        for class in ["bp-viewport", "bp-stage", "bp-wires", "bp-nodes", "bp-ghost", "bp-box"] {
+        for class in [
+            "bp-viewport",
+            "bp-stage",
+            "bp-wires",
+            "bp-nodes",
+            "bp-ghost",
+            "bp-box",
+        ] {
             assert!(CANVAS.contains(class), "the canvas lost .{class}");
         }
     }
@@ -614,7 +623,9 @@ mod tests {
         assert_eq!(status, StatusCode::OK);
         // base.html derives body.site-dark from this marker; it must be the
         // outermost element of the content block.
-        assert!(html.contains(r#"<div class="site-page bp-page bp-page--demo" id="bp-app" data-mode="demo""#));
+        assert!(html.contains(
+            r#"<div class="site-page bp-page bp-page--demo" id="bp-app" data-mode="demo""#
+        ));
         assert!(html.contains(r#"<script type="application/json" id="bp-doc">"#));
         assert!(html.contains("token_gate"), "the demo plan is in the page");
         // The outline is server-rendered: it is there without JavaScript.
@@ -625,9 +636,19 @@ mod tests {
         assert!(!html.contains("<form"), "the demo carries a form");
         assert!(!html.contains("data-bp-action=\"add\""));
         assert!(!html.contains("bp-rail"));
-        assert!(!html.contains("drawingportfolio</"), "an owner project name leaked");
-        for js in ["blueprint-model.js", "blueprint-view.js", "blueprint-app.js"] {
-            assert!(html.contains(&format!("/static/{js}?v=")), "{js} is not loaded");
+        assert!(
+            !html.contains("drawingportfolio</"),
+            "an owner project name leaked"
+        );
+        for js in [
+            "blueprint-model.js",
+            "blueprint-view.js",
+            "blueprint-app.js",
+        ] {
+            assert!(
+                html.contains(&format!("/static/{js}?v=")),
+                "{js} is not loaded"
+            );
         }
     }
 
@@ -639,9 +660,15 @@ mod tests {
         for cookie in [ADMIN, MEMBER] {
             let (status, _, html) = send(&w.app, get("/blueprints", Some(cookie))).await;
             assert_eq!(status, StatusCode::OK, "{cookie}");
-            assert!(html.contains(r#"data-mode="demo""#), "{cookie} did not get the demo");
+            assert!(
+                html.contains(r#"data-mode="demo""#),
+                "{cookie} did not get the demo"
+            );
             assert!(!html.contains("bp-rail"), "{cookie} got the projects rail");
-            assert!(!html.contains("/blueprints/"), "{cookie} got a link to a project");
+            assert!(
+                !html.contains("/blueprints/"),
+                "{cookie} got a link to a project"
+            );
         }
     }
 
@@ -653,7 +680,10 @@ mod tests {
         assert!(html.contains(r#"class="site-page bp-page bp-page--owner""#));
         assert!(html.contains("drawingportfolio"));
         assert!(html.contains(&format!(r#"href="/blueprints/{}""#, w.pid)));
-        assert!(html.contains(r#"action="/blueprints""#), "the new-project form");
+        assert!(
+            html.contains(r#"action="/blueprints""#),
+            "the new-project form"
+        );
         assert!(!html.contains(r#"data-mode="demo""#));
     }
 
@@ -680,7 +710,10 @@ mod tests {
                 let (status, location, body) = send(&w.app, get(uri, cookie)).await;
                 assert_eq!(status, StatusCode::NOT_FOUND, "{uri} as {cookie:?}");
                 assert!(location.is_empty(), "{uri} as {cookie:?} redirected");
-                assert!(!body.contains("request-flow"), "{uri} as {cookie:?} leaked the plan");
+                assert!(
+                    !body.contains("request-flow"),
+                    "{uri} as {cookie:?} leaked the plan"
+                );
             }
             // Positive control: the owner does reach it.
             let (status, _, _) = send(&w.app, get(uri, Some(OWNER))).await;
@@ -704,7 +737,9 @@ mod tests {
             panic!()
         };
         let other = db::create_blueprint_project(&w.pool, w.owner, "other").await;
-        let BlueprintNameOutcome::Done(other) = other else { panic!() };
+        let BlueprintNameOutcome::Done(other) = other else {
+            panic!()
+        };
         for uri in [
             format!("/blueprints/{theirs}"),
             format!("/blueprints/{theirs}/{their_plan}"),
@@ -737,7 +772,10 @@ mod tests {
         assert!(html.contains(r#"id="bp-app" data-mode="read" data-rev="1""#));
         assert!(html.contains(r#"<script type="application/json" id="bp-doc">"#));
         assert!(html.contains("11 machines · 14 wires · 1 dangling · 1 mismatch"));
-        assert!(html.contains(r#"aria-current="page""#), "the rail marks the open plan");
+        assert!(
+            html.contains(r#"aria-current="page""#),
+            "the rail marks the open plan"
+        );
         assert!(html.contains("<title>request-flow · Blueprints</title>"));
     }
 
@@ -773,18 +811,26 @@ mod tests {
         }
         // Nothing changed.
         assert_eq!(names(&w.pool, w.owner).await, ["drawingportfolio"]);
-        let plan = db::get_blueprint_plan(&w.pool, w.pid, w.plid, w.owner).await.unwrap();
+        let plan = db::get_blueprint_plan(&w.pool, w.pid, w.plid, w.owner)
+            .await
+            .unwrap();
         assert_eq!(plan.name, "request-flow");
     }
 
     #[tokio::test]
     async fn test_the_owner_creates_renames_and_deletes_projects() {
         let w = world().await;
-        let (status, location, _) =
-            send(&w.app, post("/blueprints", Some(OWNER), "name=garden-sensor")).await;
+        let (status, location, _) = send(
+            &w.app,
+            post("/blueprints", Some(OWNER), "name=garden-sensor"),
+        )
+        .await;
         assert_eq!(status, StatusCode::SEE_OTHER);
         let id: i64 = location.trim_start_matches("/blueprints/").parse().unwrap();
-        assert_eq!(names(&w.pool, w.owner).await, ["drawingportfolio", "garden-sensor"]);
+        assert_eq!(
+            names(&w.pool, w.owner).await,
+            ["drawingportfolio", "garden-sensor"]
+        );
 
         // Names: refused shapes and duplicates go back to the form with a code.
         for (form, want) in [
@@ -794,17 +840,28 @@ mod tests {
             ("name=garden-sensor", "/blueprints?error=taken"),
         ] {
             let (status, location, _) = send(&w.app, post("/blueprints", Some(OWNER), form)).await;
-            assert_eq!((status, location.as_str()), (StatusCode::SEE_OTHER, want), "{form}");
+            assert_eq!(
+                (status, location.as_str()),
+                (StatusCode::SEE_OTHER, want),
+                "{form}"
+            );
         }
         let (_, _, html) = send(&w.app, get("/blueprints?error=taken", Some(OWNER))).await;
         assert!(html.contains("already taken"));
-        let (_, _, html) = send(&w.app, get("/blueprints?error=%3Cb%3Ex%3C%2Fb%3E", Some(OWNER))).await;
+        let (_, _, html) = send(
+            &w.app,
+            get("/blueprints?error=%3Cb%3Ex%3C%2Fb%3E", Some(OWNER)),
+        )
+        .await;
         assert!(!html.contains("<b>x</b>"), "an unknown code prints nothing");
 
         let rename = format!("/blueprints/{id}/rename");
         let (_, location, _) = send(&w.app, post(&rename, Some(OWNER), "name=greenhouse")).await;
         assert_eq!(location, format!("/blueprints/{id}"));
-        assert_eq!(names(&w.pool, w.owner).await, ["drawingportfolio", "greenhouse"]);
+        assert_eq!(
+            names(&w.pool, w.owner).await,
+            ["drawingportfolio", "greenhouse"]
+        );
         let (_, location, _) =
             send(&w.app, post(&rename, Some(OWNER), "name=drawingportfolio")).await;
         assert_eq!(location, format!("/blueprints/{id}?error=taken"));
@@ -812,7 +869,10 @@ mod tests {
         // Deleting a project takes its plans with it.
         let delete = format!("/blueprints/{}/delete", w.pid);
         let (status, location, _) = send(&w.app, post(&delete, Some(OWNER), "")).await;
-        assert_eq!((status, location.as_str()), (StatusCode::SEE_OTHER, "/blueprints"));
+        assert_eq!(
+            (status, location.as_str()),
+            (StatusCode::SEE_OTHER, "/blueprints")
+        );
         assert_eq!(names(&w.pool, w.owner).await, ["greenhouse"]);
         assert!(db::list_blueprint_plans(&w.pool, w.owner).await.is_empty());
         let (status, _, _) = send(&w.app, post(&delete, Some(OWNER), "")).await;
@@ -828,33 +888,48 @@ mod tests {
         assert_eq!(status, StatusCode::SEE_OTHER);
         let prefix = format!("/blueprints/{}/", w.pid);
         let id: i64 = location.trim_start_matches(&prefix).parse().unwrap();
-        let plan = db::get_blueprint_plan(&w.pool, w.pid, id, w.owner).await.unwrap();
-        assert_eq!((plan.payload.as_str(), plan.rev), (blueprint_doc::EMPTY_PLAN, 1));
+        let plan = db::get_blueprint_plan(&w.pool, w.pid, id, w.owner)
+            .await
+            .unwrap();
+        assert_eq!(
+            (plan.payload.as_str(), plan.rev),
+            (blueprint_doc::EMPTY_PLAN, 1)
+        );
 
         // The empty plan opens.
         let (status, _, html) = send(&w.app, get(&location, Some(OWNER))).await;
         assert_eq!(status, StatusCode::OK);
         assert!(html.contains("0 machines · 0 wires"));
 
-        let (_, location, _) =
-            send(&w.app, post(&create, Some(OWNER), "name=request-flow")).await;
+        let (_, location, _) = send(&w.app, post(&create, Some(OWNER), "name=request-flow")).await;
         assert_eq!(location, format!("/blueprints/{}?error=taken", w.pid));
         let (_, location, _) = send(&w.app, post(&create, Some(OWNER), "name=Bad Name")).await;
         assert_eq!(location, format!("/blueprints/{}?error=name", w.pid));
 
         let rename = format!("/blueprints/{}/{id}/rename", w.pid);
         send(&w.app, post(&rename, Some(OWNER), "name=ingest")).await;
-        let plan = db::get_blueprint_plan(&w.pool, w.pid, id, w.owner).await.unwrap();
-        assert_eq!((plan.name.as_str(), plan.rev), ("ingest", 1), "a rename leaves the rev alone");
+        let plan = db::get_blueprint_plan(&w.pool, w.pid, id, w.owner)
+            .await
+            .unwrap();
+        assert_eq!(
+            (plan.name.as_str(), plan.rev),
+            ("ingest", 1),
+            "a rename leaves the rev alone"
+        );
 
         let delete = format!("/blueprints/{}/{id}/delete", w.pid);
         let (_, location, _) = send(&w.app, post(&delete, Some(OWNER), "")).await;
         assert_eq!(location, format!("/blueprints/{}", w.pid));
-        assert!(db::get_blueprint_plan(&w.pool, w.pid, id, w.owner).await.is_none());
+        assert!(db::get_blueprint_plan(&w.pool, w.pid, id, w.owner)
+            .await
+            .is_none());
 
         // A plan in a project that is not the owner's cannot be made.
-        let (status, _, _) =
-            send(&w.app, post("/blueprints/999999/plans", Some(OWNER), "name=x")).await;
+        let (status, _, _) = send(
+            &w.app,
+            post("/blueprints/999999/plans", Some(OWNER), "name=x"),
+        )
+        .await;
         assert_eq!(status, StatusCode::NOT_FOUND);
     }
 

@@ -406,10 +406,16 @@ mod tests {
             if let Some(c) = cookie {
                 b = b.header("cookie", c);
             }
-            let resp = app.clone().oneshot(b.body(Body::empty()).unwrap()).await.unwrap();
+            let resp = app
+                .clone()
+                .oneshot(b.body(Body::empty()).unwrap())
+                .await
+                .unwrap();
             // Never a rejection: no redirect, no 404, whoever asks.
             assert_eq!(resp.status(), StatusCode::OK, "{cookie:?}");
-            let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+            let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+                .await
+                .unwrap();
             assert_eq!(String::from_utf8_lossy(&body), want, "{cookie:?}");
         }
     }

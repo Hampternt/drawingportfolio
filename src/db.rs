@@ -2933,6 +2933,8 @@ pub async fn delete_blueprint_plan(
 /// write are a single statement, so two saves that both started from rev 14
 /// cannot both land. The loser changes nothing and learns the rev that beat
 /// it. Never read-then-write here; that is last-write-wins with extra steps.
+// S3's save route reads this; the allow goes when it lands.
+#[allow(dead_code)]
 pub async fn save_blueprint_plan(
     pool: &DbPool,
     project_id: i64,
@@ -5667,7 +5669,11 @@ mod tests {
             BlueprintSaveOutcome::Stale(2)
         );
         let plan = get_blueprint_plan(&pool, p, id, OWNER).await.unwrap();
-        assert_eq!((plan.payload.as_str(), plan.rev), ("first", 2), "the stale save wrote");
+        assert_eq!(
+            (plan.payload.as_str(), plan.rev),
+            ("first", 2),
+            "the stale save wrote"
+        );
         // A rev from the future is just as stale.
         assert_eq!(
             save_blueprint_plan(&pool, p, id, OWNER, "x", 9).await,
@@ -5706,7 +5712,10 @@ mod tests {
             }
         }
         assert_eq!(saved, 1);
-        assert_eq!(get_blueprint_plan(&pool, p, id, OWNER).await.unwrap().rev, 2);
+        assert_eq!(
+            get_blueprint_plan(&pool, p, id, OWNER).await.unwrap().rev,
+            2
+        );
     }
 
     /// Every way into a plan or project by id, as another user: each one
@@ -5743,7 +5752,10 @@ mod tests {
         assert!(!delete_blueprint_project(&pool, p, alex).await);
 
         let plan = get_blueprint_plan(&pool, p, id, OWNER).await.unwrap();
-        assert_eq!((plan.name.as_str(), plan.rev, plan.payload.as_str()), ("flow", 1, "{}"));
+        assert_eq!(
+            (plan.name.as_str(), plan.rev, plan.payload.as_str()),
+            ("flow", 1, "{}")
+        );
         assert_eq!(list_blueprint_projects(&pool, OWNER).await[0].name, "site");
         assert_eq!(list_blueprint_plans(&pool, OWNER).await.len(), 1);
     }
@@ -5795,7 +5807,10 @@ mod tests {
         );
         let projects = list_blueprint_projects(&pool, OWNER).await;
         assert_eq!(
-            projects.iter().map(|p| (p.name.as_str(), p.plans)).collect::<Vec<_>>(),
+            projects
+                .iter()
+                .map(|p| (p.name.as_str(), p.plans))
+                .collect::<Vec<_>>(),
             [("other", 2), ("site", 1)]
         );
     }
