@@ -1,0 +1,1000 @@
+{
+ "about": "Shared by tests/js/blueprint-model.test.js and src/blueprint_doc.rs: both validators must accept and refuse exactly these, and count the accepted ones the same. \"doc\": \"demo\" means docs/design/blueprint-planner/demo-plan.json.",
+ "cases": [
+  {
+   "name": "the demo plan",
+   "ok": true,
+   "doc": "demo",
+   "summary": {
+    "nodes": 11,
+    "wires": 14,
+    "dangling": 1,
+    "mismatch": 1
+   }
+  },
+  {
+   "name": "an empty plan",
+   "ok": true,
+   "doc": {
+    "v": 1,
+    "root": "main",
+    "graphs": {
+     "main": {
+      "nodes": {},
+      "wires": []
+     }
+    }
+   },
+   "summary": {
+    "nodes": 0,
+    "wires": 0,
+    "dangling": 0,
+    "mismatch": 0
+   }
+  },
+  {
+   "name": "a bare machine: no status, ports, note or layout",
+   "ok": true,
+   "doc": {
+    "v": 1,
+    "root": "main",
+    "graphs": {
+     "main": {
+      "nodes": {
+       "bare": {
+        "kind": "machine"
+       }
+      },
+      "wires": []
+     }
+    }
+   },
+   "summary": {
+    "nodes": 1,
+    "wires": 0,
+    "dangling": 0,
+    "mismatch": 0
+   }
+  },
+  {
+   "name": "case and spaces are folded before compare",
+   "ok": true,
+   "doc": {
+    "v": 1,
+    "root": "main",
+    "graphs": {
+     "main": {
+      "nodes": {
+       "a": {
+        "kind": "machine",
+        "out": {
+         "x": "Vec<Post>"
+        }
+       },
+       "b": {
+        "kind": "machine",
+        "in": {
+         "y": "vec < post >"
+        }
+       }
+      },
+      "wires": [
+       [
+        "a.x",
+        "b.y"
+       ]
+      ]
+     }
+    }
+   },
+   "summary": {
+    "nodes": 2,
+    "wires": 1,
+    "dangling": 0,
+    "mismatch": 0
+   }
+  },
+  {
+   "name": "a mismatch is counted, not refused",
+   "ok": true,
+   "doc": {
+    "v": 1,
+    "root": "main",
+    "graphs": {
+     "main": {
+      "nodes": {
+       "a": {
+        "kind": "machine",
+        "out": {
+         "x": "Request"
+        }
+       },
+       "b": {
+        "kind": "machine",
+        "in": {
+         "y": "Header"
+        }
+       }
+      },
+      "wires": [
+       [
+        "a.x",
+        "b.y"
+       ]
+      ]
+     }
+    }
+   },
+   "summary": {
+    "nodes": 2,
+    "wires": 1,
+    "dangling": 0,
+    "mismatch": 1
+   }
+  },
+  {
+   "name": "dangling wires are counted, not refused",
+   "ok": true,
+   "doc": {
+    "v": 1,
+    "root": "main",
+    "graphs": {
+     "main": {
+      "nodes": {
+       "a": {
+        "kind": "machine",
+        "out": {
+         "x": "Vec<Post>"
+        }
+       },
+       "b": {
+        "kind": "machine",
+        "in": {
+         "y": "vec < post >"
+        }
+       }
+      },
+      "wires": [
+       [
+        "a.x",
+        "ghost.y"
+       ],
+       [
+        "a.nope",
+        "b.y"
+       ],
+       [
+        "a.x",
+        "b.nope"
+       ]
+      ]
+     }
+    }
+   },
+   "summary": {
+    "nodes": 2,
+    "wires": 3,
+    "dangling": 3,
+    "mismatch": 0
+   }
+  },
+  {
+   "name": "names with _ and - and digits after the first",
+   "ok": true,
+   "doc": {
+    "v": 1,
+    "root": "main",
+    "graphs": {
+     "main": {
+      "nodes": {
+       "_db-2": {
+        "kind": "machine",
+        "out": {
+         "row_1": "T"
+        }
+       }
+      },
+      "wires": []
+     }
+    }
+   },
+   "summary": {
+    "nodes": 1,
+    "wires": 0,
+    "dangling": 0,
+    "mismatch": 0
+   }
+  },
+  {
+   "name": "fields nobody reads yet are kept",
+   "ok": true,
+   "doc": {
+    "v": 1,
+    "root": "main",
+    "graphs": {
+     "main": {
+      "nodes": {
+       "a": {
+        "kind": "machine",
+        "colour": "red"
+       }
+      },
+      "wires": []
+     }
+    },
+    "title": "kept"
+   },
+   "summary": {
+    "nodes": 1,
+    "wires": 0,
+    "dangling": 0,
+    "mismatch": 0
+   }
+  },
+  {
+   "name": "a blueprint opening into a graph that exists",
+   "ok": true,
+   "doc": {
+    "v": 1,
+    "root": "main",
+    "graphs": {
+     "main": {
+      "nodes": {
+       "s": {
+        "kind": "blueprint",
+        "graph": "sub"
+       }
+      },
+      "wires": []
+     },
+     "sub": {
+      "nodes": {
+       "p": {
+        "kind": "machine"
+       }
+      },
+      "wires": [
+       [
+        "p.x",
+        "q.y"
+       ]
+      ]
+     }
+    }
+   },
+   "summary": {
+    "nodes": 2,
+    "wires": 1,
+    "dangling": 1,
+    "mismatch": 0
+   }
+  },
+  {
+   "name": "fractional layout positions",
+   "ok": true,
+   "doc": {
+    "v": 1,
+    "root": "main",
+    "graphs": {
+     "main": {
+      "nodes": {
+       "a": {
+        "kind": "machine"
+       }
+      },
+      "wires": []
+     }
+    },
+    "layout": {
+     "main/a": [
+      1.5,
+      -2
+     ]
+    }
+   },
+   "summary": {
+    "nodes": 1,
+    "wires": 0,
+    "dangling": 0,
+    "mismatch": 0
+   }
+  },
+  {
+   "name": "not an object",
+   "ok": false,
+   "doc": []
+  },
+  {
+   "name": "v is not 1",
+   "ok": false,
+   "doc": {
+    "v": 2,
+    "root": "main",
+    "graphs": {
+     "main": {
+      "nodes": {},
+      "wires": []
+     }
+    }
+   }
+  },
+  {
+   "name": "v as text",
+   "ok": false,
+   "doc": {
+    "v": "1",
+    "root": "main",
+    "graphs": {
+     "main": {
+      "nodes": {},
+      "wires": []
+     }
+    }
+   }
+  },
+  {
+   "name": "root names no graph",
+   "ok": false,
+   "doc": {
+    "v": 1,
+    "root": "elsewhere",
+    "graphs": {
+     "main": {
+      "nodes": {},
+      "wires": []
+     }
+    }
+   }
+  },
+  {
+   "name": "graphs is a list",
+   "ok": false,
+   "doc": {
+    "v": 1,
+    "root": "main",
+    "graphs": []
+   }
+  },
+  {
+   "name": "a graph name with a dot",
+   "ok": false,
+   "doc": {
+    "v": 1,
+    "root": "main",
+    "graphs": {
+     "main": {
+      "nodes": {},
+      "wires": []
+     },
+     "a.b": {
+      "nodes": {},
+      "wires": []
+     }
+    }
+   }
+  },
+  {
+   "name": "nodes is a list",
+   "ok": false,
+   "doc": {
+    "v": 1,
+    "root": "main",
+    "graphs": {
+     "main": {
+      "nodes": [],
+      "wires": []
+     }
+    }
+   }
+  },
+  {
+   "name": "a node name that starts with a digit",
+   "ok": false,
+   "doc": {
+    "v": 1,
+    "root": "main",
+    "graphs": {
+     "main": {
+      "nodes": {
+       "1st": {
+        "kind": "machine"
+       }
+      },
+      "wires": []
+     }
+    }
+   }
+  },
+  {
+   "name": "a node name with a slash",
+   "ok": false,
+   "doc": {
+    "v": 1,
+    "root": "main",
+    "graphs": {
+     "main": {
+      "nodes": {
+       "a/b": {
+        "kind": "machine"
+       }
+      },
+      "wires": []
+     }
+    }
+   }
+  },
+  {
+   "name": "a node name every object already has",
+   "ok": false,
+   "doc": {
+    "v": 1,
+    "root": "main",
+    "graphs": {
+     "main": {
+      "nodes": {
+       "constructor": {
+        "kind": "machine"
+       }
+      },
+      "wires": []
+     }
+    }
+   }
+  },
+  {
+   "name": "__proto__ as a node name",
+   "ok": false,
+   "doc": {
+    "v": 1,
+    "root": "main",
+    "graphs": {
+     "main": {
+      "nodes": {
+       "__proto__": {
+        "kind": "machine"
+       }
+      },
+      "wires": []
+     }
+    }
+   }
+  },
+  {
+   "name": "a node name over 64 characters",
+   "ok": false,
+   "doc": {
+    "v": 1,
+    "root": "main",
+    "graphs": {
+     "main": {
+      "nodes": {
+       "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa": {
+        "kind": "machine"
+       }
+      },
+      "wires": []
+     }
+    }
+   }
+  },
+  {
+   "name": "unknown kind",
+   "ok": false,
+   "doc": {
+    "v": 1,
+    "root": "main",
+    "graphs": {
+     "main": {
+      "nodes": {
+       "a": {
+        "kind": "source"
+       }
+      },
+      "wires": []
+     }
+    }
+   }
+  },
+  {
+   "name": "no kind",
+   "ok": false,
+   "doc": {
+    "v": 1,
+    "root": "main",
+    "graphs": {
+     "main": {
+      "nodes": {
+       "a": {
+        "status": "idea"
+       }
+      },
+      "wires": []
+     }
+    }
+   }
+  },
+  {
+   "name": "unknown status",
+   "ok": false,
+   "doc": {
+    "v": 1,
+    "root": "main",
+    "graphs": {
+     "main": {
+      "nodes": {
+       "a": {
+        "kind": "machine",
+        "status": "blocked"
+       }
+      },
+      "wires": []
+     }
+    }
+   }
+  },
+  {
+   "name": "status null",
+   "ok": false,
+   "doc": {
+    "v": 1,
+    "root": "main",
+    "graphs": {
+     "main": {
+      "nodes": {
+       "a": {
+        "kind": "machine",
+        "status": null
+       }
+      },
+      "wires": []
+     }
+    }
+   }
+  },
+  {
+   "name": "status in capitals",
+   "ok": false,
+   "doc": {
+    "v": 1,
+    "root": "main",
+    "graphs": {
+     "main": {
+      "nodes": {
+       "a": {
+        "kind": "machine",
+        "status": "Done"
+       }
+      },
+      "wires": []
+     }
+    }
+   }
+  },
+  {
+   "name": "a note that is not text",
+   "ok": false,
+   "doc": {
+    "v": 1,
+    "root": "main",
+    "graphs": {
+     "main": {
+      "nodes": {
+       "a": {
+        "kind": "machine",
+        "note": 3
+       }
+      },
+      "wires": []
+     }
+    }
+   }
+  },
+  {
+   "name": "an in port name with a dot",
+   "ok": false,
+   "doc": {
+    "v": 1,
+    "root": "main",
+    "graphs": {
+     "main": {
+      "nodes": {
+       "a": {
+        "kind": "machine",
+        "in": {
+         "x.y": "T"
+        }
+       }
+      },
+      "wires": []
+     }
+    }
+   }
+  },
+  {
+   "name": "an empty out port name",
+   "ok": false,
+   "doc": {
+    "v": 1,
+    "root": "main",
+    "graphs": {
+     "main": {
+      "nodes": {
+       "a": {
+        "kind": "machine",
+        "out": {
+         "": "T"
+        }
+       }
+      },
+      "wires": []
+     }
+    }
+   }
+  },
+  {
+   "name": "a port type that is not text",
+   "ok": false,
+   "doc": {
+    "v": 1,
+    "root": "main",
+    "graphs": {
+     "main": {
+      "nodes": {
+       "a": {
+        "kind": "machine",
+        "out": {
+         "x": 1
+        }
+       }
+      },
+      "wires": []
+     }
+    }
+   }
+  },
+  {
+   "name": "in as a list",
+   "ok": false,
+   "doc": {
+    "v": 1,
+    "root": "main",
+    "graphs": {
+     "main": {
+      "nodes": {
+       "a": {
+        "kind": "machine",
+        "in": [
+         "x"
+        ]
+       }
+      },
+      "wires": []
+     }
+    }
+   }
+  },
+  {
+   "name": "a blueprint naming a missing graph",
+   "ok": false,
+   "doc": {
+    "v": 1,
+    "root": "main",
+    "graphs": {
+     "main": {
+      "nodes": {
+       "s": {
+        "kind": "blueprint",
+        "graph": "nowhere"
+       }
+      },
+      "wires": []
+     }
+    }
+   }
+  },
+  {
+   "name": "a blueprint naming no graph",
+   "ok": false,
+   "doc": {
+    "v": 1,
+    "root": "main",
+    "graphs": {
+     "main": {
+      "nodes": {
+       "s": {
+        "kind": "blueprint"
+       }
+      },
+      "wires": []
+     }
+    }
+   }
+  },
+  {
+   "name": "wires is not a list",
+   "ok": false,
+   "doc": {
+    "v": 1,
+    "root": "main",
+    "graphs": {
+     "main": {
+      "nodes": {},
+      "wires": {}
+     }
+    }
+   }
+  },
+  {
+   "name": "no wires at all",
+   "ok": false,
+   "doc": {
+    "v": 1,
+    "root": "main",
+    "graphs": {
+     "main": {
+      "nodes": {}
+     }
+    }
+   }
+  },
+  {
+   "name": "a wire of three ends",
+   "ok": false,
+   "doc": {
+    "v": 1,
+    "root": "main",
+    "graphs": {
+     "main": {
+      "nodes": {
+       "a": {
+        "kind": "machine",
+        "out": {
+         "x": "Vec<Post>"
+        }
+       },
+       "b": {
+        "kind": "machine",
+        "in": {
+         "y": "vec < post >"
+        }
+       }
+      },
+      "wires": [
+       [
+        "a.x",
+        "b.y",
+        "b.y"
+       ]
+      ]
+     }
+    }
+   }
+  },
+  {
+   "name": "a wire end with no port",
+   "ok": false,
+   "doc": {
+    "v": 1,
+    "root": "main",
+    "graphs": {
+     "main": {
+      "nodes": {
+       "a": {
+        "kind": "machine",
+        "out": {
+         "x": "Vec<Post>"
+        }
+       },
+       "b": {
+        "kind": "machine",
+        "in": {
+         "y": "vec < post >"
+        }
+       }
+      },
+      "wires": [
+       [
+        "a",
+        "b.y"
+       ]
+      ]
+     }
+    }
+   }
+  },
+  {
+   "name": "a wire end with an empty port",
+   "ok": false,
+   "doc": {
+    "v": 1,
+    "root": "main",
+    "graphs": {
+     "main": {
+      "nodes": {
+       "a": {
+        "kind": "machine",
+        "out": {
+         "x": "Vec<Post>"
+        }
+       },
+       "b": {
+        "kind": "machine",
+        "in": {
+         "y": "vec < post >"
+        }
+       }
+      },
+      "wires": [
+       [
+        "a.",
+        "b.y"
+       ]
+      ]
+     }
+    }
+   }
+  },
+  {
+   "name": "a wire end with no node",
+   "ok": false,
+   "doc": {
+    "v": 1,
+    "root": "main",
+    "graphs": {
+     "main": {
+      "nodes": {
+       "a": {
+        "kind": "machine",
+        "out": {
+         "x": "Vec<Post>"
+        }
+       },
+       "b": {
+        "kind": "machine",
+        "in": {
+         "y": "vec < post >"
+        }
+       }
+      },
+      "wires": [
+       [
+        "a.x",
+        ".y"
+       ]
+      ]
+     }
+    }
+   }
+  },
+  {
+   "name": "a wire end with two dots",
+   "ok": false,
+   "doc": {
+    "v": 1,
+    "root": "main",
+    "graphs": {
+     "main": {
+      "nodes": {
+       "a": {
+        "kind": "machine",
+        "out": {
+         "x": "Vec<Post>"
+        }
+       },
+       "b": {
+        "kind": "machine",
+        "in": {
+         "y": "vec < post >"
+        }
+       }
+      },
+      "wires": [
+       [
+        "a.x.z",
+        "b.y"
+       ]
+      ]
+     }
+    }
+   }
+  },
+  {
+   "name": "a wire end that is not text",
+   "ok": false,
+   "doc": {
+    "v": 1,
+    "root": "main",
+    "graphs": {
+     "main": {
+      "nodes": {
+       "a": {
+        "kind": "machine",
+        "out": {
+         "x": "Vec<Post>"
+        }
+       },
+       "b": {
+        "kind": "machine",
+        "in": {
+         "y": "vec < post >"
+        }
+       }
+      },
+      "wires": [
+       [
+        "a.x",
+        5
+       ]
+      ]
+     }
+    }
+   }
+  },
+  {
+   "name": "a layout position of one number",
+   "ok": false,
+   "doc": {
+    "v": 1,
+    "root": "main",
+    "graphs": {
+     "main": {
+      "nodes": {
+       "a": {
+        "kind": "machine"
+       }
+      },
+      "wires": []
+     }
+    },
+    "layout": {
+     "main/a": [
+      1
+     ]
+    }
+   }
+  },
+  {
+   "name": "a layout position in text",
+   "ok": false,
+   "doc": {
+    "v": 1,
+    "root": "main",
+    "graphs": {
+     "main": {
+      "nodes": {
+       "a": {
+        "kind": "machine"
+       }
+      },
+      "wires": []
+     }
+    },
+    "layout": {
+     "main/a": [
+      "1",
+      2
+     ]
+    }
+   }
+  },
+  {
+   "name": "layout as a list",
+   "ok": false,
+   "doc": {
+    "v": 1,
+    "root": "main",
+    "graphs": {
+     "main": {
+      "nodes": {
+       "a": {
+        "kind": "machine"
+       }
+      },
+      "wires": []
+     }
+    },
+    "layout": []
+   }
+  }
+ ]
+}

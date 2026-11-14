@@ -35,8 +35,25 @@
   var HIT_SCREEN = 1.375;
 
   var STATUSES = ['idea', 'planned', 'building', 'done'];
+  var KINDS = ['machine', 'blueprint'];
 
   // ── Names and refs ─────────────────────────────────────────────────────────
+  // A node, port or graph name. It starts with a letter or an underscore: a
+  // key that looks like a number is moved to the front of a JavaScript object,
+  // and a port's place among its keys is its row on the node. No '.' (it
+  // splits a wire into node and port) and no '/' (it joins a layout key). The
+  // server checks the same rule, in src/blueprint_doc.rs.
+  //
+  // The names every plain object already answers to are refused as well:
+  // `nodes.constructor` is a function before anyone adds a node of that name,
+  // and assigning `nodes.__proto__` replaces the prototype instead of adding a
+  // key. The list is Object.prototype's own names that fit the pattern; a
+  // test checks it against the running engine.
+  var NAME_RE = /^[A-Za-z_][A-Za-z0-9_-]{0,63}$/;
+  var RESERVED = ['__defineGetter__', '__defineSetter__', '__lookupGetter__', '__lookupSetter__', '__proto__',
+    'constructor', 'hasOwnProperty', 'isPrototypeOf', 'propertyIsEnumerable', 'toLocaleString', 'toString', 'valueOf'];
+  function isName(s) { return typeof s === 'string' && NAME_RE.test(s) && RESERVED.indexOf(s) < 0; }
+
   function split(ref) {
     var i = String(ref).indexOf('.');
     return i < 0 ? [String(ref), ''] : [ref.slice(0, i), ref.slice(i + 1)];
@@ -45,8 +62,9 @@
   function layoutKey(g, name) { return g + '/' + name; }
 
   function uniqueName(nodes, base) {
-    if (!nodes[base]) return base;
-    for (var i = 2; ; i++) if (!nodes[base + '_' + i]) return base + '_' + i;
+    var has = function (k) { return Object.prototype.hasOwnProperty.call(nodes, k); };
+    if (!has(base)) return base;
+    for (var i = 2; ; i++) if (!has(base + '_' + i)) return base + '_' + i;
   }
 
   // ── Types and colour ───────────────────────────────────────────────────────
@@ -241,6 +259,85 @@
     return s;
   }
 
+  // The root first, then the other graphs in document order: the order the
+  // outline lists them in.
+  function graphOrder(doc) {
+    return [doc.root].concat(Object.keys(doc.graphs).filter(function (g) { return g !== doc.root; }));
+  }
+
+  // The whole plan's counts, every graph added up. This is the header's line
+  // and what the server answers a save with.
+  function summarizeDoc(doc) {
+    var s = { nodes: 0, wires: 0, dangling: 0, mismatch: 0 };
+    graphOrder(doc).forEach(function (g) {
+      var t = summarize(doc, g);
+      s.nodes += t.nodes; s.wires += t.wires; s.dangling += t.dangling; s.mismatch += t.mismatch;
+    });
+    return s;
+  }
+
+  // ── Validation ─────────────────────────────────────────────────────────────
+  // What makes a document unreadable, as opposed to merely unfinished. A
+  // dangling wire and a type mismatch are neither: they are counted, never
+  // refused. Returns one sentence per problem; an empty list means the server
+  // will take it. src/blueprint_doc.rs refuses exactly the same things, and
+  // the tests pin both to the same fixtures.
+  function isObj(x) { return !!x && typeof x === 'object' && !Array.isArray(x); }
+
+  function validate(doc) {
+    var errs = [];
+    if (!isObj(doc)) return ['the plan is not a JSON object'];
+    if (doc.v !== 1) errs.push('"v" must be 1');
+    if (!isObj(doc.graphs)) return errs.concat(['"graphs" must be an object']);
+    if (typeof doc.root !== 'string' || !Object.prototype.hasOwnProperty.call(doc.graphs, doc.root)) {
+      errs.push('"root" must name a graph');
+    }
+    Object.keys(doc.graphs).forEach(function (g) {
+      var graph = doc.graphs[g];
+      if (!isName(g)) errs.push('graph "' + g + '": not a valid name');
+      if (!isObj(graph)) { errs.push('graph "' + g + '" must be an object'); return; }
+      if (!isObj(graph.nodes)) errs.push('graph "' + g + '": "nodes" must be an object');
+      else Object.keys(graph.nodes).forEach(function (name) {
+        var n = graph.nodes[name], at = g + '/' + name;
+        if (!isName(name)) errs.push('node ' + at + ': not a valid name');
+        if (!isObj(n)) { errs.push('node ' + at + ' must be an object'); return; }
+        if (KINDS.indexOf(n.kind) < 0) errs.push('node ' + at + ': unknown kind ' + JSON.stringify(n.kind));
+        if (n.status !== undefined && STATUSES.indexOf(n.status) < 0) errs.push('node ' + at + ': unknown status ' + JSON.stringify(n.status));
+        if (n.note !== undefined && typeof n.note !== 'string') errs.push('node ' + at + ': "note" must be text');
+        ['in', 'out'].forEach(function (side) {
+          if (n[side] === undefined) return;
+          if (!isObj(n[side])) { errs.push('node ' + at + ': "' + side + '" must be an object'); return; }
+          Object.keys(n[side]).forEach(function (p) {
+            if (!isName(p)) errs.push('node ' + at + ': ' + side + ' port "' + p + '" is not a valid name');
+            if (typeof n[side][p] !== 'string') errs.push('node ' + at + ': ' + side + ' port "' + p + '" needs a text type');
+          });
+        });
+        if (n.kind === 'blueprint' && (typeof n.graph !== 'string' || !Object.prototype.hasOwnProperty.call(doc.graphs, n.graph))) {
+          errs.push('node ' + at + ': blueprint names a missing graph ' + JSON.stringify(n.graph));
+        }
+      });
+      if (!Array.isArray(graph.wires)) errs.push('graph "' + g + '": "wires" must be a list');
+      else graph.wires.forEach(function (w, i) {
+        var good = Array.isArray(w) && w.length === 2 && w.every(function (ref) {
+          if (typeof ref !== 'string') return false;
+          var s = split(ref);
+          return ref.indexOf('.') > 0 && isName(s[0]) && isName(s[1]);
+        });
+        if (!good) errs.push('graph "' + g + '": wire ' + i + ' is not a pair of "node.port"');
+      });
+    });
+    if (doc.layout !== undefined) {
+      if (!isObj(doc.layout)) errs.push('"layout" must be an object');
+      else Object.keys(doc.layout).forEach(function (k) {
+        var p = doc.layout[k];
+        if (!Array.isArray(p) || p.length !== 2 || !p.every(function (x) { return typeof x === 'number' && isFinite(x); })) {
+          errs.push('layout "' + k + '" must be [x, y]');
+        }
+      });
+    }
+    return errs;
+  }
+
   // ── The view transform ─────────────────────────────────────────────────────
   // view = { x, y, z }: screen px = view.x + world u · unitPx · view.z, where
   // unitPx is the root font size in px.
@@ -389,6 +486,97 @@
     return [a, b];
   }
 
+  // ── Renames and the inspector's edits ──────────────────────────────────────
+  // Everything is referenced by name, so a rename has to rewrite every wire
+  // that names the old one, or it would leave them dangling. Each returns an
+  // error sentence, or '' when the edit was made. Key order is kept: a node's
+  // place in `nodes` is the outline's order, and a port's is its row.
+  function renameKey(obj, from, to) {
+    var out = {};
+    Object.keys(obj).forEach(function (k) { out[k === from ? to : k] = obj[k]; });
+    return out;
+  }
+
+  // `what` carries its article: 'a node', 'an output'.
+  function nameProblem(name, taken, what) {
+    if (RESERVED.indexOf(name) >= 0) return name + ' is reserved: every JavaScript object already has it.';
+    if (!isName(name)) return 'A name starts with a letter or _, then up to 63 letters, digits, _ or -.';
+    if (taken) return 'There is already ' + what + ' called ' + name + '.';
+    return '';
+  }
+
+  function renameNode(doc, g, from, to) {
+    var graph = doc.graphs[g];
+    if (!graph || !graph.nodes[from]) return 'There is no node called ' + from + '.';
+    if (from === to) return '';
+    var err = nameProblem(to, Object.prototype.hasOwnProperty.call(graph.nodes, to), 'a node');
+    if (err) return err;
+    graph.nodes = renameKey(graph.nodes, from, to);
+    graph.wires = graph.wires.map(function (w) {
+      return w.map(function (ref) { var s = split(ref); return s[0] === from ? to + '.' + s[1] : ref; });
+    });
+    var kf = layoutKey(g, from);
+    if (doc.layout && doc.layout[kf]) { doc.layout[layoutKey(g, to)] = doc.layout[kf]; delete doc.layout[kf]; }
+    return '';
+  }
+
+  // A port is renamed on one side only. A node may have an input and an output
+  // of the same name, and only the wires on the renamed side follow.
+  function renamePort(doc, g, node, side, from, to) {
+    var n = doc.graphs[g] && doc.graphs[g].nodes[node];
+    if (!n || !n[side] || !Object.prototype.hasOwnProperty.call(n[side], from)) return 'There is no ' + side + ' port called ' + from + '.';
+    if (from === to) return '';
+    var err = nameProblem(to, Object.prototype.hasOwnProperty.call(n[side], to), side === 'out' ? 'an output' : 'an input');
+    if (err) return err;
+    n[side] = renameKey(n[side], from, to);
+    var end = side === 'out' ? 0 : 1, old = node + '.' + from;
+    doc.graphs[g].wires.forEach(function (w) { if (w[end] === old) w[end] = node + '.' + to; });
+    return '';
+  }
+
+  function setPortType(doc, g, node, side, port, type) {
+    var n = doc.graphs[g] && doc.graphs[g].nodes[node];
+    if (!n || !n[side] || !Object.prototype.hasOwnProperty.call(n[side], port)) return 'There is no ' + side + ' port called ' + port + '.';
+    n[side][port] = String(type);
+    return '';
+  }
+
+  // Adds a port at the end of its side, under a free name. Returns the name.
+  function addPort(doc, g, node, side, base, type) {
+    var n = doc.graphs[g].nodes[node];
+    n[side] = n[side] || {};
+    var name = uniqueName(n[side], base || side);
+    n[side][name] = String(type == null ? 'Item' : type);
+    return name;
+  }
+
+  // Removing a port takes its wires with it, as removing a node does.
+  function removePort(doc, g, node, side, port) {
+    var graph = doc.graphs[g], n = graph && graph.nodes[node];
+    if (!n || !n[side] || !Object.prototype.hasOwnProperty.call(n[side], port)) return 'There is no ' + side + ' port called ' + port + '.';
+    delete n[side][port];
+    var end = side === 'out' ? 0 : 1, ref = node + '.' + port;
+    graph.wires = graph.wires.filter(function (w) { return w[end] !== ref; });
+    return '';
+  }
+
+  function setStatus(doc, g, node, status) {
+    var n = doc.graphs[g] && doc.graphs[g].nodes[node];
+    if (!n) return 'There is no node called ' + node + '.';
+    if (STATUSES.indexOf(status) < 0) return 'A status is one of ' + STATUSES.join(', ') + '.';
+    n.status = status;
+    return '';
+  }
+
+  // An empty note is removed rather than stored as "".
+  function setNote(doc, g, node, note) {
+    var n = doc.graphs[g] && doc.graphs[g].nodes[node];
+    if (!n) return 'There is no node called ' + node + '.';
+    var text = String(note == null ? '' : note).trim();
+    if (text) n.note = text; else delete n.note;
+    return '';
+  }
+
   // ── A load test ────────────────────────────────────────────────────────────
   // A deterministic plan of `count` machines and `wireCount` wires on a grid,
   // for the spike's "drags smoothly" check. Every machine has two outputs and
@@ -429,7 +617,11 @@
 
   var api = {
     U: { HEAD: HEAD, PAD: PAD, ROW: ROW, NOTE_LH: NOTE_LH, FOOT: FOOT, BORDER: BORDER, MIN_W: MIN_W },
-    ZOOM_MIN: ZOOM_MIN, ZOOM_MAX: ZOOM_MAX, HIT_SCREEN: HIT_SCREEN, STATUSES: STATUSES,
+    ZOOM_MIN: ZOOM_MIN, ZOOM_MAX: ZOOM_MAX, HIT_SCREEN: HIT_SCREEN, STATUSES: STATUSES, KINDS: KINDS,
+    NAME_RE: NAME_RE, RESERVED: RESERVED, isName: isName, validate: validate,
+    graphOrder: graphOrder, summarizeDoc: summarizeDoc,
+    renameNode: renameNode, renamePort: renamePort, setPortType: setPortType, addPort: addPort,
+    removePort: removePort, setStatus: setStatus, setNote: setNote,
     split: split, layoutKey: layoutKey, uniqueName: uniqueName,
     typeKey: typeKey, fnv1a: fnv1a, hueOf: hueOf, portColor: portColor,
     wrapWords: wrapWords, measure: measure, portAt: portAt, geometry: geometry, portXY: portXY, bounds: bounds,

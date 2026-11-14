@@ -255,5 +255,124 @@ function canvasMeasure(name, n, doc) {
   eq(overlap, 0, 'no two machines overlap');
 }
 
+// ── 12. Validation, against the fixtures the server is pinned to as well ────
+// src/blueprint_doc.rs reads the same file. If one validator refuses what the
+// other accepts, the editor saves plans the server throws away (or the other
+// way round), so both run every case.
+{
+  const FIX = JSON.parse(fs.readFileSync(join(__dirname, '..', 'fixtures', 'blueprint-validation.json'), 'utf8'));
+  ok(FIX.cases.length >= 40, 'the fixture has ' + FIX.cases.length + ' cases');
+  ok(FIX.cases.some((c) => c.ok) && FIX.cases.some((c) => !c.ok), 'and both accepted and refused ones');
+  FIX.cases.forEach((c) => {
+    const doc = c.doc === 'demo' ? DEMO : c.doc;
+    const errs = M.validate(doc);
+    if (c.ok) {
+      eq(errs, [], 'accepts: ' + c.name);
+      eq(M.summarizeDoc(doc), c.summary, 'counts: ' + c.name);
+    } else {
+      ok(errs.length > 0, 'refuses: ' + c.name);
+    }
+  });
+  // A JSON text, not a literal: JSON.parse makes "__proto__" an own key,
+  // which is how a pasted or saved document would arrive.
+  const proto = JSON.parse('{"v":1,"root":"main","graphs":{"main":{"nodes":{"__proto__":{"kind":"machine"}},"wires":[]}}}');
+  ok(M.validate(proto).length > 0, 'refuses __proto__ arriving as JSON text');
+}
+
+// ── 13. The reserved names are the engine's own ─────────────────────────────
+{
+  const own = Object.getOwnPropertyNames(Object.prototype).filter((k) => M.NAME_RE.test(k)).sort();
+  eq(M.RESERVED.slice().sort(), own, 'RESERVED is every Object.prototype name that fits the pattern');
+  ok(!M.isName('toString') && !M.isName('__proto__') && M.isName('to_string'), 'and isName refuses them');
+  ok(!M.isName('2fa') && !M.isName('a.b') && !M.isName('a/b') && !M.isName('') && !M.isName('a b'), 'digits first, dots, slashes, empty and spaces are refused');
+  ok(M.isName('a') && M.isName('_x') && M.isName('token-gate_2') && M.isName('A'.repeat(64)) && !M.isName('A'.repeat(65)), 'the rest of the pattern');
+  eq(M.uniqueName({}, 'constructor'), 'constructor', 'uniqueName asks the object itself, not its prototype');
+}
+
+// ── 14. Whole-plan counts ───────────────────────────────────────────────────
+{
+  eq(M.graphOrder(DEMO), ['main', 'db'], 'the root first, then the others');
+  eq(M.summarizeDoc(DEMO), { nodes: 11, wires: 14, dangling: 1, mismatch: 1 }, 'the demo, every graph added up');
+}
+
+// ── 15. Renames rewrite the wires that name them ────────────────────────────
+{
+  const doc = M.clone(DEMO);
+  const before = M.summarizeDoc(doc);
+  eq(M.renameNode(doc, 'main', 'session', 'auth'), '', 'renameNode succeeds');
+  ok(!doc.graphs.main.nodes.session && doc.graphs.main.nodes.auth, 'the node has its new name');
+  eq(Object.keys(doc.graphs.main.nodes), ['nginx', 'router', 'auth', 'token_gate', 'handler', 'db', 'render', 'exporter'], 'in the same place among the nodes');
+  eq(doc.graphs.main.wires.filter((w) => w.join(' ').includes('auth.')), [['router.page', 'auth.req'], ['router.api', 'auth.req'], ['auth.viewer', 'handler.viewer']], 'every wire that named it follows');
+  ok(!doc.graphs.main.wires.some((w) => w.join(' ').includes('session.')), 'and none names the old one');
+  eq([doc.layout['main/auth'], 'main/session' in doc.layout], [[25, 12], false], 'its position moves to the new key');
+  eq(M.summarizeDoc(doc), before, 'nothing dangles that did not before');
+
+  eq(M.renameNode(doc, 'main', 'auth', 'router'), 'There is already a node called router.', 'a taken name is refused');
+  ok(/starts with a letter/.test(M.renameNode(doc, 'main', 'auth', 'a.b')), 'a name with a dot is refused');
+  ok(/reserved/.test(M.renameNode(doc, 'main', 'auth', 'constructor')), 'a reserved name is refused');
+  eq(M.renameNode(doc, 'main', 'nobody', 'x'), 'There is no node called nobody.', 'renaming a missing node says so');
+  eq(M.renameNode(doc, 'main', 'auth', 'auth'), '', 'renaming to itself is a no-op');
+  eq(M.validate(doc), [], 'the result still validates');
+
+  // The prefix trap: renaming "db" must not touch a node called "db_x".
+  const p = M.clone(DEMO);
+  M.addNode(p, 'main', 'db_x', [90, 0], { kind: 'machine', in: {}, out: { rows: 'Vec<Post>' } });
+  p.graphs.main.wires.push(['db_x.rows', 'render.rows']);
+  M.renameNode(p, 'main', 'db', 'store');
+  ok(p.graphs.main.wires.some((w) => w[0] === 'db_x.rows'), 'a node whose name starts with the old one is left alone');
+  ok(p.graphs.main.wires.some((w) => w[0] === 'store.rows'), 'while the renamed one follows');
+}
+
+{
+  // A node with an input and an output of the same name: only one side moves.
+  const doc = M.clone(DEMO);
+  doc.graphs.main.nodes.router.out.req = 'Request';
+  doc.graphs.main.wires.push(['router.req', 'handler.req']);
+  eq(M.renamePort(doc, 'main', 'router', 'in', 'req', 'incoming'), '', 'renamePort succeeds');
+  eq(doc.graphs.main.wires.filter((w) => w.join(' ').match(/router\.(req|incoming)/)).map((w) => w.join('>')),
+    ['nginx.req>router.incoming', 'router.req>handler.req'], 'the input side follows and the output of the same name stays');
+  eq(Object.keys(doc.graphs.main.nodes.router.in), ['incoming'], 'the input has its new name');
+  eq(Object.keys(doc.graphs.main.nodes.router.out), ['page', 'api', 'ai', 'req'], 'the outputs keep their names and order');
+
+  eq(M.renamePort(doc, 'main', 'router', 'out', 'page', 'pages'), '', 'renaming an output');
+  eq(Object.keys(doc.graphs.main.nodes.router.out), ['pages', 'api', 'ai', 'req'], 'keeps its row');
+  eq(doc.graphs.main.wires.filter((w) => w[0] === 'router.pages').map((w) => w[1]), ['session.req', 'handler.req'], 'and both of its wires');
+  eq(M.renamePort(doc, 'main', 'router', 'out', 'pages', 'api'), 'There is already an output called api.', 'a taken port name is refused');
+  ok(/starts with a letter/.test(M.renamePort(doc, 'main', 'router', 'out', 'api', '9lives')), 'a port name starting with a digit is refused');
+  eq(M.renamePort(doc, 'main', 'router', 'in', 'nope', 'x'), 'There is no in port called nope.', 'renaming a missing port says so');
+  eq(M.validate(doc), [], 'the result still validates');
+}
+
+// ── 16. Ports, status and note ──────────────────────────────────────────────
+{
+  const doc = M.clone(DEMO);
+  eq(M.addPort(doc, 'main', 'render', 'out', 'html', 'Fragment'), 'html_2', 'addPort picks a free name on that side');
+  eq(Object.keys(doc.graphs.main.nodes.render.out), ['html', 'html_2'], 'and adds it at the end');
+  eq(M.addPort(doc, 'main', 'nginx', 'in', 'in'), 'in', 'a default type');
+  eq(doc.graphs.main.nodes.nginx.in.in, 'Item', 'is Item');
+  const bare = { v: 1, root: 'main', graphs: { main: { nodes: { b: { kind: 'machine' } }, wires: [] } }, layout: {} };
+  eq(M.addPort(bare, 'main', 'b', 'out', 'out', 'T'), 'out', 'a node with no ports gets its first');
+
+  eq(M.setPortType(doc, 'main', 'render', 'in', 'rows', 'Vec<Clean>'), '', 'setPortType');
+  eq(M.summarizeDoc(doc).mismatch, 2, 'and a changed type shows up as a mismatch');
+
+  const wiresBefore = doc.graphs.main.wires.length;
+  eq(M.removePort(doc, 'main', 'session', 'in', 'req'), '', 'removePort');
+  eq(doc.graphs.main.wires.length, wiresBefore - 2, 'takes both wires into session.req with it');
+  eq(M.summarizeDoc(doc).dangling, 1, 'so nothing new dangles');
+  eq(M.removePort(doc, 'main', 'session', 'in', 'req'), 'There is no in port called req.', 'removing it twice says so');
+
+  eq(M.setStatus(doc, 'main', 'exporter', 'building'), '', 'setStatus');
+  eq(doc.graphs.main.nodes.exporter.status, 'building', 'stores it');
+  ok(/one of idea, planned, building, done/.test(M.setStatus(doc, 'main', 'exporter', 'blocked')), 'an unknown status is refused');
+  eq(doc.graphs.main.nodes.exporter.status, 'building', 'and changes nothing');
+
+  eq(M.setNote(doc, 'main', 'exporter', '  trimmed  '), '', 'setNote');
+  eq(doc.graphs.main.nodes.exporter.note, 'trimmed', 'trims');
+  M.setNote(doc, 'main', 'exporter', '   ');
+  ok(!('note' in doc.graphs.main.nodes.exporter), 'an empty note is removed, not stored as ""');
+  eq(M.validate(doc), [], 'the result still validates');
+}
+
 console.log((fails ? fails + ' FAILED, ' : '') + checks + ' checks' + (fails ? '' : ', all passed'));
 process.exitCode = fails ? 1 : 0;
