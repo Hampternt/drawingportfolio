@@ -168,12 +168,36 @@ Made while building (2026-11-14), recommended options taken:
 
 ## Test it yourself
 
-**Midpoint (after S2):** load the seed, then:
+**Midpoint (after S2): ready.** In the worktree
+`~/kepler/drawingportfolio-master-bd71b17d`, which has its own `.env`
+(port 3017) and its own fresh `portfolio.db`:
 
-1. Open `/blueprints` signed out: the demo is read-only.
-2. Sign in as the owner: the seeded projects and plans are listed, and the
-   canvas opens them read-only.
-3. Sign in as a non-owner user: `/blueprints/<any id>` is a 404.
+1. Load the seed:
+   `python3 -c "import sqlite3; sqlite3.connect('portfolio.db').executescript(open('scripts/seed-blueprints.sql').read())"`
+2. Start the server: `cargo run`, then open `http://localhost:3017`.
+3. **Signed out**, open `/blueprints` (the hub's Blueprints tile, the nav
+   link, or Ctrl + K → "Go to Blueprints"):
+   - you see "How this site answers a request." over the request-flow plan
+   - the header counts read "11 machines · 14 wires · 1 dangling · 1
+     mismatch"
+   - the outline on the right reads the same with JavaScript off
+   - dragging a machine, double-clicking the grid, `A`, `Delete`, and
+     dragging from port to port all change nothing
+   - pan, zoom, `Tab`, `]` and `>` still work
+4. **Sign in as the owner.** The fresh database's owner has no PIN, so
+   register a passkey first at `http://localhost:3017/admin/register`
+   (allowed from localhost), then sign in at `/admin/login`.
+   - `/blueprints` lists `drawingportfolio` (4 plans) and `garden-sensor` (0)
+   - `garden-sensor` shows the empty-project state
+   - each plan opens on the canvas read-only. `blueprint-planner` shows one
+     amber dangling stub (`tokens.scope`); `scratch` is empty
+   - create, rename and delete a project and a plan. A bad name (capitals,
+     `_`) or a taken one says so under the form
+   - "Preview the visitor demo" (bottom of the rail) shows step 3's page
+     with a link back
+5. **Sign in as a non-owner** (create one at `/admin/users`, then use a
+   private window). `/blueprints` is the demo, and `/blueprints/1` or
+   `/blueprints/1/1` is a 404. Granting that user admin changes neither.
 
 **End (after S3):** the steps above, plus the editor walk-through. Its exact
 steps are written with the build.
