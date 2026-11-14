@@ -27,7 +27,7 @@ Factorio's ghosts and blueprint books each contribute a pattern below.
 
 | Question | Chosen | Not chosen |
 |---|---|---|
-| Where the issues live | This doc, plus a 💭 entry in `docs/INVENTORY.md` | GitHub issues (the repo is public), Kepler tasks |
+| Where the issues live | GitHub issue #29, plus a 💭 entry in `docs/INVENTORY.md` (changed 2026-11-10: the doc was already public through PR #28) | Issues in this doc only, Kepler tasks |
 | Where the plan is stored, and how AI reaches it | Site SQLite, the document stored whole (the `sorting_sessions.payload` pattern), with an AI export endpoint and a token-gated write endpoint | A plan file committed in each code repo, an MCP server first |
 | Who sees what | Only the owner edits and sees private plans (`RequireOwner`). Signed-out visitors see **one demo plan**, read-only (portfolio piece). | `RequireAdmin` (any granted admin would see every plan), per-plan visibility flags, everything public |
 | Document shape | As drafted below: name-keyed refs, sub-graphs in a flat `graphs` map, `layout` separate from meaning. A rename rewrites its wires; the write response reports dangling wires. | Stable ids with display names |
@@ -130,32 +130,28 @@ Factorio's ghosts and blueprint books each contribute a pattern below.
   board's checks. Each file is an IIFE that exposes `window.BP`, so it survives
   hx-boost re-execution.
 
+## Decided 2026-11-10
+
+These were the open issues. The owner answered them before the S1–S3 plan,
+`docs/manifests/2026-11-10-blueprints-editor.md`.
+
+| Issue | Chosen | Not chosen |
+|---|---|---|
+| 1. Name and URL | **Blueprints**, at `/blueprints` | `/planner`, `/plans` |
+| 2. Status vocabulary | `idea` / `planned` / `building` / `done` | adding `blocked` or `dropped` |
+| 3. Node kinds | `machine` + `blueprint` | source and sink kinds |
+| 5. Comment boxes | Later; node notes cover v1 | in v1 |
+| 6. Mismatch rule | Ignore case and whitespace | exact string compare |
+| 7. Links out | Later | in v1 |
+| 8. Demo plan | The site's request flow (`demo-plan.json`, as S0 ships it) | another subject |
+| Port layout | One port per row, outputs first | Unreal-style side-by-side rows |
+
 ## Open issues
 
-Each needs an answer from the owner before the slice that depends on it is
-planned. **Rec** is the recommended answer.
-
-1. **Name and URL.** "Blueprints" at `/blueprints`? This also names the hub
-   tile, the nav entry and the palette command.
-2. **Status vocabulary.** Is `idea / planned / building / done` right, or do
-   you want `blocked` or `dropped`?
-3. **Node kinds.** Is `machine` + `blueprint` enough, or do you want factory
-   **sources and sinks** (external input, storage, user) as their own kinds?
 4. **Token model.** Tokens minted and revoked on the page (as proposed), or a
    single env-var token for v1 that only rotates on redeploy? **Rec:** minted
    tokens. Rotation without a deploy matters once a token sits in a local
-   `.env`.
-5. **Comment boxes in v1?** Unreal-style boxes that group and label a region of
-   the canvas. **Rec:** later. Node notes cover v1.
-6. **Mismatch rule.** Should "highlight a mismatch" mean an exact string
-   compare, or should it ignore case and whitespace (`Vec<Row>` vs
-   `vec<row>`)? **Rec:** ignore case and whitespace.
-7. **Links out.** Should a node be able to point at real things: a file path,
-   a manifest, a branch, a commit? **Rec:** later, as a free `links` list on
-   the node.
-8. **The demo plan's content.** What should the visitor demo plan *plan*?
-   The site itself is a natural choice: the portfolio's request flow as
-   machines.
+   `.env`. Decided with the S4–S6 plan.
 
 ## Primer: the design guide and UI mockup artifact
 

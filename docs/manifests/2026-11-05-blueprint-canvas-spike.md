@@ -1,6 +1,8 @@
 # Blueprint planner — S0 canvas spike
 
-**Status:** merged into `dev` 2026-11-05 after the owner's go (PR #28).
+**Status:** built; PR #28 merged it into `dev` 2026-11-05, but that branch is
+gone and S0 is not on `master`. It reaches master with the S1–S3 branch
+(`docs/manifests/2026-11-10-blueprints-editor.md`).
 Branch `kepler/feat/blueprint-planning-tool`.
 
 ## Goal
