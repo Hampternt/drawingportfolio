@@ -1,6 +1,6 @@
 # Blueprints — S1–S3: model, section and editor v1
 
-**Status:** building (S1 and S2 first, then the owner's midpoint test). Tracking issue: #29.
+**Status:** building — S1 and S2 built, waiting on the owner's midpoint test before S3. Tracking issue: #29.
 Branch `kepler/feat/blueprints-editor`, cut from `kepler/feat/blueprint-planning-tool` (S0).
 
 ## Goal
@@ -207,5 +207,105 @@ Test data is made up and goes into the local dev DB only. Load it with
 no `sqlite3` CLI on this machine.
 
 ## Built
+
+### Midpoint: S1 and S2 (2026-11-14)
+
+S3 (the editor) is not started; it waits on the midpoint test.
+
+**What changed**
+
+- **Merge:** `origin/master` merged in first (`c85dbf3`). The only
+  conflict was the test-count paragraph in `CLAUDE.md`.
+- **S1, the model** (`static/blueprint-model.js`):
+  - `validate()`
+  - node and port renames that rewrite every wire naming them; a port
+    rename touches its own side only, and key order is kept
+  - port add, remove and type; status; note
+  - whole-plan counts, plus a reserved-name list checked against the engine
+  - `tests/js/blueprint-model.test.js` grows from 279 to 397 checks
+- **The shared fixture,** `tests/fixtures/blueprint-validation.json`: 49
+  cases that both validators run, so the editor and the server cannot
+  disagree on what a plan is.
+- **S2, the section:**
+  - migration `025` (`blueprint_projects`, `blueprint_plans`)
+  - `.sqlx` regenerated
+  - `OptionalOwner`, and `RequireOwner` now carrying the owner's id
+  - `src/blueprint_doc.rs`: the validator, counts and outline
+  - the routes in `src/routes/blueprint.rs`
+  - the templates in `templates/blueprint/`
+  - the hub tile, nav link, palette command, `/docs` row ("seven
+    sections") and a `layers` icon
+  - `scripts/seed-blueprints.sql`
+  - `/blueprint-spike` is gone
+- **The canvas** boots from `#bp-app` in `demo`, `read` or `edit` mode. The
+  owner's plans open in `read` until S3.
+
+**Done differently from the plan**
+
+- Visitors get a 404 on id pages, as recorded under Decisions; the plan
+  contradicted itself there.
+- `save_blueprint_plan` (the compare-and-set) is built and tested now. It
+  has no route until S3. It and four other items S3 will read carry an
+  `#[allow(dead_code)]` with a note, so clippy stays at the 18-warning
+  baseline. S3 removes the allows.
+
+**Review:** a workflow with three reviewers (gates, saved data and SQL,
+validator parity and untrusted rendering), each finding put to an
+adversarial verifier.
+
+- **Gates:** nothing found.
+- **Saved data:** nothing found.
+- **Parity:** one real defect, fixed in `833bb42`. The JS type fold used
+  `toLowerCase()` and `\s`, so Greek final sigma, U+0085 and U+FEFF folded
+  differently from Rust's, and the header's mismatch count could differ
+  from the server's outline. Four Unicode cases joined the fixture.
+- **Refuted:** two parser-limit claims (duplicate keys, lone surrogates),
+  because no text reaches the parser that could trigger them in this
+  slice. S3 sends `JSON.stringify` output, which can do neither.
+
+**Browser smoke:** headless Chrome against the worktree's server, seeded,
+with the owner signed in through a dev-only session row (since deleted).
+24 checks passed:
+
+- the demo draws 8 machines and 12 wires, with the whole-plan counts
+- in the demo, a drag, a double-click, `A`, `Delete` and a port-to-port drag
+  all change nothing
+- zoom works
+- the demo has no form
+- the hub tile and nav link both reach `/blueprints`, and `site-dark`
+  survives the boosted navigation
+- the owner sees the rail, the empty-project state, four plans and a plan
+  canvas, all read-only
+- Back from `/docs` gives one canvas, and `+` acts once
+- creating, then deleting, a project and a plan works, through
+  `hx-confirm`
+- the owner pages log no console errors
+- at phone width (390px) there is no horizontal scroll
+
+The one console error on the demo is `/favicon.ico`, the known site-wide
+404.
+
+**Full gate** (`./scripts/verify.sh`, after the last code change):
+
+```
+=== cargo fmt --check
+=== cargo clippy
+=== cargo test
+test result: ok. 397 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.12s
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 709 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.96s
+test result: ok. 255 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 19.73s
+=== node --check (static JS)
+=== node (the board suites)
+ok   docs/design/sorting-live/src/model.test.js — passed 265/265 checks
+ok   docs/design/sorting-live/src/board.test.js — passed 193/193 checks
+ok   tests/js/blueprint-model.test.js — 397 checks, all passed
+VERIFY OK — fmt, clippy, tests, JS syntax, board suites all clean.
+```
+
+The workspace has 1369 tests. That is 1339 on master, plus S0's 5, plus 25
+here. Clippy, measured clean, has 18 distinct warnings, unchanged.
+
+### End: S3
 
 _Written at handover._
