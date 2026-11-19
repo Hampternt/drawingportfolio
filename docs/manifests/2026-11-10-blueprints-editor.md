@@ -199,8 +199,41 @@ Made while building (2026-11-14), recommended options taken:
    private window). `/blueprints` is the demo, and `/blueprints/1` or
    `/blueprints/1/1` is a 404. Granting that user admin changes neither.
 
-**End (after S3):** the steps above, plus the editor walk-through. Its exact
-steps are written with the build.
+**End (after S3): ready.** The same setup as the midpoint (seed, `cargo
+run`, `http://localhost:3017`, signed in as the owner), then the editor:
+
+1. Open `drawingportfolio / scratch`, the empty plan. The "An empty plan."
+   card shows. Press **Add machine** (or `A`, or double-click the grid). A
+   machine appears and the card goes.
+2. Within a second the toolbar reads "saved · rev 2". Reload: the machine is
+   still there.
+3. Click the machine. The **Inspect** tab opens.
+   - Rename it to `ingest` and press Enter.
+   - Change the `out` type to `Vec<Row>`.
+   - **+ Add output**, then remove it with ×.
+   - Set the status to **building**: the node turns amber.
+   - Type a note; it appears on the node.
+   - A bad name (`2x`, `a.b`, `constructor`) or a taken one is refused in
+     red, and nothing changes.
+4. Drag from `ingest`'s output dot into empty grid. The add-node box opens
+   "wired to ingest.out". Type `clean` and press Enter: a machine appears
+   with an input `in: Vec<Row>`, already wired. `Esc` instead cancels.
+5. Rename `ingest` to `reader`. The wire follows: the header still reads
+   "0 dangling".
+6. `Ctrl + Z` undoes the rename and `Ctrl + Shift + Z` redoes it. Both
+   save. The **Outline** tab shows the saved plan.
+7. Drag a port onto another machine's port to wire them. Click a wire and
+   press `Delete`. Delete a machine with `Delete` or the inspector's button.
+8. **Changed elsewhere.** Open the same plan in a second tab, and make and
+   save an edit there. Back in the first tab, make any edit:
+   - the amber banner says the plan changed elsewhere, and "editing
+     paused" shows
+   - `A`, dragging and the inspector do nothing
+   - **Reload the plan** shows the other tab's version
+9. Make an edit and click "How it works" straight away, then come back. The
+   edit was saved.
+10. `request-flow` shows the demo's dashed red mismatch and amber dangling
+    stub. Editing them works the same way.
 
 Test data is made up and goes into the local dev DB only. Load it with
 `scripts/seed-blueprints.sql`, using python3's `sqlite3` module, since there is

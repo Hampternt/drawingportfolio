@@ -580,8 +580,10 @@
   }
 
   // Adds a port at the end of its side, under a free name. Returns the name.
+  // Returns the port's name, or '' when there is no such node.
   function addPort(doc, g, node, side, base, type) {
-    var n = doc.graphs[g].nodes[node];
+    var n = doc.graphs[g] && doc.graphs[g].nodes[node];
+    if (!n) return '';
     n[side] = n[side] || {};
     var name = uniqueName(n[side], base || side);
     n[side][name] = String(type == null ? 'Item' : type);

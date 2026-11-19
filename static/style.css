@@ -4968,6 +4968,7 @@ body.site-dark .bp-pop {
   box-shadow: 0 1.125rem 3rem rgba(0,0,0,.6);
 }
 body.site-dark .bp-pop[hidden] { display: none; }
+body.site-dark .bp-pop:focus-visible { box-shadow: 0 1.125rem 3rem rgba(0,0,0,.6); }
 body.site-dark .bp-pop__search {
   display: flex;
   align-items: center;

@@ -140,9 +140,12 @@
       add.type = 'button';
       add.textContent = side === 'out' ? '+ Add output' : '+ Add input';
       add.addEventListener('click', function () {
-        var count = Object.keys((nodes()[name] || {})[side] || {}).length;
+        // A click on a button from before a rename: the pending rebuild
+        // shows the machine under its new name, where it can be tapped again.
+        if (!nodes()[name]) return;
+        var count = Object.keys(nodes()[name][side] || {}).length;
         focusNext = 'port-' + side + '-' + count + '-name';
-        commit(function (d) { M.addPort(d, api.graph(), name, side, side, 'Item'); return ''; });
+        commit(function (d) { return M.addPort(d, api.graph(), name, side, side, 'Item') ? '' : 'There is no machine called ' + name + '.'; });
       });
       group.appendChild(add);
       form.appendChild(group);
@@ -296,6 +299,10 @@
       b.setAttribute('aria-selected', enabled ? 'true' : 'false');
       b.appendChild(el('span', 'bp-pop__item-label', text));
       b.appendChild(el('span', 'bp-pop__item-sub', sub));
+      // Safari and Firefox on macOS do not focus a clicked button, so the
+      // click would blur the input with nowhere inside the box to go, and
+      // focusout would close the box before the click landed.
+      b.addEventListener('mousedown', function (e) { e.preventDefault(); });
       if (enabled) b.addEventListener('click', make);
       li.appendChild(b);
       return li;

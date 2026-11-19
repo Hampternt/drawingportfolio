@@ -90,10 +90,11 @@
       var geoNodes = (doc.graphs[G] || { nodes: {} }).nodes;
       sel.forEach(function (n) { if (!geoNodes[n]) sel.delete(n); });
       if (primary && !geoNodes[primary]) primary = null;
-      if (focusPort && !geoNodes[focusPort.node]) focusPort = null;
       if (kbWire && !geoNodes[kbWire.node]) kbWire = null;
       if (selWire !== null && selWire >= doc.graphs[G].wires.length) selWire = null;
       v.render(doc, G);
+      // The port ] and [ were on may be renamed or removed, not just its node.
+      if (focusPort && !M.portXY(v.geo(), focusPort.node, focusPort.side, focusPort.port)) focusPort = null;
       if (insp) insp.refresh();
       updateSel();
       syncGhost();
@@ -296,6 +297,10 @@
       var p = local(e);
       // Keys follow the pointer into the canvas, whatever had focus before.
       if (!viewport.contains(document.activeElement)) viewport.focus({ preventScroll: true });
+      // Leaving an inspector field commits it, and a commit redraws every
+      // node, so the element under the pointer may be a new one by now.
+      var target = e.target.isConnected ? e.target : document.elementFromPoint(e.clientX, e.clientY);
+      if (!target || !viewport.contains(target)) return;
       // Shift + right-click is the browser's own menu.
       if (e.button === 2 && e.shiftKey) return;
       if (e.button === 2) { beginDrag(e, { mode: 'right', s: p, v0: view }); return; }
@@ -307,9 +312,9 @@
       }
       if (e.button !== 0) return;
 
-      var nodeEl = e.target.closest('.bp-node');
-      var portEl = e.target.closest('.bp-port');
-      var wireEl = e.target.closest('.bp-wire');
+      var nodeEl = target.closest('.bp-node');
+      var portEl = target.closest('.bp-port');
+      var wireEl = target.closest('.bp-wire');
       if (nodeEl && portEl && editable) {
         e.preventDefault();
         var from = { node: nodeEl.dataset.node, side: portEl.dataset.side, port: portEl.dataset.port };
@@ -653,8 +658,16 @@
     // send the rev that answer carries. Two saves sent from the same rev would
     // see the second refused, and the owner would get the "changed elsewhere"
     // banner for their own edit.
+    //
+    // A save counts as pending until its answer is in, whichever path sent it
+    // (the timer, a navigation, the page closing). Nothing is marked saved on
+    // the strength of a request merely having left.
+    var gone = false;        // destroyed: answers no longer touch the page
+    var waiters = [];        // settle() callers, resolved when nothing is pending
+    var outlineSeq = 0;      // only the newest outline fetch may land
+
     function setSave(state, text) {
-      if (!saveEl) return;
+      if (!saveEl || gone) return;
       saveEl.classList.remove('is-saved', 'is-pending', 'is-failed');
       saveEl.classList.add('is-' + state);
       saveTextEl.textContent = text;
@@ -668,28 +681,46 @@
       saveTimer = setTimeout(save, 700);
     }
 
+    function unsaved() { return (dirty || inFlight) && !paused; }
+
+    // Wakes settle() callers once there is nothing left to wait for: all
+    // saved, or stuck (paused, refused, failing) in a way waiting cannot fix.
+    function wake(stuck) {
+      if (inFlight || (dirty && !stuck)) return;
+      var w = waiters;
+      waiters = [];
+      w.forEach(function (f) { f(); });
+    }
+
     function retryLater() {
       failures++;
+      wake(true);
+      if (gone) return;
       clearTimeout(saveTimer);
       saveTimer = setTimeout(save, Math.min(30000, 1000 * Math.pow(2, failures)));
     }
 
-    function save() {
+    // `keepalive` lets the request outlive the page; browsers cap such a body
+    // at 64 KB, so a bigger plan goes as a plain request and relies on the
+    // page lasting long enough (a boosted navigation waits for it, below).
+    function save(keepalive) {
       saveTimer = 0;
-      if (!dirty || inFlight || paused) return;
+      if (!dirty || inFlight || paused || !saveUrl) { wake(true); return; }
       // The server refuses what this refuses; there is no point sending it.
       var errs = M.validate(doc);
-      if (errs.length) { setSave('failed', 'not saved: ' + errs[0]); return; }
+      if (errs.length) { setSave('failed', 'not saved: ' + errs[0]); wake(true); return; }
       var body = JSON.stringify(doc);
       dirty = false;
       inFlight = true;
       setSave('pending', 'saving…');
-      fetch(saveUrl, {
+      var opts = {
         method: 'PUT',
         credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json', 'If-Match': '"' + rev + '"' },
         body: body,
-      }).then(function (res) {
+      };
+      if (keepalive && body.length < 60000) opts.keepalive = true;
+      fetch(saveUrl, opts).then(function (res) {
         return res.json().catch(function () { return null; }).then(function (j) { return { res: res, j: j }; });
       }).then(function (r) {
         inFlight = false;
@@ -698,22 +729,26 @@
           rev = j.rev;
           rootEl.dataset.rev = String(rev);
           failures = 0;
-          var railRev = document.querySelector('.bp-rail__plan[aria-current="page"] .bp-rail__rev');
-          if (railRev) railRev.textContent = 'rev ' + rev;
-          refreshOutline();
-          if (dirty) save();
-          else setSave('saved', 'saved · rev ' + rev);
+          // Searched inside this page's own root: an answer arriving after a
+          // navigation must not write onto the next page's rail.
+          var railRev = rootEl.querySelector('.bp-rail__plan[aria-current="page"] .bp-rail__rev');
+          if (railRev && !gone) railRev.textContent = 'rev ' + rev;
+          if (!gone) refreshOutline();
+          if (dirty) { save(keepalive); return; }
+          setSave('saved', 'saved · rev ' + rev);
+          wake(false);
           return;
         }
         dirty = true;
-        if (res.status === 412) { pause(j && j.rev); return; }
+        if (res.status === 412) { pause(j && j.rev); wake(true); return; }
         if (res.status === 400 || res.status === 413) {
           setSave('failed', 'not saved: ' + ((j && j.errors && j.errors[0]) || 'the server refused the plan'));
+          wake(true);
           return;
         }
         if (res.redirected || res.status === 401 || res.status === 404) {
           // Signed out (the save was sent to the login page) or the plan is
-          // gone. Retrying would not help; saying so does.
+          // gone. Saying so is what helps; the retry is in case it comes back.
           setSave('failed', 'not saved: ' + (res.status === 404 ? 'this plan no longer exists' : 'signed out — sign in again in another tab'));
           retryLater();
           return;
@@ -728,12 +763,34 @@
       });
     }
 
+    // Resolves once every edit so far has an answer, or once waiting cannot
+    // help, and never later than `ms`: a navigation waits on it, and must
+    // never be held forever.
+    function settle(ms) {
+      commitFocused();
+      return new Promise(function (resolve) {
+        if (!unsaved()) { resolve(); return; }
+        var t = setTimeout(resolve, ms || 4000);
+        waiters.push(function () { clearTimeout(t); resolve(); });
+        clearTimeout(saveTimer);
+        if (!inFlight) save(true);
+      });
+    }
+
+    // A field typed in but not committed is not an edit yet. Leaving it fires
+    // its `change`, which commits it; done before anything asks "unsaved?".
+    function commitFocused() {
+      var a = document.activeElement;
+      if (a && a !== viewport && rootEl.contains(a) && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA')) a.blur();
+    }
+
     // A 412: someone (the AI, another tab) saved first. This tab stops editing
     // and saving; the banner's one action is Reload.
     function pause(current) {
       paused = true;
       editable = false;
       clearTimeout(saveTimer);
+      if (gone) return;
       if (pop) pop.close(true);
       setSave('failed', 'not saved · editing paused');
       var banner = rootEl.querySelector('#bp-banner');
@@ -752,14 +809,15 @@
 
     // The outline beside the canvas is the server's rendering, so it is
     // fetched again after each save rather than drawn a second time here.
+    // Saves back to back fetch it twice; only the newer answer lands.
     function refreshOutline() {
-      var cur = rootEl.querySelector('#bp-outline');
-      if (!outlineUrl || !cur) return;
+      if (!outlineUrl || !rootEl.querySelector('#bp-outline')) return;
+      var mine = ++outlineSeq;
       fetch(outlineUrl, { credentials: 'same-origin' }).then(function (res) {
         return res.ok ? res.text() : null;
       }).then(function (html) {
         var now = rootEl.querySelector('#bp-outline');
-        if (!html || !now) return;
+        if (!html || !now || gone || mine !== outlineSeq) return;
         var t = document.createElement('template');
         t.innerHTML = html.trim();
         var fresh = t.content.querySelector('#bp-outline');
@@ -767,35 +825,33 @@
       }).catch(function () {});
     }
 
-    // Sends what is not saved yet, without waiting for an answer: the page is
-    // going away. keepalive lets the request outlive it (up to 64 KB; a larger
-    // plan relies on the autosave having run, 0.7 s after the last edit).
+    // The page is going away (closing, reloading, a link htmx does not
+    // boost): send what is not saved through the normal path, as keepalive.
+    // It stays pending until answered, so beforeunload can still ask.
     function flush() {
+      commitFocused();
       if (!dirty || inFlight || paused || !saveUrl) return;
-      if (M.validate(doc).length) return;
-      try {
-        fetch(saveUrl, {
-          method: 'PUT', credentials: 'same-origin', keepalive: true,
-          headers: { 'Content-Type': 'application/json', 'If-Match': '"' + rev + '"' },
-          body: JSON.stringify(doc),
-        });
-        dirty = false;
-      } catch (err) { /* nothing left to tell */ }
+      clearTimeout(saveTimer);
+      save(true);
     }
 
     // ── The editor's API, for the inspector and the add-node box ─────────────
     // One edit, one undo step: `fn` changes the document and returns '' or an
     // error sentence. An error puts the document back exactly as it was.
+    // `fn` works on a copy, which replaces the document only on success: a
+    // refusal leaves the very object the view is drawing untouched.
     function edit(fn) {
       if (!editable) return 'Editing is paused.';
       var before = JSON.stringify(doc);
-      var err = fn(doc);
-      if (err) { doc = JSON.parse(before); return err; }
-      if (JSON.stringify(doc) === before) return '';
+      var work = JSON.parse(before);
+      var err = fn(work);
+      if (err) return err;
+      if (JSON.stringify(work) === before) return '';
       undo.push(before);
       if (undo.length > 200) undo.shift();
       redo = [];
       arrowRunAt = 0;
+      doc = work;
       rerender();
       changed();
       return '';
@@ -867,10 +923,12 @@
       destroy: function () {
         if (frame) cancelAnimationFrame(frame);
         drag = null;
-        clearTimeout(saveTimer);
         flush();
+        gone = true;
+        clearTimeout(saveTimer);
       },
-      unsaved: function () { return (dirty || inFlight) && !paused; },
+      unsaved: unsaved,
+      settle: settle,
       flush: flush,
     };
   }
@@ -889,16 +947,28 @@
   if (!BP.bound) {
     BP.bound = true;
     document.addEventListener('htmx:afterSwap', function () { if (BP.tryBoot) BP.tryBoot(); });
+    // A boosted navigation waits for unsaved edits to be answered before its
+    // request goes: otherwise the next page (this same plan, even) could be
+    // rendered from before the edit, at the old rev. settle() never holds
+    // it for more than a few seconds.
+    document.addEventListener('htmx:confirm', function (e) {
+      var app = BP.app;
+      if (!app || !app.unsaved() || !e.detail || !e.detail.issueRequest) return;
+      e.preventDefault();
+      app.settle(4000).then(function () { e.detail.issueRequest(true); });
+    });
+    // Only a swap that will really happen takes the canvas down: htmx fires
+    // beforeSwap for a 404 or a 502 too, and then leaves the page as it was.
     document.addEventListener('htmx:beforeSwap', function (e) {
-      if (e.target !== document.body || !BP.app) return;
+      if (e.target !== document.body || !BP.app || (e.detail && e.detail.shouldSwap === false)) return;
       BP.app.destroy();
       BP.app = null;
     });
     // A full navigation (the address bar, a reload, a link htmx does not
-    // boost) sends what is not saved, and asks first if a save is still out.
+    // boost): send what is not saved, and ask first while it is unanswered.
     window.addEventListener('pagehide', function () { if (BP.app) BP.app.flush(); });
     window.addEventListener('beforeunload', function (e) {
-      if (!BP.app || !BP.app.unsaved()) return;
+      if (!BP.app) return;
       BP.app.flush();
       if (BP.app.unsaved()) { e.preventDefault(); e.returnValue = ''; }
     });

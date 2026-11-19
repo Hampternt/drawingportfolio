@@ -352,6 +352,7 @@ function canvasMeasure(name, n, doc) {
   eq(doc.graphs.main.nodes.nginx.in.in, 'Item', 'is Item');
   const bare = { v: 1, root: 'main', graphs: { main: { nodes: { b: { kind: 'machine' } }, wires: [] } }, layout: {} };
   eq(M.addPort(bare, 'main', 'b', 'out', 'out', 'T'), 'out', 'a node with no ports gets its first');
+  eq(M.addPort(bare, 'main', 'gone', 'out', 'out', 'T'), '', 'a missing node gets nothing, and nothing throws');
 
   eq(M.setPortType(doc, 'main', 'render', 'in', 'rows', 'Vec<Clean>'), '', 'setPortType');
   eq(M.summarizeDoc(doc).mismatch, 2, 'and a changed type shows up as a mismatch');
