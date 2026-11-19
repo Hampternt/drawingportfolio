@@ -192,7 +192,8 @@ Tracking issue: #29.
 - ✅ S0 canvas spike — pan, zoom, drag and wiring, nothing saved:
   `docs/manifests/2026-11-05-blueprint-canvas-spike.md`
 - 🚧 S1–S3: the model, the section (projects and plans, the public demo) and
-  the editor with autosave: `docs/manifests/2026-11-10-blueprints-editor.md`
+  the editor with autosave — built, waiting on the owner's test before it
+  merges: `docs/manifests/2026-11-10-blueprints-editor.md`
 - 💭 S4–S6: the AI read and write API behind a token, and revisions. Waits on
   open issue 4 (the token model) and its own plan.
 

@@ -1,6 +1,6 @@
 # Blueprints — S1–S3: model, section and editor v1
 
-**Status:** building — S1 and S2 built, waiting on the owner's midpoint test before S3. Tracking issue: #29.
+**Status:** built — S1–S3 done and through the full gate; waiting on the owner's test (both rounds below) before it merges. Tracking issue: #29.
 Branch `kepler/feat/blueprints-editor`, cut from `kepler/feat/blueprint-planning-tool` (S0).
 
 ## Goal
@@ -339,6 +339,138 @@ VERIFY OK — fmt, clippy, tests, JS syntax, board suites all clean.
 The workspace has 1369 tests. That is 1339 on master, plus S0's 5, plus 25
 here. Clippy, measured clean, has 18 distinct warnings, unchanged.
 
-### End: S3
+### End: S3 (2026-11-19)
 
-_Written at handover._
+The owner asked for the build to run to the end and be tested once, so the
+midpoint test was folded into the final one. Commits `59937c5` (the
+editor) and `86794e3` (the review's fixes).
+
+**What changed**
+
+- **The save:** `PUT /api/blueprints/{project}/{plan}`, `RequireOwner`.
+  - `If-Match` is required: 428 without it, and it takes a bare, quoted or
+    weak rev.
+  - A stale rev gets 412 with the current rev and writes nothing.
+  - An unreadable plan gets 400 listing every problem; one over 1 MB gets
+    413.
+  - The text is stored byte for byte, and the answer carries the new rev
+    and the whole-plan counts.
+  - The `allow(dead_code)`s from the midpoint are gone.
+- **The outline fragment:** `GET …/{plan}/outline` serves the Askama outline
+  on its own, and the editor swaps it in after a save.
+- **The plan page now opens in edit mode** (`templates/blueprint/plan.html`):
+  - undo, redo and Add machine in the toolbar
+  - the empty-plan card
+  - the Inspect and Outline tabs
+  - the "changed elsewhere" banner, whose only action is Reload
+- **`static/blueprint-inspector.js`** (new):
+  - **The inspector:** name (a rename rewrites the wires), ports and type
+    labels, add and remove port, status, note, delete. A field commits on
+    `change`, as one undo step.
+  - **The add-node box:** a wire dropped on empty grid makes the machine at
+    the other end, already wired (`addWiredNode` in the model).
+- **Autosave** (`static/blueprint-app.js`):
+  - Every edit goes through `edit(fn)`.
+  - One save is in flight at a time, and each sends the rev the last
+    answer returned.
+  - A 412 pauses editing.
+  - A save stays pending until it is answered.
+  - A boosted navigation waits (at most 4 s) for unsaved edits.
+  - Closing the tab sends them as `keepalive`, and the browser asks before
+    leaving while a save is still unanswered.
+
+**Done differently from the plan**
+
+- The two test rounds became one, at the owner's request.
+- Kind stays read-only in the inspector, as recorded under Decisions.
+- The `read` mode is kept but no page uses it now: the owner's plans open
+  in `edit`.
+
+**Review:** a workflow with three reviewers (the server's save path, the
+autosave state machine, the editor UI), each finding put to an adversarial
+verifier. 15 findings: 13 confirmed, all in the browser code, and all fixed
+in `86794e3`. The server's save path had none.
+
+- **High:** `flush()` marked edits saved as soon as its keepalive request
+  left. A failing or oversized flush then lost them, and the browser's "leave
+  site?" prompt never appeared.
+- **Medium:**
+  - The canvas was torn down even on a navigation htmx did not swap (404,
+    5xx). The tab was then left with a stale rev, so the next edit got a 412
+    for the owner's own save.
+  - A boosted navigation to the same plan rendered the version from before
+    the edit.
+  - Text typed in an inspector field but not committed was lost on reload.
+  - A refused edit left the view drawing a document that was no longer the
+    current one.
+  - Clicking the canvas while an inspector field was being edited threw a
+    TypeError.
+  - A stale "Add output" click after a rename threw a TypeError.
+- **Low:**
+  - A renamed port could leave the keyboard's port focus dangling.
+  - On Safari and Firefox (macOS), clicking an item closed the add-node box
+    without adding anything.
+  - An answer arriving after a navigation could write onto the next page's
+    rail.
+- **Refuted:** outline fetches arriving out of order, twice. It is fixed
+  anyway with a sequence counter, which costs two lines.
+
+**Browser smoke:** headless Chrome against the worktree's server, seeded,
+with the owner signed in through a dev-only session row (since deleted).
+Three scripts, 56 checks in all, all passing:
+
+- **The editor, 32 checks:**
+  - add, autosave, and a reload that keeps the edits
+  - in the inspector: rename, type label, add and remove a port, status,
+    note
+  - the add-node box, and a rename that keeps its wire
+  - undo and redo
+  - the server outline after a save
+  - an edit just before a boosted navigation is saved
+  - Delete
+  - a second writer's save produces the banner, editing pauses, and Reload
+    shows that writer's version
+- **The review's fixes, 11 checks:**
+  - a boosted reload of the same plan straight after an edit shows the edit
+  - a 404 navigation leaves the editor running
+  - neither of those leads to a 412 on the next save
+  - clicking the canvas commits a typed rename, with no TypeError
+  - after a refused rename, a drag still moves the machine
+  - a note typed but not committed survives a reload
+  - clicking Machine in the add-node box adds it
+- **Read-only and navigation, 13 checks:**
+  - in the demo, drags, keys and wire drops change nothing and nothing is
+    sent
+  - boosted navigation and Back give one canvas
+  - no horizontal scroll at phone width
+
+The only console errors are expected ones: the known `/favicon.ico` 404, the
+deliberate 412, and htmx's log line for the deliberate 404.
+
+**Full gate** (`./scripts/verify.sh`, after the last code change, from a
+clean build of the crate):
+
+```
+=== cargo fmt --check
+=== cargo clippy
+=== cargo test
+test result: ok. 403 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.77s
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 709 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.01s
+test result: ok. 255 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 20.73s
+=== node --check (static JS)
+=== node (the board suites)
+ok   docs/design/sorting-live/src/model.test.js — passed 265/265 checks
+ok   docs/design/sorting-live/src/board.test.js — passed 193/193 checks
+ok   tests/js/blueprint-model.test.js — 413 checks, all passed
+VERIFY OK — fmt, clippy, tests, JS syntax, board suites all clean.
+```
+
+The workspace has 1375 tests: 1339 on master, plus S0's 5, plus 31 from
+S1–S3. The model has 413 checks. Clippy, measured clean, still has 18
+distinct warnings. `CLAUDE.md` and `/docs`' `WORKSPACE_TESTS` carry the new
+count.
+
+**Not this plan's:** `static/sorting-app.js` has the same `htmx:beforeSwap`
+pattern the review flagged (teardown without checking `shouldSwap`). Not
+changed here.
