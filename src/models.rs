@@ -514,17 +514,13 @@ pub struct BlueprintPlanSummary {
 }
 
 /// A plan, whole. `payload` is the document exactly as the browser sent it;
-/// [`crate::blueprint_doc`] owns its shape.
-// S3's save route reads this; the allow goes when it lands.
-#[allow(dead_code)]
+/// [`crate::blueprint_doc`] owns its shape. Its ids are the ones the caller
+/// asked for, so they are not repeated here.
 #[derive(Debug, Clone)]
 pub struct BlueprintPlan {
-    pub id: i64,
-    pub project_id: i64,
     pub name: String,
     pub payload: String,
     pub rev: i64,
-    pub updated_at: String,
 }
 
 /// What a create or rename came to.
@@ -539,8 +535,6 @@ pub enum BlueprintNameOutcome {
 
 /// What a save came to. The save is one compare-and-set, so there is no
 /// window between checking the rev and writing.
-// S3's save route reads this; the allow goes when it lands.
-#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BlueprintSaveOutcome {
     /// Stored as this new rev.

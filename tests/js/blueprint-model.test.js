@@ -374,5 +374,36 @@ function canvasMeasure(name, n, doc) {
   eq(M.validate(doc), [], 'the result still validates');
 }
 
+// ── 17. A wire dragged into empty space makes the machine at its other end ──
+{
+  const doc = M.clone(DEMO);
+  const r = M.addWiredNode(doc, 'main', { node: 'render', side: 'out', port: 'html' }, [90, 10], 'browser');
+  eq(r, { name: 'browser' }, 'addWiredNode from an output');
+  const n = doc.graphs.main.nodes.browser;
+  eq([n.kind, n.status, n.in, n.out], ['machine', 'idea', { html: 'Html' }, {}], 'one input, named and typed like the output');
+  ok(doc.graphs.main.wires.some((w) => w[0] === 'render.html' && w[1] === 'browser.html'), 'already wired');
+  const dot = M.portXY(M.geometry(doc, 'main'), 'browser', 'in', 'html');
+  ok(Math.abs(dot[0] - 90) <= 0.5 && Math.abs(dot[1] - 10) <= 0.5, 'its dot lands at the drop point, to the grid');
+  eq(M.summarizeDoc(doc).mismatch, 1, 'and adds no mismatch');
+
+  const up = M.addWiredNode(doc, 'main', { node: 'nginx', side: 'in', port: 'https' }, [-10, 8], 'client');
+  eq(up, { name: 'client' }, 'addWiredNode from an input');
+  eq(doc.graphs.main.nodes.client.out, { https: 'Request' }, 'makes the upstream machine, with an output');
+  ok(doc.graphs.main.wires.some((w) => w[0] === 'client.https' && w[1] === 'nginx.https'), 'wired out to in');
+
+  eq(M.addWiredNode(doc, 'main', { node: 'render', side: 'out', port: 'html' }, [0, 0], 'router'), { error: 'There is already a node called router.' }, 'a taken name is refused');
+  ok(/starts with a letter/.test(M.addWiredNode(doc, 'main', { node: 'render', side: 'out', port: 'html' }, [0, 0], '1x').error), 'a bad name is refused');
+  ok(/no out port/.test(M.addWiredNode(doc, 'main', { node: 'render', side: 'out', port: 'nope' }, [0, 0], 'x').error), 'a missing port is refused');
+  eq(M.validate(doc), [], 'the result still validates');
+
+  // The generic names swap rather than read "in: out".
+  const g2 = { v: 1, root: 'main', graphs: { main: { nodes: { a: { kind: 'machine', in: { in: 'T' }, out: { out: 'T' } } }, wires: [] } }, layout: { 'main/a': [0, 0] } };
+  M.addWiredNode(g2, 'main', { node: 'a', side: 'out', port: 'out' }, [30, 0], 'b');
+  eq(g2.graphs.main.nodes.b.in, { in: 'T' }, 'from an output called out comes an input called in');
+  M.addWiredNode(g2, 'main', { node: 'a', side: 'in', port: 'in' }, [-30, 0], 'c');
+  eq(g2.graphs.main.nodes.c.out, { out: 'T' }, 'and from an input called in, an output called out');
+  eq(g2.graphs.main.wires, [['a.out', 'b.in'], ['c.out', 'a.in']], 'both wired');
+}
+
 console.log((fails ? fails + ' FAILED, ' : '') + checks + ' checks' + (fails ? '' : ', all passed'));
 process.exitCode = fails ? 1 : 0;

@@ -28,16 +28,19 @@ use crate::{
     blueprint_doc::{self, Outline, Summary},
     db,
     middleware::{OptionalAdmin, OptionalOwner, RequireOwner},
-    models::{BlueprintNameOutcome, BlueprintPlanSummary, BlueprintProject, UserId},
+    models::{
+        BlueprintNameOutcome, BlueprintPlanSummary, BlueprintProject, BlueprintSaveOutcome, UserId,
+    },
     AppState,
 };
 use askama::Template;
 use axum::{
-    extract::{Path, Query, State},
-    http::StatusCode,
+    body::Bytes,
+    extract::{DefaultBodyLimit, Path, Query, State},
+    http::{header, HeaderMap, StatusCode},
     response::{Html, IntoResponse, Redirect, Response},
-    routing::{get, post},
-    Form, Router,
+    routing::{get, post, put},
+    Form, Json, Router,
 };
 use serde::Deserialize;
 use std::sync::Arc;
@@ -178,13 +181,16 @@ struct PlanTemplate {
     is_admin: bool,
     rail: Vec<RailProject>,
     project: BlueprintProject,
-    // S3's save URL is built from this; the allow goes when it lands.
-    #[allow(dead_code)]
-    plan_id: i64,
     plan_name: String,
     rev: i64,
-    /// Whether the canvas edits and saves. Read-only until slice S3.
+    /// Whether the canvas edits and saves: always, for the owner's own plan.
+    /// The template keeps the flag so the keys help and the toolbar can say
+    /// what this page can do.
     editable: bool,
+    /// Where the editor PUTs the document.
+    save_url: String,
+    /// Where the editor fetches the outline from after a save.
+    outline_url: String,
     summary: Summary,
     doc_json: String,
     outline: Outline,
@@ -286,10 +292,11 @@ async fn plan_page(
             is_admin: true,
             rail: rail(&state, owner, Some(pid), Some(plid)).await,
             project,
-            plan_id: plan.id,
             plan_name: plan.name,
             rev: plan.rev,
-            editable: false,
+            editable: true,
+            save_url: format!("/api/blueprints/{pid}/{plid}"),
+            outline_url: format!("/blueprints/{pid}/{plid}/outline"),
             summary: outline.summary,
             doc_json: script_safe(&plan.payload),
             outline,
@@ -428,6 +435,116 @@ async fn delete_plan(
     }
 }
 
+// ── The editor: the outline fragment and the save ───────────────────────────
+
+/// The outline on its own, for the editor to swap in after a save.
+#[derive(Template)]
+#[template(path = "blueprint/partials/outline.html")]
+struct OutlineTemplate {
+    outline: Outline,
+}
+
+async fn outline_fragment(
+    OptionalOwner(owner): OptionalOwner,
+    State(state): State<Arc<AppState>>,
+    Path((project, plan)): Path<(String, String)>,
+) -> Response {
+    let (Some(owner), Some(pid), Some(plid)) = (owner, path_id(&project), path_id(&plan)) else {
+        return not_found();
+    };
+    let Some(plan) = db::get_blueprint_plan(&state.pool, pid, plid, owner).await else {
+        return not_found();
+    };
+    let Ok(doc) = blueprint_doc::parse(&plan.payload) else {
+        return not_found();
+    };
+    Html(
+        OutlineTemplate {
+            outline: blueprint_doc::outline(&doc),
+        }
+        .render()
+        .unwrap(),
+    )
+    .into_response()
+}
+
+/// The rev an `If-Match` header names: `14`, `"14"` or `W/"14"`. Anything
+/// else, `*` included, is no rev at all, and the save is refused with 428.
+fn if_match(headers: &HeaderMap) -> Option<i64> {
+    let raw = headers.get(header::IF_MATCH)?.to_str().ok()?.trim();
+    let raw = raw.strip_prefix("W/").unwrap_or(raw);
+    let raw = raw
+        .strip_prefix('"')
+        .and_then(|r| r.strip_suffix('"'))
+        .unwrap_or(raw);
+    raw.parse::<i64>().ok().filter(|n| *n > 0)
+}
+
+fn json_error(status: StatusCode, errors: Vec<String>) -> Response {
+    (status, Json(serde_json::json!({ "errors": errors }))).into_response()
+}
+
+fn with_etag(status: StatusCode, rev: i64, body: serde_json::Value) -> Response {
+    (status, [(header::ETAG, format!("\"{rev}\""))], Json(body)).into_response()
+}
+
+/// `PUT /api/blueprints/{project}/{plan}`: the whole document, as text.
+///
+/// - `If-Match: <rev>` is required (428 without it). The save is one
+///   compare-and-set in `db::save_blueprint_plan`: a stale rev changes nothing
+///   and gets `412` with the current rev, and the page shows its "changed
+///   elsewhere" banner. There is no last-write-wins.
+/// - A document that cannot be read is refused with `400` and every problem.
+///   Dangling wires and mismatches are counted in the answer, never refused.
+/// - The text is stored exactly as sent: key order is a port's row.
+async fn save_plan(
+    RequireOwner(owner): RequireOwner,
+    State(state): State<Arc<AppState>>,
+    Path((project, plan)): Path<(String, String)>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    let (Some(pid), Some(plid)) = (path_id(&project), path_id(&plan)) else {
+        return not_found();
+    };
+    if body.len() > blueprint_doc::MAX_PAYLOAD {
+        return json_error(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            vec!["the plan is larger than 1 MB".into()],
+        );
+    }
+    let Some(if_rev) = if_match(&headers) else {
+        return json_error(
+            StatusCode::PRECONDITION_REQUIRED,
+            vec!["send If-Match with the rev this edit started from".into()],
+        );
+    };
+    let Ok(text) = std::str::from_utf8(&body) else {
+        return json_error(
+            StatusCode::BAD_REQUEST,
+            vec!["the plan is not UTF-8".into()],
+        );
+    };
+    let doc = match blueprint_doc::parse(text) {
+        Ok(doc) => doc,
+        Err(errors) => return json_error(StatusCode::BAD_REQUEST, errors),
+    };
+    let summary = blueprint_doc::summarize(&doc);
+    match db::save_blueprint_plan(&state.pool, pid, plid, owner, text, if_rev).await {
+        BlueprintSaveOutcome::Saved(rev) => with_etag(
+            StatusCode::OK,
+            rev,
+            serde_json::json!({ "rev": rev, "summary": summary }),
+        ),
+        BlueprintSaveOutcome::Stale(rev) => with_etag(
+            StatusCode::PRECONDITION_FAILED,
+            rev,
+            serde_json::json!({ "rev": rev, "errors": ["this plan changed elsewhere"] }),
+        ),
+        BlueprintSaveOutcome::Missing => not_found(),
+    }
+}
+
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/blueprints", get(index).post(create_project))
@@ -438,6 +555,16 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/blueprints/{project}/{plan}", get(plan_page))
         .route("/blueprints/{project}/{plan}/rename", post(rename_plan))
         .route("/blueprints/{project}/{plan}/delete", post(delete_plan))
+        .route(
+            "/blueprints/{project}/{plan}/outline",
+            get(outline_fragment),
+        )
+        .route(
+            "/api/blueprints/{project}/{plan}",
+            // A little over the cap, so an oversized plan reaches the handler
+            // and gets its JSON 413 rather than the extractor's plain one.
+            put(save_plan).layer(DefaultBodyLimit::max(blueprint_doc::MAX_PAYLOAD + 1024)),
+        )
 }
 
 #[cfg(test)]
@@ -601,6 +728,32 @@ mod tests {
             let in_page = |t: &str| t.contains(&format!(r#"id="{id}""#));
             assert!(in_page(DEMO) || in_page(CANVAS), "the demo lost #{id}");
             assert!(in_page(PLAN) || in_page(CANVAS), "the plan page lost #{id}");
+        }
+        // The editor's own ids, read by blueprint-app.js or blueprint-inspector.js.
+        const INSPECTOR: &str = include_str!("../../static/blueprint-inspector.js");
+        for id in [
+            "bp-save",
+            "bp-save-text",
+            "bp-empty",
+            "bp-banner",
+            "bp-banner-detail",
+            "bp-reload",
+            "bp-inspector",
+            "bp-outline-wrap",
+            "bp-pop",
+            "bp-pop-name",
+            "bp-pop-label",
+            "bp-pop-items",
+            "bp-pop-error",
+        ] {
+            assert!(
+                APP.contains(&format!("'#{id}'")) || INSPECTOR.contains(&format!("'#{id}'")),
+                "no script reads #{id}"
+            );
+            assert!(
+                PLAN.contains(&format!(r#"id="{id}""#)),
+                "the plan page lost #{id}"
+            );
         }
         for class in [
             "bp-viewport",
@@ -769,7 +922,14 @@ mod tests {
         )
         .await;
         assert_eq!(status, StatusCode::OK);
-        assert!(html.contains(r#"id="bp-app" data-mode="read" data-rev="1""#));
+        assert!(html.contains(&format!(
+            r#"id="bp-app" data-mode="edit" data-rev="1" data-save="/api/blueprints/{0}/{1}" data-outline="/blueprints/{0}/{1}/outline""#,
+            w.pid, w.plid
+        )));
+        // The editor's pieces, and the banner, which starts hidden.
+        assert!(html.contains(r#"id="bp-banner" role="alert" hidden"#));
+        assert!(html.contains(r#"id="bp-inspector""#));
+        assert!(html.contains("/static/blueprint-inspector.js?v="));
         assert!(html.contains(r#"<script type="application/json" id="bp-doc">"#));
         assert!(html.contains("11 machines · 14 wires · 1 dangling · 1 mismatch"));
         assert!(
@@ -944,5 +1104,236 @@ mod tests {
         let (_, _, html) = send(&w.app, get(&format!("/blueprints/{id}"), Some(OWNER))).await;
         assert!(html.contains("No plans in this project yet."));
         assert!(html.contains(&format!(r#"action="/blueprints/{id}/plans""#)));
+    }
+
+    // ── The save ────────────────────────────────────────────────────────────
+
+    fn put(uri: &str, cookie: Option<&str>, if_match: Option<&str>, body: &str) -> Request<Body> {
+        let mut b = Request::builder()
+            .method("PUT")
+            .uri(uri)
+            .header("content-type", "application/json");
+        if let Some(c) = cookie {
+            b = b.header("cookie", c);
+        }
+        if let Some(m) = if_match {
+            b = b.header("if-match", m);
+        }
+        b.body(Body::from(body.to_string())).unwrap()
+    }
+
+    fn json(body: &str) -> serde_json::Value {
+        serde_json::from_str(body).unwrap_or_else(|_| panic!("not JSON: {body}"))
+    }
+
+    #[tokio::test]
+    async fn test_a_save_stores_the_text_and_answers_with_the_new_rev() {
+        let w = world().await;
+        let uri = format!("/api/blueprints/{}/{}", w.pid, w.plid);
+        // Ports in an order serde_json's own map would sort: z before a.
+        let doc = r#"{"v":1,"root":"main","graphs":{"main":{"nodes":{"m":{"kind":"machine","out":{"z":"T","a":"T"}}},"wires":[["m.z","gone.x"]]}},"layout":{"main/m":[2,3]}}"#;
+        let resp = w
+            .app
+            .clone()
+            .oneshot(put(&uri, Some(OWNER), Some(r#""1""#), doc))
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(resp.headers()["etag"], r#""2""#);
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let j = json(std::str::from_utf8(&body).unwrap());
+        assert_eq!(j["rev"], 2);
+        // The dangling wire is counted and the save still lands.
+        assert_eq!(
+            j["summary"],
+            serde_json::json!({"nodes":1,"wires":1,"dangling":1,"mismatch":0})
+        );
+        let plan = db::get_blueprint_plan(&w.pool, w.pid, w.plid, w.owner)
+            .await
+            .unwrap();
+        assert_eq!(
+            (plan.payload.as_str(), plan.rev),
+            (doc, 2),
+            "stored byte for byte"
+        );
+
+        // A bare rev works as well as a quoted one, and so does a weak one.
+        let (status, _, _) = send(&w.app, put(&uri, Some(OWNER), Some("2"), doc)).await;
+        assert_eq!(status, StatusCode::OK);
+        let (status, _, _) = send(&w.app, put(&uri, Some(OWNER), Some(r#"W/"3""#), doc)).await;
+        assert_eq!(status, StatusCode::OK);
+
+        // The outline fragment shows the saved plan, in its own key order.
+        let (status, _, html) = send(
+            &w.app,
+            get(
+                &format!("/blueprints/{}/{}/outline", w.pid, w.plid),
+                Some(OWNER),
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            html.contains(r#"<div class="bp-outline" id="bp-outline""#),
+            "{html}"
+        );
+        assert!(html.contains("out: z: T → gone.x; a: T"), "{html}");
+        assert!(!html.contains("<html"), "a fragment, not a page");
+    }
+
+    /// The rule that keeps last-write-wins out: a save from an old rev is
+    /// refused with the current rev, and changes nothing.
+    #[tokio::test]
+    async fn test_a_stale_save_is_refused_with_412_and_changes_nothing() {
+        let w = world().await;
+        let uri = format!("/api/blueprints/{}/{}", w.pid, w.plid);
+        let (status, _, _) = send(
+            &w.app,
+            put(&uri, Some(OWNER), Some("1"), blueprint_doc::EMPTY_PLAN),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let resp = w
+            .app
+            .clone()
+            .oneshot(put(&uri, Some(OWNER), Some("1"), DEMO_PLAN))
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::PRECONDITION_FAILED);
+        assert_eq!(resp.headers()["etag"], r#""2""#);
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        assert_eq!(json(std::str::from_utf8(&body).unwrap())["rev"], 2);
+        let plan = db::get_blueprint_plan(&w.pool, w.pid, w.plid, w.owner)
+            .await
+            .unwrap();
+        assert_eq!(
+            (plan.payload.as_str(), plan.rev),
+            (blueprint_doc::EMPTY_PLAN, 2)
+        );
+    }
+
+    #[tokio::test]
+    async fn test_a_save_without_a_usable_if_match_is_refused_with_428() {
+        let w = world().await;
+        let uri = format!("/api/blueprints/{}/{}", w.pid, w.plid);
+        for m in [
+            None,
+            Some("*"),
+            Some(""),
+            Some("abc"),
+            Some("0"),
+            Some("-1"),
+            Some(r#""1"#),
+        ] {
+            let (status, _, body) =
+                send(&w.app, put(&uri, Some(OWNER), m, blueprint_doc::EMPTY_PLAN)).await;
+            assert_eq!(status, StatusCode::PRECONDITION_REQUIRED, "{m:?}");
+            assert!(json(&body)["errors"][0]
+                .as_str()
+                .unwrap()
+                .contains("If-Match"));
+        }
+        let plan = db::get_blueprint_plan(&w.pool, w.pid, w.plid, w.owner)
+            .await
+            .unwrap();
+        assert_eq!(plan.rev, 1, "nothing was written");
+    }
+
+    #[tokio::test]
+    async fn test_a_plan_that_cannot_be_read_is_refused_with_every_problem() {
+        let w = world().await;
+        let uri = format!("/api/blueprints/{}/{}", w.pid, w.plid);
+        let bad = r#"{"v":1,"root":"main","graphs":{"main":{"nodes":{"a":{"kind":"source"},"b":{"kind":"machine","status":"blocked"}},"wires":[["a","b.x"]]}}}"#;
+        let (status, _, body) = send(&w.app, put(&uri, Some(OWNER), Some("1"), bad)).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(json(&body)["errors"].as_array().unwrap().len(), 3, "{body}");
+        let (status, _, _) = send(&w.app, put(&uri, Some(OWNER), Some("1"), "{ not json")).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        // Too large: refused before it is parsed.
+        let huge = format!(r#"{{"pad":"{}"}}"#, "x".repeat(blueprint_doc::MAX_PAYLOAD));
+        let (status, _, body) = send(&w.app, put(&uri, Some(OWNER), Some("1"), &huge)).await;
+        assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE);
+        assert!(json(&body)["errors"][0].as_str().unwrap().contains("1 MB"));
+        let plan = db::get_blueprint_plan(&w.pool, w.pid, w.plid, w.owner)
+            .await
+            .unwrap();
+        assert_eq!(plan.rev, 1, "nothing was written");
+    }
+
+    #[tokio::test]
+    async fn test_saves_and_the_outline_are_refused_to_everyone_but_the_owner() {
+        let w = world().await;
+        let uri = format!("/api/blueprints/{}/{}", w.pid, w.plid);
+        let outline = format!("/blueprints/{}/{}/outline", w.pid, w.plid);
+        // No session: the login answer, never the handler.
+        let (status, location, _) = send(
+            &w.app,
+            put(&uri, None, Some("1"), blueprint_doc::EMPTY_PLAN),
+        )
+        .await;
+        assert_eq!(
+            (status, location.as_str()),
+            (StatusCode::SEE_OTHER, "/admin/login")
+        );
+        let (status, _, _) = send(&w.app, get(&outline, None)).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        for cookie in [ADMIN, MEMBER] {
+            let (status, _, _) = send(
+                &w.app,
+                put(&uri, Some(cookie), Some("1"), blueprint_doc::EMPTY_PLAN),
+            )
+            .await;
+            assert_eq!(status, StatusCode::NOT_FOUND, "{cookie}");
+            let (status, _, body) = send(&w.app, get(&outline, Some(cookie))).await;
+            assert_eq!(status, StatusCode::NOT_FOUND, "{cookie}");
+            assert!(!body.contains("token_gate"), "{cookie} read the outline");
+        }
+        // The owner, at a plan that is not there or not under that project.
+        let BlueprintNameOutcome::Done(other) =
+            db::create_blueprint_project(&w.pool, w.owner, "other").await
+        else {
+            panic!()
+        };
+        for wrong in [
+            format!("/api/blueprints/{}/999999", w.pid),
+            format!("/api/blueprints/{other}/{}", w.plid),
+            "/api/blueprints/abc/1".to_string(),
+        ] {
+            let (status, _, _) = send(
+                &w.app,
+                put(&wrong, Some(OWNER), Some("1"), blueprint_doc::EMPTY_PLAN),
+            )
+            .await;
+            assert_eq!(status, StatusCode::NOT_FOUND, "{wrong}");
+        }
+        let plan = db::get_blueprint_plan(&w.pool, w.pid, w.plid, w.owner)
+            .await
+            .unwrap();
+        assert_eq!(
+            (plan.rev, plan.payload.as_str()),
+            (1, DEMO_PLAN),
+            "nothing was written"
+        );
+    }
+
+    #[test]
+    fn test_if_match_reads_bare_quoted_and_weak_revs() {
+        let h = |v: &str| {
+            let mut m = HeaderMap::new();
+            m.insert(header::IF_MATCH, v.parse().unwrap());
+            if_match(&m)
+        };
+        assert_eq!(h("14"), Some(14));
+        assert_eq!(h(r#""14""#), Some(14));
+        assert_eq!(h(r#"W/"14""#), Some(14));
+        assert_eq!(h(" 14 "), Some(14));
+        for bad in ["*", "", "x", "0", "-3", r#""14"#, r#""1", "2""#] {
+            assert_eq!(h(bad), None, "{bad}");
+        }
+        assert_eq!(if_match(&HeaderMap::new()), None);
     }
 }

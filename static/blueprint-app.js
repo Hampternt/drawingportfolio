@@ -50,6 +50,16 @@
     var drag = null, frame = 0, lastPt = null;
     var v = V.create(viewport, M);
 
+    // Edit mode only. `rev` is the plan's version as this tab last saw it; it
+    // goes out as If-Match on every save.
+    var rev = Number(rootEl.dataset.rev) || 0;
+    var saveUrl = rootEl.dataset.save || '', outlineUrl = rootEl.dataset.outline || '';
+    var saveEl = rootEl.querySelector('#bp-save'), saveTextEl = rootEl.querySelector('#bp-save-text');
+    var emptyEl = rootEl.querySelector('#bp-empty');
+    var dirty = false, inFlight = false, saveTimer = 0, failures = 0, paused = false;
+    var insp = null;   // the inspector, created at the end of start()
+    var pop = null;    // the add-node search box, likewise
+
     // ── Drawing ──────────────────────────────────────────────────────────────
     // The whole plan, every graph: the same counts the server answers a save
     // with and the outline's headline shows.
@@ -70,6 +80,7 @@
       v.setSelection(sel, selWire);
       v.mark('focus', focusPort);
       v.mark('from', kbWire);
+      if (insp) insp.show(primary);
     }
 
     // A structural change redraws everything. The nodes are new elements
@@ -83,9 +94,11 @@
       if (kbWire && !geoNodes[kbWire.node]) kbWire = null;
       if (selWire !== null && selWire >= doc.graphs[G].wires.length) selWire = null;
       v.render(doc, G);
+      if (insp) insp.refresh();
       updateSel();
       syncGhost();
       updateCounts();
+      if (emptyEl) emptyEl.hidden = !editable || Object.keys(doc.graphs[G].nodes).length > 0;
       if (hadFocus) {
         var e = primary && v.nodeEl(primary);
         (e || viewport).focus({ preventScroll: true });
@@ -118,12 +131,14 @@
     }
 
     function step(from, to, word) {
+      if (!editable) return;
       if (!from.length) { announce('Nothing to ' + word + '.'); return; }
       to.push(JSON.stringify(doc));
       doc = JSON.parse(from.pop());
       arrowRunAt = 0;
       selWire = null; // a position in the wire list, which undo can reshuffle
       rerender();
+      changed();
       announce(word === 'undo' ? 'Undone.' : 'Redone.');
     }
 
@@ -198,6 +213,7 @@
     }
 
     function tryConnect(p, q) {
+      if (!editable) return false;
       var before = JSON.stringify(doc);
       var pair = M.connect(doc, G, p, q);
       if (!pair) {
@@ -209,27 +225,32 @@
       redo = [];
       arrowRunAt = 0;
       rerender();
+      changed();
       announce(wireSentence(pair));
       return true;
     }
 
     function addMachineAt(w) {
+      if (!editable) return;
       snapshot();
       var name = M.addNode(doc, G, 'machine', [w[0] - 4.5, w[1] - 2], {
-        kind: 'machine', status: 'idea', note: '', in: { in: 'Item' }, out: { out: 'Item' },
+        kind: 'machine', status: 'idea', in: { in: 'Item' }, out: { out: 'Item' },
       });
       rerender();
+      changed();
       selectOnly(name);
       announce('Added ' + name + '.');
     }
 
     function deleteSelection() {
+      if (!editable) return;
       if (selWire !== null) {
         var w = doc.graphs[G].wires[selWire];
         snapshot();
         M.removeWire(doc, G, selWire);
         selWire = null;
         rerender();
+        changed();
         announce('Deleted wire ' + w[0] + ' to ' + w[1] + '. Ctrl + Z to undo.');
         return;
       }
@@ -239,12 +260,13 @@
       M.removeNodes(doc, G, names);
       clearSelection();
       rerender();
+      changed();
       viewport.focus({ preventScroll: true });
       announce('Deleted ' + (names.length === 1 ? names[0] : names.length + ' machines') + '. Ctrl + Z to undo.');
     }
 
     function moveSelection(dx, dy) {
-      if (!sel.size) return;
+      if (!editable || !sel.size) return;
       var now = performance.now();
       if (now - arrowRunAt > 700) snapshot();
       arrowRunAt = now;
@@ -253,6 +275,7 @@
       v.moved(names);
       syncGhost();
       if (primary) reveal(primary);
+      changed();
     }
 
     // ── Pointer ──────────────────────────────────────────────────────────────
@@ -408,7 +431,11 @@
         v.mark('target', null);
         v.mark('from', null);
         if (!cancelled && d.target) tryConnect(d.from, d.target);
-        else if (!cancelled) announce('Dropped on empty grid: no wire. (The add-node search is a later slice.)');
+        else if (!cancelled && e && pop) {
+          // Dropped on empty grid: offer the machine at the wire's other end.
+          var at = local(e);
+          pop.open(d.from, at, M.toWorld(view, U, at[0], at[1]));
+        }
         return;
       }
       if (d.mode === 'move') {
@@ -417,6 +444,7 @@
           else if (d.narrow) selectOnly(d.name);
           else selectOnly(d.name, sel.size > 1);
         } else if (d.snapped) {
+          changed();
           announce('Moved ' + (d.names.length === 1 ? d.names[0] : d.names.length + ' machines') + '.');
         }
         return;
@@ -619,6 +647,187 @@
     });
     viewport.addEventListener('contextmenu', function (e) { if (!e.shiftKey) e.preventDefault(); });
 
+    // ── Saving ───────────────────────────────────────────────────────────────
+    // Every edit marks the plan dirty and schedules a save. One save is in the
+    // air at a time: the next waits for this one's answer, because it has to
+    // send the rev that answer carries. Two saves sent from the same rev would
+    // see the second refused, and the owner would get the "changed elsewhere"
+    // banner for their own edit.
+    function setSave(state, text) {
+      if (!saveEl) return;
+      saveEl.classList.remove('is-saved', 'is-pending', 'is-failed');
+      saveEl.classList.add('is-' + state);
+      saveTextEl.textContent = text;
+    }
+
+    function changed() {
+      if (!saveUrl || paused) return;
+      dirty = true;
+      setSave('pending', 'unsaved changes');
+      clearTimeout(saveTimer);
+      saveTimer = setTimeout(save, 700);
+    }
+
+    function retryLater() {
+      failures++;
+      clearTimeout(saveTimer);
+      saveTimer = setTimeout(save, Math.min(30000, 1000 * Math.pow(2, failures)));
+    }
+
+    function save() {
+      saveTimer = 0;
+      if (!dirty || inFlight || paused) return;
+      // The server refuses what this refuses; there is no point sending it.
+      var errs = M.validate(doc);
+      if (errs.length) { setSave('failed', 'not saved: ' + errs[0]); return; }
+      var body = JSON.stringify(doc);
+      dirty = false;
+      inFlight = true;
+      setSave('pending', 'saving…');
+      fetch(saveUrl, {
+        method: 'PUT',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json', 'If-Match': '"' + rev + '"' },
+        body: body,
+      }).then(function (res) {
+        return res.json().catch(function () { return null; }).then(function (j) { return { res: res, j: j }; });
+      }).then(function (r) {
+        inFlight = false;
+        var res = r.res, j = r.j;
+        if (res.ok && j && typeof j.rev === 'number') {
+          rev = j.rev;
+          rootEl.dataset.rev = String(rev);
+          failures = 0;
+          var railRev = document.querySelector('.bp-rail__plan[aria-current="page"] .bp-rail__rev');
+          if (railRev) railRev.textContent = 'rev ' + rev;
+          refreshOutline();
+          if (dirty) save();
+          else setSave('saved', 'saved · rev ' + rev);
+          return;
+        }
+        dirty = true;
+        if (res.status === 412) { pause(j && j.rev); return; }
+        if (res.status === 400 || res.status === 413) {
+          setSave('failed', 'not saved: ' + ((j && j.errors && j.errors[0]) || 'the server refused the plan'));
+          return;
+        }
+        if (res.redirected || res.status === 401 || res.status === 404) {
+          // Signed out (the save was sent to the login page) or the plan is
+          // gone. Retrying would not help; saying so does.
+          setSave('failed', 'not saved: ' + (res.status === 404 ? 'this plan no longer exists' : 'signed out — sign in again in another tab'));
+          retryLater();
+          return;
+        }
+        setSave('failed', 'not saved · retrying');
+        retryLater();
+      }).catch(function () {
+        inFlight = false;
+        dirty = true;
+        setSave('failed', 'not saved · offline, retrying');
+        retryLater();
+      });
+    }
+
+    // A 412: someone (the AI, another tab) saved first. This tab stops editing
+    // and saving; the banner's one action is Reload.
+    function pause(current) {
+      paused = true;
+      editable = false;
+      clearTimeout(saveTimer);
+      if (pop) pop.close(true);
+      setSave('failed', 'not saved · editing paused');
+      var banner = rootEl.querySelector('#bp-banner');
+      if (banner) {
+        var detail = rootEl.querySelector('#bp-banner-detail');
+        if (detail && current) {
+          detail.textContent = 'Rev ' + current + ' was saved somewhere else, after this tab loaded rev ' + rev
+            + '. Your last change was refused, so this tab has stopped saving. Reloading discards what it had not saved.';
+        }
+        banner.hidden = false;
+      }
+      viewport.classList.add('is-paused');
+      if (insp) insp.refresh();
+      announce('This plan changed elsewhere. Editing is paused; reload to continue.');
+    }
+
+    // The outline beside the canvas is the server's rendering, so it is
+    // fetched again after each save rather than drawn a second time here.
+    function refreshOutline() {
+      var cur = rootEl.querySelector('#bp-outline');
+      if (!outlineUrl || !cur) return;
+      fetch(outlineUrl, { credentials: 'same-origin' }).then(function (res) {
+        return res.ok ? res.text() : null;
+      }).then(function (html) {
+        var now = rootEl.querySelector('#bp-outline');
+        if (!html || !now) return;
+        var t = document.createElement('template');
+        t.innerHTML = html.trim();
+        var fresh = t.content.querySelector('#bp-outline');
+        if (fresh) now.replaceWith(fresh);
+      }).catch(function () {});
+    }
+
+    // Sends what is not saved yet, without waiting for an answer: the page is
+    // going away. keepalive lets the request outlive it (up to 64 KB; a larger
+    // plan relies on the autosave having run, 0.7 s after the last edit).
+    function flush() {
+      if (!dirty || inFlight || paused || !saveUrl) return;
+      if (M.validate(doc).length) return;
+      try {
+        fetch(saveUrl, {
+          method: 'PUT', credentials: 'same-origin', keepalive: true,
+          headers: { 'Content-Type': 'application/json', 'If-Match': '"' + rev + '"' },
+          body: JSON.stringify(doc),
+        });
+        dirty = false;
+      } catch (err) { /* nothing left to tell */ }
+    }
+
+    // ── The editor's API, for the inspector and the add-node box ─────────────
+    // One edit, one undo step: `fn` changes the document and returns '' or an
+    // error sentence. An error puts the document back exactly as it was.
+    function edit(fn) {
+      if (!editable) return 'Editing is paused.';
+      var before = JSON.stringify(doc);
+      var err = fn(doc);
+      if (err) { doc = JSON.parse(before); return err; }
+      if (JSON.stringify(doc) === before) return '';
+      undo.push(before);
+      if (undo.length > 200) undo.shift();
+      redo = [];
+      arrowRunAt = 0;
+      rerender();
+      changed();
+      return '';
+    }
+
+    var api = {
+      doc: function () { return doc; },
+      graph: function () { return G; },
+      editable: function () { return editable; },
+      rev: function () { return rev; },
+      edit: edit,
+      // Selects a machine without moving focus: the inspector keeps it.
+      select: function (name) {
+        if (!name || !doc.graphs[G].nodes[name]) return;
+        sel = new Set([name]);
+        primary = name;
+        selWire = null;
+        focusPort = null;
+        updateSel();
+        reveal(name);
+      },
+      focusCanvas: function () { viewport.focus({ preventScroll: true }); },
+      deleteNode: function (name) {
+        if (!editable || !doc.graphs[G].nodes[name]) return;
+        sel = new Set([name]);
+        primary = name;
+        selWire = null;
+        deleteSelection();
+      },
+      announce: announce,
+    };
+
     // ── Toolbar ──────────────────────────────────────────────────────────────
     var actions = {
       fit: fit,
@@ -641,22 +850,36 @@
       });
     });
 
+    if (editable && BP.inspector) {
+      insp = BP.inspector.create(rootEl, M, api);
+      pop = BP.inspector.createPop(rootEl, M, api);
+    }
+    var reloadBtn = rootEl.querySelector('#bp-reload');
+    if (reloadBtn) reloadBtn.addEventListener('click', function () { location.reload(); });
+
     rerender();
     fit();
 
     return {
       // Called on a body-targeted htmx:beforeSwap: the canvas is about to be
-      // replaced, and everything bound to it goes with it.
+      // replaced, and everything bound to it goes with it. An edit not saved
+      // yet is sent on its way first.
       destroy: function () {
         if (frame) cancelAnimationFrame(frame);
         drag = null;
+        clearTimeout(saveTimer);
+        flush();
       },
+      unsaved: function () { return (dirty || inFlight) && !paused; },
+      flush: flush,
     };
   }
 
   function boot() {
     var rootEl = document.getElementById('bp-app');
     if (!rootEl || rootEl.dataset.booted || !BP.model || !BP.view) return;
+    // The editor needs its inspector too; the read-only pages do not wait for it.
+    if (rootEl.dataset.mode === 'edit' && !BP.inspector) return;
     rootEl.dataset.booted = '1';
     BP.app = start(rootEl, BP.model, BP.view);
   }
@@ -670,6 +893,14 @@
       if (e.target !== document.body || !BP.app) return;
       BP.app.destroy();
       BP.app = null;
+    });
+    // A full navigation (the address bar, a reload, a link htmx does not
+    // boost) sends what is not saved, and asks first if a save is still out.
+    window.addEventListener('pagehide', function () { if (BP.app) BP.app.flush(); });
+    window.addEventListener('beforeunload', function (e) {
+      if (!BP.app || !BP.app.unsaved()) return;
+      BP.app.flush();
+      if (BP.app.unsaved()) { e.preventDefault(); e.returnValue = ''; }
     });
   }
 

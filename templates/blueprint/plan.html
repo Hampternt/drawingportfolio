@@ -4,11 +4,23 @@
 
 {# hx-history="false": the canvas is drawn by script and holds unsaved state,
    so a history snapshot of it would come back without its listeners. Back is
-   a history miss and reloads the page. #}
-{% block bp_attrs %}id="bp-app" data-mode="{% if editable %}edit{% else %}read{% endif %}" data-rev="{{ rev }}" hx-history="false"{% endblock %}
+   a history miss and reloads the page. data-save and data-outline are the
+   editor's two URLs; data-rev is the rev the page was rendered at, which the
+   first save sends as If-Match. #}
+{% block bp_attrs %}id="bp-app" data-mode="{% if editable %}edit{% else %}read{% endif %}" data-rev="{{ rev }}" data-save="{{ save_url }}" data-outline="{{ outline_url }}" hx-history="false"{% endblock %}
 
 {% block bp_main %}
 <div class="bp-main">
+  {# The 412 banner. Its only action is Reload: there is no "keep mine" and
+     no retry, because either would overwrite the other writer's edit. #}
+  <div class="bp-banner" id="bp-banner" role="alert" hidden>
+    <div class="bp-banner__text">
+      <strong class="bp-banner__title">This plan changed elsewhere.</strong>
+      <span id="bp-banner-detail">Your last change was refused, so this tab has stopped saving. Reloading discards what it had not saved.</span>
+    </div>
+    <button type="button" class="hm-btn hm-btn--sm hm-btn--primary" id="bp-reload">Reload the plan</button>
+  </div>
+
   <div class="bp-toolbar" role="toolbar" aria-label="Plan">
     <nav class="bp-crumb" aria-label="Breadcrumb">
       <a href="/blueprints/{{ project.id }}">{{ project.name }}</a>
@@ -19,19 +31,61 @@
     </nav>
     <span class="bp-counts{% if summary.dangling > 0 || summary.mismatch > 0 %} has-problems{% endif %}" id="bp-counts">{{ summary.line() }}</span>
     <span class="bp-toolbar__gap"></span>
-    <span class="bp-save" id="bp-save"><span class="bp-save__dot" aria-hidden="true"></span><span id="bp-save-text">{% if editable %}saved · rev {{ rev }}{% else %}read-only · rev {{ rev }}{% endif %}</span></span>
+    <div class="bp-toolbar__actions">
+    <span class="bp-save is-saved" id="bp-save" role="status"><span class="bp-save__dot" aria-hidden="true"></span><span id="bp-save-text">{% if editable %}saved · rev {{ rev }}{% else %}read-only · rev {{ rev }}{% endif %}</span></span>
+    {% if editable %}
+    <button type="button" class="bp-iconbtn" data-bp-action="undo" aria-label="Undo (Ctrl + Z)" title="Undo (Ctrl + Z)">↶</button>
+    <button type="button" class="bp-iconbtn" data-bp-action="redo" aria-label="Redo (Ctrl + Shift + Z)" title="Redo (Ctrl + Shift + Z)">↷</button>
+    {% endif %}
     {% include "blueprint/partials/zoom.html" %}
+    {% if editable %}
+    <button type="button" class="hm-btn hm-btn--sm hm-btn--primary" data-bp-action="add">Add machine <kbd class="hm-kbd">A</kbd></button>
+    {% endif %}
+    </div>
   </div>
   <script type="application/json" id="bp-doc">{{ doc_json|safe }}</script>
-  {% include "blueprint/partials/canvas.html" %}
+  <div class="bp-canvas-wrap">
+    {% include "blueprint/partials/canvas.html" %}
+    {% if editable %}
+    {# Shown by the editor while the plan has no machines. #}
+    <div class="bp-empty" id="bp-empty" hidden>
+      <h2 class="bp-empty__title">An empty plan.</h2>
+      <p class="bp-empty__text">Double-click the grid or press <kbd class="hm-kbd">A</kbd> to place a machine. Once there is one, drag from any port into empty space to add the next one already wired.</p>
+      <button type="button" class="hm-btn hm-btn--sm hm-btn--primary" data-bp-action="add">Add machine</button>
+    </div>
+    {# The add-node search box, opened by a wire dropped on empty grid. #}
+    <div class="bp-pop" id="bp-pop" role="dialog" aria-label="Add a machine" hidden>
+      <div class="bp-pop__search">
+        <input class="bp-pop__input" id="bp-pop-name" aria-label="New machine's name" autocomplete="off" spellcheck="false">
+        <kbd class="hm-kbd">Esc</kbd>
+      </div>
+      <p class="bp-pop__label" id="bp-pop-label">wired to</p>
+      <ul class="bp-pop__items" id="bp-pop-items" role="listbox" aria-label="What to add"></ul>
+      <p class="bp-pop__error" id="bp-pop-error" role="alert"></p>
+      <p class="bp-pop__keys"><span>↑ ↓ move</span><span>↵ create</span><span>Esc cancel</span></p>
+    </div>
+    {% endif %}
+  </div>
   {% include "blueprint/partials/keys.html" %}
 </div>
-<aside class="bp-side" aria-label="Plan outline">
+<aside class="bp-side" aria-label="Selected machine and outline">
+  {% if editable %}
+  <div class="bp-tabs" role="group" aria-label="Side panel">
+    <button type="button" class="bp-tab" data-bp-tab="inspect" aria-pressed="false">Inspect</button>
+    <button type="button" class="bp-tab" data-bp-tab="outline" aria-pressed="true">Outline</button>
+  </div>
+  <div class="bp-inspector" id="bp-inspector" hidden>
+    <p class="bp-inspector__none">Select a machine on the canvas to edit its name, ports, status and note.</p>
+  </div>
+  {% else %}
   <div class="bp-side__head">
     <h2 class="bp-side__title">Outline</h2>
     <span class="bp-side__note">works without JavaScript</span>
   </div>
-  {% include "blueprint/partials/outline.html" %}
+  {% endif %}
+  <div class="bp-side__outline" id="bp-outline-wrap">
+    {% include "blueprint/partials/outline.html" %}
+  </div>
 </aside>
 {% endblock %}
 

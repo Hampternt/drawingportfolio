@@ -2817,8 +2817,7 @@ pub async fn get_blueprint_plan(
 ) -> Option<BlueprintPlan> {
     let uid = user.get();
     sqlx::query!(
-        r#"SELECT pl.id as "id!", pl.project_id as "project_id!", pl.name as "name!",
-                  pl.payload as "payload!", pl.rev as "rev!", pl.updated_at as "updated_at!"
+        r#"SELECT pl.name as "name!", pl.payload as "payload!", pl.rev as "rev!"
            FROM blueprint_plans pl
            JOIN blueprint_projects p ON p.id = pl.project_id
            WHERE pl.id = ? AND pl.project_id = ? AND p.user_id = ?"#,
@@ -2831,12 +2830,9 @@ pub async fn get_blueprint_plan(
     .ok()
     .flatten()
     .map(|r| BlueprintPlan {
-        id: r.id,
-        project_id: r.project_id,
         name: r.name,
         payload: r.payload,
         rev: r.rev,
-        updated_at: r.updated_at,
     })
 }
 
@@ -2933,8 +2929,6 @@ pub async fn delete_blueprint_plan(
 /// write are a single statement, so two saves that both started from rev 14
 /// cannot both land. The loser changes nothing and learns the rev that beat
 /// it. Never read-then-write here; that is last-write-wins with extra steps.
-// S3's save route reads this; the allow goes when it lands.
-#[allow(dead_code)]
 pub async fn save_blueprint_plan(
     pool: &DbPool,
     project_id: i64,

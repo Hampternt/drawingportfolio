@@ -28,8 +28,6 @@ pub const KINDS: [&str; 2] = ["machine", "blueprint"];
 
 /// The largest plan a save may send. The demo is about 4 KB; a 200-machine
 /// plan is about 60 KB.
-// S3's save route reads this; the allow goes when it lands.
-#[allow(dead_code)]
 pub const MAX_PAYLOAD: usize = 1024 * 1024;
 
 /// The names every JavaScript object already answers to. The editor keeps a

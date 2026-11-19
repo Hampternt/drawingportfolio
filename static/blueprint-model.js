@@ -466,6 +466,34 @@
     return name;
   }
 
+  // A wire dragged from a port into empty space makes the machine at its other
+  // end: one port, named and typed like the one the drag started from, already
+  // wired, with its dot as near the drop point as the grid allows. The two
+  // generic names swap instead (from `out` comes an input called `in`), so a
+  // new machine never reads "in: out". Returns { name } or { error }.
+  function addWiredNode(doc, g, from, at, name) {
+    var nodes = doc.graphs[g] && doc.graphs[g].nodes, src = nodes && nodes[from.node];
+    var type = src && src[from.side] && Object.prototype.hasOwnProperty.call(src[from.side], from.port)
+      ? src[from.side][from.port] : undefined;
+    if (type === undefined) return { error: 'There is no ' + from.side + ' port ' + from.node + '.' + from.port + '.' };
+    var err = nameProblem(name, Object.prototype.hasOwnProperty.call(nodes, name), 'a node');
+    if (err) return { error: err };
+    var side = from.side === 'out' ? 'in' : 'out';
+    var port = from.port === from.side ? side : from.port;
+    var ports = {};
+    ports[port] = type;
+    // The new machine is downstream of an output, upstream of an input.
+    var node = from.side === 'out'
+      ? { kind: 'machine', status: 'idea', in: ports, out: {} }
+      : { kind: 'machine', status: 'idea', in: {}, out: ports };
+    var m = measure(name, node, doc);
+    var dot = portAt(m, side, port);
+    nodes[name] = node;
+    doc.layout[layoutKey(g, name)] = [Math.round(at[0] - dot[0]), Math.round(at[1] - dot[1])];
+    connect(doc, g, from, { node: name, side: side, port: port });
+    return { name: name };
+  }
+
   // Deleting a machine from the canvas takes its wires with it. (A dangling
   // wire is what an outside edit leaves behind; the canvas never makes one.)
   function removeNodes(doc, g, names) {
@@ -640,7 +668,7 @@
     toScreen: toScreen, toWorld: toWorld, clampZoom: clampZoom, zoomAt: zoomAt, fitView: fitView,
     nearestPort: nearestPort, nodesInRect: nodesInRect,
     readingOrder: readingOrder, nearestInDirection: nearestInDirection, portList: portList,
-    clone: clone, moveNodes: moveNodes, addNode: addNode, removeNodes: removeNodes, removeWire: removeWire,
+    clone: clone, moveNodes: moveNodes, addNode: addNode, addWiredNode: addWiredNode, removeNodes: removeNodes, removeWire: removeWire,
     connect: connect, stressDoc: stressDoc,
   };
 
