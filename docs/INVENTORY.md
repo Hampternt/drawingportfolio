@@ -194,8 +194,8 @@ Tracking issue: #29.
 - 🚧 S1–S3: the model, the section (projects and plans, the public demo) and
   the editor with autosave — built, waiting on the owner's test before it
   merges: `docs/manifests/2026-11-10-blueprints-editor.md`
-- 💭 S4–S6: the AI read and write API behind a token, and revisions. Waits on
-  open issue 4 (the token model) and its own plan.
+- 💭 S4–S6: the AI read and write API behind tokens minted on the page
+  (decided 2026-11-20), and revisions. Planned after S1–S3 merge.
 
 ## Infrastructure
 

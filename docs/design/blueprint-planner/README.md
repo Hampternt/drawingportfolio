@@ -1,6 +1,6 @@
 # Blueprint planner — design and open issues
 
-**Status:** S0–S3 built; S4–S6 wait on open issue 4. A living design doc, not a build plan. When a slice below
+**Status:** S0–S3 built; S4–S6 next, with minted tokens (issue 4, decided 2026-11-20). A living design doc, not a build plan. When a slice below
 is picked up, it gets its own `docs/manifests/` plan.
 
 ## Goal
@@ -145,13 +145,12 @@ These were the open issues. The owner answered them before the S1–S3 plan,
 | 7. Links out | Later | in v1 |
 | 8. Demo plan | The site's request flow (`demo-plan.json`, as S0 ships it) | another subject |
 | Port layout | One port per row, outputs first | Unreal-style side-by-side rows |
+| 4. Token model (decided 2026-11-20) | **Minted on the page**: shown once, `bp_` prefix, stored as a SHA-256 hash, scoped read or write and optionally to one plan, revocable | One env-var token that only rotates on a redeploy |
 
 ## Open issues
 
-4. **Token model.** Tokens minted and revoked on the page (as proposed), or a
-   single env-var token for v1 that only rotates on redeploy? **Rec:** minted
-   tokens. Rotation without a deploy matters once a token sits in a local
-   `.env`. Decided with the S4–S6 plan.
+None. The S4–S6 plan (AI read, AI write, revisions) is next, after S1–S3
+merge.
 
 ## Primer: the design guide and UI mockup artifact
 
