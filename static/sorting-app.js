@@ -438,8 +438,13 @@
     // The fullscreen goes with it — the class leaves with the swap, but the
     // browser's fullscreen would not, and it would strand the driver on the
     // next page with no button and, on a tablet, no Escape key.
+    //
+    // Only a swap that will really happen counts: htmx fires beforeSwap for a
+    // 404 or a 502 (a deploy restarting the server) too, and then leaves the
+    // page as it was. Tearing down then would leave the board on screen with
+    // RECORD gone, and every tap after it would never reach the action log.
     document.addEventListener('htmx:beforeSwap', function (e) {
-      if (e.target !== document.body) return;
+      if (e.target !== document.body || (e.detail && e.detail.shouldSwap === false)) return;
       releaseWakeLock();
       dropFullScreen();
       RECORD = null;
