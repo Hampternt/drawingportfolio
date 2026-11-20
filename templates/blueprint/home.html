@@ -1,0 +1,19 @@
+{% extends "blueprint/owner.html" %}
+
+{% block bp_main %}
+<div class="bp-main bp-panel">
+  <span class="hm-eyebrow">blueprints</span>
+  <h1 class="bp-panel__title">{% if rail.is_empty() %}No projects yet.{% else %}Pick a plan, or start a project.{% endif %}</h1>
+  <p class="bp-panel__text">A project holds one plan per feature or system: machines with typed inputs and outputs, wired together. When Claude Code asks for a project, it will get every plan in it.</p>
+  <form class="bp-form" method="post" action="/blueprints">
+    <label class="hm-field__label" for="bp-new-project">Project name</label>
+    <div class="bp-form__row">
+      <input class="hm-input hm-input--mono bp-form__input" id="bp-new-project" name="name" placeholder="drawingportfolio"
+             autocomplete="off" required maxlength="64" pattern="[a-z0-9][a-z0-9\-]*"{% if !error.is_empty() %} aria-describedby="bp-form-error"{% endif %}>
+      <button type="submit" class="hm-btn hm-btn--primary">New project</button>
+    </div>
+    <span class="bp-form__hint">Lower case, digits and dashes. It is the name the AI asks for.</span>
+    {% if !error.is_empty() %}<p class="bp-form__error" id="bp-form-error" role="alert">{{ error }}</p>{% endif %}
+  </form>
+</div>
+{% endblock %}

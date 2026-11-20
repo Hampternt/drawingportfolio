@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM blueprint_plans\n         WHERE id = ? AND project_id = ?\n           AND project_id IN (SELECT id FROM blueprint_projects WHERE user_id = ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "922797eeffb062340a63689ddc2c2fb0b7aa72b0fe0ea259b649078301fd5d94"
+}

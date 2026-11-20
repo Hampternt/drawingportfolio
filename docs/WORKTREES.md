@@ -27,6 +27,12 @@ from this file on 2026-08-12; `git log docs/WORKTREES.md` recovers them.
 
 ## Streams
 
+- **Blueprints** (`kepler/feat/blueprints-editor`, cut from
+  `kepler/feat/blueprint-planning-tool`, the S0 spike; Kepler worktree
+  `~/kepler/drawingportfolio-master-bd71b17d`; merges → `master` after the
+  owner's test): slices S1–S3 of the planner at `/blueprints`. `origin/master`
+  was merged in first, so the branch carries S0 to `master` too. Plan:
+  `docs/manifests/2026-11-10-blueprints-editor.md`; tracking issue #29.
 - **`feat/portfolio-review`** (worktree
   `~/projects/drawingportfolio.worktrees/portfolio-review`; merges → `master`):
   the live continuation of `feat/hub-admin-cv-docs`, working from the review

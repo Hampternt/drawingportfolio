@@ -492,3 +492,55 @@ pub struct NewSortingAction<'a> {
     pub crates: i64,
     pub positions: i64,
 }
+
+// ── Blueprints ──────────────────────────────────────────────────────────────
+
+/// One of the owner's Blueprints projects, with how many plans it holds.
+#[derive(Debug, Clone)]
+pub struct BlueprintProject {
+    pub id: i64,
+    pub name: String,
+    pub plans: i64,
+}
+
+/// A plan as a list draws it: no payload.
+#[derive(Debug, Clone)]
+pub struct BlueprintPlanSummary {
+    pub id: i64,
+    pub project_id: i64,
+    pub name: String,
+    pub rev: i64,
+    pub updated_at: String,
+}
+
+/// A plan, whole. `payload` is the document exactly as the browser sent it;
+/// [`crate::blueprint_doc`] owns its shape. Its ids are the ones the caller
+/// asked for, so they are not repeated here.
+#[derive(Debug, Clone)]
+pub struct BlueprintPlan {
+    pub name: String,
+    pub payload: String,
+    pub rev: i64,
+}
+
+/// What a create or rename came to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BlueprintNameOutcome {
+    Done(i64),
+    /// The parent already holds something of that name.
+    Taken,
+    /// No such row for this user (a project or plan id that is not theirs).
+    Missing,
+}
+
+/// What a save came to. The save is one compare-and-set, so there is no
+/// window between checking the rev and writing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BlueprintSaveOutcome {
+    /// Stored as this new rev.
+    Saved(i64),
+    /// Someone saved first; this is the rev they left.
+    Stale(i64),
+    /// No such plan for this user.
+    Missing,
+}

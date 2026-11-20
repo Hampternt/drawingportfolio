@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>The AI's view</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;background:#0B0910}
+a{color:#CBB0FF;text-decoration:none}a:hover{color:#DED0FF}
+@font-face{font-family:"Archivo";font-weight:700;font-style:normal;font-display:swap;src:url("/_blob/549b009c0a16767e513681b5829fa715") format("woff2")}
+@font-face{font-family:"Archivo";font-weight:800;font-style:normal;font-display:swap;src:url("/_blob/a412b00a9fb065eb8ce75e359beb437d") format("woff2")}
+@font-face{font-family:"Space Grotesk";font-weight:400;font-style:normal;font-display:swap;src:url("/_blob/f1111d6a6a4b0cf29164bf0670e13709") format("woff2")}
+@font-face{font-family:"Space Grotesk";font-weight:500;font-style:normal;font-display:swap;src:url("/_blob/edad51755ad257b050ac50ca711fce34") format("woff2")}
+@font-face{font-family:"Space Grotesk";font-weight:600;font-style:normal;font-display:swap;src:url("/_blob/9aa65012e8d8d2bba77fedbbc71aefd1") format("woff2")}
+@font-face{font-family:"IBM Plex Mono";font-weight:400;font-style:normal;font-display:swap;src:url("/_blob/b36838188d823b70621f4e61e5bc841f") format("woff2")}
+@font-face{font-family:"IBM Plex Mono";font-weight:500;font-style:normal;font-display:swap;src:url("/_blob/ebe4ec317241372908148eb7f6a1633a") format("woff2")}
+</style>
+</helmet>
+<div style="min-height: 1500px; background: #0B0910; color: #CDC6DD; font-family: 'Space Grotesk', system-ui, sans-serif; font-size: 15px; line-height: 1.5; padding: 48px 40px 64px; box-sizing: border-box">
+  <div style="max-width: 1520px; margin: 0 auto; display: flex; flex-direction: column; gap: 40px">
+
+    <header style="display: flex; flex-direction: column; gap: 10px">
+      <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; font-weight: 500; letter-spacing: .10em; text-transform: uppercase; color: #ADA6BE">design guide · 2 of 3</span>
+      <h1 style="margin: 0; font-family: 'Archivo', system-ui, sans-serif; font-weight: 800; font-size: 40px; line-height: 1.1; letter-spacing: -0.025em; color: #F2EEF8">The same plan, as the AI reads it<span style="color: #B48EF7">.</span></h1>
+      <p style="margin: 0; max-width: 72ch; font-size: 16px; color: #CDC6DD">Claude Code reads <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace">outline.md</span> first: one line per node with its ports, where each output goes, its status and its note, under a header with the problem counts. It fetches the JSON only when it is about to edit. Neither carries positions, so an AI edit cannot shuffle the boxes.</p>
+    </header>
+
+    <div style="display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start">
+      <section aria-labelledby="h-canvas" style="flex: 1 1 640px; min-width: 0; display: flex; flex-direction: column; gap: 10px">
+        <h2 id="h-canvas" style="margin: 0; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; font-weight: 500; letter-spacing: .10em; text-transform: uppercase; color: #ADA6BE">What the owner sees</h2>
+        <div style="border: 1px solid rgba(242,238,248,.07); border-radius: 12px; overflow: hidden">
+          <dc-import name="Plan" view="canvas" read-only="{{yes}}" vh="{{h520}}" hint-size="100%,520px"></dc-import>
+        </div>
+      </section>
+      <section aria-labelledby="h-md" style="flex: 1 1 640px; min-width: 0; display: flex; flex-direction: column; gap: 10px">
+        <h2 id="h-md" style="margin: 0; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; font-weight: 500; letter-spacing: .10em; text-transform: uppercase; color: #ADA6BE">What the AI reads · outline.md</h2>
+        <div style="border: 1px solid rgba(242,238,248,.07); border-radius: 12px; overflow: hidden">
+          <div style="display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 14px; background: #17141F; border-bottom: 1px solid rgba(242,238,248,.07); font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12px; color: #ADA6BE">
+            <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"></path><path d="M14 2v4a2 2 0 0 0 2 2h4"></path></svg>
+            GET …/projects/drawingportfolio/outline.md
+          </div>
+          <dc-import name="Plan" view="md" hint-size="100%,484px"></dc-import>
+        </div>
+      </section>
+    </div>
+
+    <div style="display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start">
+      <section aria-labelledby="h-json" style="flex: 1 1 560px; min-width: 0; display: flex; flex-direction: column; gap: 10px">
+        <h2 id="h-json" style="margin: 0; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; font-weight: 500; letter-spacing: .10em; text-transform: uppercase; color: #ADA6BE">The JSON export · layout omitted</h2>
+        <div style="border: 1px solid rgba(242,238,248,.07); border-radius: 12px; overflow: hidden">
+          <div style="display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 14px; background: #17141F; border-bottom: 1px solid rgba(242,238,248,.07); font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12px; color: #ADA6BE">GET …/plans/request-flow.json <span style="margin-left: auto">ETag: "14"</span></div>
+          <dc-import name="Plan" view="json" json-max="{{h560}}" hint-size="100%,560px"></dc-import>
+        </div>
+      </section>
+
+      <section aria-labelledby="h-loop" style="flex: 1 1 560px; min-width: 0; display: flex; flex-direction: column; gap: 16px">
+        <h2 id="h-loop" style="margin: 0; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; font-weight: 500; letter-spacing: .10em; text-transform: uppercase; color: #ADA6BE">The write loop</h2>
+        <ol style="margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 14px">
+          <sc-for list="{{steps}}" as="s" hint-placeholder-count="4">
+            <li style="display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 12px; align-items: baseline">
+              <span style="display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; border: 1px solid rgba(180,142,247,.45); background: rgba(180,142,247,.14); font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; color: #CBB0FF">{{s.n}}</span>
+              <span style="display: flex; flex-direction: column; gap: 4px">
+                <strong style="font-weight: 600; color: #F2EEF8">{{s.title}}</strong>
+                <span style="font-size: 14px; color: #CDC6DD">{{s.text}}</span>
+                <code style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12px; color: #ADA6BE; white-space: pre-wrap">{{s.code}}</code>
+              </span>
+            </li>
+          </sc-for>
+        </ol>
+        <div style="border: 1px solid rgba(242,238,248,.07); border-radius: 12px; overflow: hidden">
+          <div style="display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 14px; background: #17141F; border-bottom: 1px solid rgba(242,238,248,.07); font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12px; color: #ADA6BE">200 OK · the validation summary <span style="margin-left: auto">ETag: "15"</span></div>
+          <dc-import name="Plan" view="validation" json-max="{{h320}}" hint-size="100%,320px"></dc-import>
+        </div>
+        <p style="margin: 0; font-size: 13px; color: #ADA6BE">Route paths are placeholders: the prefix follows the name chosen in open issue 1. Not Mermaid: it has no ports.</p>
+      </section>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1600,"height":1500}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {
+      yes: true, h320: 320, h520: 520, h560: 560,
+      steps: [
+        { title: 'Read the outline', text: 'A read token is enough. A project answers with every plan in it.', code: 'GET …/projects/drawingportfolio/outline.md\nAuthorization: Bearer bp_…' },
+        { title: 'Fetch the JSON before editing', text: 'The ETag is the plan’s rev.', code: 'GET …/plans/request-flow.json  →  ETag: "14"' },
+        { title: 'PUT the whole document', text: 'Names, not indexes: renaming a node means rewriting the wires that name it, in the same PUT.', code: 'PUT …/plans/request-flow.json\nIf-Match: "14"' },
+        { title: 'Read the summary back', text: 'Counts plus each problem. A stale rev gets 412 and nothing changes; the AI re-fetches and redoes its edit. An open browser tab sees rev 15 and shows its reload banner.', code: '200 { rev: 15, dangling, mismatches, problems }   ·   412 if rev ≠ 14' },
+      ].map((s, i) => Object.assign({ n: i + 1 }, s)),
+    };
+  }
+}
+</script>
+</body>
+</html>

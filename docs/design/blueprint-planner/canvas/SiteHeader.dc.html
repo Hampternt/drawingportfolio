@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Site header</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+@font-face{font-family:"Archivo";font-weight:800;font-style:normal;font-display:swap;src:url("/_blob/a412b00a9fb065eb8ce75e359beb437d") format("woff2")}
+@font-face{font-family:"Space Grotesk";font-weight:400;font-style:normal;font-display:swap;src:url("/_blob/f1111d6a6a4b0cf29164bf0670e13709") format("woff2")}
+@font-face{font-family:"Space Grotesk";font-weight:500;font-style:normal;font-display:swap;src:url("/_blob/edad51755ad257b050ac50ca711fce34") format("woff2")}
+@font-face{font-family:"IBM Plex Mono";font-weight:500;font-style:normal;font-display:swap;src:url("/_blob/ebe4ec317241372908148eb7f6a1633a") format("woff2")}
+</style>
+</helmet>
+<header style="box-sizing: border-box; width: 100%; height: 56px; display: flex; align-items: center; gap: 24px; padding: 0 32px; background: rgba(14,12,20,.92); border-bottom: 1px solid rgba(242,238,248,.07); font-family: 'Space Grotesk', system-ui, sans-serif; color: #CDC6DD">
+  <a href="#" style="font-family: 'Archivo', system-ui, sans-serif; font-weight: 800; font-size: 17px; letter-spacing: -0.035em; color: #F2EEF8; text-decoration: none; flex: none">hampter<span style="color: #B48EF7">.</span></a>
+  <nav aria-label="Site" style="display: flex; align-items: center; gap: 20px; font-size: 14px; font-weight: 500; min-width: 0; overflow: hidden; flex-wrap: wrap; height: 20px">
+    <sc-for list="{{links}}" as="l" hint-placeholder-count="7">
+      <a href="#" aria-current="{{l.current}}" style="color: {{l.color}}; text-decoration: none; white-space: nowrap">{{l.label}}</a>
+    </sc-for>
+  </nav>
+  <div style="margin-left: auto; display: flex; align-items: center; gap: 12px; flex: none">
+    <button type="button" aria-label="Open command palette" style="display: flex; align-items: center; gap: 4px; height: 34px; padding: 0 10px; background: transparent; border: 1px solid transparent; border-radius: 5px; color: #8D87A0; cursor: pointer">
+      <kbd style="display: inline-flex; align-items: center; height: 20px; padding: 0 6px; border: 1px solid #262232; border-bottom-width: 2px; border-radius: 3px; background: #17141F; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; color: #ADA6BE">Ctrl</kbd>
+      <kbd style="display: inline-flex; align-items: center; height: 20px; padding: 0 6px; border: 1px solid #262232; border-bottom-width: 2px; border-radius: 3px; background: #17141F; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; color: #ADA6BE">K</kbd>
+    </button>
+    <sc-if value="{{admin}}" hint-placeholder-val="{{true}}">
+      <a href="#" aria-label="Admin" style="display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; border: 1px solid #262232; border-radius: 5px; background: #1C1926; color: #8D87A0">
+        <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+      </a>
+    </sc-if>
+  </div>
+</header>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"active":{"editor":"enum","options":["Drawing Portfolio","Drawing Tasks","Fitness","Sorting","Blueprints","CV","How it works"],"default":"Blueprints"},"admin":{"editor":"boolean","default":true},"planner":{"editor":"text","default":"Blueprints"},"$preview":{"width":1440,"height":56}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const planner = this.props.planner ?? 'Blueprints';
+    const active = this.props.active ?? planner;
+    // base.html's nav, with the planner placed after Sorting. Its label is open issue 1.
+    const labels = ['Drawing Portfolio', 'Drawing Tasks', 'Fitness', 'Sorting', planner, 'CV', 'How it works'];
+    return {
+      admin: this.props.admin ?? true,
+      links: labels.map((label) => ({
+        label,
+        color: label === active ? '#F2EEF8' : '#8D87A0',
+        current: label === active ? 'page' : 'false',
+      })),
+    };
+  }
+}
+</script>
+</body>
+</html>

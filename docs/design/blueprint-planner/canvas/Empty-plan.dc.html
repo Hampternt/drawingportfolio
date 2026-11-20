@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Empty plan</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;background:#0B0910}
+a{color:#CBB0FF;text-decoration:none}a:hover{color:#DED0FF}
+@font-face{font-family:"Archivo";font-weight:700;font-style:normal;font-display:swap;src:url("/_blob/549b009c0a16767e513681b5829fa715") format("woff2")}
+@font-face{font-family:"Space Grotesk";font-weight:400;font-style:normal;font-display:swap;src:url("/_blob/f1111d6a6a4b0cf29164bf0670e13709") format("woff2")}
+@font-face{font-family:"Space Grotesk";font-weight:500;font-style:normal;font-display:swap;src:url("/_blob/edad51755ad257b050ac50ca711fce34") format("woff2")}
+@font-face{font-family:"IBM Plex Mono";font-weight:400;font-style:normal;font-display:swap;src:url("/_blob/b36838188d823b70621f4e61e5bc841f") format("woff2")}
+@font-face{font-family:"IBM Plex Mono";font-weight:500;font-style:normal;font-display:swap;src:url("/_blob/ebe4ec317241372908148eb7f6a1633a") format("woff2")}
+</style>
+</helmet>
+<div style="min-height: 720px; display: flex; flex-direction: column; background: #0B0910; color: #CDC6DD; font-family: 'Space Grotesk', system-ui, sans-serif; font-size: 15px; line-height: 1.5">
+  <dc-import name="SiteHeader" active="Blueprints" admin="{{yes}}" hint-size="100%,56px"></dc-import>
+  <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px; min-height: 48px; padding: 7px 16px; box-sizing: border-box; background: #0E0C14; border-bottom: 1px solid rgba(242,238,248,.07)">
+    <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 13px; color: #ADA6BE; white-space: nowrap">garden-sensor <span style="color: #5F5876">/</span> <span style="color: #F2EEF8">reading-pipeline</span> <span style="color: #5F5876">/</span> main</span>
+    <dc-import name="Plan" view="summary" doc="{{doc}}" hint-size="300px,20px"></dc-import>
+    <span style="margin-left: auto; display: inline-flex; align-items: center; gap: 6px; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12px; color: #ADA6BE; white-space: nowrap"><span style="width: 6px; height: 6px; border-radius: 50%; background: #4FD6A8"></span>saved · rev 1</span>
+  </div>
+  <div style="position: relative; flex: 1; min-height: 0">
+    <dc-import name="Plan" view="canvas" doc="{{doc}}" zoom="{{one}}" vh="{{canvasH}}" hint-size="100%,616px"></dc-import>
+    <div style="position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 24px; pointer-events: none">
+      <div style="pointer-events: auto; display: flex; flex-wrap: wrap; align-items: center; gap: 28px; max-width: 640px; padding: 28px; box-sizing: border-box; background: rgba(23,20,31,.94); border: 1px solid rgba(242,238,248,.07); border-radius: 12px">
+        <div aria-hidden="true" style="flex: none; width: 144px; height: 112px; box-sizing: border-box; border: 1px dashed #8D87A0; border-radius: 6px; background: rgba(23,20,31,.35); display: flex; flex-direction: column">
+          <span style="height: 32px; display: flex; align-items: center; padding: 0 12px; border-bottom: 1px solid rgba(242,238,248,.06); font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 13px; color: #ADA6BE">machine</span>
+          <span style="position: relative; height: 24px; margin-top: 8px; display: flex; align-items: center; justify-content: flex-end; padding: 0 14px; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12px; color: #8D87A0">out<span style="position: absolute; right: -6px; top: 7px; width: 10px; height: 10px; border-radius: 50%; box-sizing: border-box; border: 1.5px solid #8D87A0; background: #0B0910"></span></span>
+          <span style="position: relative; height: 24px; display: flex; align-items: center; padding: 0 14px; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12px; color: #8D87A0">in<span style="position: absolute; left: -6px; top: 7px; width: 10px; height: 10px; border-radius: 50%; box-sizing: border-box; border: 1.5px solid #8D87A0; background: #0B0910"></span></span>
+        </div>
+        <div style="flex: 1 1 280px; min-width: 0; display: flex; flex-direction: column; gap: 10px; align-items: flex-start">
+          <h1 style="margin: 0; font-family: 'Archivo', system-ui, sans-serif; font-weight: 700; font-size: 22px; line-height: 1.22; letter-spacing: -0.01em; color: #F2EEF8">An empty plan.</h1>
+          <p style="margin: 0; font-size: 15px; color: #CDC6DD">Double-click the grid or press <kbd style="display: inline-flex; align-items: center; height: 20px; padding: 0 6px; border: 1px solid #262232; border-bottom-width: 2px; border-radius: 3px; background: #0E0C14; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; color: #CDC6DD">A</kbd> to place a machine. Once there is one, drag from any port into empty space to add the next one already wired.</p>
+          <button type="button" style="display: inline-flex; align-items: center; gap: 8px; height: 34px; padding: 0 14px; margin-top: 4px; border: 1px solid #CBB0FF; border-radius: 5px; background: #B48EF7; color: #191624; font: inherit; font-size: 14px; font-weight: 500; cursor: pointer">
+            <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M5 12h14"></path><path d="M12 5v14"></path></svg>
+            Add machine
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1200,"height":720}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {
+      yes: true, one: 1, canvasH: 616,
+      doc: { v: 1, root: 'main', graphs: { main: { nodes: {}, wires: [] } }, layout: {} },
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Open issues 1, 5 and 6</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;background:#0B0910}
+a{color:#CBB0FF;text-decoration:none}a:hover{color:#DED0FF}
+@font-face{font-family:"Archivo";font-weight:600;font-style:normal;font-display:swap;src:url("/_blob/549b009c0a16767e513681b5829fa715") format("woff2")}
+@font-face{font-family:"Archivo";font-weight:700;font-style:normal;font-display:swap;src:url("/_blob/549b009c0a16767e513681b5829fa715") format("woff2")}
+@font-face{font-family:"Archivo";font-weight:800;font-style:normal;font-display:swap;src:url("/_blob/a412b00a9fb065eb8ce75e359beb437d") format("woff2")}
+@font-face{font-family:"Space Grotesk";font-weight:400;font-style:normal;font-display:swap;src:url("/_blob/f1111d6a6a4b0cf29164bf0670e13709") format("woff2")}
+@font-face{font-family:"Space Grotesk";font-weight:500;font-style:normal;font-display:swap;src:url("/_blob/edad51755ad257b050ac50ca711fce34") format("woff2")}
+@font-face{font-family:"Space Grotesk";font-weight:600;font-style:normal;font-display:swap;src:url("/_blob/9aa65012e8d8d2bba77fedbbc71aefd1") format("woff2")}
+@font-face{font-family:"IBM Plex Mono";font-weight:400;font-style:normal;font-display:swap;src:url("/_blob/b36838188d823b70621f4e61e5bc841f") format("woff2")}
+@font-face{font-family:"IBM Plex Mono";font-weight:500;font-style:normal;font-display:swap;src:url("/_blob/ebe4ec317241372908148eb7f6a1633a") format("woff2")}
+</style>
+</helmet>
+<div style="min-height: 1700px; background: #0B0910; color: #CDC6DD; font-family: 'Space Grotesk', system-ui, sans-serif; font-size: 15px; line-height: 1.5; padding: 48px 40px 64px; box-sizing: border-box">
+  <div style="max-width: 1360px; margin: 0 auto; display: flex; flex-direction: column; gap: 56px">
+
+    <section aria-label="Open issue 1" style="display: flex; flex-direction: column; gap: 18px">
+      <div style="display: flex; flex-direction: column; gap: 8px">
+        <span style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap">
+          <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; font-weight: 500; letter-spacing: .10em; text-transform: uppercase; color: #ADA6BE">open issue 1 · name and url</span>
+          <span style="display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 6px; border-radius: 3px; border: 1px solid #A86A34; background: rgba(255,181,112,.12); color: #FFB570; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; font-weight: 500; letter-spacing: .06em; text-transform: uppercase"><span style="width: 5px; height: 5px; border-radius: 50%; background: currentColor"></span>open — owner picks</span>
+        </span>
+        <h2 style="margin: 0; font-family: 'Archivo', system-ui, sans-serif; font-weight: 800; font-size: 32px; line-height: 1.15; letter-spacing: -0.025em; color: #F2EEF8">What is the section called?</h2>
+        <p style="margin: 0; max-width: 72ch; font-size: 15px; color: #CDC6DD">The name is the nav entry, the hub tile, the palette command and the route prefix for the AI endpoints. “Blueprints” is the README’s working name and what the other boards show; it is not a decision.</p>
+      </div>
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: 16px">
+        <sc-for list="{{names}}" as="nm" hint-placeholder-count="4">
+          <article style="display: flex; flex-direction: column; gap: 14px; padding: 18px; background: #17141F; border: 1px solid {{nm.border}}; border-radius: 8px">
+            <span style="display: flex; align-items: center; justify-content: space-between; gap: 8px">
+              <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 13px; color: #CBB0FF">{{nm.path}}</span>
+              <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; color: #ADA6BE">{{nm.flag}}</span>
+            </span>
+            <span style="display: flex; align-items: center; gap: 14px; height: 36px; padding: 0 12px; background: #0E0C14; border: 1px solid rgba(242,238,248,.07); border-radius: 5px; font-size: 13px; font-weight: 500; color: #8D87A0; white-space: nowrap; overflow: hidden">Fitness <span>Sorting</span> <span style="color: #F2EEF8">{{nm.name}}</span> <span>CV</span></span>
+            <span style="display: flex; flex-direction: column; gap: 8px; padding: 16px; background: #0E0C14; border: 1px solid rgba(242,238,248,.07); border-radius: 8px">
+              <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#B48EF7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="8" height="8" rx="2"></rect><path d="M7 11v4a2 2 0 0 0 2 2h4"></path><rect x="13" y="13" width="8" height="8" rx="2"></rect></svg>
+              <strong style="font-family: 'Archivo', system-ui, sans-serif; font-weight: 700; font-size: 17px; color: #F2EEF8">{{nm.name}}</strong>
+              <span style="font-size: 13px; color: #CDC6DD">[TILE COPY] Plans laid out like a factory floor.</span>
+              <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; color: #ADA6BE">owner only · one public demo</span>
+            </span>
+            <span style="display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 12px; background: #262232; border: 1px solid rgba(180,142,247,.45); border-radius: 5px; font-size: 14px; color: #F2EEF8">
+              <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#ADA6BE" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.3-4.3"></path></svg>
+              {{nm.command}}
+            </span>
+          </article>
+        </sc-for>
+      </div>
+    </section>
+
+    <section aria-label="Open issue 5" style="display: flex; flex-direction: column; gap: 18px">
+      <div style="display: flex; flex-direction: column; gap: 8px">
+        <span style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap">
+          <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; font-weight: 500; letter-spacing: .10em; text-transform: uppercase; color: #ADA6BE">open issue 5 · comment boxes in v1</span>
+          <span style="display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 6px; border-radius: 3px; border: 1px solid #A86A34; background: rgba(255,181,112,.12); color: #FFB570; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; font-weight: 500; letter-spacing: .06em; text-transform: uppercase"><span style="width: 5px; height: 5px; border-radius: 50%; background: currentColor"></span>open — owner picks</span>
+          <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; color: #ADA6BE">README rec: later</span>
+        </span>
+        <h2 style="margin: 0; font-family: 'Archivo', system-ui, sans-serif; font-weight: 800; font-size: 32px; line-height: 1.15; letter-spacing: -0.025em; color: #F2EEF8">Can a region of the canvas get a labelled box?</h2>
+      </div>
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 560px), 1fr)); gap: 20px">
+        <sc-for list="{{boxes}}" as="o" hint-placeholder-count="2">
+          <article style="display: flex; flex-direction: column; background: #17141F; border: 1px solid rgba(242,238,248,.07); border-radius: 8px; overflow: hidden">
+            <div style="display: flex; align-items: baseline; gap: 10px; padding: 16px 18px 12px">
+              <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 13px; font-weight: 500; color: #CBB0FF">{{o.key}}</span>
+              <h3 style="margin: 0; font-family: 'Archivo', system-ui, sans-serif; font-weight: 700; font-size: 18px; letter-spacing: -0.01em; color: #F2EEF8">{{o.title}}</h3>
+            </div>
+            <dc-import name="Plan" view="canvas" doc="{{o.doc}}" comments="{{o.comments}}" zoom="{{z85}}" vh="{{h300}}" read-only="{{yes}}" readout="{{no}}" hint-size="100%,300px"></dc-import>
+            <p style="margin: 0; padding: 14px 18px 18px; border-top: 1px solid rgba(242,238,248,.07); font-size: 14px; color: #CDC6DD">{{o.text}}</p>
+          </article>
+        </sc-for>
+      </div>
+    </section>
+
+    <section aria-label="Open issue 6" style="display: flex; flex-direction: column; gap: 18px">
+      <div style="display: flex; flex-direction: column; gap: 8px">
+        <span style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap">
+          <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; font-weight: 500; letter-spacing: .10em; text-transform: uppercase; color: #ADA6BE">open issue 6 · the mismatch rule</span>
+          <span style="display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 6px; border-radius: 3px; border: 1px solid #A86A34; background: rgba(255,181,112,.12); color: #FFB570; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; font-weight: 500; letter-spacing: .06em; text-transform: uppercase"><span style="width: 5px; height: 5px; border-radius: 50%; background: currentColor"></span>open — owner picks</span>
+          <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; color: #ADA6BE">README rec: ignore case and whitespace</span>
+        </span>
+        <h2 style="margin: 0; font-family: 'Archivo', system-ui, sans-serif; font-weight: 800; font-size: 32px; line-height: 1.15; letter-spacing: -0.025em; color: #F2EEF8">When do two type labels count as the same type?</h2>
+      </div>
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 560px), 1fr)); gap: 20px">
+        <sc-for list="{{rules}}" as="o" hint-placeholder-count="2">
+          <article style="display: flex; flex-direction: column; background: #17141F; border: 1px solid rgba(242,238,248,.07); border-radius: 8px; overflow: hidden">
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; padding: 16px 18px 12px">
+              <span style="display: flex; align-items: baseline; gap: 10px">
+                <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 13px; font-weight: 500; color: #CBB0FF">{{o.key}}</span>
+                <h3 style="margin: 0; font-family: 'Archivo', system-ui, sans-serif; font-weight: 700; font-size: 18px; letter-spacing: -0.01em; color: #F2EEF8">{{o.title}}</h3>
+              </span>
+              <dc-import name="Plan" view="summary" doc="{{ruleDoc}}" rule="{{o.rule}}" hint-size="260px,20px"></dc-import>
+            </div>
+            <dc-import name="Plan" view="canvas" doc="{{ruleDoc}}" rule="{{o.rule}}" zoom="{{one}}" vh="{{h180}}" read-only="{{yes}}" readout="{{no}}" hint-size="100%,180px"></dc-import>
+            <p style="margin: 0; padding: 14px 18px 18px; border-top: 1px solid rgba(242,238,248,.07); font-size: 14px; color: #CDC6DD">{{o.text}}</p>
+          </article>
+        </sc-for>
+      </div>
+      <dc-import name="Plan" view="rules" pairs="{{pairs}}" hint-size="100%,240px"></dc-import>
+      <p style="margin: 0; max-width: 72ch; font-size: 14px; color: #ADA6BE">Neither rule understands types: <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace">Option&lt;Url&gt;</span> into <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace">Url</span> is a mismatch under both. Port colour follows whichever rule is picked.</p>
+    </section>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1700}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const names = [
+      { name: 'Blueprints', path: '/blueprints', command: 'Go to Blueprints', flag: 'README working name' },
+      { name: 'Plans', path: '/plans', command: 'Go to Plans', flag: '' },
+      { name: 'Planner', path: '/planner', command: 'Go to Planner', flag: '' },
+      { name: 'Factory', path: '/factory', command: 'Go to Factory', flag: '' },
+    ].map((n, i) => Object.assign({ border: i === 0 ? 'rgba(180,142,247,.45)' : 'rgba(242,238,248,.07)' }, n));
+
+    const grouped = {
+      v: 1, root: 'main',
+      graphs: { main: { nodes: {
+        router:  { kind: 'machine', status: 'done', in: {}, out: { ai: 'Request' } },
+        token_gate: { kind: 'machine', status: 'planned', note: 'bp_ token to scope', in: { bearer: 'Request' }, out: { scope: 'Scope' } },
+        exporter: { kind: 'machine', status: 'idea', note: 'outline.md + JSON', in: { scope: 'Scope' }, out: { outline: 'Markdown' } },
+      }, wires: [['router.ai', 'token_gate.bearer'], ['token_gate.scope', 'exporter.scope']] } },
+      layout: { 'main/router': [1, 4], 'main/token_gate': [14, 4], 'main/exporter': [28, 4] },
+    };
+
+    return {
+      yes: true, one: 1, z85: 0.85, h180: 180, h300: 300,
+      names,
+      boxes: [
+        { key: 'A', title: 'Notes only in v1', doc: grouped, comments: [], text: 'Each machine’s note says what it is for. Nothing to add to the document, nothing for the AI to keep in sync. Boxes can come later without breaking stored plans.' },
+        { key: 'B', title: 'Unreal-style comment box', doc: grouped, comments: [{ x: 13, y: 1, w: 27, h: 11, title: 'AI access · slices S4 and S5' }], text: 'A titled region drawn behind machines; dragging it moves what sits inside. Needs a new comments key in the document, kept in layout or meaning, and a line in outline.md.' },
+      ],
+      ruleDoc: {
+        v: 1, root: 'main',
+        graphs: { main: { nodes: {
+          ingest: { kind: 'machine', status: 'done', in: {}, out: { rows: 'Vec<Row>' } },
+          clean:  { kind: 'machine', status: 'done', in: { rows: 'vec< row >' }, out: {} },
+        }, wires: [['ingest.rows', 'clean.rows']] } },
+        layout: { 'main/ingest': [2, 2], 'main/clean': [17, 2] },
+      },
+      rules: [
+        { key: 'A', title: 'Exact string compare', rule: 'exact', text: 'Vec<Row> and vec< row > are different types. Strict and simple, but a typo in case reads as a design problem.' },
+        { key: 'B', title: 'Ignore case and whitespace', rule: 'normalized', text: 'Both labels fold to vec<row> before comparing, so this wire is fine and both ports share a colour.' },
+      ],
+      pairs: [
+        ['Vec<Row>', 'Vec<Row>'],
+        ['Vec<Row>', 'vec<row>'],
+        ['Vec<Row>', 'Vec< Row >'],
+        ['Request', 'Header'],
+        ['Option<Url>', 'Url'],
+      ],
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Blueprints — owner editor</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;background:#0B0910}
+a{color:#CBB0FF;text-decoration:none}a:hover{color:#DED0FF}
+@font-face{font-family:"Archivo";font-weight:700;font-style:normal;font-display:swap;src:url("/_blob/549b009c0a16767e513681b5829fa715") format("woff2")}
+@font-face{font-family:"Archivo";font-weight:800;font-style:normal;font-display:swap;src:url("/_blob/a412b00a9fb065eb8ce75e359beb437d") format("woff2")}
+@font-face{font-family:"Space Grotesk";font-weight:400;font-style:normal;font-display:swap;src:url("/_blob/f1111d6a6a4b0cf29164bf0670e13709") format("woff2")}
+@font-face{font-family:"Space Grotesk";font-weight:500;font-style:normal;font-display:swap;src:url("/_blob/edad51755ad257b050ac50ca711fce34") format("woff2")}
+@font-face{font-family:"Space Grotesk";font-weight:600;font-style:normal;font-display:swap;src:url("/_blob/9aa65012e8d8d2bba77fedbbc71aefd1") format("woff2")}
+@font-face{font-family:"IBM Plex Mono";font-weight:400;font-style:normal;font-display:swap;src:url("/_blob/b36838188d823b70621f4e61e5bc841f") format("woff2")}
+@font-face{font-family:"IBM Plex Mono";font-weight:500;font-style:normal;font-display:swap;src:url("/_blob/ebe4ec317241372908148eb7f6a1633a") format("woff2")}
+.bp-btn:focus-visible{outline:none;box-shadow:0 0 0 2px #0B0910,0 0 0 4px #B48EF7}
+</style>
+</helmet>
+<div style="min-height: 1000px; display: flex; flex-direction: column; background: #0B0910; color: #CDC6DD; font-family: 'Space Grotesk', system-ui, sans-serif; font-size: 15px; line-height: 1.5">
+  <dc-import name="SiteHeader" active="Blueprints" admin="{{yes}}" hint-size="100%,56px"></dc-import>
+
+  <div style="flex: 1; display: flex; flex-wrap: wrap; align-items: stretch; min-height: 0">
+
+    <aside aria-label="Projects and plans" style="flex: 1 1 208px; max-width: 100%; box-sizing: border-box; display: flex; flex-direction: column; gap: 20px; padding: 20px 14px; background: #0E0C14; border-right: 1px solid rgba(242,238,248,.07)">
+      <div style="display: flex; align-items: center; justify-content: space-between; padding: 0 6px">
+        <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; font-weight: 500; letter-spacing: .10em; text-transform: uppercase; color: #ADA6BE">Projects</span>
+        <button type="button" class="bp-btn" aria-label="New project" style="display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; padding: 0; border: 1px solid #262232; border-radius: 5px; background: #1C1926; color: #ADA6BE; cursor: pointer"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"></path><path d="M12 5v14"></path></svg></button>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 2px">
+        <button type="button" class="bp-btn" aria-expanded="true" style="display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 8px; border: 1px solid transparent; border-radius: 5px; background: transparent; color: #F2EEF8; font: inherit; font-size: 14px; font-weight: 600; text-align: left; cursor: pointer">
+          <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#8D87A0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"></path></svg>
+          <svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#B48EF7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"></path></svg>
+          drawingportfolio
+          <span style="margin-left: auto; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; font-weight: 400; color: #8D87A0">3</span>
+        </button>
+        <ul style="list-style: none; margin: 0; padding: 0 0 0 22px; display: flex; flex-direction: column; gap: 2px">
+          <li><a href="#" aria-current="page" style="display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 10px; box-sizing: border-box; border: 1px solid rgba(180,142,247,.45); border-radius: 5px; background: #262232; color: #F2EEF8; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 13px">request-flow<span style="margin-left: auto; font-size: 11px; color: #ADA6BE">rev 14</span></a></li>
+          <li><a href="#" style="display: flex; align-items: center; height: 32px; padding: 0 10px; box-sizing: border-box; border: 1px solid transparent; border-radius: 5px; color: #ADA6BE; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 13px">blueprint-planner</a></li>
+          <li><a href="#" style="display: flex; align-items: center; height: 32px; padding: 0 10px; box-sizing: border-box; border: 1px solid transparent; border-radius: 5px; color: #ADA6BE; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 13px">sorting-board</a></li>
+          <li><button type="button" class="bp-btn" style="display: flex; align-items: center; gap: 6px; width: 100%; height: 32px; padding: 0 10px; border: 1px dashed #322C42; border-radius: 5px; background: transparent; color: #ADA6BE; font: inherit; font-size: 13px; cursor: pointer"><svg aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"></path><path d="M12 5v14"></path></svg>New plan</button></li>
+        </ul>
+        <a href="Empty-project.dc.html" style="display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 8px; margin-top: 6px; border-radius: 5px; color: #ADA6BE; font-size: 14px; font-weight: 600">
+          <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#8D87A0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"></path></svg>
+          <svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#8D87A0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"></path></svg>
+          garden-sensor
+          <span style="margin-left: auto; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; font-weight: 400; color: #8D87A0">0</span>
+        </a>
+      </div>
+
+      <div style="margin-top: auto; display: flex; flex-direction: column; gap: 8px; padding: 14px; background: #17141F; border: 1px solid rgba(242,238,248,.07); border-radius: 8px">
+        <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; font-weight: 500; letter-spacing: .10em; text-transform: uppercase; color: #ADA6BE">AI access</span>
+        <p style="margin: 0; font-size: 13px; color: #ADA6BE">2 tokens can read these plans. One can write.</p>
+        <a href="Tokens.dc.html" style="display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 500">
+          <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="7.5" cy="15.5" r="5.5"></circle><path d="m21 2-9.6 9.6"></path><path d="m15.5 7.5 3 3L22 7l-3-3"></path></svg>
+          Manage tokens
+        </a>
+        <a href="Visitor-demo.dc.html" style="display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 500">
+          <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"></path><circle cx="12" cy="12" r="3"></circle></svg>
+          Preview the visitor demo
+        </a>
+      </div>
+    </aside>
+
+    <main style="flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column">
+      <div role="toolbar" aria-label="Plan" style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px; min-height: 48px; padding: 7px 16px; box-sizing: border-box; background: #0E0C14; border-bottom: 1px solid rgba(242,238,248,.07)">
+        <nav aria-label="Breadcrumb" style="display: flex; align-items: center; gap: 6px; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 13px; color: #ADA6BE; white-space: nowrap">
+          <a href="#" style="color: #ADA6BE">drawingportfolio</a><span aria-hidden="true" style="color: #5F5876">/</span><span style="color: #F2EEF8">request-flow</span><span aria-hidden="true" style="color: #5F5876">/</span><span>main</span>
+        </nav>
+        <dc-import name="Plan" view="summary" hint-size="300px,20px"></dc-import>
+        <div style="margin-left: auto; display: flex; align-items: center; gap: 6px; flex-wrap: wrap">
+          <span style="display: inline-flex; align-items: center; gap: 6px; margin-right: 8px; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12px; color: #ADA6BE; white-space: nowrap"><span style="width: 6px; height: 6px; border-radius: 50%; background: #4FD6A8"></span>saved · rev 14</span>
+          <button type="button" class="bp-btn" aria-label="Undo (Ctrl+Z)" style="display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; padding: 0; border: 1px solid transparent; border-radius: 5px; background: transparent; color: #ADA6BE; cursor: pointer"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"></path><path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5 5.5 5.5 0 0 1-5.5 5.5H11"></path></svg></button>
+          <button type="button" class="bp-btn" aria-label="Redo (Ctrl+Shift+Z)" style="display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; padding: 0; border: 1px solid transparent; border-radius: 5px; background: transparent; color: #ADA6BE; cursor: pointer"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 14 5-5-5-5"></path><path d="M20 9H9.5A5.5 5.5 0 0 0 4 14.5 5.5 5.5 0 0 0 9.5 20H13"></path></svg></button>
+          <span aria-hidden="true" style="width: 1px; height: 20px; background: #262232; margin: 0 4px"></span>
+          <div role="group" aria-label="Zoom" style="display: inline-flex; align-items: center; height: 34px; border: 1px solid #262232; border-radius: 5px; background: #1C1926">
+            <button type="button" class="bp-btn" aria-label="Zoom out (-)" style="display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; padding: 0; border: none; background: transparent; color: #ADA6BE; cursor: pointer"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"></path></svg></button>
+            <button type="button" class="bp-btn" aria-label="Fit the plan (F)" style="height: 32px; padding: 0 10px; border: none; border-left: 1px solid #262232; border-right: 1px solid #262232; background: transparent; color: #F2EEF8; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12px; cursor: pointer">fit</button>
+            <button type="button" class="bp-btn" aria-label="Zoom in (+)" style="display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; padding: 0; border: none; background: transparent; color: #ADA6BE; cursor: pointer"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"></path><path d="M12 5v14"></path></svg></button>
+          </div>
+          <button type="button" class="bp-btn" style="display: inline-flex; align-items: center; gap: 8px; height: 34px; padding: 0 12px; margin-left: 4px; border: 1px solid #CBB0FF; border-radius: 5px; background: #B48EF7; color: #191624; font: inherit; font-size: 14px; font-weight: 500; cursor: pointer">
+            <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M5 12h14"></path><path d="M12 5v14"></path></svg>
+            Add machine
+            <kbd style="display: inline-flex; align-items: center; height: 18px; padding: 0 5px; border: 1px solid rgba(25,22,36,.35); border-radius: 3px; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px">A</kbd>
+          </button>
+        </div>
+      </div>
+      <div style="flex: 1; min-height: 0">
+        <dc-import name="Plan" view="canvas" selected="{{sel}}" on-select="{{pick}}" vh="{{canvasH}}" hint-size="100%,896px"></dc-import>
+      </div>
+    </main>
+
+    <aside aria-label="Selected machine and outline" style="flex: 1 1 320px; max-width: 100%; box-sizing: border-box; display: flex; flex-direction: column; background: #0E0C14; border-left: 1px solid rgba(242,238,248,.07)">
+      <div style="display: flex; gap: 2px; padding: 0 12px; border-bottom: 1px solid rgba(242,238,248,.07)">
+        <sc-for list="{{tabs}}" as="t" hint-placeholder-count="2">
+          <button type="button" class="bp-btn" aria-pressed="{{t.pressed}}" onClick="{{t.pick}}" style="position: relative; height: 44px; padding: 0 12px; border: none; border-bottom: 2px solid {{t.line}}; background: transparent; color: {{t.color}}; font: inherit; font-size: 14px; font-weight: 500; cursor: pointer">{{t.label}}</button>
+        </sc-for>
+      </div>
+      <div style="flex: 1; overflow: auto; max-height: 896px">
+        <sc-if value="{{isInspect}}" hint-placeholder-val="{{true}}">
+          <dc-import name="Plan" view="inspector" selected="{{sel}}" hint-size="100%,860px"></dc-import>
+        </sc-if>
+        <sc-if value="{{isOutline}}" hint-placeholder-val="{{false}}">
+          <dc-import name="Plan" view="outline" hint-size="100%,860px"></dc-import>
+        </sc-if>
+      </div>
+    </aside>
+
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1680,"height":1000}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const st = this.state || {};
+    const sel = st.sel !== undefined ? st.sel : 'token_gate';
+    const tab = st.tab || 'inspect';
+    const tabs = [
+      { id: 'inspect', label: 'Inspect' },
+      { id: 'outline', label: 'Outline' },
+    ].map((t) => ({
+      label: t.label,
+      pressed: t.id === tab ? 'true' : 'false',
+      line: t.id === tab ? '#B48EF7' : 'transparent',
+      color: t.id === tab ? '#F2EEF8' : '#ADA6BE',
+      pick: () => this.setState({ tab: t.id }),
+    }));
+    return {
+      yes: true,
+      sel,
+      canvasH: 896,
+      pick: (name) => this.setState({ sel: name, tab: 'inspect' }),
+      tabs,
+      isInspect: tab === 'inspect',
+      isOutline: tab === 'outline',
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Open issues 2 and 3</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;background:#0B0910}
+a{color:#CBB0FF;text-decoration:none}a:hover{color:#DED0FF}
+@font-face{font-family:"Archivo";font-weight:700;font-style:normal;font-display:swap;src:url("/_blob/549b009c0a16767e513681b5829fa715") format("woff2")}
+@font-face{font-family:"Archivo";font-weight:800;font-style:normal;font-display:swap;src:url("/_blob/a412b00a9fb065eb8ce75e359beb437d") format("woff2")}
+@font-face{font-family:"Space Grotesk";font-weight:400;font-style:normal;font-display:swap;src:url("/_blob/f1111d6a6a4b0cf29164bf0670e13709") format("woff2")}
+@font-face{font-family:"Space Grotesk";font-weight:500;font-style:normal;font-display:swap;src:url("/_blob/edad51755ad257b050ac50ca711fce34") format("woff2")}
+@font-face{font-family:"Space Grotesk";font-weight:600;font-style:normal;font-display:swap;src:url("/_blob/9aa65012e8d8d2bba77fedbbc71aefd1") format("woff2")}
+@font-face{font-family:"IBM Plex Mono";font-weight:400;font-style:normal;font-display:swap;src:url("/_blob/b36838188d823b70621f4e61e5bc841f") format("woff2")}
+@font-face{font-family:"IBM Plex Mono";font-weight:500;font-style:normal;font-display:swap;src:url("/_blob/ebe4ec317241372908148eb7f6a1633a") format("woff2")}
+</style>
+</helmet>
+<div style="min-height: 1500px; background: #0B0910; color: #CDC6DD; font-family: 'Space Grotesk', system-ui, sans-serif; font-size: 15px; line-height: 1.5; padding: 48px 40px 64px; box-sizing: border-box">
+  <div style="max-width: 1360px; margin: 0 auto; display: flex; flex-direction: column; gap: 56px">
+    <sc-for list="{{issues}}" as="is" hint-placeholder-count="2">
+      <section aria-label="{{is.label}}" style="display: flex; flex-direction: column; gap: 18px">
+        <div style="display: flex; flex-direction: column; gap: 8px">
+          <span style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap">
+            <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; font-weight: 500; letter-spacing: .10em; text-transform: uppercase; color: #ADA6BE">{{is.tag}}</span>
+            <span style="display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 6px; border-radius: 3px; border: 1px solid #A86A34; background: rgba(255,181,112,.12); color: #FFB570; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; font-weight: 500; letter-spacing: .06em; text-transform: uppercase"><span style="width: 5px; height: 5px; border-radius: 50%; background: currentColor"></span>open — owner picks</span>
+          </span>
+          <h2 style="margin: 0; font-family: 'Archivo', system-ui, sans-serif; font-weight: 800; font-size: 32px; line-height: 1.15; letter-spacing: -0.025em; color: #F2EEF8">{{is.question}}</h2>
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 560px), 1fr)); gap: 20px">
+          <sc-for list="{{is.options}}" as="o" hint-placeholder-count="2">
+            <article style="display: flex; flex-direction: column; background: #17141F; border: 1px solid rgba(242,238,248,.07); border-radius: 8px; overflow: hidden">
+              <div style="display: flex; align-items: baseline; gap: 10px; padding: 16px 18px 12px">
+                <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 13px; font-weight: 500; color: #CBB0FF">{{o.key}}</span>
+                <h3 style="margin: 0; font-family: 'Archivo', system-ui, sans-serif; font-weight: 700; font-size: 18px; letter-spacing: -0.01em; color: #F2EEF8">{{o.title}}</h3>
+              </div>
+              <dc-import name="Plan" view="canvas" doc="{{o.doc}}" zoom="{{o.zoom}}" vh="{{o.vh}}" read-only="{{yes}}" readout="{{no}}" hint-size="100%,260px"></dc-import>
+              <ul style="margin: 0; padding: 14px 18px 18px 36px; display: flex; flex-direction: column; gap: 6px; border-top: 1px solid rgba(242,238,248,.07); font-size: 14px; color: #CDC6DD">
+                <sc-for list="{{o.points}}" as="pt" hint-placeholder-count="3">
+                  <li>{{pt.t}}</li>
+                </sc-for>
+              </ul>
+            </article>
+          </sc-for>
+        </div>
+      </section>
+    </sc-for>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1500}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const ladder = (statuses) => {
+      const nodes = {}, layout = {};
+      statuses.forEach((s, i) => {
+        nodes[s] = { kind: 'machine', status: s, in: { rows: 'Vec<Row>' }, out: { ok: 'Vec<Clean>' } };
+        layout['main/' + s] = [1 + (i % 3) * 12, 1 + Math.floor(i / 3) * 8];
+      });
+      return { v: 1, root: 'main', graphs: { main: { nodes, wires: [] } }, layout };
+    };
+    const points = (xs) => xs.map((t) => ({ t }));
+
+    const nginx = { kind: 'machine', status: 'done', in: { https: 'Request' }, out: { req: 'Request' } };
+    const exporter = { kind: 'machine', status: 'idea', in: { plan: 'PlanDoc' }, out: { outline: 'Markdown' } };
+
+    const kindsA = {
+      v: 1, root: 'main',
+      graphs: { main: { nodes: { nginx, exporter }, wires: [['exporter.outline', 'claude.context']] } },
+      layout: { 'main/nginx': [1, 2], 'main/exporter': [14, 7] },
+    };
+    const kindsB = {
+      v: 1, root: 'main',
+      graphs: { main: { nodes: {
+        browser: { kind: 'source', status: 'done', in: {}, out: { https: 'Request' } },
+        nginx,
+        exporter,
+        claude: { kind: 'sink', status: 'done', in: { context: 'Markdown' }, out: {} },
+      }, wires: [['browser.https', 'nginx.https'], ['exporter.outline', 'claude.context']] } },
+      layout: { 'main/browser': [1, 2], 'main/nginx': [13, 2], 'main/exporter': [13, 9], 'main/claude': [25, 9] },
+    };
+
+    return {
+      yes: true, no: false,
+      issues: [
+        {
+          label: 'Open issue 2', tag: 'open issue 2 · status vocabulary',
+          question: 'Which statuses can a machine have?',
+          options: [
+            {
+              key: 'A', title: 'idea · planned · building · done', doc: ladder(['idea', 'planned', 'building', 'done']), zoom: 0.9, vh: 300,
+              points: points([
+                'The README’s draft set. A straight ladder from ghost to solid, one look per step.',
+                'Something stuck stays at its status, and the note says why.',
+                'Shown everywhere else on this canvas.',
+              ]),
+            },
+            {
+              key: 'B', title: '… plus blocked and dropped', doc: ladder(['idea', 'planned', 'building', 'done', 'blocked', 'dropped']), zoom: 0.9, vh: 300,
+              points: points([
+                'Blocked is solid with a hatched rose header. Rose already means a type mismatch, so the two share a hue; the hatch is what tells them apart.',
+                'Dropped stays on the canvas, dotted and struck through, so its wires still explain what was decided against.',
+                'Two more statuses for the outline and the AI to read and write.',
+              ]),
+            },
+          ],
+        },
+        {
+          label: 'Open issue 3', tag: 'open issue 3 · node kinds',
+          question: 'Are machine and blueprint enough, or do sources and sinks get their own kinds?',
+          options: [
+            {
+              key: 'A', title: 'machine + blueprint only', doc: kindsA, zoom: 0.9, vh: 300,
+              points: points([
+                'The outside world is an unwired port: nginx’s https input stays hollow.',
+                'An AI reading the plan has no node to point at, so exporter’s wire to Claude is dangling and counted as a problem.',
+                'Fewest kinds to learn and to validate.',
+              ]),
+            },
+            {
+              key: 'B', title: '+ source and sink', doc: kindsB, zoom: 0.9, vh: 300,
+              points: points([
+                'A source has outputs only and a rounded left end; a sink has inputs only and a rounded right end. Both carry an azure mark.',
+                'External input, storage or a user become nodes, so the same wire is now a real wire and the plan has no problems.',
+                'The validator adds two rules: a source with an input, or a sink with an output, is flagged.',
+              ]),
+            },
+          ],
+        },
+      ],
+    };
+  }
+}
+</script>
+</body>
+</html>
