@@ -1,6 +1,6 @@
 # Blueprints — S1–S3: model, section and editor v1
 
-**Status:** built — S1–S3 done and through the full gate; waiting on the owner's test (both rounds below) before it merges. Tracking issue: #29.
+**Status:** merged — S1–S3 owner-tested 2026-11-20 and merged to `master` 2026-11-21 (#37). Tracking issue: #29.
 Branch `kepler/feat/blueprints-editor`, cut from `kepler/feat/blueprint-planning-tool` (S0).
 
 ## Goal
