@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+
+{% block title %}Blueprints{% endblock %}
+
+{% block nav_active %}blueprints{% endblock %}
+
+{% block body_class %}site-dark{% endblock %}
+
+{% block content %}
+<!-- `.site-page` is the marker base.html's syncBodyTheme() re-derives
+     body.site-dark from after a boosted navigation; it must stay outermost.
+     hx-history="false": the canvas is drawn by script, so a history snapshot
+     of it would come back without its listeners. Back reloads instead. -->
+<div class="site-page bp-page bp-page--demo" id="bp-app" data-mode="demo" hx-history="false">
+  <section class="bp-hero hm-grid-bg">
+    <div class="bp-hero__text">
+      <span class="hm-eyebrow">blueprints · the one public plan</span>
+      <h1 class="bp-hero__title">How this site answers a request<span class="bp-hero__dot">.</span></h1>
+      <p class="bp-hero__lede">A planning tool laid out like a factory floor: each machine has named inputs and outputs, and wires carry typed items between them. The planner itself is private. This is its demo plan, read-only.</p>
+    </div>
+    <span class="bp-lock">read-only demo</span>
+  </section>
+  {% if preview %}
+  <p class="bp-preview">This is what a visitor sees. <a href="/blueprints">Back to your projects</a></p>
+  {% endif %}
+
+  <div class="bp-layout bp-layout--demo">
+    <div class="bp-main">
+      <div class="bp-toolbar" role="toolbar" aria-label="Plan">
+        <span class="bp-crumb">demo <span class="bp-crumb__sep" aria-hidden="true">/</span> <span class="bp-crumb__here">request-flow</span></span>
+        <span class="bp-counts{% if outline.summary.dangling > 0 || outline.summary.mismatch > 0 %} has-problems{% endif %}" id="bp-counts">{{ outline.summary.line() }}</span>
+        <span class="bp-toolbar__gap"></span>
+        {% include "blueprint/partials/zoom.html" %}
+      </div>
+      <script type="application/json" id="bp-doc">{{ doc_json|safe }}</script>
+      {% include "blueprint/partials/canvas.html" %}
+      {% include "blueprint/partials/keys.html" %}
+    </div>
+    <aside class="bp-side" aria-label="Plan outline">
+      <div class="bp-side__head">
+        <h2 class="bp-side__title">Outline</h2>
+        <span class="bp-side__note">works without JavaScript</span>
+      </div>
+      {% include "blueprint/partials/outline.html" %}
+    </aside>
+  </div>
+</div>
+{% include "blueprint/partials/scripts.html" %}
+{% endblock %}

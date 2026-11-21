@@ -14,6 +14,9 @@ aws-sdk-s3 = "1"
 aws-config = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# Blueprints: a plan is parsed with its key order kept, because a port's place
+# among its keys is its row on the node. Already in the tree through h2.
+indexmap = { version = "2", features = ["serde"] }
 tower-http = { version = "0.6", features = ["fs", "limit", "trace"] }
 tower = "0.5"
 dotenvy = "0.15"

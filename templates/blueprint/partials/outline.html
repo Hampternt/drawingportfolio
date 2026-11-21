@@ -1,0 +1,40 @@
+{# The plan as text: the no-JS view, the screen-reader view and a preview of
+   what an AI will read. Rendered by Askama on every page load; every value is
+   computed in src/blueprint_doc.rs::outline(). #}
+<div class="bp-outline" id="bp-outline" role="region" aria-label="Plan outline">
+  <p class="bp-outline__headline">{{ outline.summary.line() }}</p>
+  {% for g in outline.graphs %}
+  <section class="bp-outline__graph" aria-label="Graph {{ g.title }}">
+    <div>
+      <h3 class="bp-outline__title">{{ g.title }}</h3>
+      <p class="bp-outline__sub">{{ g.sub }}</p>
+    </div>
+    {% if g.nodes.is_empty() %}
+    <p class="bp-outline__sub">No machines yet.</p>
+    {% else %}
+    <ul class="bp-outline__nodes">
+      {% for n in g.nodes %}
+      <li class="bp-outline__node">
+        <span class="bp-outline__line">
+          <strong class="bp-outline__name">{{ n.name }}</strong>
+          <span class="bp-badge bp-badge--{{ n.status_class }}">{{ n.status }}</span>
+          <span class="bp-outline__kind">{{ n.kind }}</span>
+        </span>
+        <span class="bp-outline__ports">out: {{ n.outs }}</span>
+        <span class="bp-outline__ports">in: {{ n.ins }}</span>
+        {% if !n.note.is_empty() %}<span class="bp-outline__note">{{ n.note }}</span>{% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+    {% if !g.wires.is_empty() %}
+    <h4 class="bp-outline__wires-title">Wires</h4>
+    <ul class="bp-outline__wires">
+      {% for w in g.wires %}
+      <li>{{ w.text }}{% if !w.flag.is_empty() %} <span class="bp-flag bp-flag--{{ w.flag_class }}">{{ w.flag }}</span>{% endif %}</li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+  </section>
+  {% endfor %}
+</div>

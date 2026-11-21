@@ -1,0 +1,32 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT pl.name as \"name!\", pl.payload as \"payload!\", pl.rev as \"rev!\"\n           FROM blueprint_plans pl\n           JOIN blueprint_projects p ON p.id = pl.project_id\n           WHERE pl.id = ? AND pl.project_id = ? AND p.user_id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "name!",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "payload!",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "rev!",
+        "ordinal": 2,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "42da5da4f9c2f9a43ce1d50b836a35285e0e7ab5efc8ff8a8ac326b2cf9d8ea6"
+}

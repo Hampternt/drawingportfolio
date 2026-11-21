@@ -11,6 +11,7 @@
 // Each `mod` declaration makes the module's public items available under that name,
 // e.g. `db::connect(...)` or `routes::feed::router()`.
 mod assets; // Cache-busting version string for /static/ asset URLs
+mod blueprint_doc; // Blueprints: a plan document's validation, counts and outline
 mod db; // All database queries (SQLite via sqlx)
 mod middleware; // Extractors: AuthSession, RequireAdmin, OptionalAdmin, LocalhostOnly
 mod models; // Plain data structs that mirror database rows
@@ -148,6 +149,7 @@ async fn main() {
         .merge(routes::tasks::router()) // GET /tasks, POST/DELETE /api/tasks/...
         .merge(routes::sorting::router()) // GET /sorting, POST/DELETE /api/sorting/...
         .merge(routes::users::router()) // GET /admin/users (owner), /fitness/account
+        .merge(routes::blueprint::router()) // GET /blueprints (demo for visitors, projects for the owner)
         .nest_service("/drinks", drinks) // party drink tracker (drinkinggame crate)
         // Serve files from the `static/` directory on disk at the /static URL prefix.
         // Unlike templates (compiled into the binary), these are read from disk at runtime.

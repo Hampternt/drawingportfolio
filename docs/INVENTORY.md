@@ -181,6 +181,22 @@ English, reached from the nav, the hub footer and the command palette.
 - ✅ A README for the public repository: what the site is, how to run it
   locally, and how AI is used to build it.
 
+## Blueprints — `/blueprints` (owner; visitors see a demo)
+
+A factory-game-style canvas for planning code: machines with typed input and
+output ports wired together, collapsible into blueprints, stored on the site
+as a source of truth that AI coding tools can read and edit. Visitors see one
+read-only demo plan. Design: `docs/design/blueprint-planner/README.md`.
+Tracking issue: #29.
+
+- ✅ S0 canvas spike — pan, zoom, drag and wiring, nothing saved:
+  `docs/manifests/2026-11-05-blueprint-canvas-spike.md`
+- ✅ S1–S3: the model, the section (projects and plans, the public demo) and
+  the editor with autosave — owner-tested 2026-11-20, merged to `master`
+  2026-11-21 (#37): `docs/manifests/2026-11-10-blueprints-editor.md`
+- 💭 S4–S6: the AI read and write API behind tokens minted on the page
+  (decided 2026-11-20), and revisions. Next, now that S1–S3 have merged.
+
 ## Infrastructure
 
 - ✅ Single Rust/Axum binary, server-side rendered, SQLite storage, S3-compatible

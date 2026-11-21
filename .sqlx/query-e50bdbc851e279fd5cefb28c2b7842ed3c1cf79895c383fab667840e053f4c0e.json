@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE blueprint_plans SET name = ?\n         WHERE id = ? AND project_id = ?\n           AND project_id IN (SELECT id FROM blueprint_projects WHERE user_id = ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": []
+  },
+  "hash": "e50bdbc851e279fd5cefb28c2b7842ed3c1cf79895c383fab667840e053f4c0e"
+}

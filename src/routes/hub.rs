@@ -91,7 +91,7 @@ mod tests {
         let html = render(false);
         let tiles = html.matches(r#"class="hm-hub""#).count();
         let badges = html.matches(r#"<span class="hm-badge hm-badge--"#).count();
-        assert_eq!(tiles, 6);
+        assert_eq!(tiles, 7);
         assert_eq!(badges, tiles, "a tile lost its status badge");
     }
 }
